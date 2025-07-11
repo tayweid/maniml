@@ -9,23 +9,27 @@ __all__ = [
 from pathlib import Path
 from typing import Any, Literal
 
-from bs4 import BeautifulSoup, Tag
-from pygments import highlight
-from pygments.formatters.html import HtmlFormatter
-from pygments.lexers import get_lexer_by_name, guess_lexer, guess_lexer_for_filename
-from pygments.styles import get_all_styles
+import warnings
 
-from manim.constants import *
-from manim.mobject.geometry.arc import Dot
-from manim.mobject.geometry.shape_matchers import SurroundingRectangle
-from manim.mobject.opengl.opengl_compatibility import ConvertToOpenGL
+try:
+    from bs4 import BeautifulSoup, Tag
+    from pygments import highlight
+    from pygments.formatters.html import HtmlFormatter
+    from pygments.lexers import get_lexer_by_name, guess_lexer, guess_lexer_for_filename
+    from pygments.styles import get_all_styles
+    HAS_PYGMENTS = True
+except ImportError:
+    HAS_PYGMENTS = False
+
+from manim.renderer.opengl.constants import *
+from manim.renderer.opengl.mobject.geometry import Dot
+from manim.renderer.opengl.mobject.shape_matchers import SurroundingRectangle
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VGroup, VMobject
 from manim.mobject.text.text_mobject import Paragraph
-from manim.mobject.types.vectorized_mobject import VGroup, VMobject
-from manim.typing import StrPath
-from manim.utils.color import WHITE, ManimColor
+from manim.renderer.opengl.utils.color import color_to_rgba
 
 
-class Code(VMobject, metaclass=ConvertToOpenGL):
+class Code(VMobject):
     """A highlighted source code listing.
 
     Examples
@@ -107,9 +111,8 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
     _styles_list_cache: list[str] | None = None
     default_background_config: dict[str, Any] = {
         "buff": 0.3,
-        "fill_color": ManimColor("#222"),
+        "fill_color": "#222222",
         "stroke_color": WHITE,
-        "corner_radius": 0.2,
         "stroke_width": 1,
         "fill_opacity": 1,
     }
@@ -122,7 +125,7 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
 
     def __init__(
         self,
-        code_file: StrPath | None = None,
+        code_file: str | Path | None = None,
         code_string: str | None = None,
         language: str | None = None,
         formatter_style: str = "vim",
@@ -135,6 +138,37 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
     ):
         super().__init__()
 
+        if not HAS_PYGMENTS:
+            warnings.warn(
+                "Pygments is not installed. Code highlighting will not work. "
+                "Install with: pip install pygments beautifulsoup4",
+                UserWarning
+            )
+            # Fallback to simple text rendering
+            if code_file is not None:
+                code_file = Path(code_file)
+                code_string = code_file.read_text(encoding="utf-8")
+            
+            if code_string is None:
+                code_string = "# No code provided"
+            
+            code_string = code_string.expandtabs(tabsize=tab_width)
+            code_lines = code_string.removesuffix("\n").split("\n")
+            
+            if paragraph_config is None:
+                paragraph_config = {}
+            base_paragraph_config = self.default_paragraph_config.copy()
+            base_paragraph_config.update(paragraph_config)
+            
+            self.code_lines = Paragraph(
+                *code_lines,
+                **base_paragraph_config,
+            )
+            self.add(self.code_lines)
+            self._add_background(background, background_config)
+            return
+
+        # Full implementation with Pygments
         if code_file is not None:
             code_file = Path(code_file)
             code_string = code_file.read_text(encoding="utf-8")
@@ -184,7 +218,7 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
                 )
                 current_line_char_index += len(child.text)
             else:
-                for char in child.text:
+                for char in str(child):
                     if char == "\n":
                         color_ranges.append(current_line_color_ranges)
                         current_line_color_ranges = []
@@ -206,7 +240,8 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
         )
         for line, color_range in zip(self.code_lines, color_ranges):
             for start, end, color in color_range:
-                line[start:end].set_color(color)
+                if color:
+                    line[start:end].set_color(color)
 
         if add_line_numbers:
             base_paragraph_config.update({"alignment": "right"})
@@ -225,11 +260,17 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
             self.add(self.line_numbers)
 
         self.add(self.code_lines)
+        self._add_background(background, background_config)
 
+    def _add_background(self, background: str, background_config: dict[str, Any] | None):
+        """Add background to the code."""
         if background_config is None:
             background_config = {}
         background_config_base = self.default_background_config.copy()
         background_config_base.update(background_config)
+        
+        # GL's SurroundingRectangle doesn't support corner_radius
+        background_config_base.pop("corner_radius", None)
 
         if background == "rectangle":
             self.background = SurroundingRectangle(
@@ -256,6 +297,8 @@ class Code(VMobject, metaclass=ConvertToOpenGL):
     @classmethod
     def get_styles_list(cls) -> list[str]:
         """Get the list of all available formatter styles."""
+        if not HAS_PYGMENTS:
+            return ["default"]
         if cls._styles_list_cache is None:
             cls._styles_list_cache = list(get_all_styles())
         return cls._styles_list_cache

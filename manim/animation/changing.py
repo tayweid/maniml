@@ -5,22 +5,15 @@ from __future__ import annotations
 __all__ = ["AnimatedBoundary", "TracedPath"]
 
 from collections.abc import Sequence
-from typing import Callable
+from typing import Callable, TYPE_CHECKING, Any
 
-from typing_extensions import Any, Self
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VGroup, VMobject
+from manim.renderer.opengl.mobject.mobject import Mobject
+from manim.renderer.opengl.constants import *
+from manim.renderer.opengl.utils.rate_functions import smooth, linear
 
-from manim.mobject.mobject import Mobject
-from manim.mobject.opengl.opengl_compatibility import ConvertToOpenGL
-from manim.mobject.types.vectorized_mobject import VGroup, VMobject
-from manim.utils.color import (
-    BLUE_B,
-    BLUE_D,
-    BLUE_E,
-    GREY_BROWN,
-    WHITE,
-    ParsableManimColor,
-)
-from manim.utils.rate_functions import RateFunction, smooth
+if TYPE_CHECKING:
+    from manim.renderer.opengl.typing import ManimColor
 
 
 class AnimatedBoundary(VGroup):
@@ -43,12 +36,12 @@ class AnimatedBoundary(VGroup):
     def __init__(
         self,
         vmobject: VMobject,
-        colors: Sequence[ParsableManimColor] = [BLUE_D, BLUE_B, BLUE_E, GREY_BROWN],
+        colors: Sequence[ManimColor] = [BLUE_D, BLUE_B, BLUE_E, GREY_BROWN],
         max_stroke_width: float = 3,
         cycle_rate: float = 0.5,
         back_and_forth: bool = True,
-        draw_rate_func: RateFunction = smooth,
-        fade_rate_func: RateFunction = smooth,
+        draw_rate_func: Callable[[float], float] = smooth,
+        fade_rate_func: Callable[[float], float] = smooth,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -96,7 +89,7 @@ class AnimatedBoundary(VGroup):
 
     def full_family_become_partial(
         self, mob1: VMobject, mob2: VMobject, a: float, b: float
-    ) -> Self:
+    ):
         family1 = mob1.family_members_with_points()
         family2 = mob2.family_members_with_points()
         for sm1, sm2 in zip(family1, family2):
@@ -104,7 +97,7 @@ class AnimatedBoundary(VGroup):
         return self
 
 
-class TracedPath(VMobject, metaclass=ConvertToOpenGL):
+class TracedPath(VMobject):
     """Traces the path of a point returned by a function call.
 
     Parameters
@@ -150,7 +143,7 @@ class TracedPath(VMobject, metaclass=ConvertToOpenGL):
         self,
         traced_point_func: Callable,
         stroke_width: float = 2,
-        stroke_color: ParsableManimColor | None = WHITE,
+        stroke_color: ManimColor | None = WHITE,
         dissipating_time: float | None = None,
         **kwargs: Any,
     ) -> None:
@@ -169,5 +162,8 @@ class TracedPath(VMobject, metaclass=ConvertToOpenGL):
             assert self.time is not None
             self.time += dt
             if self.time - 1 > self.dissipating_time:
-                nppcc = self.n_points_per_curve
-                self.set_points(self.points[nppcc:])
+                # In GL, we use 4 points per curve (cubic bezier)
+                nppcc = 4
+                points = self.get_points()
+                if len(points) > nppcc:
+                    self.set_points(points[nppcc:])

@@ -1,14 +1,5 @@
-"""Coordinate systems and function graphing related mobjects.
+"""Graphing mobjects."""
 
-Modules
-=======
+from .probability import BarChart
 
-.. autosummary::
-    :toctree: ../reference
-
-    ~coordinate_systems
-    ~functions
-    ~number_line
-    ~probability
-    ~scale
-"""
+__all__ = ["BarChart"]

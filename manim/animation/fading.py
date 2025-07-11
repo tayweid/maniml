@@ -1,191 +1,103 @@
-"""Fading in and out of view.
-
-.. manim:: Fading
-
-    class Fading(Scene):
-        def construct(self):
-            tex_in = Tex("Fade", "In").scale(3)
-            tex_out = Tex("Fade", "Out").scale(3)
-            self.play(FadeIn(tex_in, shift=DOWN, scale=0.66))
-            self.play(ReplacementTransform(tex_in, tex_out))
-            self.play(FadeOut(tex_out, shift=DOWN * 2, scale=1.5))
-
+"""
+Fading animations with CE compatibility.
 """
 
-from __future__ import annotations
-
-__all__ = [
-    "FadeOut",
-    "FadeIn",
-]
-
-import numpy as np
-from typing_extensions import Any
-
-from manim.mobject.opengl.opengl_mobject import OpenGLMobject
-
-from ..animation.transform import Transform
-from ..constants import ORIGIN
-from ..mobject.mobject import Group, Mobject
-from ..scene.scene import Scene
+import manim.renderer.opengl
+from manim.renderer.opengl.animation.fading import (
+    FadeIn as GLFadeIn,
+    FadeOut as GLFadeOut,
+    FadeInFromPoint as GLFadeInFromPoint,
+    FadeOutToPoint as GLFadeOutToPoint,
+    FadeTransform as GLFadeTransform,
+    FadeTransformPieces as GLFadeTransformPieces,
+)
+from manim.renderer.opengl.constants import *
+import warnings
 
 
-class _Fade(Transform):
-    """Fade :class:`~.Mobject` s in or out.
+class FadeIn(GLFadeIn):
+    """CE-compatible FadeIn with shift parameter."""
+    
+    def __init__(self, mobject, shift=None, target_position=None, scale=1, **kwargs):
+        # GL FadeIn already supports shift and scale!
+        # Just need to handle target_position warning
+        if target_position is not None:
+            warnings.warn(
+                "maniml: target_position not supported in FadeIn. Use shift.",
+                UserWarning
+            )
+        
+        # Convert shift to numpy array if needed
+        if shift is not None:
+            import numpy as np
+            shift = np.array(shift)
+        else:
+            import numpy as np
+            shift = np.array([0., 0., 0.])
+            
+        super().__init__(mobject, shift=shift, scale=scale, **kwargs)
 
-    Parameters
-    ----------
-    mobjects
-        The mobjects to be faded.
-    shift
-        The vector by which the mobject shifts while being faded.
-    target_position
-        The position to/from which the mobject moves while being faded in. In case
-        another mobject is given as target position, its center is used.
-    scale
-        The factor by which the mobject is scaled initially before being rescaling to
-        its original size while being faded in.
 
-    """
+class FadeOut(GLFadeOut):
+    """CE-compatible FadeOut with shift parameter."""
+    
+    def __init__(self, mobject, shift=None, target_position=None, scale=1, **kwargs):
+        # GL FadeOut already supports shift!
+        if target_position is not None:
+            warnings.warn(
+                "maniml: target_position not supported in FadeOut. Use shift.",
+                UserWarning
+            )
+        
+        # Convert shift to numpy array if needed
+        if shift is not None:
+            import numpy as np
+            shift = np.array(shift)
+        else:
+            import numpy as np
+            shift = np.array([0., 0., 0.])
+        
+        # Note: GL FadeOut doesn't have scale parameter
+        if scale != 1:
+            warnings.warn(
+                "maniml: scale parameter not supported in FadeOut.",
+                UserWarning
+            )
+            
+        super().__init__(mobject, shift=shift, **kwargs)
 
-    def __init__(
-        self,
-        *mobjects: Mobject,
-        shift: np.ndarray | None = None,
-        target_position: np.ndarray | Mobject | None = None,
-        scale: float = 1,
-        **kwargs: Any,
-    ) -> None:
-        if not mobjects:
-            raise ValueError("At least one mobject must be passed.")
-        mobject = mobjects[0] if len(mobjects) == 1 else Group(*mobjects)
 
-        self.point_target = False
-        if shift is None:
-            if target_position is not None:
-                if isinstance(target_position, (Mobject, OpenGLMobject)):
-                    target_position = target_position.get_center()
-                shift = target_position - mobject.get_center()
-                self.point_target = True
-            else:
-                shift = ORIGIN
-        self.shift_vector = shift
-        self.scale_factor = scale
+# Aliases for CE compatibility
+class FadeInFrom(FadeIn):
+    """CE compatibility - FadeInFrom is same as FadeIn with direction."""
+    
+    def __init__(self, mobject, direction=DOWN, **kwargs):
+        super().__init__(mobject, shift=direction, **kwargs)
+
+
+class FadeOutAndShift(FadeOut):
+    """CE compatibility - FadeOutAndShift is same as FadeOut with direction."""
+    
+    def __init__(self, mobject, direction=DOWN, **kwargs):
+        super().__init__(mobject, shift=direction, **kwargs)
+
+
+# Direct mappings
+FadeInFromPoint = GLFadeInFromPoint
+FadeOutToPoint = GLFadeOutToPoint
+FadeTransform = GLFadeTransform
+
+# FadeInFromLarge doesn't exist in GL, create it
+class FadeInFromLarge(GLFadeIn):
+    """CE-compatible FadeInFromLarge - fade in with scaling."""
+    
+    def __init__(self, mobject, scale_factor=2, **kwargs):
+        # Start larger
+        mobject.scale(scale_factor)
         super().__init__(mobject, **kwargs)
-
-    def _create_faded_mobject(self, fadeIn: bool) -> Mobject:
-        """Create a faded, shifted and scaled copy of the mobject.
-
-        Parameters
-        ----------
-        fadeIn
-            Whether the faded mobject is used to fade in.
-
-        Returns
-        -------
-        Mobject
-            The faded, shifted and scaled copy of the mobject.
-        """
-        faded_mobject: Mobject = self.mobject.copy()  # type: ignore[assignment]
-        faded_mobject.fade(1)
-        direction_modifier = -1 if fadeIn and not self.point_target else 1
-        faded_mobject.shift(self.shift_vector * direction_modifier)
-        faded_mobject.scale(self.scale_factor)
-        return faded_mobject
+        # Store target size
+        self.target_scale = 1.0 / scale_factor
 
 
-class FadeIn(_Fade):
-    r"""Fade in :class:`~.Mobject` s.
-
-    Parameters
-    ----------
-    mobjects
-        The mobjects to be faded in.
-    shift
-        The vector by which the mobject shifts while being faded in.
-    target_position
-        The position from which the mobject starts while being faded in. In case
-        another mobject is given as target position, its center is used.
-    scale
-        The factor by which the mobject is scaled initially before being rescaling to
-        its original size while being faded in.
-
-    Examples
-    --------
-
-    .. manim :: FadeInExample
-
-        class FadeInExample(Scene):
-            def construct(self):
-                dot = Dot(UP * 2 + LEFT)
-                self.add(dot)
-                tex = Tex(
-                    "FadeIn with ", "shift ", r" or target\_position", " and scale"
-                ).scale(1)
-                animations = [
-                    FadeIn(tex[0]),
-                    FadeIn(tex[1], shift=DOWN),
-                    FadeIn(tex[2], target_position=dot),
-                    FadeIn(tex[3], scale=1.5),
-                ]
-                self.play(AnimationGroup(*animations, lag_ratio=0.5))
-
-    """
-
-    def __init__(self, *mobjects: Mobject, **kwargs: Any) -> None:
-        super().__init__(*mobjects, introducer=True, **kwargs)
-
-    def create_target(self) -> Mobject:
-        return self.mobject  # type: ignore[return-value]
-
-    def create_starting_mobject(self) -> Mobject:
-        return self._create_faded_mobject(fadeIn=True)
-
-
-class FadeOut(_Fade):
-    r"""Fade out :class:`~.Mobject` s.
-
-    Parameters
-    ----------
-    mobjects
-        The mobjects to be faded out.
-    shift
-        The vector by which the mobject shifts while being faded out.
-    target_position
-        The position to which the mobject moves while being faded out. In case another
-        mobject is given as target position, its center is used.
-    scale
-        The factor by which the mobject is scaled while being faded out.
-
-    Examples
-    --------
-
-    .. manim :: FadeInExample
-
-        class FadeInExample(Scene):
-            def construct(self):
-                dot = Dot(UP * 2 + LEFT)
-                self.add(dot)
-                tex = Tex(
-                    "FadeOut with ", "shift ", r" or target\_position", " and scale"
-                ).scale(1)
-                animations = [
-                    FadeOut(tex[0]),
-                    FadeOut(tex[1], shift=DOWN),
-                    FadeOut(tex[2], target_position=dot),
-                    FadeOut(tex[3], scale=0.5),
-                ]
-                self.play(AnimationGroup(*animations, lag_ratio=0.5))
-
-
-    """
-
-    def __init__(self, *mobjects: Mobject, **kwargs: Any) -> None:
-        super().__init__(*mobjects, remover=True, **kwargs)
-
-    def create_target(self) -> Mobject:
-        return self._create_faded_mobject(fadeIn=False)
-
-    def clean_up_from_scene(self, scene: Scene) -> None:
-        super().clean_up_from_scene(scene)
-        self.interpolate(0)
+# Direct mapping
+FadeTransformPieces = GLFadeTransformPieces

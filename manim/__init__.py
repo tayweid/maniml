@@ -1,112 +1,36 @@
-#!/usr/bin/env python
-from __future__ import annotations
+"""
+maniml - Manim Simple Edition
 
-from importlib.metadata import version
+A streamlined version combining ManimCE's API with ManimGL's performance.
+"""
 
-__version__ = version(__name__)
+__version__ = "0.1.0"
+__author__ = "maniml Contributors"
 
-
-# isort: off
-
-# Importing the config module should be the first thing we do, since other
-# modules depend on the global config dict for initialization.
-from ._config import *
-
-# many scripts depend on this -> has to be loaded first
-from .utils.commands import *
-
-# isort: on
-import numpy as np
-
-from .animation.animation import *
-from .animation.changing import *
-from .animation.composition import *
-from .animation.creation import *
-from .animation.fading import *
-from .animation.growing import *
-from .animation.indication import *
-from .animation.movement import *
-from .animation.numbers import *
-from .animation.rotation import *
-from .animation.specialized import *
-from .animation.speedmodifier import *
-from .animation.transform import *
-from .animation.transform_matching_parts import *
-from .animation.updaters.mobject_update_utils import *
-from .animation.updaters.update import *
-from .camera.camera import *
-from .camera.mapping_camera import *
-from .camera.moving_camera import *
-from .camera.multi_camera import *
-from .camera.three_d_camera import *
-from .constants import *
-from .mobject.frame import *
-from .mobject.geometry.arc import *
-from .mobject.geometry.boolean_ops import *
-from .mobject.geometry.labeled import *
-from .mobject.geometry.line import *
-from .mobject.geometry.polygram import *
-from .mobject.geometry.shape_matchers import *
-from .mobject.geometry.tips import *
-from .mobject.graph import *
-from .mobject.graphing.coordinate_systems import *
-from .mobject.graphing.functions import *
-from .mobject.graphing.number_line import *
-from .mobject.graphing.probability import *
-from .mobject.graphing.scale import *
-from .mobject.logo import *
-from .mobject.matrix import *
-from .mobject.mobject import *
-from .mobject.opengl.dot_cloud import *
-from .mobject.opengl.opengl_point_cloud_mobject import *
-from .mobject.svg.brace import *
-from .mobject.svg.svg_mobject import *
-from .mobject.table import *
-from .mobject.text.code_mobject import *
-from .mobject.text.numbers import *
-from .mobject.text.tex_mobject import *
-from .mobject.text.text_mobject import *
-from .mobject.three_d.polyhedra import *
-from .mobject.three_d.three_d_utils import *
-from .mobject.three_d.three_dimensions import *
-from .mobject.types.image_mobject import *
-from .mobject.types.point_cloud_mobject import *
-from .mobject.types.vectorized_mobject import *
-from .mobject.value_tracker import *
-from .mobject.vector_field import *
-from .renderer.cairo_renderer import *
-from .scene.moving_camera_scene import *
-from .scene.scene import *
-from .scene.scene_file_writer import *
-from .scene.section import *
-from .scene.three_d_scene import *
-from .scene.vector_space_scene import *
-from .scene.zoomed_scene import *
-from .utils import color, rate_functions, unit
-from .utils.bezier import *
-from .utils.color import *
-from .utils.config_ops import *
-from .utils.debug import *
-from .utils.file_ops import *
-from .utils.images import *
-from .utils.iterables import *
-from .utils.paths import *
-from .utils.rate_functions import *
-from .utils.simple_functions import *
-from .utils.sounds import *
-from .utils.space_ops import *
-from .utils.tex import *
-from .utils.tex_templates import *
-
+# Fix spinning cursor issue - disable debug GL in pyglet
+# This must be set before pyglet is imported by ManimGL
 try:
-    from IPython import get_ipython
-
-    from .utils.ipython_magic import ManimMagic
+    import pyglet
+    pyglet.options['debug_gl'] = False
 except ImportError:
     pass
-else:
-    ipy = get_ipython()
-    if ipy is not None:
-        ipy.register_magics(ManimMagic)
 
-from .plugins import *
+# Core imports
+from .constants import *
+from .mobject import *
+from .animation import *
+from .scene import *
+from .camera import *
+from .utils import *
+
+# Additional imports for convenience
+from manim.renderer.opengl.mobject.shape_matchers import SurroundingRectangle
+
+# Version info
+def get_version():
+    return __version__
+
+# Print welcome message when imported interactively
+if hasattr(__builtins__, '__IPYTHON__'):
+    print(f"maniml v{__version__} - Simple, Fast, Beautiful")
+    print("Using ManimGL backend for blazing performance!")

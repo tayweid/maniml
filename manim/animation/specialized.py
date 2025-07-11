@@ -1,15 +1,19 @@
+"""Specialized animations."""
+
 from __future__ import annotations
 
 __all__ = ["Broadcast"]
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
+from manim.renderer.opengl.constants import ORIGIN
+from manim.animation.composition import LaggedStart
 from manim.animation.transform import Restore
-from manim.mobject.mobject import Mobject
 
-from ..constants import *
-from .composition import LaggedStart
+if TYPE_CHECKING:
+    from manim.renderer.opengl.mobject.mobject import Mobject
+    from manim.renderer.opengl.typing import Vect3
 
 
 class Broadcast(LaggedStart):
@@ -52,7 +56,7 @@ class Broadcast(LaggedStart):
     def __init__(
         self,
         mobject: Mobject,
-        focal_point: Sequence[float] = ORIGIN,
+        focal_point: Sequence[float] | Vect3 = ORIGIN,
         n_mobs: int = 5,
         initial_opacity: float = 1,
         final_opacity: float = 0,
@@ -71,22 +75,31 @@ class Broadcast(LaggedStart):
         anims = []
 
         # Works by saving the mob that is passed into the animation, scaling it to 0 (or the initial_width) and then restoring the original mob.
-        fill_o = bool(mobject.fill_opacity)
+        # Check if the mobject has fill
+        has_fill = hasattr(mobject, 'fill_opacity') and mobject.fill_opacity > 0
 
         for _ in range(self.n_mobs):
             mob = mobject.copy()
 
-            if fill_o:
-                mob.set_opacity(self.final_opacity)
+            # Set the final opacity
+            if has_fill:
+                mob.set_fill(opacity=self.final_opacity)
             else:
                 mob.set_stroke(opacity=self.final_opacity)
 
+            # Position at focal point and save state
             mob.move_to(self.focal_point)
             mob.save_state()
-            mob.set(width=self.initial_width)
+            
+            # Scale to initial width
+            if self.initial_width > 0 and mob.get_width() > 0:
+                mob.set_width(self.initial_width)
+            else:
+                mob.scale(0)
 
-            if fill_o:
-                mob.set_opacity(self.initial_opacity)
+            # Set the initial opacity
+            if has_fill:
+                mob.set_fill(opacity=self.initial_opacity)
             else:
                 mob.set_stroke(opacity=self.initial_opacity)
 

@@ -1,1807 +1,1746 @@
-"""Basic canvas for animations."""
+"""
+Scene with CE compatibility using GL backend.
+"""
 
-from __future__ import annotations
-
-from manim.utils.parameter_parsing import flatten_iterable_parameters
-
-from ..mobject.mobject import _AnimationBuilder
-
-__all__ = ["Scene"]
-
-import copy
-import datetime
-import inspect
-import platform
-import random
-import threading
+import manim.renderer.opengl
+from manim.renderer.opengl.scene.scene import Scene as GLScene
+from manim.renderer.opengl.scene.scene import ThreeDScene as GLThreeDScene
+from manim.renderer.opengl.scene.scene import SceneState, EndScene
+import warnings
 import time
-from queue import Queue
+import sys
+import inspect
+import pyperclip
+from pyglet.window import key as PygletWindowKeys
+import difflib
+import itertools as it
+import numpy as np
 
-import srt
+# Import event system - use ManimGL's since that's what the mobjects use
+from manim.renderer.opengl.event_handler import EVENT_DISPATCHER
+from manim.renderer.opengl.event_handler.event_listner import EventListener
+from manim.renderer.opengl.event_handler.event_type import EventType
 
-from manim.scene.section import DefaultSectionType
+# Import mobject types for selection
+from manim.renderer.opengl.mobject.mobject import Group
+from manim.renderer.opengl.mobject.mobject import Mobject
+from manim.renderer.opengl.mobject.mobject import Point
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VGroup
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VMobject
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VHighlight
+from manim.renderer.opengl.mobject.types.dot_cloud import DotCloud
+from manim.renderer.opengl.mobject.geometry import Rectangle
+from manim.renderer.opengl.mobject.geometry import Square
+from manim.renderer.opengl.mobject.numbers import DecimalNumber
+from manim.renderer.opengl.mobject.svg.tex_mobject import Tex
+from manim.renderer.opengl.mobject.svg.text_mobject import Text
+
+# Import animation for pasting
+from manim.renderer.opengl.animation.fading import FadeIn
+
+# Import constants
+from manim.renderer.opengl.constants import DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR
+from manim.renderer.opengl.constants import FRAME_WIDTH, FRAME_HEIGHT, SMALL_BUFF
+from manim.renderer.opengl.constants import PI, DEG
+from manim.renderer.opengl.constants import MANIM_COLORS, WHITE, GREY_A, GREY_C
+
+# Import utilities
+from manim.renderer.opengl.utils.family_ops import extract_mobject_family_members
+from manim.renderer.opengl.utils.space_ops import get_norm
+from manim.renderer.opengl.utils.tex_file_writing import LatexError
 
 try:
-    import dearpygui.dearpygui as dpg
-
-    dearpygui_imported = True
+    from manim.scene.file_watcher import SimpleFileWatcher, AnimationTracker
 except ImportError:
-    dearpygui_imported = False
-from typing import TYPE_CHECKING
+    SimpleFileWatcher = None
+    AnimationTracker = None
 
-import numpy as np
-from tqdm import tqdm
-from watchdog.events import DirModifiedEvent, FileModifiedEvent, FileSystemEventHandler
-from watchdog.observers import Observer
+# Dummy AutoReloadMixin since we're not using the complex version
+class AutoReloadMixin:
+    def setup_auto_reload(self):
+        pass
 
-from manim.mobject.mobject import Mobject
-from manim.mobject.opengl.opengl_mobject import OpenGLPoint
+# Fix spinning cursor issue - disable debug GL in pyglet
+try:
+    import pyglet
+    pyglet.options['debug_gl'] = False
+except ImportError:
+    pass
 
-from .. import config, logger
-from ..animation.animation import Animation, Wait, prepare_animation
-from ..camera.camera import Camera
-from ..constants import *
-from ..gui.gui import configure_pygui
-from ..renderer.cairo_renderer import CairoRenderer
-from ..renderer.opengl_renderer import OpenGLCamera, OpenGLMobject, OpenGLRenderer
-from ..renderer.shader import Object3D
-from ..utils import opengl, space_ops
-from ..utils.exceptions import EndSceneEarlyException, RerunSceneException
-from ..utils.family import extract_mobject_family_members
-from ..utils.family_ops import restructure_list_to_exclude_certain_family_members
-from ..utils.file_ops import open_media_file
-from ..utils.iterables import list_difference_update, list_update
+# Key bindings for interactive mode (from ManimGL)
+# These would normally come from manim_config but we'll use defaults
+SELECT_KEY = 's'
+UNSELECT_KEY = 'u'
+GRAB_KEY = 'g'
+X_GRAB_KEY = 'h'
+Y_GRAB_KEY = 'v'
+GRAB_KEYS = [GRAB_KEY, X_GRAB_KEY, Y_GRAB_KEY]
+RESIZE_KEY = 't'
+COLOR_KEY = 'c'
+INFORMATION_KEY = 'i'
+CURSOR_KEY = ';'
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-    from types import FrameType
-    from typing import Any, Callable, TypeAlias
+# For keyboard interactions
+ARROW_SYMBOLS = [
+    PygletWindowKeys.LEFT,
+    PygletWindowKeys.UP,
+    PygletWindowKeys.RIGHT,
+    PygletWindowKeys.DOWN,
+]
 
-    from typing_extensions import Self
+ALL_MODIFIERS = PygletWindowKeys.MOD_CTRL | PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_SHIFT
 
-    from manim.typing import Point3D
 
-    SceneInteractAction: TypeAlias = tuple[str, Iterable[Any], dict[str, Any]]
+class Scene(GLScene):
     """
-    The SceneInteractAction type alias is used for elements in the queue
-    used by Scene.interact().
-    The elements consist consist of:
-
-    - a string, which is either the name of a Scene method or some special keyword
-      starting with "rerun" or "exit",
-    - a list of args for the Scene method (only used if the first string actually
-      corresponds to a method) and
-    - a dict of kwargs for the Scene method (if the first string corresponds to one.
-      Otherwise, currently Scene.interact() extracts a possible "from_animation_number" from it if the first string starts with "rerun"),
-    as seen around the source code where it's common to use self.queue.put((method_name, [], {})) and similar items.
-
+    CE-compatible Scene using GL backend with InteractiveScene functionality.
+    
+    Provides CE's API while using GL's fast rendering.
+    Includes ManimGL's mouse interaction features.
     """
-
-
-class RerunSceneHandler(FileSystemEventHandler):
-    """A class to handle rerunning a Scene after the input file is modified."""
-
-    def __init__(self, queue: Queue[SceneInteractAction]) -> None:
-        super().__init__()
-        self.queue = queue
-
-    def on_modified(self, event: DirModifiedEvent | FileModifiedEvent) -> None:
-        self.queue.put(("rerun_file", [], {}))
-
-
-class Scene:
-    """A Scene is the canvas of your animation.
-
-    The primary role of :class:`Scene` is to provide the user with tools to manage
-    mobjects and animations.  Generally speaking, a manim script consists of a class
-    that derives from :class:`Scene` whose :meth:`Scene.construct` method is overridden
-    by the user's code.
-
-    Mobjects are displayed on screen by calling :meth:`Scene.add` and removed from
-    screen by calling :meth:`Scene.remove`.  All mobjects currently on screen are kept
-    in :attr:`Scene.mobjects`.  Animations are played by calling :meth:`Scene.play`.
-
-    A :class:`Scene` is rendered internally by calling :meth:`Scene.render`.  This in
-    turn calls :meth:`Scene.setup`, :meth:`Scene.construct`, and
-    :meth:`Scene.tear_down`, in that order.
-
-    It is not recommended to override the ``__init__`` method in user Scenes.  For code
-    that should be ran before a Scene is rendered, use :meth:`Scene.setup` instead.
-
-    Examples
-    --------
-    Override the :meth:`Scene.construct` method with your code.
-
-    .. code-block:: python
-
-        class MyScene(Scene):
-            def construct(self):
-                self.play(Write(Text("Hello World!")))
-
-    """
-
-    def __init__(
-        self,
-        renderer: CairoRenderer | OpenGLRenderer | None = None,
-        camera_class: type[Camera] = Camera,
-        always_update_mobjects: bool = False,
-        random_seed: int | None = None,
-        skip_animations: bool = False,
-    ) -> None:
-        self.camera_class = camera_class
-        self.always_update_mobjects = always_update_mobjects
-        self.random_seed = random_seed
-        self.skip_animations = skip_animations
-
-        self.animations: list[Animation] | None = None
-        self.stop_condition: Callable[[], bool] | None = None
-        self.moving_mobjects: list[Mobject] = []
-        self.static_mobjects: list[Mobject] = []
-        self.time_progression: tqdm[float] | None = None
-        self.duration: float | None = None
-        self.last_t = 0.0
-        self.queue: Queue[SceneInteractAction] = Queue()
-        self.skip_animation_preview = False
-        self.meshes: list[Object3D] = []
-        self.camera_target = ORIGIN
-        self.widgets: list[Any] = []
-        self.dearpygui_imported = dearpygui_imported
-        self.updaters: list[Callable[[float], None]] = []
-        self.key_to_function_map: dict[str, Callable[[], None]] = {}
-        self.mouse_press_callbacks: list[Callable[[], None]] = []
-        self.interactive_mode = False
-
-        if config.renderer == RendererType.OPENGL:
-            # Items associated with interaction
-            self.mouse_point = OpenGLPoint()
-            self.mouse_drag_point = OpenGLPoint()
-            if renderer is None:
-                renderer = OpenGLRenderer()
-
-        if renderer is None:
-            self.renderer: CairoRenderer | OpenGLRenderer = CairoRenderer(
-                # TODO: Is it a suitable approach to make an instance of
-                # the self.camera_class here?
-                camera_class=self.camera_class,
-                skip_animations=self.skip_animations,
-            )
+    
+    # Interaction settings
+    scroll_sensitivity = 20  # From ManimGL's default
+    drag_to_pan = False  # Disable by default, use Cmd/Ctrl + drag instead
+    
+    # InteractiveScene configuration
+    corner_dot_config = dict(
+        color=WHITE,
+        radius=0.05,
+        glow_factor=2.0,
+    )
+    selection_rectangle_stroke_color = WHITE
+    selection_rectangle_stroke_width = 1.0
+    palette_colors = MANIM_COLORS
+    selection_nudge_size = 0.05
+    cursor_location_config = dict(
+        font_size=24,
+        fill_color=GREY_C,
+        num_decimal_places=3,
+    )
+    time_label_config = dict(
+        font_size=24,
+        fill_color=GREY_C,
+        num_decimal_places=1,
+    )
+    crosshair_width = 0.2
+    crosshair_style = dict(
+        stroke_color=GREY_A,
+        stroke_width=[3, 0, 3],
+    )
+    
+    def __init__(self, **kwargs):
+        # CE compatibility attributes
+        self.renderer = self  # CE code often references scene.renderer
+        self.animations = []  # Track animations for CE compatibility
+        
+        # Checkpoint management
+        self.checkpoint_states = {}  # key -> SceneState
+        self.animation_count = 0
+        self.animation_checkpoints = []  # List of (line_number, state) tuples
+        self.current_animation_index = -1
+        
+        # Auto-reload setup
+        self.file_watcher = None
+        self.auto_reload_enabled = kwargs.pop('auto_reload', True)  # Enable by default
+        self._scene_filepath = None
+        self._original_content = None
+        self._file_changed_flag = False  # Thread-safe flag
+        
+        # InteractiveScene attributes
+        self.selection = Group()
+        self.selection_highlight = None  # Will be initialized in setup()
+        self.selection_rectangle = None  # Will be initialized in setup()
+        self.crosshair = None  # Will be initialized in setup()
+        self.information_label = None  # Will be initialized in setup()
+        self.color_palette = None  # Will be initialized in setup()
+        self.unselectables = []  # Will be populated in setup()
+        self.select_top_level_mobs = True
+        self.selection_search_set = []
+        
+        self.is_selecting = False
+        self.is_grabbing = False
+        
+        # Mouse interaction state
+        self.mouse_to_selection = None
+        self.scale_about_point = None
+        self.scale_ref_vect = None
+        self.scale_ref_width = None
+        self.scale_ref_height = None
+        
+        super().__init__(**kwargs)
+        
+        # Enable auto-reload if requested
+        if self.auto_reload_enabled:
+            self.setup_auto_reload()
+            
+        # Setup interactive elements
+        self.setup_interactive_elements()
+    
+    def setup_interactive_elements(self):
+        """Initialize interactive elements like selection highlight, crosshair, etc."""
+        self.selection_highlight = self.get_selection_highlight()
+        self.selection_rectangle = self.get_selection_rectangle()
+        self.crosshair = self.get_crosshair()
+        self.information_label = self.get_information_label()
+        self.color_palette = self.get_color_palette()
+        self.unselectables = [
+            self.selection,
+            self.selection_highlight,
+            self.selection_rectangle,
+            self.crosshair,
+            self.information_label,
+            self.camera.frame
+        ]
+        self.regenerate_selection_search_set()
+        self.add(self.selection_highlight)
+    
+    def update_frame(self, dt=0, force_draw=False):
+        """Override update_frame to check for file changes."""
+        # Check file change flag
+        if hasattr(self, '_file_changed_flag') and self._file_changed_flag:
+            self._file_changed_flag = False  # Reset flag
+            self._handle_file_change()
+        
+        # Call parent update_frame
+        return super().update_frame(dt, force_draw)
+    
+    def add(self, *mobjects):
+        """CE-style add method that returns self for chaining."""
+        super().add(*mobjects)
+        return self
+    
+    def remove(self, *mobjects):
+        """CE-style remove method that returns self for chaining."""
+        super().remove(*mobjects)
+        return self
+    
+    def play(self, *animations, **kwargs):
+        """
+        CE-style play with multiple animations and lag_ratio support.
+        """
+        # Extract CE-specific kwargs
+        run_time = kwargs.pop('run_time', None)
+        lag_ratio = kwargs.pop('lag_ratio', 0)
+        rate_func = kwargs.pop('rate_func', None)
+        
+        # Handle run_time
+        if run_time is not None:
+            for anim in animations:
+                if hasattr(anim, 'run_time'):
+                    anim.run_time = run_time
+        
+        # Handle rate_func
+        if rate_func is not None:
+            for anim in animations:
+                if hasattr(anim, 'rate_func'):
+                    anim.rate_func = rate_func
+        
+        # Handle multiple animations
+        if len(animations) == 1:
+            super().play(animations[0], **kwargs)
         else:
-            self.renderer = renderer
-        self.renderer.init_scene(self)
+            # Multiple animations
+            if lag_ratio > 0:
+                from manim.renderer.opengl.animation.composition import LaggedStart
+                super().play(LaggedStart(*animations, lag_ratio=lag_ratio), **kwargs)
+            else:
+                from manim.renderer.opengl.animation.composition import AnimationGroup
+                super().play(AnimationGroup(*animations), **kwargs)
+        
+        return self
+    
+    def wait(self, duration=1.0, stop_condition=None, frozen_frame=None):
+        """CE-style wait with proper event handling."""
+        super().wait(duration=duration, stop_condition=stop_condition)
+        return self
+    
+    
+    def next_section(self, name="", type="default", skip_animations=False):
+        """CE compatibility - sections not supported in GL."""
+        warnings.warn(
+            "maniml: Sections not supported. Use comments for organization.",
+            UserWarning
+        )
+        return self
+    
+    def add_subcaption(self, text, duration=None, offset=0):
+        """CE compatibility - subcaptions not supported in GL."""
+        warnings.warn(
+            "maniml: Subcaptions not supported. Use Text objects instead.",
+            UserWarning
+        )
+        return self
+    
+    def bring_to_front(self, *mobjects):
+        """CE compatibility method."""
+        for mob in mobjects:
+            self.remove(mob)
+            self.add(mob)
+        return self
+    
+    def bring_to_back(self, *mobjects):
+        """CE compatibility method."""
+        for mob in mobjects:
+            self.remove(mob)
+            # Add at the beginning
+            self.mobjects.insert(0, mob)
+        return self
+    
+    def clear(self):
+        """CE compatibility - clear the scene."""
+        self.remove(*self.mobjects)
+        return self
+    
+    def get_top(self):
+        """CE compatibility - get top of frame."""
+        return self.camera.frame_shape[1] / 2
+    
+    def get_bottom(self):
+        """CE compatibility - get bottom of frame."""
+        return -self.camera.frame_shape[1] / 2
+    
+    def get_left(self):
+        """CE compatibility - get left edge of frame."""
+        return -self.camera.frame_shape[0] / 2
+    
+    def get_right(self):
+        """CE compatibility - get right edge of frame."""
+        return self.camera.frame_shape[0] / 2
+    
+    def interactive_embed(self, terminal=True, **kwargs):
+        """
+        CE compatibility - optionally open an interactive IPython terminal.
+        
+        Similar to checkpoint_paste in ManimGL and interactive mode in ManimCE.
+        Provides access to self and all scene objects in the terminal.
+        
+        Args:
+            terminal: If True (default), launch IPython terminal. If False, just show window.
+        """
+        # Setup file watching if available
+        if SimpleFileWatcher and self.auto_reload_enabled:
+            # Get the scene file path
+            frame = inspect.currentframe()
+            while frame:
+                filepath = frame.f_globals.get('__file__')
+                if filepath and not filepath.endswith('scene.py'):
+                    # Store the filepath for later use
+                    self._scene_filepath = filepath
+                    
+                    # Store the original file content
+                    with open(filepath, 'r') as f:
+                        self._original_content = f.readlines()
+                    
+                    # Store the construct method's namespace for later use
+                    self._construct_namespace = frame.f_locals.copy()
+                    
+                    # Create file watcher that sets a flag
+                    self._file_watcher = SimpleFileWatcher(
+                        filepath,
+                        lambda: setattr(self, '_file_changed_flag', True)
+                    )
+                    self._file_watcher.start()
+                    print(f"Auto-reload enabled for: {filepath}")
+                    break
+                frame = frame.f_back
+        
+        # If terminal=False, just print instructions and return
+        if not terminal:
+            print("\nWindow controls:")
+            print("  ↑/↓     : Jump between animations")
+            print("  ←/→     : Navigate animations (→ plays forward)")
+            print("  ESC     : Quit")
+            print("\nAuto-reload is enabled - file changes will reload automatically.")
+            return
+        
+        # Skip IPython completely - just print instructions
+        print("\nWindow controls:")
+        print("  ↑/↓     : Jump between animations")
+        print("  ←/→     : Navigate animations (→ plays forward)")
+        print("  ESC     : Quit")
+        if self._file_watcher:
+            print("\nAuto-reload is enabled - file changes will reload automatically.")
+    
+    # Let ManimGL handle resize naturally - it prevents squishing automatically
+    # by using OpenGL viewport management
+    
+    def setup_interactive(self):
+        """Override to suppress the tips message."""
+        # Skip the log.info message from parent
+        self.skip_animations = False
+        while not self.is_window_closing():
+            self.update_frame(1 / self.camera.fps)
+    
+    def on_key_press(self, symbol, modifiers):
+        """Handle key press events for navigation and control."""
+        # Call parent implementation first
+        super().on_key_press(symbol, modifiers)
+        
+        # Handle ESC key to quit (always process, regardless of other flags)
+        if symbol == PygletWindowKeys.ESCAPE:
+            self.quit_interaction = True
+            
+            # Clear any processing flags
+            if hasattr(self, '_processing_key'):
+                self._processing_key = False
+            
+            # Stop file watcher
+            if hasattr(self, '_file_watcher') and self._file_watcher:
+                self._file_watcher.stop()
+            
+            # Close the window gracefully
+            if hasattr(self, 'window') and self.window:
+                self.window.close()
+            
+            # Set a flag to exit the main loop
+            self.done = True
+        
+        # Handle UP arrow - jump to previous animation
+        elif symbol == PygletWindowKeys.UP:
+            # Prevent if we're processing another key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            # If animation is playing, skip to end first
+            if hasattr(self, 'playing') and self.playing:
+                self.skip_animations = True
+                return  # Let animation finish, then user can press UP again
+                
+            if self.current_animation_index > 0:
+                self.current_animation_index -= 1
+                checkpoint = self.animation_checkpoints[self.current_animation_index]
+                print(f"↑ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints)}")
+                self.restore_state(checkpoint[2])
+                self.update_frame(dt=0, force_draw=True)
+            else:
+                print("Already at first animation")
+        
+        # Handle DOWN arrow - jump to next animation
+        elif symbol == PygletWindowKeys.DOWN:
+            # Prevent if we're processing another key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            # If animation is playing, skip to end first
+            if hasattr(self, 'playing') and self.playing:
+                self.skip_animations = True
+                return  # Let animation finish, then user can press DOWN again
+                
+            if self.current_animation_index < len(self.animation_checkpoints) - 1:
+                self.current_animation_index += 1
+                checkpoint = self.animation_checkpoints[self.current_animation_index]
+                print(f"↓ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints)}")
+                self.restore_state(checkpoint[2])
+                self.update_frame(dt=0, force_draw=True)
+            else:
+                print("Already at last animation")
+        
+        # Handle LEFT arrow - play animation in reverse
+        elif symbol == PygletWindowKeys.LEFT:
+            # Prevent handling if we're already processing a key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+                
+            if self.current_animation_index > 0:
+                # Set flag to prevent re-entry
+                self._processing_key = True
+                try:
+                    # Get the current checkpoint and the previous one
+                    current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+                    prev_checkpoint = self.animation_checkpoints[self.current_animation_index - 1]
+                    
+                    # We need to reverse the animation from current to previous state
+                    # This is tricky - for now just jump back
+                    self.current_animation_index -= 1
+                    print(f"← Reverse to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints)}")
+                    self.restore_state(prev_checkpoint[2])
+                    self.update_frame(dt=0, force_draw=True)
+                    # TODO: Implement actual reverse animation playback
+                finally:
+                    # Clear the flag
+                    self._processing_key = False
+            else:
+                print("Already at first animation")
+        
+        # Handle RIGHT arrow - play next animation forward
+        elif symbol == PygletWindowKeys.RIGHT:
+            # Prevent handling if we're already processing a key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            if hasattr(self, '_file_watcher') and self._file_watcher and hasattr(self, '_scene_filepath'):
+                # We need to extract and run the code for the next animation
+                if self.current_animation_index < len(self.animation_checkpoints) - 1:
+                    # Set flag to prevent re-entry
+                    self._processing_key = True
+                    
+                    next_index = self.current_animation_index + 1
+                    next_checkpoint = self.animation_checkpoints[next_index]
+                    
+                    # Get the line numbers
+                    current_line = self.animation_checkpoints[self.current_animation_index][1] if self.current_animation_index >= 0 else 0
+                    next_line = next_checkpoint[1]
+                    
+                    print(f"→ Playing animation {next_index + 1}/{len(self.animation_checkpoints)}")
+                    
+                    # Read the file and extract the code between checkpoints
+                    try:
+                        with open(self._scene_filepath, 'r') as f:
+                            lines = f.readlines()
+                        
+                        # Extract code between current and next checkpoint
+                        code_lines = []
+                        in_construct = False
+                        base_indent = None
+                        
+                        for i, line in enumerate(lines):
+                            line_no = i + 1
+                            
+                            if 'def construct(self):' in line:
+                                in_construct = True
+                                base_indent = len(line) - len(line.lstrip())
+                                continue
+                            
+                            if in_construct and current_line < line_no <= next_line:
+                                if line.strip() and 'interactive_embed' not in line:
+                                    # Remove the base indentation
+                                    dedented = line[base_indent + 4:]  # +4 for method body indent
+                                    code_lines.append(dedented)
+                        
+                        code_to_run = ''.join(code_lines)
+                        
+                        # Execute the animation code
+                        self._navigating_animations = True  # Prevent checkpoint creation
+                        try:
+                            # Use exec with comprehensive namespace
+                            import sys
+                            
+                            # Start with the construct method's namespace if available
+                            if hasattr(self, '_construct_namespace'):
+                                namespace = self._construct_namespace.copy()
+                            else:
+                                namespace = {}
+                            
+                            # Add module namespace
+                            module_name = self.__class__.__module__
+                            if module_name in sys.modules:
+                                module = sys.modules[module_name]
+                                namespace.update(vars(module))
+                            
+                            # Import all maniml objects if not already there
+                            if 'Circle' not in namespace:
+                                exec("from manim import *", namespace)
+                            
+                            # Update with current self and scene methods
+                            namespace.update({
+                                'self': self,
+                                'scene': self,
+                                'play': self.play,
+                                'wait': self.wait,
+                                'add': self.add,
+                                'remove': self.remove,
+                                'camera': self.camera,
+                            })
+                            
+                            # Add all current mobjects by name
+                            for mob in self.mobjects:
+                                if hasattr(mob, 'name') and mob.name:
+                                    namespace[mob.name] = mob
+                            
+                            # Execute the code
+                            exec(code_to_run, namespace)
+                            
+                            # Only update index if we completed successfully
+                            self.current_animation_index = next_index
+                        finally:
+                            self._navigating_animations = False  # Re-enable checkpoint creation
+                        
+                    except Exception as e:
+                        print(f"Error playing animation: {e}")
+                        
+                        # If we get a NameError, try rebuilding the construct namespace
+                        if "name" in str(e) and "is not defined" in str(e):
+                            print("Rebuilding namespace from current file...")
+                            try:
+                                # Read current file and extract full construct body
+                                with open(self._scene_filepath, 'r') as f:
+                                    current_content = f.readlines()
+                                
+                                # Get all code up to the current line
+                                setup_code = self._extract_code_up_to_line(next_line, current_content)
+                                
+                                # Execute setup code to define variables
+                                namespace = self._construct_namespace.copy() if hasattr(self, '_construct_namespace') else {}
+                                exec("from manim import *", namespace)
+                                namespace['self'] = self
+                                exec(setup_code, namespace)
+                                
+                                # Now try the animation code again
+                                exec(code_to_run, namespace)
+                                self.current_animation_index = next_index
+                                return
+                            except Exception as e2:
+                                print(f"Still failed after namespace rebuild: {e2}")
+                        
+                        # Fall back to jump
+                        self.current_animation_index = next_index
+                        self.restore_state(next_checkpoint[2])
+                        self.update_frame(dt=0, force_draw=True)
+                    finally:
+                        # Clear the flag
+                        self._processing_key = False
+                else:
+                    print("Already at last animation")
+            else:
+                # Fallback to jumping if we can't play animations
+                if self.current_animation_index < len(self.animation_checkpoints) - 1:
+                    self.current_animation_index += 1
+                    checkpoint = self.animation_checkpoints[self.current_animation_index]
+                    print(f"→ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints)}")
+                    self.restore_state(checkpoint[2])
+                    self.update_frame(dt=0, force_draw=True)
+                else:
+                    print("Already at last animation")
+        
+        # InteractiveScene key handlers
+        char = chr(symbol) if symbol < 256 else ''
+        
+        # Handle event dispatcher first
+        event_data = {"symbol": symbol, "modifiers": modifiers}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.KeyPressEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+        
+        # Selection controls
+        if char == SELECT_KEY and (modifiers & ALL_MODIFIERS) == 0:
+            self.enable_selection()
+        elif char == UNSELECT_KEY:
+            self.clear_selection()
+        elif char in GRAB_KEYS and (modifiers & ALL_MODIFIERS) == 0:
+            self.prepare_grab()
+        elif char == RESIZE_KEY and (modifiers & PygletWindowKeys.MOD_SHIFT):
+            self.prepare_resizing(about_corner=((modifiers & PygletWindowKeys.MOD_SHIFT) > 0))
+        elif symbol == PygletWindowKeys.LSHIFT:
+            if self.window.is_key_pressed(ord("t")):
+                self.prepare_resizing(about_corner=True)
+        elif char == COLOR_KEY and (modifiers & ALL_MODIFIERS) == 0:
+            self.toggle_color_palette()
+        elif char == INFORMATION_KEY and (modifiers & ALL_MODIFIERS) == 0:
+            self.display_information()
+        elif char == "c" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.copy_selection()
+        elif char == "v" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.paste_selection()
+        elif char == "x" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.copy_selection()
+            self.delete_selection()
+        elif symbol == PygletWindowKeys.BACKSPACE:
+            self.delete_selection()
+        elif char == "a" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.clear_selection()
+            self.add_to_selection(*self.mobjects)
+        elif char == "g" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.group_selection()
+        elif char == "g" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL | PygletWindowKeys.MOD_SHIFT)):
+            self.ungroup_selection()
+        elif char == "t" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            self.toggle_selection_mode()
+        elif char == "d" and (modifiers & PygletWindowKeys.MOD_SHIFT):
+            self.copy_frame_positioning()
+        elif char == "c" and (modifiers & PygletWindowKeys.MOD_SHIFT):
+            self.copy_cursor_position()
+        elif symbol in ARROW_SYMBOLS and self.selection:
+            # Only nudge if we have a selection and not using arrows for navigation
+            self.nudge_selection(
+                vect=[LEFT, UP, RIGHT, DOWN][ARROW_SYMBOLS.index(symbol)],
+                large=(modifiers & PygletWindowKeys.MOD_SHIFT),
+            )
+        
+        # Adding crosshair
+        if char == CURSOR_KEY:
+            if self.crosshair in self.mobjects:
+                self.remove(self.crosshair)
+            else:
+                self.add(self.crosshair)
+        if char == SELECT_KEY:
+            self.add(self.crosshair)
 
-        self.mobjects: list[Mobject] = []
-        # TODO, remove need for foreground mobjects
-        self.foreground_mobjects: list[Mobject] = []
-        if self.random_seed is not None:
-            random.seed(self.random_seed)
-            np.random.seed(self.random_seed)
-
-    @property
-    def camera(self) -> Camera | OpenGLCamera:
-        return self.renderer.camera
-
-    @property
-    def time(self) -> float:
-        """The time since the start of the scene."""
-        return self.renderer.time
-
-    def __deepcopy__(self, clone_from_id: dict[int, Any]) -> Scene:
-        cls = self.__class__
-        result = cls.__new__(cls)
-        clone_from_id[id(self)] = result
-        for k, v in self.__dict__.items():
-            if k in ["renderer", "time_progression"]:
+        # Conditions for saving state
+        if char in [GRAB_KEY, X_GRAB_KEY, Y_GRAB_KEY, RESIZE_KEY]:
+            self.save_state()
+    
+    def on_key_release(self, symbol, modifiers):
+        """Handle key release events."""
+        super().on_key_release(symbol, modifiers)
+        
+        # Handle event dispatcher
+        event_data = {"symbol": symbol, "modifiers": modifiers}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.KeyReleaseEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+            
+        char = chr(symbol) if symbol < 256 else ''
+        if char == SELECT_KEY:
+            self.gather_new_selection()
+        if char in GRAB_KEYS:
+            self.is_grabbing = False
+        elif char == INFORMATION_KEY:
+            self.display_information(False)
+        elif symbol == PygletWindowKeys.LSHIFT and self.window.is_key_pressed(ord(RESIZE_KEY)):
+            self.prepare_resizing(about_corner=False)
+    
+    def on_mouse_motion(self, point, d_point):
+        """Handle mouse motion events."""
+        super().on_mouse_motion(point, d_point)
+        
+        # Only move crosshair if it exists and is in the scene
+        if hasattr(self, 'crosshair') and self.crosshair and self.crosshair in self.mobjects:
+            self.crosshair.move_to(self.frame.to_fixed_frame_point(point))
+        
+        event_data = {"point": point, "d_point": d_point}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseMotionEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+            
+        if self.is_grabbing:
+            self.handle_grabbing(point)
+        elif self.window.is_key_pressed(ord(RESIZE_KEY)):
+            self.handle_resizing(point)
+        elif self.window.is_key_pressed(ord(SELECT_KEY)) and self.window.is_key_pressed(PygletWindowKeys.LSHIFT):
+            self.handle_sweeping_selection(point)
+    
+    def on_mouse_drag(self, point, d_point, buttons, modifiers):
+        """Handle mouse drag events with proper event order."""
+        # IMPORTANT: Update mouse position first
+        self.mouse_drag_point.move_to(point)
+        
+        # Then dispatch to event handlers BEFORE any panning
+        event_data = {"point": point, "d_point": d_point, "buttons": buttons, "modifiers": modifiers}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseDragEvent, **event_data)
+        
+        # If an object handled the drag, don't pan
+        if propagate_event is False:
+            return
+        
+        # Only pan if Cmd/Ctrl is held (and no object handled the event)
+        if modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL):
+            # Pan the scene
+            self.frame.shift(-d_point)
+        
+        # Update crosshair position if it exists
+        if hasattr(self, 'crosshair') and self.crosshair and self.crosshair in self.mobjects:
+            self.crosshair.move_to(self.frame.to_fixed_frame_point(point))
+    
+    def on_mouse_press(self, point, button, mods):
+        """Handle mouse press events."""
+        self.mouse_drag_point.move_to(point)
+        event_data = {"point": point, "button": button, "mods": mods}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.MousePressEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+    
+    def on_mouse_release(self, point, button, mods):
+        """Handle mouse release events."""
+        event_data = {"point": point, "button": button, "mods": mods}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseReleaseEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+            
+        if self.color_palette in self.mobjects:
+            self.choose_color(point)
+        else:
+            self.clear_selection()
+    
+    def on_mouse_scroll(self, point, offset, x_pixel_offset, y_pixel_offset):
+        """Handle mouse scroll events - only zoom with Cmd/Ctrl held."""
+        event_data = {"point": point, "offset": offset}
+        propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseScrollEvent, **event_data)
+        if propagate_event is not None and propagate_event is False:
+            return
+        
+        # Only zoom if Cmd/Ctrl is held
+        if self.window.is_key_pressed(PygletWindowKeys.LCOMMAND) or \
+           self.window.is_key_pressed(PygletWindowKeys.RCOMMAND) or \
+           self.window.is_key_pressed(PygletWindowKeys.LCTRL) or \
+           self.window.is_key_pressed(PygletWindowKeys.RCTRL):
+            # Use parent's zoom behavior
+            rel_offset = y_pixel_offset / self.camera.get_pixel_height()
+            self.frame.scale(
+                1 - self.scroll_sensitivity * rel_offset,
+                about_point=point
+            )
+    
+    def setup_auto_reload(self):
+        """Setup automatic file watching and reloading."""
+        # Skip auto-reload setup here, we'll do it in interactive_embed
+        pass
+    
+    def checkpoint_paste(self, skip=False, record=False, progress_bar=True):
+        """
+        Run code from clipboard, with automatic checkpointing.
+        
+        If the code starts with a comment, it will be used as a checkpoint key.
+        Running the same checkpoint again will restore to that state first.
+        """
+        code_string = pyperclip.paste()
+        lines = code_string.strip().split('\n')
+        
+        # Check for checkpoint comment
+        checkpoint_key = None
+        if lines and lines[0].strip().startswith('#'):
+            checkpoint_key = lines[0].strip()
+        
+        # Handle checkpoint
+        if checkpoint_key:
+            if checkpoint_key in self.checkpoint_states:
+                # Restore to checkpoint
+                print(f"Restoring to checkpoint: {checkpoint_key}")
+                self.restore_state(self.checkpoint_states[checkpoint_key])
+                # Clear later checkpoints
+                keys_to_remove = []
+                found = False
+                for key in self.checkpoint_states:
+                    if found:
+                        keys_to_remove.append(key)
+                    if key == checkpoint_key:
+                        found = True
+                for key in keys_to_remove:
+                    del self.checkpoint_states[key]
+            else:
+                # Save new checkpoint
+                print(f"Creating checkpoint: {checkpoint_key}")
+                self.checkpoint_states[checkpoint_key] = self.get_state()
+        
+        # Execute the code
+        with self.temp_config_change(skip=skip, record=record, progress_bar=progress_bar):
+            # Get the calling frame's namespace
+            frame = inspect.currentframe().f_back
+            namespace = frame.f_locals.copy()
+            namespace.update(frame.f_globals)
+            namespace['self'] = self
+            
+            try:
+                exec(code_string, namespace)
+            except Exception as e:
+                print(f"Error executing code: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    def clear_checkpoints(self):
+        """Clear all saved checkpoints."""
+        self.checkpoint_states.clear()
+        print("All checkpoints cleared")
+    
+    def reload_scene(self):
+        """Reload the scene file and re-run from the beginning."""
+        print("Reloading scene...")
+        # This will exit the embed and trigger a reload in ManimGL
+        if hasattr(self, '_shell'):
+            self._shell.run_line_magic("exit_raise", "")
+        else:
+            raise EndScene()
+    
+    def _handle_file_change(self):
+        """Handle file change by reloading from the appropriate checkpoint."""
+        print("\nFile changed! Auto-reloading...")
+        
+        try:
+            # Read the new content
+            with open(self._scene_filepath, 'r') as f:
+                new_content = f.readlines()
+            
+            # Check for syntax errors
+            try:
+                compile(''.join(new_content), self._scene_filepath, 'exec')
+            except SyntaxError as e:
+                print(f"Syntax error at line {e.lineno}: {e.msg}")
+                return
+            
+            # Find what line changed
+            changed_line = self._find_first_changed_line(new_content)
+            
+            if changed_line:
+                print(f"Change detected at line {changed_line}")
+                
+                # Find the checkpoint before this line
+                checkpoint_index = -1
+                print(f"Available checkpoints:")
+                for i, (_, line_no, _) in enumerate(self.animation_checkpoints):
+                    print(f"  Checkpoint {i}: line {line_no}")
+                    if line_no < changed_line:
+                        checkpoint_index = i
+                    else:
+                        break
+                print(f"Selected checkpoint index: {checkpoint_index}")
+                
+                if checkpoint_index >= 0:
+                    # Restore to checkpoint
+                    checkpoint = self.animation_checkpoints[checkpoint_index]
+                    print(f"Restoring to checkpoint {checkpoint_index + 1} (line {checkpoint[1]})")
+                    print(f"Current mobjects before restore: {[m.name if hasattr(m, 'name') else str(m) for m in self.mobjects]}")
+                    self.restore_state(checkpoint[2])
+                    print(f"Current mobjects after restore: {[m.name if hasattr(m, 'name') else str(m) for m in self.mobjects]}")
+                    
+                    # Extract code after the checkpoint line
+                    code_to_run = self._extract_code_after_line(checkpoint[1], new_content)
+                    
+                    if code_to_run:
+                        print("Running updated code...")
+                        print(f"Code to run:\n{code_to_run}")
+                        
+                        # Set flag to prevent checkpoint creation during reload
+                        self._navigating_animations = True
+                        
+                        try:
+                            # Use exec with comprehensive namespace
+                            import sys
+                            
+                            # Start with the construct method's namespace if available
+                            if hasattr(self, '_construct_namespace'):
+                                namespace = self._construct_namespace.copy()
+                            else:
+                                namespace = {}
+                            
+                            # Add module namespace
+                            module_name = self.__class__.__module__
+                            if module_name in sys.modules:
+                                module = sys.modules[module_name]
+                                namespace.update(vars(module))
+                            
+                            # Import all maniml objects if not already there
+                            if 'Circle' not in namespace:
+                                exec("from manim import *", namespace)
+                            
+                            # Update with current self and scene methods
+                            namespace.update({
+                                'self': self,
+                                'scene': self,
+                                'play': self.play,
+                                'wait': self.wait,
+                                'add': self.add,
+                                'remove': self.remove,
+                                'camera': self.camera,
+                            })
+                            
+                            # Add all current mobjects by name
+                            for mob in self.mobjects:
+                                if hasattr(mob, 'name') and mob.name:
+                                    namespace[mob.name] = mob
+                            
+                            # Execute the code
+                            exec(code_to_run, namespace)
+                            print("Code executed successfully!")
+                        except Exception as e:
+                            print(f"Error executing updated code: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        finally:
+                            # Clear the flag
+                            self._navigating_animations = False
+                else:
+                    print("No checkpoint before change, running from start...")
+                    self.clear()
+                    code_to_run = self._extract_construct_body(new_content)
+                    if code_to_run:
+                        # Set flag to prevent checkpoint creation during reload
+                        self._navigating_animations = True
+                        
+                        try:
+                            # Use exec with comprehensive namespace
+                            import sys
+                            
+                            # Start with the module's namespace
+                            module_name = self.__class__.__module__
+                            if module_name in sys.modules:
+                                module = sys.modules[module_name]
+                                namespace = vars(module).copy()
+                            else:
+                                namespace = {}
+                            
+                            # Import all maniml objects if not already there
+                            if 'Circle' not in namespace:
+                                exec("from manim import *", namespace)
+                            
+                            # Add self and scene methods
+                            namespace.update({
+                                'self': self,
+                                'scene': self,
+                                'play': self.play,
+                                'wait': self.wait,
+                                'add': self.add,
+                                'remove': self.remove,
+                                'camera': self.camera,
+                            })
+                            
+                            # Execute the code
+                            exec(code_to_run, namespace)
+                            print("Code executed successfully from start!")
+                        except Exception as e:
+                            print(f"Error executing code from start: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        finally:
+                            # Clear the flag
+                            self._navigating_animations = False
+                
+                print("Reload complete!")
+                
+                # Force an immediate redraw
+                self.update_frame(dt=0, force_draw=True)
+            
+            # Update stored content
+            self._original_content = new_content
+            
+        except Exception as e:
+            print(f"Error during reload: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _find_first_changed_line(self, new_content):
+        """Find the first line that changed."""
+        for i, (old_line, new_line) in enumerate(zip(self._original_content, new_content)):
+            if old_line != new_line:
+                return i + 1  # Line numbers are 1-based
+        
+        # Check for added lines at the end
+        if len(new_content) > len(self._original_content):
+            return len(self._original_content) + 1
+        
+        return None
+    
+    def _extract_construct_body(self, content):
+        """Extract the body of the construct method as executable code."""
+        in_construct = False
+        code_lines = []
+        base_indent = None
+        
+        for line in content:
+            if 'def construct(self):' in line:
+                in_construct = True
+                base_indent = len(line) - len(line.lstrip())
                 continue
-            if k == "camera_class":
-                setattr(result, k, v)
-            setattr(result, k, copy.deepcopy(v, clone_from_id))
+            
+            if in_construct:
+                # Check if we've exited construct
+                if line.strip() and not line[base_indent:].startswith(' '):
+                    break
+                
+                # Skip interactive_embed calls
+                if line.strip() and 'interactive_embed' not in line:
+                    # Remove the base indentation
+                    dedented = line[base_indent + 4:]  # +4 for method body indent
+                    code_lines.append(dedented)
+        
+        return ''.join(code_lines)
+    
+    def _extract_code_up_to_line(self, end_line, content):
+        """Extract code from the construct method up to the given line."""
+        in_construct = False
+        code_lines = []
+        base_indent = None
+        
+        for i, line in enumerate(content):
+            line_no = i + 1
+            
+            if 'def construct(self):' in line:
+                in_construct = True
+                base_indent = len(line) - len(line.lstrip())
+                continue
+            
+            if in_construct:
+                # Check if we've exited construct
+                if line.strip() and not line[base_indent:].startswith(' '):
+                    break
+                
+                # Include all lines up to end_line
+                if line_no <= end_line and line.strip() and 'interactive_embed' not in line:
+                    # Remove the base indentation
+                    dedented = line[base_indent + 4:]  # +4 for method body indent
+                    code_lines.append(dedented)
+        
+        return ''.join(code_lines)
+    
+    def _extract_code_between_lines(self, start_line, end_line, content):
+        """Extract code from the construct method between the given lines."""
+        in_construct = False
+        code_lines = []
+        base_indent = None
+        
+        for i, line in enumerate(content):
+            line_no = i + 1
+            
+            if 'def construct(self):' in line:
+                in_construct = True
+                base_indent = len(line) - len(line.lstrip())
+                continue
+            
+            if in_construct:
+                # Check if we've exited construct
+                if line.strip() and not line[base_indent:].startswith(' '):
+                    break
+                
+                # Only include lines between start_line and end_line
+                if start_line < line_no <= end_line and line.strip() and 'interactive_embed' not in line:
+                    # Remove the base indentation
+                    dedented = line[base_indent + 4:]  # +4 for method body indent
+                    code_lines.append(dedented)
+        
+        return ''.join(code_lines)
+    
+    def _extract_code_after_line(self, start_line, content):
+        """Extract code from the construct method after the given line."""
+        in_construct = False
+        code_lines = []
+        base_indent = None
+        
+        for i, line in enumerate(content):
+            line_no = i + 1
+            
+            if 'def construct(self):' in line:
+                in_construct = True
+                base_indent = len(line) - len(line.lstrip())
+                continue
+            
+            if in_construct:
+                # Check if we've exited construct
+                if line.strip() and not line[base_indent:].startswith(' '):
+                    break
+                
+                # Only include lines after start_line
+                if line_no > start_line and line.strip() and 'interactive_embed' not in line:
+                    # Remove the base indentation
+                    dedented = line[base_indent + 4:]  # +4 for method body indent
+                    code_lines.append(dedented)
+        
+        return ''.join(code_lines)
+    
+    
+    
+    def jump_to_animation(self, index):
+        """Jump instantly to a specific animation checkpoint."""
+        if index < 0 or index >= len(self.animation_checkpoints):
+            print(f"Invalid index. Available checkpoints: 0-{len(self.animation_checkpoints)-1}")
+            return
+            
+        checkpoint = self.animation_checkpoints[index]
+        print(f"Jumping to animation #{index + 1}")
+        
+        # Restore the state
+        self.restore_state(checkpoint[2])
+        self.current_animation_index = index
+        
+        # Update frame
+        self.update_frame(force_draw=True)
+    
+    def list_checkpoints(self):
+        """List all available animation checkpoints."""
+        print(f"\nAvailable checkpoints ({len(self.animation_checkpoints)} total):")
+        for i, (idx, line_no, _) in enumerate(self.animation_checkpoints):
+            print(f"  {i}: Animation at line {line_no}")
+        print(f"\nUse jump_to(index) to jump to any checkpoint.")
+    
+    def play(self, *animations, **kwargs):
+        """Play animations with checkpoint support."""
+        # Don't save checkpoints if we're navigating with arrow keys
+        if hasattr(self, '_navigating_animations') and self._navigating_animations:
+            return super().play(*animations, **kwargs)
+        
+        # Get the line number where this play was called
+        frame = inspect.currentframe().f_back
+        line_no = frame.f_lineno
+        
+        # Play the animation first
+        result = super().play(*animations, **kwargs)
+        
+        # Save checkpoint AFTER animation completes
+        self.current_animation_index += 1
+        state = self.get_state()
+        self.animation_checkpoints.append((self.current_animation_index, line_no, state))
+        
+        # Keep only last 50 checkpoints to avoid memory issues
+        if len(self.animation_checkpoints) > 50:
+            self.animation_checkpoints.pop(0)
+            
+        return result
+    
+    def wait(self, duration=1.0, stop_condition=None, frozen_frame=None):
+        """Wait with checkpoint support."""
+        # Don't save checkpoints if we're navigating with arrow keys
+        if hasattr(self, '_navigating_animations') and self._navigating_animations:
+            return super().wait(duration, stop_condition, frozen_frame)
+            
+        # Get the line number
+        frame = inspect.currentframe().f_back
+        line_no = frame.f_lineno
+        
+        # Execute the wait first
+        result = super().wait(duration, stop_condition, frozen_frame)
+        
+        # Save checkpoint AFTER wait completes
+        self.current_animation_index += 1
+        state = self.get_state()
+        self.animation_checkpoints.append((self.current_animation_index, line_no, state))
+        
+        # Keep only last 50 checkpoints
+        if len(self.animation_checkpoints) > 50:
+            self.animation_checkpoints.pop(0)
+            
+        return result
+    
+    
+    def tear_down(self):
+        """Clean up file watcher on scene end."""
+        if hasattr(self, '_file_watcher') and self._file_watcher:
+            self._file_watcher.stop()
+        super().tear_down()
+    
+    # InteractiveScene methods (ported from ManimGL)
+    
+    def get_selection_rectangle(self):
+        rect = Rectangle(
+            stroke_color=self.selection_rectangle_stroke_color,
+            stroke_width=self.selection_rectangle_stroke_width,
+        )
+        rect.fix_in_frame()
+        rect.fixed_corner = ORIGIN
+        rect.add_updater(self.update_selection_rectangle)
+        return rect
 
+    def update_selection_rectangle(self, rect):
+        p1 = rect.fixed_corner
+        p2 = self.frame.to_fixed_frame_point(self.mouse_point.get_center())
+        rect.set_points_as_corners([
+            p1, np.array([p2[0], p1[1], 0]),
+            p2, np.array([p1[0], p2[1], 0]),
+            p1,
+        ])
+        return rect
+
+    def get_selection_highlight(self):
+        result = Group()
+        result.tracked_mobjects = []
+        result.add_updater(self.update_selection_highlight)
         return result
 
-    def render(self, preview: bool = False) -> bool:
-        """
-        Renders this Scene.
+    def update_selection_highlight(self, highlight):
+        if set(highlight.tracked_mobjects) == set(self.selection):
+            return
 
-        Parameters
-        ---------
-        preview
-            If true, opens scene in a file viewer.
-        """
-        self.setup()
+        # Otherwise, refresh contents of highlight
+        highlight.tracked_mobjects = list(self.selection)
+        highlight.set_submobjects([
+            self.get_highlight(mob)
+            for mob in self.selection
+        ])
         try:
-            self.construct()
-        except EndSceneEarlyException:
+            index = min((
+                i for i, mob in enumerate(self.mobjects)
+                for sm in self.selection
+                if sm in mob.get_family()
+            ))
+            self.mobjects.remove(highlight)
+            self.mobjects.insert(index - 1, highlight)
+        except ValueError:
             pass
-        except RerunSceneException:
-            self.remove(*self.mobjects)
-            # TODO: The CairoRenderer does not have the method clear_screen()
-            self.renderer.clear_screen()  # type: ignore[union-attr]
-            self.renderer.num_plays = 0
-            return True
-        self.tear_down()
-        # We have to reset these settings in case of multiple renders.
-        self.renderer.scene_finished(self)
 
-        # Show info only if animations are rendered or to get image
-        if (
-            self.renderer.num_plays
-            or config["format"] == "png"
-            or config["save_last_frame"]
-        ):
-            logger.info(
-                f"Rendered {str(self)}\nPlayed {self.renderer.num_plays} animations",
-            )
+    def get_crosshair(self):
+        lines = VMobject().replicate(2)
+        lines[0].set_points([LEFT, ORIGIN, RIGHT])
+        lines[1].set_points([UP, ORIGIN, DOWN])
+        crosshair = VGroup(*lines)
 
-        # If preview open up the render after rendering.
-        if preview:
-            config["preview"] = True
+        crosshair.set_width(self.crosshair_width)
+        crosshair.set_style(**self.crosshair_style)
+        crosshair.set_animating_status(True)
+        crosshair.fix_in_frame()
+        return crosshair
 
-        if config["preview"] or config["show_in_file_browser"]:
-            open_media_file(self.renderer.file_writer)
+    def get_color_palette(self):
+        palette = VGroup(*(
+            Square(fill_color=color, fill_opacity=1, side_length=1)
+            for color in self.palette_colors
+        ))
+        palette.set_stroke(width=0)
+        palette.arrange(RIGHT, buff=0.5)
+        palette.set_width(FRAME_WIDTH - 0.5)
+        palette.to_edge(DOWN, buff=SMALL_BUFF)
+        palette.fix_in_frame()
+        return palette
 
-        return False
+    def get_information_label(self):
+        loc_label = VGroup(*(
+            DecimalNumber(**self.cursor_location_config)
+            for n in range(3)
+        ))
 
-    def setup(self) -> None:
-        """
-        This is meant to be implemented by any scenes which
-        are commonly subclassed, and have some common setup
-        involved before the construct method is called.
-        """
-        pass
+        def update_coords(loc_label):
+            for mob, coord in zip(loc_label, self.mouse_point.get_location()):
+                mob.set_value(coord)
+            loc_label.arrange(RIGHT, buff=loc_label.get_height())
+            loc_label.to_corner(DR, buff=SMALL_BUFF)
+            loc_label.fix_in_frame()
+            return loc_label
 
-    def tear_down(self) -> None:
-        """
-        This is meant to be implemented by any scenes which
-        are commonly subclassed, and have some common method
-        to be invoked before the scene ends.
-        """
-        pass
+        loc_label.add_updater(update_coords)
 
-    def construct(self) -> None:
-        """Add content to the Scene.
+        time_label = DecimalNumber(0, **self.time_label_config)
+        time_label.to_corner(DL, buff=SMALL_BUFF)
+        time_label.fix_in_frame()
+        time_label.add_updater(lambda m, dt: m.increment_value(dt))
 
-        From within :meth:`Scene.construct`, display mobjects on screen by calling
-        :meth:`Scene.add` and remove them from screen by calling :meth:`Scene.remove`.
-        All mobjects currently on screen are kept in :attr:`Scene.mobjects`.  Play
-        animations by calling :meth:`Scene.play`.
+        return VGroup(loc_label, time_label)
 
-        Notes
-        -----
-        Initialization code should go in :meth:`Scene.setup`.  Termination code should
-        go in :meth:`Scene.tear_down`.
+    # Selection management
 
-        Examples
-        --------
-        A typical manim script includes a class derived from :class:`Scene` with an
-        overridden :meth:`Scene.construct` method:
+    def toggle_selection_mode(self):
+        self.select_top_level_mobs = not self.select_top_level_mobs
+        self.refresh_selection_scope()
+        self.regenerate_selection_search_set()
 
-        .. code-block:: python
+    def get_selection_search_set(self):
+        return self.selection_search_set
 
-            class MyScene(Scene):
-                def construct(self):
-                    self.play(Write(Text("Hello World!")))
-
-        See Also
-        --------
-        :meth:`Scene.setup`
-        :meth:`Scene.render`
-        :meth:`Scene.tear_down`
-
-        """
-        pass  # To be implemented in subclasses
-
-    def next_section(
-        self,
-        name: str = "unnamed",
-        section_type: str = DefaultSectionType.NORMAL,
-        skip_animations: bool = False,
-    ) -> None:
-        """Create separation here; the last section gets finished and a new one gets created.
-        ``skip_animations`` skips the rendering of all animations in this section.
-        Refer to :doc:`the documentation</tutorials/output_and_config>` on how to use sections.
-        """
-        self.renderer.file_writer.next_section(name, section_type, skip_animations)
-
-    def __str__(self) -> str:
-        return self.__class__.__name__
-
-    def get_attrs(self, *keys: str) -> list[Any]:
-        """
-        Gets attributes of a scene given the attribute's identifier/name.
-
-        Parameters
-        ----------
-        *keys
-            Name(s) of the argument(s) to return the attribute of.
-
-        Returns
-        -------
-        list
-            List of attributes of the passed identifiers.
-        """
-        return [getattr(self, key) for key in keys]
-
-    def update_mobjects(self, dt: float) -> None:
-        """
-        Begins updating all mobjects in the Scene.
-
-        Parameters
-        ----------
-        dt
-            Change in time between updates. Defaults (mostly) to 1/frames_per_second
-        """
-        for mobj in self.mobjects:
-            mobj.update(dt)
-
-    def update_meshes(self, dt: float) -> None:
-        for obj in self.meshes:
-            for mesh in obj.get_family():  # type: ignore[no-untyped-call]
-                mesh.update(dt)
-
-    def update_self(self, dt: float) -> None:
-        """Run all scene updater functions.
-
-        Among all types of update functions (mobject updaters, mesh updaters,
-        scene updaters), scene update functions are called last.
-
-        Parameters
-        ----------
-        dt
-            Scene time since last update.
-
-        See Also
-        --------
-        :meth:`.Scene.add_updater`
-        :meth:`.Scene.remove_updater`
-        """
-        for func in self.updaters:
-            func(dt)
-
-    def should_update_mobjects(self) -> bool:
-        """
-        Returns True if the mobjects of this scene should be updated.
-
-        In particular, this checks whether
-
-        - the :attr:`always_update_mobjects` attribute of :class:`.Scene`
-          is set to ``True``,
-        - the :class:`.Scene` itself has time-based updaters attached,
-        - any mobject in this :class:`.Scene` has time-based updaters attached.
-
-        This is only called when a single Wait animation is played.
-        """
-        assert self.animations is not None
-        wait_animation = self.animations[0]
-        assert isinstance(wait_animation, Wait)
-        if wait_animation.is_static_wait is None:
-            should_update = (
-                self.always_update_mobjects
-                or self.updaters
-                or wait_animation.stop_condition is not None
-                or any(
-                    mob.has_time_based_updater()
-                    for mob in self.get_mobject_family_members()
-                )
-            )
-            wait_animation.is_static_wait = not should_update
-        return not wait_animation.is_static_wait
-
-    def get_top_level_mobjects(self) -> list[Mobject]:
-        """
-        Returns all mobjects which are not submobjects.
-
-        Returns
-        -------
-        list
-            List of top level mobjects.
-        """
-        # Return only those which are not in the family
-        # of another mobject from the scene
-        families = [m.get_family() for m in self.mobjects]
-
-        def is_top_level(mobject: Mobject) -> bool:
-            num_families = sum((mobject in family) for family in families)
-            return num_families == 1
-
-        return list(filter(is_top_level, self.mobjects))
-
-    def get_mobject_family_members(self) -> list[Mobject]:
-        """
-        Returns list of family-members of all mobjects in scene.
-        If a Circle() and a VGroup(Rectangle(),Triangle()) were added,
-        it returns not only the Circle(), Rectangle() and Triangle(), but
-        also the VGroup() object.
-
-        Returns
-        -------
-        list
-            List of mobject family members.
-        """
-        if config.renderer == RendererType.OPENGL:
-            family_members = []
-            for mob in self.mobjects:
-                family_members.extend(mob.get_family())
-            return family_members
+    def regenerate_selection_search_set(self):
+        selectable = list(filter(
+            lambda m: m not in self.unselectables,
+            self.mobjects
+        ))
+        if self.select_top_level_mobs:
+            self.selection_search_set = selectable
         else:
-            assert config.renderer == RendererType.CAIRO
-            return extract_mobject_family_members(
-                self.mobjects,
-                use_z_index=self.renderer.camera.use_z_index,
-            )
-
-    def add(self, *mobjects: Mobject | OpenGLMobject) -> Self:
-        """
-        Mobjects will be displayed, from background to
-        foreground in the order with which they are added.
-
-        Parameters
-        ---------
-        *mobjects
-            Mobjects to add.
-
-        Returns
-        -------
-        Scene
-            The same scene after adding the Mobjects in.
-
-        """
-        if config.renderer == RendererType.OPENGL:
-            new_mobjects = []
-            new_meshes: list[Object3D] = []
-            for mobject_or_mesh in mobjects:
-                if isinstance(mobject_or_mesh, Object3D):
-                    new_meshes.append(mobject_or_mesh)
-                else:
-                    new_mobjects.append(mobject_or_mesh)
-            self.remove(*new_mobjects)  # type: ignore[arg-type]
-            self.mobjects += new_mobjects  # type: ignore[arg-type]
-            self.remove(*new_meshes)  # type: ignore[arg-type]
-            self.meshes += new_meshes
-        else:
-            assert config.renderer == RendererType.CAIRO
-            new_and_foreground_mobjects: list[Mobject] = [
-                *mobjects,  # type: ignore[list-item]
-                *self.foreground_mobjects,
+            self.selection_search_set = [
+                submob
+                for mob in selectable
+                for submob in mob.family_members_with_points()
             ]
-            self.restructure_mobjects(to_remove=new_and_foreground_mobjects)
-            self.mobjects += new_and_foreground_mobjects
-            if self.moving_mobjects:
-                self.restructure_mobjects(
-                    to_remove=new_and_foreground_mobjects,
-                    mobject_list_name="moving_mobjects",
-                )
-                self.moving_mobjects += new_and_foreground_mobjects
-        return self
 
-    def add_mobjects_from_animations(self, animations: list[Animation]) -> None:
-        curr_mobjects = self.get_mobject_family_members()
-        for animation in animations:
-            if animation.is_introducer():
-                continue
-            # Anything animated that's not already in the
-            # scene gets added to the scene
-            mob = animation.mobject
-            if mob is not None and mob not in curr_mobjects:
-                self.add(mob)
-                curr_mobjects += mob.get_family()  # type: ignore[arg-type]
-
-    def remove(self, *mobjects: Mobject) -> Self:
-        """
-        Removes mobjects in the passed list of mobjects
-        from the scene and the foreground, by removing them
-        from "mobjects" and "foreground_mobjects"
-
-        Parameters
-        ----------
-        *mobjects
-            The mobjects to remove.
-        """
-        if config.renderer == RendererType.OPENGL:
-            mobjects_to_remove = []
-            meshes_to_remove: set[Object3D] = set()
-            mobject_or_mesh: Mobject
-            for mobject_or_mesh in mobjects:
-                if isinstance(mobject_or_mesh, Object3D):
-                    meshes_to_remove.add(mobject_or_mesh)
-                else:
-                    mobjects_to_remove.append(mobject_or_mesh)
-            self.mobjects = restructure_list_to_exclude_certain_family_members(
-                self.mobjects,
-                mobjects_to_remove,
-            )
-
-            def lambda_function(mesh: Object3D) -> bool:
-                return mesh not in set(meshes_to_remove)
-
-            self.meshes = list(
-                filter(lambda_function, self.meshes),
-            )
-            return self
+    def refresh_selection_scope(self):
+        curr = list(self.selection)
+        if self.select_top_level_mobs:
+            self.selection.set_submobjects([
+                mob
+                for mob in self.mobjects
+                if any(sm in mob.get_family() for sm in curr)
+            ])
+            self.selection.refresh_bounding_box(recurse_down=True)
         else:
-            assert config.renderer == RendererType.CAIRO
-            for list_name in "mobjects", "foreground_mobjects":
-                self.restructure_mobjects(mobjects, list_name, False)
-            return self
-
-    def replace(self, old_mobject: Mobject, new_mobject: Mobject) -> None:
-        """Replace one mobject in the scene with another, preserving draw order.
-
-        If ``old_mobject`` is a submobject of some other Mobject (e.g. a
-        :class:`.Group`), the new_mobject will replace it inside the group,
-        without otherwise changing the parent mobject.
-
-        Parameters
-        ----------
-        old_mobject
-            The mobject to be replaced. Must be present in the scene.
-        new_mobject
-            A mobject which must not already be in the scene.
-
-        """
-        if old_mobject is None or new_mobject is None:
-            raise ValueError("Specified mobjects cannot be None")
-
-        def replace_in_list(
-            mobj_list: list[Mobject], old_m: Mobject, new_m: Mobject
-        ) -> bool:
-            # We use breadth-first search because some Mobjects get very deep and
-            # we expect top-level elements to be the most common targets for replace.
-            for i in range(0, len(mobj_list)):
-                # Is this the old mobject?
-                if mobj_list[i] == old_m:
-                    # If so, write the new object to the same spot and stop looking.
-                    mobj_list[i] = new_m
-                    return True
-            # Now check all the children of all these mobs.
-            for mob in mobj_list:  # noqa: SIM110
-                if replace_in_list(mob.submobjects, old_m, new_m):
-                    # If we found it in a submobject, stop looking.
-                    return True
-            # If we did not find the mobject in the mobject list or any submobjects,
-            # (or the list was empty), indicate we did not make the replacement.
-            return False
-
-        # Make use of short-circuiting conditionals to check mobjects and then
-        # foreground_mobjects
-        replaced = replace_in_list(
-            self.mobjects, old_mobject, new_mobject
-        ) or replace_in_list(self.foreground_mobjects, old_mobject, new_mobject)
-
-        if not replaced:
-            raise ValueError(f"Could not find {old_mobject} in scene")
-
-    def add_updater(self, func: Callable[[float], None]) -> None:
-        """Add an update function to the scene.
-
-        The scene updater functions are run every frame,
-        and they are the last type of updaters to run.
-
-        .. WARNING::
-
-            When using the Cairo renderer, scene updaters that
-            modify mobjects are not detected in the same way
-            that mobject updaters are. To be more concrete,
-            a mobject only modified via a scene updater will
-            not necessarily be added to the list of *moving
-            mobjects* and thus might not be updated every frame.
-
-            TL;DR: Use mobject updaters to update mobjects.
-
-        Parameters
-        ----------
-        func
-            The updater function. It takes a float, which is the
-            time difference since the last update (usually equal
-            to the frame rate).
-
-        See also
-        --------
-        :meth:`.Scene.remove_updater`
-        :meth:`.Scene.update_self`
-        """
-        self.updaters.append(func)
-
-    def remove_updater(self, func: Callable[[float], None]) -> None:
-        """Remove an update function from the scene.
-
-        Parameters
-        ----------
-        func
-            The updater function to be removed.
-
-        See also
-        --------
-        :meth:`.Scene.add_updater`
-        :meth:`.Scene.update_self`
-        """
-        self.updaters = [f for f in self.updaters if f is not func]
-
-    def restructure_mobjects(
-        self,
-        to_remove: Sequence[Mobject],
-        mobject_list_name: str = "mobjects",
-        extract_families: bool = True,
-    ) -> Scene:
-        """
-        tl:wr
-            If your scene has a Group(), and you removed a mobject from the Group,
-            this dissolves the group and puts the rest of the mobjects directly
-            in self.mobjects or self.foreground_mobjects.
-
-        In cases where the scene contains a group, e.g. Group(m1, m2, m3), but one
-        of its submobjects is removed, e.g. scene.remove(m1), the list of mobjects
-        will be edited to contain other submobjects, but not m1, e.g. it will now
-        insert m2 and m3 to where the group once was.
-
-        Parameters
-        ----------
-        to_remove
-            The Mobject to remove.
-
-        mobject_list_name
-            The list of mobjects ("mobjects", "foreground_mobjects" etc) to remove from.
-
-        extract_families
-            Whether the mobject's families should be recursively extracted.
-
-        Returns
-        -------
-        Scene
-            The Scene mobject with restructured Mobjects.
-        """
-        if extract_families:
-            to_remove = extract_mobject_family_members(
-                to_remove,
-                use_z_index=self.renderer.camera.use_z_index,
+            self.selection.set_submobjects(
+                extract_mobject_family_members(
+                    curr, exclude_pointless=True,
+                )
             )
-        _list = getattr(self, mobject_list_name)
-        new_list = self.get_restructured_mobject_list(_list, to_remove)
-        setattr(self, mobject_list_name, new_list)
-        return self
 
-    def get_restructured_mobject_list(
-        self, mobjects: Iterable[Mobject], to_remove: Iterable[Mobject]
-    ) -> list[Mobject]:
-        """
-        Given a list of mobjects and a list of mobjects to be removed, this
-        filters out the removable mobjects from the list of mobjects.
-
-        Parameters
-        ----------
-
-        mobjects
-            The Mobjects to check.
-
-        to_remove
-            The list of mobjects to remove.
-
-        Returns
-        -------
-        list
-            The list of mobjects with the mobjects to remove removed.
-        """
-        new_mobjects: list[Mobject] = []
-
-        def add_safe_mobjects_from_list(
-            list_to_examine: Iterable[Mobject], set_to_remove: set[Mobject]
-        ) -> None:
-            for mob in list_to_examine:
-                if mob in set_to_remove:
-                    continue
-                intersect = set_to_remove.intersection(mob.get_family())
-                if intersect:
-                    add_safe_mobjects_from_list(mob.submobjects, intersect)
-                else:
-                    new_mobjects.append(mob)
-
-        add_safe_mobjects_from_list(mobjects, set(to_remove))
-        return new_mobjects
-
-    # TODO, remove this, and calls to this
-    def add_foreground_mobjects(self, *mobjects: Mobject) -> Scene:
-        """
-        Adds mobjects to the foreground, and internally to the list
-        foreground_mobjects, and mobjects.
-
-        Parameters
-        ----------
-        *mobjects
-            The Mobjects to add to the foreground.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the foreground mobjects added.
-        """
-        self.foreground_mobjects = list_update(self.foreground_mobjects, mobjects)
-        self.add(*mobjects)
-        return self
-
-    def add_foreground_mobject(self, mobject: Mobject) -> Scene:
-        """
-        Adds a single mobject to the foreground, and internally to the list
-        foreground_mobjects, and mobjects.
-
-        Parameters
-        ----------
-        mobject
-            The Mobject to add to the foreground.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the foreground mobject added.
-        """
-        return self.add_foreground_mobjects(mobject)
-
-    def remove_foreground_mobjects(self, *to_remove: Mobject) -> Scene:
-        """
-        Removes mobjects from the foreground, and internally from the list
-        foreground_mobjects.
-
-        Parameters
-        ----------
-        *to_remove
-            The mobject(s) to remove from the foreground.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the foreground mobjects removed.
-        """
-        self.restructure_mobjects(to_remove, "foreground_mobjects")
-        return self
-
-    def remove_foreground_mobject(self, mobject: Mobject) -> Scene:
-        """
-        Removes a single mobject from the foreground, and internally from the list
-        foreground_mobjects.
-
-        Parameters
-        ----------
-        mobject
-            The mobject to remove from the foreground.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the foreground mobject removed.
-        """
-        return self.remove_foreground_mobjects(mobject)
-
-    def bring_to_front(self, *mobjects: Mobject) -> Scene:
-        """
-        Adds the passed mobjects to the scene again,
-        pushing them to he front of the scene.
-
-        Parameters
-        ----------
-        *mobjects
-            The mobject(s) to bring to the front of the scene.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the mobjects brought to the front
-            of the scene.
-        """
-        self.add(*mobjects)
-        return self
-
-    def bring_to_back(self, *mobjects: Mobject) -> Scene:
-        """
-        Removes the mobject from the scene and
-        adds them to the back of the scene.
-
-        Parameters
-        ----------
-        *mobjects
-            The mobject(s) to push to the back of the scene.
-
-        Returns
-        ------
-        Scene
-            The Scene, with the mobjects pushed to the back
-            of the scene.
-        """
-        self.remove(*mobjects)
-        self.mobjects = list(mobjects) + self.mobjects
-        return self
-
-    def clear(self) -> Self:
-        """
-        Removes all mobjects present in self.mobjects
-        and self.foreground_mobjects from the scene.
-
-        Returns
-        ------
-        Scene
-            The Scene, with all of its mobjects in
-            self.mobjects and self.foreground_mobjects
-            removed.
-        """
-        self.mobjects = []
-        self.foreground_mobjects = []
-        return self
-
-    def get_moving_mobjects(self, *animations: Animation) -> list[Mobject]:
-        """
-        Gets all moving mobjects in the passed animation(s).
-
-        Parameters
-        ----------
-        *animations
-            The animations to check for moving mobjects.
-
-        Returns
-        ------
-        list
-            The list of mobjects that could be moving in
-            the Animation(s)
-        """
-        # Go through mobjects from start to end, and
-        # as soon as there's one that needs updating of
-        # some kind per frame, return the list from that
-        # point forward.
-        animation_mobjects = [anim.mobject for anim in animations]
-        mobjects = self.get_mobject_family_members()
-        for i, mob in enumerate(mobjects):
-            update_possibilities = [
-                mob in animation_mobjects,
-                len(mob.get_family_updaters()) > 0,
-                mob in self.foreground_mobjects,
-            ]
-            if any(update_possibilities):
-                return mobjects[i:]
-        return []
-
-    def get_moving_and_static_mobjects(
-        self, animations: Iterable[Animation]
-    ) -> tuple[list[Mobject], list[Mobject]]:
-        all_mobjects = list_update(self.mobjects, self.foreground_mobjects)
-        all_mobject_families = extract_mobject_family_members(
-            all_mobjects,
-            use_z_index=self.renderer.camera.use_z_index,
-            only_those_with_points=True,
-        )
-        moving_mobjects = self.get_moving_mobjects(*animations)
-        all_moving_mobject_families = extract_mobject_family_members(
-            moving_mobjects,
-            use_z_index=self.renderer.camera.use_z_index,
-        )
-        static_mobjects = list_difference_update(
-            all_mobject_families,
-            all_moving_mobject_families,
-        )
-        return all_moving_mobject_families, static_mobjects
-
-    def compile_animations(
-        self,
-        *args: Animation | Mobject | _AnimationBuilder,
-        **kwargs: Any,
-    ) -> list[Animation]:
-        """
-        Creates _MethodAnimations from any _AnimationBuilders and updates animation
-        kwargs with kwargs passed to play().
-
-        Parameters
-        ----------
-        *args
-            Animations to be played.
-        **kwargs
-            Configuration for the call to play().
-
-        Returns
-        -------
-        Tuple[:class:`Animation`]
-            Animations to be played.
-        """
-        animations = []
-        arg_anims = flatten_iterable_parameters(args)
-        # Allow passing a generator to self.play instead of comma separated arguments
-        for arg in arg_anims:
-            try:
-                animations.append(prepare_animation(arg))  # type: ignore[arg-type]
-            except TypeError as e:
-                if inspect.ismethod(arg):
-                    raise TypeError(
-                        "Passing Mobject methods to Scene.play is no longer"
-                        " supported. Use Mobject.animate instead.",
-                    ) from e
-                else:
-                    raise TypeError(
-                        f"Unexpected argument {arg} passed to Scene.play().",
-                    ) from e
-
-        for animation in animations:
-            for k, v in kwargs.items():
-                setattr(animation, k, v)
-
-        return animations
-
-    def _get_animation_time_progression(
-        self, animations: list[Animation], duration: float
-    ) -> tqdm[float]:
-        """
-        You will hardly use this when making your own animations.
-        This method is for Manim's internal use.
-
-        Uses :func:`~.get_time_progression` to obtain a
-        CommandLine ProgressBar whose ``fill_time`` is
-        dependent on the qualities of the passed Animation,
-
-        Parameters
-        ----------
-        animations
-            The list of animations to get
-            the time progression for.
-
-        duration
-            duration of wait time
-
-        Returns
-        -------
-        time_progression
-            The CommandLine Progress Bar.
-        """
-        if len(animations) == 1 and isinstance(animations[0], Wait):
-            stop_condition = animations[0].stop_condition
-            if stop_condition is not None:
-                time_progression = self.get_time_progression(
-                    duration,
-                    f"Waiting for {stop_condition.__name__}",
-                    n_iterations=-1,  # So it doesn't show % progress
-                    override_skip_animations=True,
-                )
-            else:
-                time_progression = self.get_time_progression(
-                    duration,
-                    f"Waiting {self.renderer.num_plays}",
-                )
+    def get_corner_dots(self, mobject):
+        dots = DotCloud(**self.corner_dot_config)
+        radius = float(self.corner_dot_config["radius"])
+        if mobject.get_depth() < 1e-2:
+            vects = [DL, UL, UR, DR]
         else:
-            time_progression = self.get_time_progression(
-                duration,
-                "".join(
-                    [
-                        f"Animation {self.renderer.num_plays}: ",
-                        str(animations[0]),
-                        (", etc." if len(animations) > 1 else ""),
-                    ],
-                ),
+            vects = np.array(list(it.product(*3 * [[-1, 1]])))
+        dots.add_updater(lambda d: d.set_points([
+            mobject.get_corner(v) + v * radius
+            for v in vects
+        ]))
+        return dots
+
+    def get_highlight(self, mobject):
+        if isinstance(mobject, VMobject) and mobject.has_points() and not self.select_top_level_mobs:
+            length = max([mobject.get_height(), mobject.get_width()])
+            result = VHighlight(
+                mobject,
+                max_stroke_addition=min([50 * length, 10]),
             )
-        return time_progression
-
-    def get_time_progression(
-        self,
-        run_time: float,
-        description: str,
-        n_iterations: int | None = None,
-        override_skip_animations: bool = False,
-    ) -> tqdm[float]:
-        """
-        You will hardly use this when making your own animations.
-        This method is for Manim's internal use.
-
-        Returns a CommandLine ProgressBar whose ``fill_time``
-        is dependent on the ``run_time`` of an animation,
-        the iterations to perform in that animation
-        and a bool saying whether or not to consider
-        the skipped animations.
-
-        Parameters
-        ----------
-        run_time
-            The ``run_time`` of the animation.
-
-        n_iterations
-            The number of iterations in the animation.
-
-        override_skip_animations
-            Whether or not to show skipped animations in the progress bar.
-
-        Returns
-        -------
-        time_progression
-            The CommandLine Progress Bar.
-        """
-        if self.renderer.skip_animations and not override_skip_animations:
-            times: Iterable[float] = [run_time]
+            result.add_updater(lambda m: m.replace(mobject, stretch=True))
+            return result
+        elif isinstance(mobject, DotCloud):
+            return Mobject()
         else:
-            step = 1 / config["frame_rate"]
-            times = np.arange(0, run_time, step)
-        time_progression = tqdm(
-            times,
-            desc=description,
-            total=n_iterations,
-            leave=config["progress_bar"] == "leave",
-            ascii=True if platform.system() == "Windows" else None,
-            disable=config["progress_bar"] == "none",
-        )
-        return time_progression
+            return self.get_corner_dots(mobject)
 
-    @classmethod
-    def validate_run_time(
-        cls,
-        run_time: float,
-        method: Callable[[Any], Any],
-        parameter_name: str = "run_time",
-    ) -> float:
-        method_name = f"{cls.__name__}.{method.__name__}()"
-        if run_time <= 0:
-            raise ValueError(
-                f"{method_name} has a {parameter_name} of "
-                f"{run_time:g} <= 0 seconds which Manim cannot render. "
-                f"The {parameter_name} must be a positive number."
-            )
-
-        # config.frame_rate holds the number of frames per second
-        fps = config.frame_rate
-        seconds_per_frame = 1 / fps
-        if run_time < seconds_per_frame:
-            logger.warning(
-                f"The original {parameter_name} of {method_name}, "
-                f"{run_time:g} seconds, is too short for the current frame "
-                f"rate of {fps:g} FPS. Rendering with the shortest possible "
-                f"{parameter_name} of {seconds_per_frame:g} seconds instead."
-            )
-            run_time = seconds_per_frame
-
-        return run_time
-
-    def get_run_time(self, animations: list[Animation]) -> float:
-        """
-        Gets the total run time for a list of animations.
-
-        Parameters
-        ----------
-        animations
-            A list of the animations whose total
-            ``run_time`` is to be calculated.
-
-        Returns
-        -------
-        float
-            The total ``run_time`` of all of the animations in the list.
-        """
-        run_time = max(animation.run_time for animation in animations)
-        run_time = self.validate_run_time(run_time, self.play, "total run_time")
-        return run_time
-
-    def play(
-        self,
-        *args: Animation | Mobject | _AnimationBuilder,
-        subcaption: str | None = None,
-        subcaption_duration: float | None = None,
-        subcaption_offset: float = 0,
-        **kwargs: Any,
-    ) -> None:
-        r"""Plays an animation in this scene.
-
-        Parameters
-        ----------
-
-        args
-            Animations to be played.
-        subcaption
-            The content of the external subcaption that should
-            be added during the animation.
-        subcaption_duration
-            The duration for which the specified subcaption is
-            added. If ``None`` (the default), the run time of the
-            animation is taken.
-        subcaption_offset
-            An offset (in seconds) for the start time of the
-            added subcaption.
-        kwargs
-            All other keywords are passed to the renderer.
-
-        """
-        # If we are in interactive embedded mode, make sure this is running on the main thread (required for OpenGL)
-        if (
-            self.interactive_mode
-            and config.renderer == RendererType.OPENGL
-            and threading.current_thread().name != "MainThread"
-        ):
-            kwargs.update(
-                {
-                    "subcaption": subcaption,
-                    "subcaption_duration": subcaption_duration,
-                    "subcaption_offset": subcaption_offset,
-                }
-            )
-            self.queue.put(
-                (
-                    "play",
-                    args,
-                    kwargs,
-                )
-            )
+    def add_to_selection(self, *mobjects):
+        mobs = list(filter(
+            lambda m: m not in self.unselectables and m not in self.selection,
+            mobjects
+        ))
+        if len(mobs) == 0:
             return
+        self.selection.add(*mobs)
+        for mob in mobs:
+            mob.set_animating_status(True)
 
-        start_time = self.time
-        self.renderer.play(self, *args, **kwargs)
-        run_time = self.time - start_time
-        if subcaption:
-            if subcaption_duration is None:
-                subcaption_duration = run_time
-            # The start of the subcaption needs to be offset by the
-            # run_time of the animation because it is added after
-            # the animation has already been played (and Scene.time
-            # has already been updated).
-            self.add_subcaption(
-                content=subcaption,
-                duration=subcaption_duration,
-                offset=-run_time + subcaption_offset,
-            )
-
-    def wait(
-        self,
-        duration: float = DEFAULT_WAIT_TIME,
-        stop_condition: Callable[[], bool] | None = None,
-        frozen_frame: bool | None = None,
-    ) -> None:
-        """Plays a "no operation" animation.
-
-        Parameters
-        ----------
-        duration
-            The run time of the animation.
-        stop_condition
-            A function without positional arguments that is evaluated every time
-            a frame is rendered. The animation only stops when the return value
-            of the function is truthy, or when the time specified in ``duration``
-            passes.
-        frozen_frame
-            If True, updater functions are not evaluated, and the animation outputs
-            a frozen frame. If False, updater functions are called and frames
-            are rendered as usual. If None (the default), the scene tries to
-            determine whether or not the frame is frozen on its own.
-
-        See also
-        --------
-        :class:`.Wait`, :meth:`.should_mobjects_update`
-        """
-        duration = self.validate_run_time(duration, self.wait, "duration")
-        self.play(
-            Wait(
-                run_time=duration,
-                stop_condition=stop_condition,
-                frozen_frame=frozen_frame,
-            )
-        )
-
-    def pause(self, duration: float = DEFAULT_WAIT_TIME) -> None:
-        """Pauses the scene (i.e., displays a frozen frame).
-
-        This is an alias for :meth:`.wait` with ``frozen_frame``
-        set to ``True``.
-
-        Parameters
-        ----------
-        duration
-            The duration of the pause.
-
-        See also
-        --------
-        :meth:`.wait`, :class:`.Wait`
-        """
-        duration = self.validate_run_time(duration, self.pause, "duration")
-        self.wait(duration=duration, frozen_frame=True)
-
-    def wait_until(
-        self, stop_condition: Callable[[], bool], max_time: float = 60
-    ) -> None:
-        """Wait until a condition is satisfied, up to a given maximum duration.
-
-        Parameters
-        ----------
-        stop_condition
-            A function with no arguments that determines whether or not the
-            scene should keep waiting.
-        max_time
-            The maximum wait time in seconds.
-        """
-        max_time = self.validate_run_time(max_time, self.wait_until, "max_time")
-        self.wait(max_time, stop_condition=stop_condition)
-
-    def compile_animation_data(
-        self,
-        *animations: Animation | Mobject | _AnimationBuilder,
-        **play_kwargs: Any,
-    ) -> Self | None:
-        """Given a list of animations, compile the corresponding
-        static and moving mobjects, and gather the animation durations.
-
-        This also begins the animations.
-
-        Parameters
-        ----------
-        animations
-            Animation or mobject with mobject method and params
-        play_kwargs
-            Named parameters affecting what was passed in ``animations``,
-            e.g. ``run_time``, ``lag_ratio`` and so on.
-
-        Returns
-        -------
-        self, None
-            None if there is nothing to play, or self otherwise.
-        """
-        # NOTE TODO : returns statement of this method are wrong. It should return nothing, as it makes a little sense to get any information from this method.
-        # The return are kept to keep webgl renderer from breaking.
-        if len(animations) == 0:
-            raise ValueError("Called Scene.play with no animations")
-
-        self.animations = self.compile_animations(*animations, **play_kwargs)
-        self.add_mobjects_from_animations(self.animations)
-
-        self.last_t = 0
-        self.stop_condition = None
-        self.moving_mobjects = []
-        self.static_mobjects = []
-
-        self.duration = self.get_run_time(self.animations)
-        if len(self.animations) == 1 and isinstance(self.animations[0], Wait):
-            if self.should_update_mobjects():
-                self.update_mobjects(dt=0)  # Any problems with this?
-                self.stop_condition = self.animations[0].stop_condition
+    def toggle_from_selection(self, *mobjects):
+        for mob in mobjects:
+            if mob in self.selection:
+                self.selection.remove(mob)
+                mob.set_animating_status(False)
+                mob.refresh_bounding_box()
             else:
-                # Static image logic when the wait is static is done by the renderer, not here.
-                self.animations[0].is_static_wait = True
-                return None
+                self.add_to_selection(mob)
 
-        return self
+    def clear_selection(self):
+        for mob in self.selection:
+            mob.set_animating_status(False)
+            mob.refresh_bounding_box()
+        self.selection.set_submobjects([])
 
-    def begin_animations(self) -> None:
-        """Start the animations of the scene."""
-        assert self.animations is not None
-        for animation in self.animations:
-            animation._setup_scene(self)
-            animation.begin()
+    def disable_interaction(self, *mobjects):
+        for mob in mobjects:
+            for sm in mob.get_family():
+                self.unselectables.append(sm)
+        self.regenerate_selection_search_set()
 
-        if config.renderer == RendererType.CAIRO:
-            # Paint all non-moving objects onto the screen, so they don't
-            # have to be rendered every frame
-            (
-                self.moving_mobjects,
-                self.static_mobjects,
-            ) = self.get_moving_and_static_mobjects(self.animations)
+    def enable_interaction(self, *mobjects):
+        for mob in mobjects:
+            for sm in mob.get_family():
+                if sm in self.unselectables:
+                    self.unselectables.remove(sm)
 
-    def is_current_animation_frozen_frame(self) -> bool:
-        """Returns whether the current animation produces a static frame (generally a Wait)."""
-        assert self.animations is not None
-        return (
-            isinstance(self.animations[0], Wait)
-            and len(self.animations) == 1
-            and self.animations[0].is_static_wait
-        )
+    # Keyboard action methods
 
-    def play_internal(self, skip_rendering: bool = False) -> None:
-        """
-        This method is used to prep the animations for rendering,
-        apply the arguments and parameters required to them,
-        render them, and write them to the video file.
+    def copy_selection(self):
+        # Simplified version without IPython
+        names = [str(id(mob)) for mob in self.selection]
+        pyperclip.copy(", ".join(names))
 
-        Parameters
-        ----------
-        skip_rendering
-            Whether the rendering should be skipped, by default False
-        """
-        assert self.animations is not None
-        self.duration = self.get_run_time(self.animations)
-        self.time_progression = self._get_animation_time_progression(
-            self.animations,
-            self.duration,
-        )
-        for t in self.time_progression:
-            self.update_to_time(t)
-            if not skip_rendering and not self.skip_animation_preview:
-                self.renderer.render(self, t, self.moving_mobjects)
-            if self.stop_condition is not None and self.stop_condition():
-                self.time_progression.close()
-                break
-
-        for animation in self.animations:
-            animation.finish()
-            animation.clean_up_from_scene(self)
-        if not self.renderer.skip_animations:
-            self.update_mobjects(0)
-        # TODO: The OpenGLRenderer does not have the property static.image.
-        self.renderer.static_image = None  # type: ignore[union-attr]
-        # Closing the progress bar at the end of the play.
-        self.time_progression.close()
-
-    def check_interactive_embed_is_valid(self) -> bool:
-        assert isinstance(self.renderer, OpenGLRenderer)
-        if config["force_window"]:
-            return True
-        if self.skip_animation_preview:
-            logger.warning(
-                "Disabling interactive embed as 'skip_animation_preview' is enabled",
-            )
-            return False
-        elif config["write_to_movie"]:
-            logger.warning("Disabling interactive embed as 'write_to_movie' is enabled")
-            return False
-        elif config["format"]:
-            logger.warning(
-                "Disabling interactive embed as '--format' is set as "
-                + config["format"],
-            )
-            return False
-        elif not self.renderer.window:
-            logger.warning("Disabling interactive embed as no window was created")
-            return False
-        elif config.dry_run:
-            logger.warning("Disabling interactive embed as dry_run is enabled")
-            return False
-        return True
-
-    def interactive_embed(self) -> None:
-        """Like embed(), but allows for screen interaction."""
-        assert isinstance(self.camera, OpenGLCamera)
-        assert isinstance(self.renderer, OpenGLRenderer)
-        if not self.check_interactive_embed_is_valid():
-            return
-        self.interactive_mode = True
-        from IPython.terminal.embed import InteractiveShellEmbed
-
-        def ipython(shell: InteractiveShellEmbed, namespace: dict[str, Any]) -> None:
-            import manim.opengl
-
-            def load_module_into_namespace(
-                module: Any, namespace: dict[str, Any]
-            ) -> None:
-                for name in dir(module):
-                    namespace[name] = getattr(module, name)
-
-            load_module_into_namespace(manim, namespace)
-            load_module_into_namespace(manim.opengl, namespace)
-
-            def embedded_rerun(*args: Any, **kwargs: Any) -> None:
-                self.queue.put(("rerun_keyboard", args, kwargs))
-                shell.exiter()
-
-            namespace["rerun"] = embedded_rerun
-
-            shell(local_ns=namespace)
-            self.queue.put(("exit_keyboard", [], {}))
-
-        def get_embedded_method(method_name: str) -> Callable[..., None]:
-            def embedded_method(*args: Any, **kwargs: Any) -> None:
-                self.queue.put((method_name, args, kwargs))
-
-            return embedded_method
-
-        currentframe: FrameType = inspect.currentframe()  # type: ignore[assignment]
-        local_namespace = currentframe.f_back.f_locals  # type: ignore[union-attr]
-        for method in ("play", "wait", "add", "remove"):
-            embedded_method = get_embedded_method(method)
-            # Allow for calling scene methods without prepending 'self.'.
-            local_namespace[method] = embedded_method
-
-        from sqlite3 import connect
-
-        from IPython.core.getipython import get_ipython
-        from traitlets.config import Config
-
-        cfg = Config()
-        cfg.TerminalInteractiveShell.confirm_exit = False
-        if get_ipython() is None:
-            shell = InteractiveShellEmbed.instance(config=cfg)
-        else:
-            shell = InteractiveShellEmbed(config=cfg)
-        hist = get_ipython().history_manager
-        hist.db = connect(hist.hist_file, check_same_thread=False)
-
-        keyboard_thread = threading.Thread(
-            target=ipython,
-            args=(shell, local_namespace),
-        )
-        # run as daemon to kill thread when main thread exits
-        if not shell.pt_app:
-            keyboard_thread.daemon = True
-        keyboard_thread.start()
-
-        if self.dearpygui_imported and config["enable_gui"]:
-            if not dpg.is_dearpygui_running():
-                gui_thread = threading.Thread(
-                    target=configure_pygui,
-                    args=(self.renderer, self.widgets),
-                    kwargs={"update": False},
-                )
-                gui_thread.start()
-            else:
-                configure_pygui(self.renderer, self.widgets, update=True)
-
-        self.camera.model_matrix = self.camera.default_model_matrix
-
-        self.interact(shell, keyboard_thread)
-
-    # from IPython.terminal.embed import InteractiveShellEmbed
-
-    def interact(self, shell: Any, keyboard_thread: threading.Thread) -> None:
-        assert isinstance(self.renderer, OpenGLRenderer)
-        event_handler = RerunSceneHandler(self.queue)
-        file_observer = Observer()
-        file_observer.schedule(event_handler, config["input_file"], recursive=True)
-        file_observer.start()
-
-        self.quit_interaction = False
-        keyboard_thread_needs_join = shell.pt_app is not None
-        assert self.queue.qsize() == 0
-
-        last_time = time.time()
-        while not (self.renderer.window.is_closing or self.quit_interaction):
-            if not self.queue.empty():
-                tup = self.queue.get_nowait()
-                if tup[0].startswith("rerun"):
-                    # Intentionally skip calling join() on the file thread to save time.
-                    if not tup[0].endswith("keyboard"):
-                        if shell.pt_app:
-                            shell.pt_app.app.exit(exception=EOFError)
-                        file_observer.unschedule_all()
-                        raise RerunSceneException
-                    keyboard_thread.join()
-
-                    kwargs = tup[2]
-                    if "from_animation_number" in kwargs:
-                        config["from_animation_number"] = kwargs[
-                            "from_animation_number"
-                        ]
-                    # # TODO: This option only makes sense if interactive_embed() is run at the
-                    # # end of a scene by default.
-                    # if "upto_animation_number" in kwargs:
-                    #     config["upto_animation_number"] = kwargs[
-                    #         "upto_animation_number"
-                    #     ]
-
-                    keyboard_thread.join()
-                    file_observer.unschedule_all()
-                    raise RerunSceneException
-                elif tup[0].startswith("exit"):
-                    # Intentionally skip calling join() on the file thread to save time.
-                    if not tup[0].endswith("keyboard") and shell.pt_app:
-                        shell.pt_app.app.exit(exception=EOFError)
-                    keyboard_thread.join()
-                    # Remove exit_keyboard from the queue if necessary.
-                    while self.queue.qsize() > 0:
-                        self.queue.get()
-                    keyboard_thread_needs_join = False
-                    break
-                else:
-                    method, args, kwargs = tup
-                    getattr(self, method)(*args, **kwargs)
-            else:
-                self.renderer.animation_start_time = 0
-                dt = time.time() - last_time
-                last_time = time.time()
-                self.renderer.render(self, dt, self.moving_mobjects)
-                self.update_mobjects(dt)
-                self.update_meshes(dt)
-                self.update_self(dt)
-
-        # Join the keyboard thread if necessary.
-        if shell is not None and keyboard_thread_needs_join:
-            shell.pt_app.app.exit(exception=EOFError)
-            keyboard_thread.join()
-            # Remove exit_keyboard from the queue if necessary.
-            while self.queue.qsize() > 0:
-                self.queue.get()
-
-        file_observer.stop()
-        file_observer.join()
-
-        if self.dearpygui_imported and config["enable_gui"]:
-            dpg.stop_dearpygui()
-
-        if self.renderer.window.is_closing:
-            self.renderer.window.destroy()
-
-    def embed(self) -> None:
-        assert isinstance(self.renderer, OpenGLRenderer)
-        if not config["preview"]:
-            logger.warning("Called embed() while no preview window is available.")
-            return
-        if config["write_to_movie"]:
-            logger.warning("embed() is skipped while writing to a file.")
-            return
-
-        self.renderer.animation_start_time = 0
-        self.renderer.render(self, -1, self.moving_mobjects)
-
-        # Configure IPython shell.
-        from IPython.terminal.embed import InteractiveShellEmbed
-
-        shell = InteractiveShellEmbed()
-
-        # Have the frame update after each command
-        shell.events.register(
-            "post_run_cell",
-            lambda *a, **kw: self.renderer.render(self, -1, self.moving_mobjects),
-        )
-
-        # Use the locals of the caller as the local namespace
-        # once embedded, and add a few custom shortcuts.
-        current_frame = inspect.currentframe()
-        assert isinstance(current_frame, FrameType)
-        local_ns = current_frame.f_back.f_locals  # type: ignore[union-attr]
-        # local_ns["touch"] = self.interact
-        for method in (
-            "play",
-            "wait",
-            "add",
-            "remove",
-            "interact",
-            # "clear",
-            # "save_state",
-            # "restore",
-        ):
-            local_ns[method] = getattr(self, method)
-        shell(local_ns=local_ns, stack_depth=2)
-
-        # End scene when exiting an embed.
-        raise Exception("Exiting scene.")
-
-    def update_to_time(self, t: float) -> None:
-        dt = t - self.last_t
-        self.last_t = t
-        assert self.animations is not None
-        for animation in self.animations:
-            animation.update_mobjects(dt)
-            alpha = t / animation.run_time
-            animation.interpolate(alpha)
-        self.update_mobjects(dt)
-        self.update_meshes(dt)
-        self.update_self(dt)
-
-    def add_subcaption(
-        self, content: str, duration: float = 1, offset: float = 0
-    ) -> None:
-        r"""Adds an entry in the corresponding subcaption file
-        at the current time stamp.
-
-        The current time stamp is obtained from ``Scene.time``.
-
-        Parameters
-        ----------
-
-        content
-            The subcaption content.
-        duration
-            The duration (in seconds) for which the subcaption is shown.
-        offset
-            This offset (in seconds) is added to the starting time stamp
-            of the subcaption.
-
-        Examples
-        --------
-
-        This example illustrates both possibilities for adding
-        subcaptions to Manimations::
-
-            class SubcaptionExample(Scene):
-                def construct(self):
-                    square = Square()
-                    circle = Circle()
-
-                    # first option: via the add_subcaption method
-                    self.add_subcaption("Hello square!", duration=1)
-                    self.play(Create(square))
-
-                    # second option: within the call to Scene.play
-                    self.play(
-                        Transform(square, circle), subcaption="The square transforms."
-                    )
-
-        """
-        subtitle = srt.Subtitle(
-            index=len(self.renderer.file_writer.subcaptions),
-            content=content,
-            start=datetime.timedelta(seconds=float(self.time + offset)),
-            end=datetime.timedelta(seconds=float(self.time + offset + duration)),
-        )
-        self.renderer.file_writer.subcaptions.append(subtitle)
-
-    def add_sound(
-        self,
-        sound_file: str,
-        time_offset: float = 0,
-        gain: float | None = None,
-        **kwargs: Any,
-    ) -> None:
-        """
-        This method is used to add a sound to the animation.
-
-        Parameters
-        ----------
-
-        sound_file
-            The path to the sound file.
-        time_offset
-            The offset in the sound file after which
-            the sound can be played.
-        gain
-            Amplification of the sound.
-
-        Examples
-        --------
-        .. manim:: SoundExample
-            :no_autoplay:
-
-            class SoundExample(Scene):
-                # Source of sound under Creative Commons 0 License. https://freesound.org/people/Druminfected/sounds/250551/
-                def construct(self):
-                    dot = Dot().set_color(GREEN)
-                    self.add_sound("click.wav")
-                    self.add(dot)
-                    self.wait()
-                    self.add_sound("click.wav")
-                    dot.set_color(BLUE)
-                    self.wait()
-                    self.add_sound("click.wav")
-                    dot.set_color(RED)
-                    self.wait()
-
-        Download the resource for the previous example `here <https://github.com/ManimCommunity/manim/blob/main/docs/source/_static/click.wav>`_ .
-        """
-        if self.renderer.skip_animations:
-            return
-        time = self.time + time_offset
-        self.renderer.file_writer.add_sound(sound_file, time, gain, **kwargs)
-
-    def on_mouse_motion(self, point: Point3D, d_point: Point3D) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
-        assert isinstance(self.renderer, OpenGLRenderer)
-        self.mouse_point.move_to(point)
-        if SHIFT_VALUE in self.renderer.pressed_keys:
-            shift = -d_point
-            shift[0] *= self.camera.get_width() / 2
-            shift[1] *= self.camera.get_height() / 2
-            transform = self.camera.inverse_rotation_matrix
-            shift = np.dot(np.transpose(transform), shift)
-            self.camera.shift(shift)
-
-    def on_mouse_scroll(self, point: Point3D, offset: Point3D) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
-        if not config.use_projection_stroke_shaders:
-            factor = 1 + np.arctan(-2.1 * offset[1])
-            self.camera.scale(factor, about_point=self.camera_target)
-        self.mouse_scroll_orbit_controls(point, offset)
-
-    def on_key_press(self, symbol: int, modifiers: int) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
+    def paste_selection(self):
+        clipboard_str = pyperclip.paste()
+        # Try pasting a mobject
         try:
-            char = chr(symbol)
-        except OverflowError:
-            logger.warning("The value of the pressed key is too large.")
+            ids = map(int, clipboard_str.split(","))
+            mobs = map(self.id_to_mobject, ids)
+            mob_copies = [m.copy() for m in mobs if m is not None]
+            self.clear_selection()
+            self.play(*(
+                FadeIn(mc, run_time=0.5, scale=1.5)
+                for mc in mob_copies
+            ))
+            self.add_to_selection(*mob_copies)
             return
-
-        if char == "r":
-            self.camera.to_default_state()
-            self.camera_target = np.array([0, 0, 0], dtype=np.float32)
-        elif char == "q":
-            self.quit_interaction = True
+        except ValueError:
+            pass
+        # Otherwise, treat as tex or text
+        if set("\\^=+").intersection(clipboard_str):  # Proxy to text for LaTeX
+            try:
+                new_mob = Tex(clipboard_str)
+            except LatexError:
+                return
         else:
-            if char in self.key_to_function_map:
-                self.key_to_function_map[char]()
+            new_mob = Text(clipboard_str)
+        self.clear_selection()
+        self.add(new_mob)
+        self.add_to_selection(new_mob)
 
-    def on_key_release(self, symbol: int, modifiers: int) -> None:
-        pass
+    def delete_selection(self):
+        self.remove(*self.selection)
+        self.clear_selection()
 
-    def on_mouse_drag(
-        self,
-        point: Point3D,
-        d_point: Point3D,
-        buttons: int,
-        modifiers: int,
-    ) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
-        self.mouse_drag_point.move_to(point)
-        if buttons == 1:
-            self.camera.increment_theta(-d_point[0])
-            self.camera.increment_phi(d_point[1])
-        elif buttons == 4:
-            camera_x_axis = self.camera.model_matrix[:3, 0]
-            horizontal_shift_vector = -d_point[0] * camera_x_axis
-            vertical_shift_vector = -d_point[1] * np.cross(OUT, camera_x_axis)
-            total_shift_vector = horizontal_shift_vector + vertical_shift_vector
-            self.camera.shift(1.1 * total_shift_vector)
-
-        self.mouse_drag_orbit_controls(point, d_point, buttons, modifiers)
-
-    def mouse_scroll_orbit_controls(self, point: Point3D, offset: Point3D) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
-        camera_to_target = self.camera_target - self.camera.get_position()
-        camera_to_target *= np.sign(offset[1])
-        shift_vector = 0.01 * camera_to_target
-        self.camera.model_matrix = (
-            opengl.translation_matrix(*shift_vector) @ self.camera.model_matrix
+    def enable_selection(self):
+        self.is_selecting = True
+        self.add(self.selection_rectangle)
+        self.selection_rectangle.fixed_corner = self.frame.to_fixed_frame_point(
+            self.mouse_point.get_center()
         )
 
-    def mouse_drag_orbit_controls(
-        self,
-        point: Point3D,
-        d_point: Point3D,
-        buttons: int,
-        modifiers: int,
-    ) -> None:
-        assert isinstance(self.camera, OpenGLCamera)
-        # Left click drag.
-        if buttons == 1:
-            # Translate to target the origin and rotate around the z axis.
-            self.camera.model_matrix = (
-                opengl.rotation_matrix(z=-d_point[0])
-                @ opengl.translation_matrix(*-self.camera_target)
-                @ self.camera.model_matrix
+    def gather_new_selection(self):
+        self.is_selecting = False
+        if self.selection_rectangle in self.mobjects:
+            self.remove(self.selection_rectangle)
+            additions = []
+            for mob in reversed(self.get_selection_search_set()):
+                if self.selection_rectangle.is_touching(mob):
+                    additions.append(mob)
+                    if self.selection_rectangle.get_arc_length() < 1e-2:
+                        break
+            self.toggle_from_selection(*additions)
+
+    def prepare_grab(self):
+        mp = self.mouse_point.get_center()
+        self.mouse_to_selection = mp - self.selection.get_center()
+        self.is_grabbing = True
+
+    def prepare_resizing(self, about_corner=False):
+        center = self.selection.get_center()
+        mp = self.mouse_point.get_center()
+        if about_corner:
+            self.scale_about_point = self.selection.get_corner(center - mp)
+        else:
+            self.scale_about_point = center
+        self.scale_ref_vect = mp - self.scale_about_point
+        self.scale_ref_width = self.selection.get_width()
+        self.scale_ref_height = self.selection.get_height()
+
+    def toggle_color_palette(self):
+        if len(self.selection) == 0:
+            return
+        if self.color_palette not in self.mobjects:
+            self.save_state()
+            self.add(self.color_palette)
+        else:
+            self.remove(self.color_palette)
+
+    def display_information(self, show=True):
+        if show:
+            self.add(self.information_label)
+        else:
+            self.remove(self.information_label)
+
+    def group_selection(self):
+        group = self.get_group(*self.selection)
+        self.add(group)
+        self.clear_selection()
+        self.add_to_selection(group)
+
+    def ungroup_selection(self):
+        pieces = []
+        for mob in list(self.selection):
+            self.remove(mob)
+            pieces.extend(list(mob))
+        self.clear_selection()
+        self.add(*pieces)
+        self.add_to_selection(*pieces)
+
+    def nudge_selection(self, vect, large=False):
+        nudge = self.selection_nudge_size
+        if large:
+            nudge *= 10
+        self.selection.shift(nudge * vect)
+
+    # Mouse event handlers
+
+    def handle_grabbing(self, point):
+        diff = point - self.mouse_to_selection
+        if self.window.is_key_pressed(ord(GRAB_KEY)):
+            self.selection.move_to(diff)
+        elif self.window.is_key_pressed(ord(X_GRAB_KEY)):
+            self.selection.set_x(diff[0])
+        elif self.window.is_key_pressed(ord(Y_GRAB_KEY)):
+            self.selection.set_y(diff[1])
+
+    def handle_resizing(self, point):
+        if not hasattr(self, "scale_about_point") or self.scale_about_point is None:
+            return
+        vect = point - self.scale_about_point
+        if self.window.is_key_pressed(PygletWindowKeys.LCTRL):
+            for i in (0, 1):
+                scalar = vect[i] / self.scale_ref_vect[i]
+                self.selection.rescale_to_fit(
+                    scalar * [self.scale_ref_width, self.scale_ref_height][i],
+                    dim=i,
+                    about_point=self.scale_about_point,
+                    stretch=True,
+                )
+        else:
+            scalar = get_norm(vect) / get_norm(self.scale_ref_vect)
+            self.selection.set_width(
+                scalar * self.scale_ref_width,
+                about_point=self.scale_about_point
             )
 
-            # Rotation off of the z axis.
-            camera_position = self.camera.get_position()
-            camera_y_axis = self.camera.model_matrix[:3, 1]
-            axis_of_rotation = space_ops.normalize(
-                np.cross(camera_y_axis, camera_position),
-            )
-            rotation_matrix = space_ops.rotation_matrix(
-                d_point[1],
-                axis_of_rotation,
-                homogeneous=True,
-            )
+    def handle_sweeping_selection(self, point):
+        mob = self.point_to_mobject(
+            point,
+            search_set=self.get_selection_search_set(),
+            buff=SMALL_BUFF
+        )
+        if mob is not None:
+            self.add_to_selection(mob)
 
-            maximum_polar_angle = self.camera.maximum_polar_angle
-            minimum_polar_angle = self.camera.minimum_polar_angle
+    def choose_color(self, point):
+        # Search through all mobject on the screen, not just the palette
+        to_search = [
+            sm
+            for mobject in self.mobjects
+            for sm in mobject.family_members_with_points()
+            if mobject not in self.unselectables
+        ]
+        mob = self.point_to_mobject(point, to_search)
+        if mob is not None:
+            self.selection.set_color(mob.get_color())
+        self.remove(self.color_palette)
 
-            potential_camera_model_matrix = rotation_matrix @ self.camera.model_matrix
-            potential_camera_location = potential_camera_model_matrix[:3, 3]
-            potential_camera_y_axis = potential_camera_model_matrix[:3, 1]
-            sign = (
-                np.sign(potential_camera_y_axis[2])
-                if potential_camera_y_axis[2] != 0
-                else 1
-            )
-            potential_polar_angle = sign * np.arccos(
-                potential_camera_location[2]
-                / np.linalg.norm(potential_camera_location),
-            )
-            if minimum_polar_angle <= potential_polar_angle <= maximum_polar_angle:
-                self.camera.model_matrix = potential_camera_model_matrix
+    # Override add/remove to maintain selection search set
+    
+    def add(self, *mobjects):
+        super().add(*mobjects)
+        self.regenerate_selection_search_set()
+        return self
+
+    def remove(self, *mobjects):
+        super().remove(*mobjects)
+        self.regenerate_selection_search_set()
+        return self
+
+    def remove_all_except(self, *mobjects_to_keep):
+        super().remove_all_except(*mobjects_to_keep)
+        self.regenerate_selection_search_set()
+
+    # Override get_state to ignore interactive elements
+    
+    def get_state(self):
+        return SceneState(self, ignore=[
+            self.selection_highlight,
+            self.selection_rectangle,
+            self.crosshair,
+        ])
+
+    def restore_state(self, scene_state):
+        super().restore_state(scene_state)
+        if hasattr(self, 'selection_highlight') and self.selection_highlight:
+            self.mobjects.insert(0, self.selection_highlight)
+
+    # Copy positioning helpers
+    
+    def copy_frame_positioning(self):
+        frame = self.frame
+        center = frame.get_center()
+        height = frame.get_height()
+        angles = frame.get_euler_angles()
+
+        call = f"reorient("
+        theta, phi, gamma = (angles / DEG).astype(int)
+        call += f"{theta}, {phi}, {gamma}"
+        if any(center != 0):
+            call += f", {tuple(np.round(center, 2))}"
+        if height != FRAME_HEIGHT:
+            call += ", {:.2f}".format(height)
+        call += ")"
+        pyperclip.copy(call)
+
+    def copy_cursor_position(self):
+        pyperclip.copy(str(tuple(self.mouse_point.get_center().round(2))))
+
+
+class ThreeDScene(GLThreeDScene):
+    """CE-compatible ThreeDScene using GL backend."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Add CE compatibility methods
+        self.renderer = self
+        # Disable drag-to-pan by default since we use Cmd/Ctrl + drag
+        self.drag_to_pan = False
+    
+    # Override methods to add CE compatibility
+    def add(self, *mobjects):
+        """CE-style add method that returns self for chaining."""
+        GLThreeDScene.add(self, *mobjects)
+        return self
+    
+    def remove(self, *mobjects):
+        """CE-style remove method that returns self for chaining."""
+        GLThreeDScene.remove(self, *mobjects)
+        return self
+    
+    def play(self, *animations, **kwargs):
+        """CE-style play with multiple animations and lag_ratio support."""
+        # Extract CE-specific kwargs
+        run_time = kwargs.pop('run_time', None)
+        lag_ratio = kwargs.pop('lag_ratio', 0)
+        rate_func = kwargs.pop('rate_func', None)
+        
+        # Handle run_time
+        if run_time is not None:
+            for anim in animations:
+                if hasattr(anim, 'run_time'):
+                    anim.run_time = run_time
+        
+        # Handle rate_func
+        if rate_func is not None:
+            for anim in animations:
+                if hasattr(anim, 'rate_func'):
+                    anim.rate_func = rate_func
+        
+        # Handle multiple animations
+        if len(animations) == 1:
+            GLThreeDScene.play(self, animations[0], **kwargs)
+        else:
+            # Multiple animations
+            if lag_ratio > 0:
+                from manim.renderer.opengl.animation.composition import LaggedStart
+                GLThreeDScene.play(self, LaggedStart(*animations, lag_ratio=lag_ratio), **kwargs)
             else:
-                sign = np.sign(camera_y_axis[2]) if camera_y_axis[2] != 0 else 1
-                current_polar_angle = sign * np.arccos(
-                    camera_position[2] / np.linalg.norm(camera_position),
-                )
-                if potential_polar_angle > maximum_polar_angle:
-                    polar_angle_delta = maximum_polar_angle - current_polar_angle
-                else:
-                    polar_angle_delta = minimum_polar_angle - current_polar_angle
-                rotation_matrix = space_ops.rotation_matrix(
-                    polar_angle_delta,
-                    axis_of_rotation,
-                    homogeneous=True,
-                )
-                self.camera.model_matrix = rotation_matrix @ self.camera.model_matrix
+                from manim.renderer.opengl.animation.composition import AnimationGroup
+                GLThreeDScene.play(self, AnimationGroup(*animations), **kwargs)
+    
+    def wait(self, duration=None, stop_condition=None, note=None, ignore_presenter_mode=False):
+        """CE-style wait method."""
+        # Call parent's wait directly
+        if duration is None:
+            duration = 1.0  # Default wait time
+        GLThreeDScene.wait(self, duration, stop_condition, note, ignore_presenter_mode)
+    
+    def bring_to_front(self, *mobjects):
+        """CE-style bring_to_front."""
+        GLThreeDScene.bring_to_front(self, *mobjects)
+        return self
+    
+    def bring_to_back(self, *mobjects):
+        """CE-style bring_to_back."""
+        GLThreeDScene.bring_to_back(self, *mobjects)
+        return self
+    
+    def clear(self):
+        """CE-style clear."""
+        GLThreeDScene.clear(self)
+        return self
+    
+    # Interactive methods from Scene
+    def on_key_press(self, symbol, modifiers):
+        """Handle key press with Scene's interactive features."""
+        # First call parent's on_key_press
+        GLThreeDScene.on_key_press(self, symbol, modifiers)
+        # Then add our interactive features if Scene has them
+        if hasattr(Scene, 'on_key_press') and hasattr(Scene, 'gather_new_selection'):
+            # Call specific interactive methods we need
+            pass
+    
+    def checkpoint_paste(self):
+        """Interactive checkpoint paste."""
+        if hasattr(Scene, 'checkpoint_paste'):
+            return Scene.checkpoint_paste(self)
+    
+    def clear_checkpoints(self):
+        """Clear checkpoints."""
+        if hasattr(Scene, 'clear_checkpoints'):
+            return Scene.clear_checkpoints(self)
+    
+    def set_camera_orientation(self, phi=None, theta=None, gamma=None, **kwargs):
+        """CE compatibility wrapper for camera orientation."""
+        # Convert CE-style angles (in radians) to degrees for reorient
+        if phi is not None or theta is not None or gamma is not None:
+            # Get current angles if not specified
+            current_theta = self.frame.get_theta() if theta is None else theta
+            current_phi = self.frame.get_phi() if phi is None else phi
+            current_gamma = self.frame.get_gamma() if gamma is None else gamma
+            
+            # Convert radians to degrees
+            theta_deg = current_theta * 180 / PI
+            phi_deg = current_phi * 180 / PI
+            gamma_deg = current_gamma * 180 / PI
+            
+            # Use reorient which expects degrees
+            self.frame.reorient(theta_deg, phi_deg, gamma_deg)
+        
+        return self
+    
+    def move_camera(self, phi=None, theta=None, gamma=None, **kwargs):
+        """CE compatibility wrapper for animating camera movement."""
+        # For animated camera movements
+        animations = []
+        
+        if theta is not None:
+            animations.append(self.frame.animate.set_theta(theta))
+        if phi is not None:
+            animations.append(self.frame.animate.set_phi(phi))
+        if gamma is not None:
+            animations.append(self.frame.animate.set_gamma(gamma))
+        
+        if animations:
+            self.play(*animations, **kwargs)
+        
+        return self
 
-            # Translate to target the original target.
-            self.camera.model_matrix = (
-                opengl.translation_matrix(*self.camera_target)
-                @ self.camera.model_matrix
-            )
-        # Right click drag.
-        elif buttons == 4:
-            camera_x_axis = self.camera.model_matrix[:3, 0]
-            horizontal_shift_vector = -d_point[0] * camera_x_axis
-            vertical_shift_vector = -d_point[1] * np.cross(OUT, camera_x_axis)
-            total_shift_vector = horizontal_shift_vector + vertical_shift_vector
 
-            self.camera.model_matrix = (
-                opengl.translation_matrix(*total_shift_vector)
-                @ self.camera.model_matrix
-            )
-            self.camera_target += total_shift_vector
-
-    def set_key_function(self, char: str, func: Callable[[], Any]) -> None:
-        self.key_to_function_map[char] = func
-
-    def on_mouse_press(self, point: Point3D, button: int, modifiers: int) -> None:
-        for func in self.mouse_press_callbacks:
-            func()
+# Alias for CE compatibility
+SpecialThreeDScene = ThreeDScene

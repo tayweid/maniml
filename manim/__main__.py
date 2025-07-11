@@ -1,101 +1,88 @@
-from __future__ import annotations
+"""Main entry point for maniml command."""
 
-import click
-import cloup
+import sys
+import os
+import importlib.util
 
-from manim import __version__
-from manim._config import cli_ctx_settings, console
-from manim.cli.cfg.group import cfg
-from manim.cli.checkhealth.commands import checkhealth
-from manim.cli.default_group import DefaultGroup
-from manim.cli.init.commands import init
-from manim.cli.plugins.commands import plugins
-from manim.cli.render.commands import render
-from manim.constants import EPILOG
+def main():
+    """Main entry point for maniml command."""
+    
+    if len(sys.argv) < 2 or '--help' in sys.argv or '-h' in sys.argv:
+        print("""
+maniml - Standalone Manim without external dependencies
 
+Usage: maniml [file] [Scene] [options]
 
-def show_splash(ctx: click.Context, param: click.Option, value: str | None) -> None:
-    """When giving a value by console, show an initial message with the Manim
-    version before executing any other command: ``Manim Community vA.B.C``.
+Options:
+  --help           Show this help message
+  -p, --preview    Preview animation after rendering
+  -e, --embed      Run in embed mode (interactive)
 
-    Parameters
-    ----------
-    ctx
-        The Click context.
-    param
-        A Click option.
-    value
-        A string value given by console, or None.
-    """
-    if value:
-        console.print(f"Manim Community [green]v{__version__}[/green]\n")
+Examples:
+  maniml example.py MyScene
+  maniml example.py MyScene -p
+""")
+        sys.exit(0)
+    
+    # Get the file and scene name
+    script_file = sys.argv[1]
+    
+    if not os.path.exists(script_file):
+        print(f"Error: File '{script_file}' not found")
+        sys.exit(1)
+    
+    # Use ManimGL's main runner which handles everything properly
+    # First, modify sys.argv to match what ManimGL expects
+    original_argv = sys.argv.copy()
+    
+    # Convert our simple args to ManimGL args
+    gl_args = ['manimgl', script_file]
+    if len(sys.argv) > 2:
+        gl_args.append(sys.argv[2])  # Scene name
+    
+    # Check for embed mode
+    if '-e' in sys.argv or '--embed' in sys.argv:
+        gl_args.extend(['-e', '1'])  # Default to line 1 if not specified
+    
+    sys.argv = gl_args
+    
+    try:
+        # Import and run ManimGL's main
+        from manim.renderer.opengl.extract_scene import main as gl_main
+        gl_main()
+    except ImportError:
+        # Fallback to our simple runner
+        sys.argv = original_argv
+        run_simple(script_file)
+    finally:
+        sys.argv = original_argv
 
+def run_simple(script_file):
+    """Simple runner when GL main is not available."""
+    spec = importlib.util.spec_from_file_location("__main__", script_file)
+    module = importlib.util.module_from_spec(spec)
+    
+    # Import manim into the module's namespace
+    import manim
+    module.__dict__.update({k: v for k, v in manim.__dict__.items() if not k.startswith('_')})
+    
+    # Execute the module
+    spec.loader.exec_module(module)
+    
+    # If scene name provided, try to render it
+    if len(sys.argv) > 2:
+        scene_name = sys.argv[2]
+        if hasattr(module, scene_name):
+            scene_class = getattr(module, scene_name)
+            if callable(scene_class):
+                # Always create window for preview mode (default)
+                from manim.renderer.opengl.window import Window
+                window = Window()
+                scene = scene_class(window=window)
+                scene.run()
+        else:
+            print(f"Error: Scene '{scene_name}' not found in {script_file}")
+            sys.exit(1)
 
-def print_version_and_exit(
-    ctx: click.Context, param: click.Option, value: str | None
-) -> None:
-    """Same as :func:`show_splash`, but also exit when giving a value by
-    console.
-
-    Parameters
-    ----------
-    ctx
-        The Click context.
-    param
-        A Click option.
-    value
-        A string value given by console, or None.
-    """
-    show_splash(ctx, param, value)
-    if value:
-        ctx.exit()
-
-
-@cloup.group(
-    context_settings=cli_ctx_settings,
-    cls=DefaultGroup,
-    default="render",
-    no_args_is_help=True,
-    help="Animation engine for explanatory math videos.",
-    epilog="See 'manim <command>' to read about a specific subcommand.\n\n"
-    "Note: the subcommand 'manim render' is called if no other subcommand "
-    "is specified. Run 'manim render --help' if you would like to know what the "
-    f"'-ql' or '-p' flags do, for example.\n\n{EPILOG}",
-)
-@cloup.option(
-    "--version",
-    is_flag=True,
-    help="Show version and exit.",
-    callback=print_version_and_exit,
-    is_eager=True,
-    expose_value=False,
-)
-@click.option(
-    "--show-splash/--hide-splash",
-    is_flag=True,
-    default=True,
-    help="Print splash message with version information.",
-    callback=show_splash,
-    is_eager=True,
-    expose_value=False,
-)
-@cloup.pass_context
-def main(ctx: click.Context) -> None:
-    """The entry point for Manim.
-
-    Parameters
-    ----------
-    ctx
-        The Click context.
-    """
-    pass
-
-
-main.add_command(checkhealth)
-main.add_command(cfg)
-main.add_command(plugins)
-main.add_command(init)
-main.add_command(render)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -1,13 +1,9 @@
-"""Mobjects used to display Text using Pango or LaTeX.
+"""Text-related mobjects."""
 
-Modules
-=======
+from .text_mobject import Text, MarkupText, Paragraph
+from .tex_mobject import Tex, MathTex, SingleStringMathTex, TexTemplate
 
-.. autosummary::
-    :toctree: ../reference
-
-    ~code_mobject
-    ~numbers
-    ~tex_mobject
-    ~text_mobject
-"""
+__all__ = [
+    "Text", "MarkupText", "Paragraph",
+    "Tex", "MathTex", "SingleStringMathTex", "TexTemplate",
+]

@@ -1,184 +1,113 @@
-"""Animations related to movement."""
+"""
+Movement animations with CE compatibility.
+"""
 
-from __future__ import annotations
-
-__all__ = [
-    "Homotopy",
-    "SmoothedVectorizedHomotopy",
-    "ComplexHomotopy",
-    "PhaseFlow",
-    "MoveAlongPath",
-]
-
-from typing import TYPE_CHECKING, Any, Callable
-
+import manim.renderer.opengl
+from manim.renderer.opengl.animation.animation import Animation as GLAnimation
+from manim.renderer.opengl.animation.movement import (
+    Homotopy as GLHomotopy,
+    ComplexHomotopy as GLComplexHomotopy,
+    PhaseFlow as GLPhaseFlow,
+    MoveAlongPath as GLMoveAlongPath,
+)
+from manim.renderer.opengl.animation.rotation import (
+    Rotate as GLRotate,
+    Rotating as GLRotating,
+)
+from manim.renderer.opengl.animation.transform import ApplyMethod
+from manim.renderer.opengl.constants import *
+import warnings
 import numpy as np
 
-from ..animation.animation import Animation
-from ..utils.rate_functions import linear
-
-if TYPE_CHECKING:
-    from ..mobject.mobject import Mobject, VMobject
-
-
-class Homotopy(Animation):
-    """A Homotopy.
-
-    This is an animation transforming the points of a mobject according
-    to the specified transformation function. With the parameter :math:`t`
-    moving from 0 to 1 throughout the animation and :math:`(x, y, z)`
-    describing the coordinates of the point of a mobject,
-    the function passed to the ``homotopy`` keyword argument should
-    transform the tuple :math:`(x, y, z, t)` to :math:`(x', y', z')`,
-    the coordinates the original point is transformed to at time :math:`t`.
-
-    Parameters
-    ----------
-    homotopy
-        A function mapping :math:`(x, y, z, t)` to :math:`(x', y', z')`.
-    mobject
-        The mobject transformed under the given homotopy.
-    run_time
-        The run time of the animation.
-    apply_function_kwargs
-        Keyword arguments propagated to :meth:`.Mobject.apply_function`.
-    kwargs
-        Further keyword arguments passed to the parent class.
-
-    Examples
-    --------
-
-    .. manim:: HomotopyExample
-
-        class HomotopyExample(Scene):
-            def construct(self):
-                square = Square()
-
-                def homotopy(x, y, z, t):
-                    if t <= 0.25:
-                        progress = t / 0.25
-                        return (x, y + progress * 0.2 * np.sin(x), z)
-                    else:
-                        wave_progress = (t - 0.25) / 0.75
-                        return (x, y + 0.2 * np.sin(x + 10 * wave_progress), z)
-
-                self.play(Homotopy(homotopy, square, rate_func= linear, run_time=2))
-
-    """
-
-    def __init__(
-        self,
-        homotopy: Callable[[float, float, float, float], tuple[float, float, float]],
-        mobject: Mobject,
-        run_time: float = 3,
-        apply_function_kwargs: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> None:
-        self.homotopy = homotopy
-        self.apply_function_kwargs = (
-            apply_function_kwargs if apply_function_kwargs is not None else {}
-        )
-        super().__init__(mobject, run_time=run_time, **kwargs)
-
-    def function_at_time_t(self, t: float) -> tuple[float, float, float]:
-        return lambda p: self.homotopy(*p, t)
-
-    def interpolate_submobject(
-        self,
-        submobject: Mobject,
-        starting_submobject: Mobject,
-        alpha: float,
-    ) -> None:
-        submobject.points = starting_submobject.points
-        submobject.apply_function(
-            self.function_at_time_t(alpha), **self.apply_function_kwargs
-        )
+# Import OUT for default rotation axis
+try:
+    from manim.renderer.opengl.constants import OUT
+except ImportError:
+    OUT = np.array([0., 0., 1.])
 
 
-class SmoothedVectorizedHomotopy(Homotopy):
-    def interpolate_submobject(
-        self,
-        submobject: Mobject,
-        starting_submobject: Mobject,
-        alpha: float,
-    ) -> None:
-        super().interpolate_submobject(submobject, starting_submobject, alpha)
-        submobject.make_smooth()
+# Direct mappings
+Homotopy = GLHomotopy
+ComplexHomotopy = GLComplexHomotopy
+PhaseFlow = GLPhaseFlow
+MoveAlongPath = GLMoveAlongPath
+Rotate = GLRotate
 
 
-class ComplexHomotopy(Homotopy):
-    def __init__(
-        self, complex_homotopy: Callable[[complex], float], mobject: Mobject, **kwargs
-    ) -> None:
-        """Complex Homotopy a function Cx[0, 1] to C"""
-
-        def homotopy(
-            x: float,
-            y: float,
-            z: float,
-            t: float,
-        ) -> tuple[float, float, float]:
-            c = complex_homotopy(complex(x, y), t)
-            return (c.real, c.imag, z)
-
-        super().__init__(homotopy, mobject, **kwargs)
+class RotateInPlace(GLRotate):
+    """CE compatibility - RotateInPlace is just Rotate about center."""
+    
+    def __init__(self, mobject, angle=2*3.14159, **kwargs):
+        # Ensure rotation is about the mobject's center
+        kwargs['about_point'] = mobject.get_center()
+        super().__init__(mobject, angle=angle, **kwargs)
 
 
-class PhaseFlow(Animation):
-    def __init__(
-        self,
-        function: Callable[[np.ndarray], np.ndarray],
-        mobject: Mobject,
-        virtual_time: float = 1,
-        suspend_mobject_updating: bool = False,
-        rate_func: Callable[[float], float] = linear,
-        **kwargs,
-    ) -> None:
-        self.virtual_time = virtual_time
-        self.function = function
-        super().__init__(
-            mobject,
-            suspend_mobject_updating=suspend_mobject_updating,
-            rate_func=rate_func,
-            **kwargs,
-        )
-
-    def interpolate_mobject(self, alpha: float) -> None:
-        if hasattr(self, "last_alpha"):
-            dt = self.virtual_time * (
-                self.rate_func(alpha) - self.rate_func(self.last_alpha)
-            )
-            self.mobject.apply_function(lambda p: p + dt * self.function(p))
-        self.last_alpha = alpha
+# In CE, Shift/MoveTo/Scale are animations, in GL they're mobject methods
+class Shift(ApplyMethod):
+    """CE-compatible Shift animation."""
+    
+    def __init__(self, mobject, direction, **kwargs):
+        super().__init__(mobject.shift, direction, **kwargs)
 
 
-class MoveAlongPath(Animation):
-    """Make one mobject move along the path of another mobject.
+class MoveTo(ApplyMethod):
+    """CE-compatible MoveTo animation."""
+    
+    def __init__(self, mobject, point_or_mobject, aligned_edge=ORIGIN, **kwargs):
+        if hasattr(point_or_mobject, 'get_center'):
+            # It's a mobject
+            target = point_or_mobject.get_center()
+        else:
+            # It's a point
+            target = point_or_mobject
+        
+        # mobject.move_to accepts aligned_edge as parameter
+        import numpy as np
+        if not np.array_equal(aligned_edge, ORIGIN):
+            super().__init__(mobject.move_to, target, aligned_edge, **kwargs)
+        else:
+            super().__init__(mobject.move_to, target, **kwargs)
 
-    .. manim:: MoveAlongPathExample
 
-        class MoveAlongPathExample(Scene):
-            def construct(self):
-                d1 = Dot().set_color(ORANGE)
-                l1 = Line(LEFT, RIGHT)
-                l2 = VMobject()
-                self.add(d1, l1, l2)
-                l2.add_updater(lambda x: x.become(Line(LEFT, d1.get_center()).set_color(ORANGE)))
-                self.play(MoveAlongPath(d1, l1), rate_func=linear)
-    """
+class Scale(GLAnimation):
+    """CE-compatible Scale animation."""
+    
+    def __init__(self, mobject, scale_factor, about_edge=None, about_point=None, **kwargs):
+        self.scale_factor = scale_factor
+        self.about_edge = about_edge
+        self.about_point = about_point
+        
+        # Store original scale
+        self.original_points = mobject.get_points().copy()
+        self.original_center = mobject.get_center()
+        
+        super().__init__(mobject, **kwargs)
+        
+    def interpolate_mobject(self, alpha):
+        # Reset to original state
+        self.mobject.set_points(self.original_points)
+        self.mobject.move_to(self.original_center)
+        
+        # Apply scale with interpolation
+        scale = 1 + (self.scale_factor - 1) * alpha
+        
+        scale_kwargs = {}
+        if self.about_edge is not None:
+            scale_kwargs['about_edge'] = self.about_edge
+        if self.about_point is not None:
+            scale_kwargs['about_point'] = self.about_point
+            
+        self.mobject.scale(scale, **scale_kwargs)
 
-    def __init__(
-        self,
-        mobject: Mobject,
-        path: VMobject,
-        suspend_mobject_updating: bool = False,
-        **kwargs,
-    ) -> None:
-        self.path = path
-        super().__init__(
-            mobject, suspend_mobject_updating=suspend_mobject_updating, **kwargs
-        )
 
-    def interpolate_mobject(self, alpha: float) -> None:
-        point = self.path.point_from_proportion(self.rate_func(alpha))
-        self.mobject.move_to(point)
+class Rotating(GLRotating):
+    """CE-compatible Rotating - continuous rotation."""
+    
+    def __init__(self, mobject, radians=2*PI, axis=None, **kwargs):
+        # CE uses 'radians', GL uses 'angle'
+        angle = kwargs.pop('radians', radians)
+        # Default axis if not specified
+        if axis is None:
+            axis = OUT  # [0, 0, 1] - rotate around z-axis
+        super().__init__(mobject, angle=angle, axis=axis, **kwargs)

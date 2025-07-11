@@ -68,20 +68,46 @@ import itertools as it
 from collections.abc import Iterable, Sequence
 from typing import Callable
 
-from manim.mobject.geometry.line import Line
-from manim.mobject.geometry.polygram import Polygon
-from manim.mobject.geometry.shape_matchers import BackgroundRectangle
-from manim.mobject.text.numbers import DecimalNumber, Integer
-from manim.mobject.text.tex_mobject import MathTex
-from manim.mobject.text.text_mobject import Paragraph
+import numpy as np
 
-from ..animation.animation import Animation
-from ..animation.composition import AnimationGroup
-from ..animation.creation import Create, Write
-from ..animation.fading import FadeIn
-from ..mobject.types.vectorized_mobject import VGroup, VMobject
-from ..utils.color import BLACK, YELLOW, ManimColor, ParsableManimColor
-from .utils import get_vectorized_mobject_class
+from manim.renderer.opengl.mobject.geometry import Line, Polygon, Rectangle, Circle
+from manim.renderer.opengl.mobject.svg.text_mobject import Text
+from manim.renderer.opengl.mobject.numbers import DecimalNumber, Integer
+from manim.renderer.opengl.mobject.types.vectorized_mobject import VGroup, VMobject
+from manim.renderer.opengl.animation.creation import ShowCreation as Create
+from manim.renderer.opengl.animation.creation import Write
+from manim.renderer.opengl.animation.fading import FadeIn
+from manim.renderer.opengl.animation.animation import Animation
+from manim.renderer.opengl.animation.composition import AnimationGroup
+from manim.renderer.opengl.constants import *
+from manim.renderer.opengl.utils.color import Color
+
+def random_bright_color():
+    """Generate a random bright color for examples."""
+    import random
+    from manim.renderer.opengl.constants import PURE_RED, PURE_GREEN, PURE_BLUE, YELLOW, PINK, ORANGE, PURPLE_A, TEAL
+    colors = [PURE_RED, PURE_GREEN, PURE_BLUE, YELLOW, PINK, ORANGE, PURPLE_A, TEAL]
+    return random.choice(colors)
+
+# Import our wrapped text mobjects
+from manim.mobject.text.text_mobject import Paragraph
+from manim.mobject.text.tex_mobject import MathTex
+from manim.mobject.geometry import Star
+
+
+class BackgroundRectangle(Rectangle):
+    """A simple background rectangle for CE compatibility."""
+    def __init__(self, mobject, color=BLACK, buff=0.1, **kwargs):
+        super().__init__(
+            width=mobject.get_width() + 2*buff,
+            height=mobject.get_height() + 2*buff,
+            color=color,
+            fill_color=color,
+            fill_opacity=1,
+            stroke_width=0,
+            **kwargs
+        )
+        self.move_to(mobject)
 
 
 class Table(VGroup):
@@ -195,9 +221,9 @@ class Table(VGroup):
         h_buff: float = 1.3,
         include_outer_lines: bool = False,
         add_background_rectangles_to_entries: bool = False,
-        entries_background_color: ParsableManimColor = BLACK,
+        entries_background_color = BLACK,
         include_background_rectangle: bool = False,
-        background_rectangle_color: ParsableManimColor = BLACK,
+        background_rectangle_color = BLACK,
         element_to_mobject: Callable[
             [float | str | VMobject],
             VMobject,
@@ -216,9 +242,9 @@ class Table(VGroup):
         self.h_buff = h_buff
         self.include_outer_lines = include_outer_lines
         self.add_background_rectangles_to_entries = add_background_rectangles_to_entries
-        self.entries_background_color = ManimColor(entries_background_color)
+        self.entries_background_color = Color(entries_background_color)
         self.include_background_rectangle = include_background_rectangle
-        self.background_rectangle_color = ManimColor(background_rectangle_color)
+        self.background_rectangle_color = Color(background_rectangle_color)
         self.element_to_mobject = element_to_mobject
         self.element_to_mobject_config = element_to_mobject_config
         self.arrange_in_grid_config = arrange_in_grid_config
@@ -294,9 +320,10 @@ class Table(VGroup):
             for j, _ in enumerate(row):
                 help_table.add(table[i][j])
         help_table.arrange_in_grid(
-            rows=len(table),
-            cols=len(table[0]),
-            buff=(self.h_buff, self.v_buff),
+            n_rows=len(table),
+            n_cols=len(table[0]),
+            h_buff=self.h_buff,
+            v_buff=self.v_buff,
             **self.arrange_in_grid_config,
         )
         return help_table
@@ -324,8 +351,7 @@ class Table(VGroup):
                     mob_table.insert(0, col_labels)
                 else:
                     # Placeholder to use arrange_in_grid if top_left_entry is not set.
-                    # Import OpenGLVMobject to work with --renderer=opengl
-                    dummy_mobject = get_vectorized_mobject_class()()
+                    dummy_mobject = VMobject()
                     col_labels = [dummy_mobject] + self.col_labels
                     mob_table.insert(0, col_labels)
             else:
@@ -502,7 +528,7 @@ class Table(VGroup):
         """
         return VGroup(*(VGroup(*row) for row in self.mob_table))
 
-    def set_column_colors(self, *colors: Iterable[ParsableManimColor]) -> Table:
+    def set_column_colors(self, *colors: Iterable) -> Table:
         """Set individual colors for each column of the table.
 
         Parameters
@@ -531,7 +557,7 @@ class Table(VGroup):
             column.set_color(color)
         return self
 
-    def set_row_colors(self, *colors: Iterable[ParsableManimColor]) -> Table:
+    def set_row_colors(self, *colors: Iterable) -> Table:
         """Set individual colors for each row of the table.
 
         Parameters
@@ -707,55 +733,93 @@ class Table(VGroup):
                         row_labels=[Text("R1"), Text("R2")],
                         col_labels=[Text("C1"), Text("C2")])
                     lab = table.get_col_labels()
-                    for item in lab:
-                        item.set_color(random_bright_color())
+                    colors = [BLUE, GREEN]
+                    for k in range(len(colors)):
+                        lab[k].set_color(colors[k])
                     self.add(table)
         """
         return VGroup(*self.col_labels)
 
     def get_labels(self) -> VGroup:
-        """Returns the labels of the table.
+        """Return the labels of the table.
 
         Returns
         --------
         :class:`~.VGroup`
             :class:`~.VGroup` containing all the labels of the table.
+        """
+        label_group = VGroup()
+        if self.top_left_entry is not None:
+            label_group.add(self.top_left_entry)
+        if self.row_labels is not None:
+            label_group.add(*self.row_labels)
+        if self.col_labels is not None:
+            label_group.add(*self.col_labels)
+        return label_group
+
+    def add_background_to_entries(self, color=BLACK) -> Table:
+        """Add a :class:`~.BackgroundRectangle` to each entry of the table.
+
+        Parameters
+        ----------
+        color
+            The color of the :class:`~.BackgroundRectangle`.
 
         Examples
         --------
 
-        .. manim:: GetLabelsExample
+        .. manim:: AddBackgroundToEntriesExample
             :save_last_frame:
 
-            class GetLabelsExample(Scene):
+            class AddBackgroundToEntriesExample(Scene):
                 def construct(self):
                     table = Table(
                         [["First", "Second"],
                         ["Third","Fourth"]],
                         row_labels=[Text("R1"), Text("R2")],
                         col_labels=[Text("C1"), Text("C2")])
-                    lab = table.get_labels()
-                    colors = [BLUE, GREEN, YELLOW, RED]
-                    for k in range(len(colors)):
-                        lab[k].set_color(colors[k])
+                    table.add_background_to_entries()
                     self.add(table)
         """
-        label_group = VGroup()
-        if self.top_left_entry is not None:
-            label_group.add(self.top_left_entry)
-        for label in (self.col_labels, self.row_labels):
-            if label is not None:
-                label_group.add(*label)
-        return label_group
+        for entry in self.get_entries():
+            background_rect = BackgroundRectangle(entry, color=color)
+            entry.background_rectangle = background_rect
+            self.add_to_back(background_rect)
+        return self
 
-    def add_background_to_entries(self, color: ParsableManimColor = BLACK) -> Table:
-        """Adds a black :class:`~.BackgroundRectangle` to each entry of the table."""
-        for mob in self.get_entries():
-            mob.add_background_rectangle(color=ManimColor(color))
+    def add_background_rectangle(self, color=BLACK, **kwargs) -> Table:
+        """Add a :class:`~.BackgroundRectangle` to the table.
+
+        Parameters
+        ----------
+        color
+            The color of the :class:`~.BackgroundRectangle`.
+        kwargs
+            Additional arguments to be passed to :class:`~.BackgroundRectangle`.
+
+        Examples
+        --------
+
+        .. manim:: AddBackgroundRectangleExample
+            :save_last_frame:
+
+            class AddBackgroundRectangleExample(Scene):
+                def construct(self):
+                    table = Table(
+                        [["First", "Second"],
+                        ["Third","Fourth"]],
+                        row_labels=[Text("R1"), Text("R2")],
+                        col_labels=[Text("C1"), Text("C2")])
+                    table.add_background_rectangle()
+                    self.add(table)
+        """
+        background_rect = BackgroundRectangle(self, color=color, **kwargs)
+        self.background_rectangle = background_rect
+        self.add_to_back(background_rect)
         return self
 
     def get_cell(self, pos: Sequence[int] = (1, 1), **kwargs) -> Polygon:
-        """Returns one specific cell as a rectangular :class:`~.Polygon` without the entry.
+        """Returns a :class:`~.Polygon` matching the cell at the given position.
 
         Parameters
         ----------
@@ -768,7 +832,7 @@ class Table(VGroup):
         Returns
         -------
         :class:`~.Polygon`
-            Polygon mimicking one specific cell of the Table.
+            :class:`~.Polygon` matching a specific cell.
 
         Examples
         --------
@@ -784,7 +848,8 @@ class Table(VGroup):
                         row_labels=[Text("R1"), Text("R2")],
                         col_labels=[Text("C1"), Text("C2")])
                     cell = table.get_cell((2,2), color=RED)
-                    self.add(table, cell)
+                    table.add_to_back(cell)
+                    self.add(table)
         """
         row = self.get_rows()[pos[0] - 1]
         col = self.get_columns()[pos[1] - 1]
@@ -812,7 +877,7 @@ class Table(VGroup):
         return rec
 
     def get_highlighted_cell(
-        self, pos: Sequence[int] = (1, 1), color: ParsableManimColor = YELLOW, **kwargs
+        self, pos: Sequence[int] = (1, 1), color = YELLOW, **kwargs
     ) -> BackgroundRectangle:
         """Returns a :class:`~.BackgroundRectangle` of the cell at the given position.
 
@@ -844,11 +909,11 @@ class Table(VGroup):
                     self.add(table)
         """
         cell = self.get_cell(pos)
-        bg_cell = BackgroundRectangle(cell, color=ManimColor(color), **kwargs)
+        bg_cell = BackgroundRectangle(cell, color=Color(color), **kwargs)
         return bg_cell
 
     def add_highlighted_cell(
-        self, pos: Sequence[int] = (1, 1), color: ParsableManimColor = YELLOW, **kwargs
+        self, pos: Sequence[int] = (1, 1), color = YELLOW, **kwargs
     ) -> Table:
         """Highlights one cell at a specific position on the table by adding a :class:`~.BackgroundRectangle`.
 
@@ -878,7 +943,7 @@ class Table(VGroup):
                     table.add_highlighted_cell((2,2), color=GREEN)
                     self.add(table)
         """
-        bg_cell = self.get_highlighted_cell(pos, color=ManimColor(color), **kwargs)
+        bg_cell = self.get_highlighted_cell(pos, color=Color(color), **kwargs)
         self.add_to_back(bg_cell)
         entry = self.get_entries(pos)
         entry.background_rectangle = bg_cell
@@ -990,7 +1055,7 @@ class MathTable(Table):
     def __init__(
         self,
         table: Iterable[Iterable[float | str]],
-        element_to_mobject: Callable[[float | str], VMobject] = MathTex,
+        element_to_mobject: Callable[[float | str], VMobject] = None,
         **kwargs,
     ):
         """
@@ -1000,18 +1065,19 @@ class MathTable(Table):
         Parameters
         ----------
         table
-            A 2d array or list of lists. Content of the table have to be valid input
-            for :class:`~.MathTex`.
+            A 2D array or list of lists with floats/strings as entries.
         element_to_mobject
-            The :class:`~.Mobject` class applied to the table entries. Set as :class:`~.MathTex`.
+            The :class:`~.Mobject` class applied to the table entries. Set to :class:`~.MathTex` by default.
         kwargs
             Additional arguments to be passed to :class:`~.Table`.
         """
-        super().__init__(
-            table,
-            element_to_mobject=element_to_mobject,
-            **kwargs,
-        )
+        # Create a wrapper that converts values to strings for MathTex
+        if element_to_mobject is None:
+            def math_element_to_mobject(item):
+                return MathTex(str(item))
+            element_to_mobject = math_element_to_mobject
+            
+        super().__init__(table, element_to_mobject=element_to_mobject, **kwargs)
 
 
 class MobjectTable(Table):
@@ -1039,7 +1105,8 @@ class MobjectTable(Table):
                 line = Line(
                     t0.get_corner(DL), t0.get_corner(UR)
                 ).set_color(RED)
-                self.add(t0, line)
+                t0.add(line)
+                self.add(t0)
     """
 
     def __init__(
@@ -1049,15 +1116,15 @@ class MobjectTable(Table):
         **kwargs,
     ):
         """
-        Special case of :class:`~.Table` with ``element_to_mobject`` set to an identity function.
-        Here, every item in ``table`` must already be of type :class:`~.Mobject`.
+        Special case of :class:`~.Table` with `element_to_mobject` set to return the mobject
+        passed to it.
 
         Parameters
         ----------
         table
-            A 2D array or list of lists. Content of the table must be of type :class:`~.Mobject`.
+            A 2D array or list of lists with :class:`~.VMobject` entries.
         element_to_mobject
-            The :class:`~.Mobject` class applied to the table entries. Set as ``lambda m : m`` to return itself.
+            The :class:`~.Mobject` class applied to the table entries. Set to return the mobject itself by default.
         kwargs
             Additional arguments to be passed to :class:`~.Table`.
         """
@@ -1065,7 +1132,7 @@ class MobjectTable(Table):
 
 
 class IntegerTable(Table):
-    r"""A specialized :class:`~.Table` mobject for use with :class:`~.Integer`.
+    """A specialized :class:`~.Table` mobject for use with :class:`~.Integer`.
 
     Examples
     --------
@@ -1079,34 +1146,32 @@ class IntegerTable(Table):
                     [[0,30,45,60,90],
                     [90,60,45,30,0]],
                     col_labels=[
-                        MathTex(r"\frac{\sqrt{0}}{2}"),
-                        MathTex(r"\frac{\sqrt{1}}{2}"),
-                        MathTex(r"\frac{\sqrt{2}}{2}"),
-                        MathTex(r"\frac{\sqrt{3}}{2}"),
-                        MathTex(r"\frac{\sqrt{4}}{2}")],
-                    row_labels=[MathTex(r"\sin"), MathTex(r"\cos")],
+                        MathTex("\\\\frac{\\sqrt{0}}{2}"),
+                        MathTex("\\\\frac{\\sqrt{1}}{2}"),
+                        MathTex("\\\\frac{\\sqrt{2}}{2}"),
+                        MathTex("\\\\frac{\\sqrt{3}}{2}"),
+                        MathTex("\\\\frac{\\sqrt{4}}{2}")],
+                    row_labels=[MathTex("\\sin"), MathTex("\\cos")],
                     h_buff=1,
-                    element_to_mobject_config={"unit": r"^{\circ}"})
+                    element_to_mobject_config={"unit": "^{\\circ}"})
                 self.add(t0)
     """
 
     def __init__(
         self,
-        table: Iterable[Iterable[float | str]],
-        element_to_mobject: Callable[[float | str], VMobject] = Integer,
+        table: Iterable[Iterable[float | int]],
+        element_to_mobject: Callable[[float | int], VMobject] = Integer,
         **kwargs,
     ):
         """
-        Special case of :class:`~.Table` with `element_to_mobject` set to :class:`~.Integer`.
-        Will round if there are decimal entries in the table.
+        Special case of :class:`~.Table` with `element_to_mobject` set to :class:`~.Integer` by default.
 
         Parameters
         ----------
         table
-            A 2d array or list of lists. Content of the table has to be valid input
-            for :class:`~.Integer`.
+            A 2D array or list of lists with floats/integers as entries.
         element_to_mobject
-            The :class:`~.Mobject` class applied to the table entries. Set as :class:`~.Integer`.
+            The :class:`~.Mobject` class applied to the table entries. Set to :class:`~.Integer` by default.
         kwargs
             Additional arguments to be passed to :class:`~.Table`.
         """
@@ -1114,7 +1179,7 @@ class IntegerTable(Table):
 
 
 class DecimalTable(Table):
-    """A specialized :class:`~.Table` mobject for use with :class:`~.DecimalNumber` to display decimal entries.
+    """A specialized :class:`~.Table` mobject for use with :class:`~.DecimalNumber`.
 
     Examples
     --------
@@ -1124,37 +1189,34 @@ class DecimalTable(Table):
 
         class DecimalTableExample(Scene):
             def construct(self):
-                x_vals = [-2,-1,0,1,2]
-                y_vals = np.exp(x_vals)
+                x_vals = [1, 2, 3, 4]
+                y_vals = [1, 4, 9, 16]
                 t0 = DecimalTable(
                     [x_vals, y_vals],
-                    row_labels=[MathTex("x"), MathTex("f(x)=e^{x}")],
-                    h_buff=1,
-                    element_to_mobject_config={"num_decimal_places": 2})
+                    row_labels=[MathTex("x"), MathTex("f(x)=x^2")],
+                    include_outer_lines=True)
                 self.add(t0)
     """
 
     def __init__(
         self,
-        table: Iterable[Iterable[float | str]],
-        element_to_mobject: Callable[[float | str], VMobject] = DecimalNumber,
+        table: Iterable[Iterable[float]],
+        element_to_mobject: Callable[[float], VMobject] = DecimalNumber,
         element_to_mobject_config: dict = {"num_decimal_places": 1},
         **kwargs,
     ):
         """
-        Special case of :class:`~.Table` with ``element_to_mobject`` set to :class:`~.DecimalNumber`.
-        By default, ``num_decimal_places`` is set to 1.
-        Will round/truncate the decimal places based on the provided ``element_to_mobject_config``.
+        Special case of :class:`~.Table` with `element_to_mobject` set to :class:`~.DecimalNumber`
+        by default.
 
         Parameters
         ----------
         table
-            A 2D array, or a list of lists. Content of the table must be valid input
-            for :class:`~.DecimalNumber`.
+            A 2D array or list of lists with floats as entries.
         element_to_mobject
-            The :class:`~.Mobject` class applied to the table entries. Set as :class:`~.DecimalNumber`.
+            The :class:`~.Mobject` class applied to the table entries. Set to :class:`~.DecimalNumber` by default.
         element_to_mobject_config
-            Element to mobject config, here set as {"num_decimal_places": 1}.
+            Custom configuration passed to :attr:`element_to_mobject`. Set to ``{"num_decimal_places": 1}`` by default.
         kwargs
             Additional arguments to be passed to :class:`~.Table`.
         """
