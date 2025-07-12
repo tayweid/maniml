@@ -27,6 +27,17 @@ Running an animation:
 
 There may have to be a restore_scene run right before running exec(). I'm not sure how exec interacts with the window. 
 
+
+
+ok so would there be a way to copy the namespace to give each object a different id than the objects in another checkpoint's namespace? 
+if we could do this i think we could save a reference to the mobjects in the checkpoints namespace without introducing the possibility of conflicting with other checkpoint mobjects. 
+this would create distinct bundles at each checkpoint. 
+then we clear the screen, run code on the bundle to create the next checkpoint, and continue.
+
+Yes, you're suggesting we deep copy the mobjects when copying the namespace, so each checkpoint has its own isolated set of mobject instances. This would create distinct "bundles" at each checkpoint. The key insight is that by deep copying mobjects when creating namespace copies, we create isolated "worlds" at each checkpoint, which is exactly what the spec seems to intend with the checkpoint_temporary workflow.
+
+
+
 So running an animation creates a checkpoint when the .play() first method is called, exiting exec(). Creating a checkpoint saves the checkpoint `index`, the `line_number` of the LAST line of the play() call in the .py file to handle multiline play() calls, the `state` which stores the state of manim objects for quick reloading, and the `namespace` containing the environment at the code run up to the END of the checkpoing which enables quickly running code starting at the end of any checkpoint. 
 
 If we’re at the furthest checkpoint created so far (checkpoints[-1]), then we have to use run_next_animation(), creating the next checkpoint.
