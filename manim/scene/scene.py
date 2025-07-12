@@ -20,6 +20,7 @@ import numpy as np
 from manim.renderer.opengl.event_handler import EVENT_DISPATCHER
 from manim.renderer.opengl.event_handler.event_listner import EventListener
 from manim.renderer.opengl.event_handler.event_type import EventType
+from manim.scene.scene_utils import deepcopy_namespace
 
 # Import mobject types for selection
 from manim.renderer.opengl.mobject.mobject import Group
@@ -196,12 +197,19 @@ class Scene(GLScene):
         # Add self reference
         baseline_namespace['self'] = self
         
+        # Add empty state to namespace
+        baseline_namespace['__checkpoint_state__'] = self.get_state()
+        
+        # Deep copy (though not much to copy yet)
+        checkpoint_namespace = deepcopy_namespace(baseline_namespace)
+        checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+        
         # Create checkpoint 0
         checkpoint_zero = {
             'index': 0,
             'line_number': 0,
-            'state': self.get_state(),  # Empty scene state
-            'namespace': baseline_namespace
+            'state': checkpoint_state,
+            'namespace': checkpoint_namespace
         }
         
         self.animation_checkpoints.append(checkpoint_zero)
@@ -1025,18 +1033,23 @@ class Scene(GLScene):
             return
             
         # Create checkpoint_temporary
-        checkpoint_temporary = {}
+        #checkpoint_temporary = {}
         
         # Get current checkpoint
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
         
-        # Copy namespace from current checkpoint
-        checkpoint_temporary['namespace'] = current_checkpoint['namespace'].copy()
+        # Deep copy namespace from current checkpoint
+        #OLD checkpoint_temporary['namespace'] = deepcopy_namespace(current_checkpoint['namespace'])
+        checkpoint_temporary = deepcopy_namespace(current_checkpoint) #NEW
         
-        # Clear the window (mobjects will be restored from exec)
+        # Clear the window
         self.clear()
         
+        # Restore state from current checkpoint
+        # This adds all the mobjects to the scene
+        self.restore_state(checkpoint_temporary['state']) #NEW
+
         # Get the code to run
         if hasattr(self, '_scene_filepath') and self._scene_filepath:
             try:
@@ -1097,16 +1110,8 @@ class Scene(GLScene):
                 self._navigating_animations = True
                 
                 try:
-                    # Update namespace with self and scene methods
-                    checkpoint_temporary['namespace'].update({
-                        'self': self,
-                        'scene': self,
-                        'play': self.play,
-                        'wait': self.wait,
-                        'add': self.add,
-                        'remove': self.remove,
-                        'camera': self.camera,
-                    })
+                    # Update self reference to point to current scene
+                    checkpoint_temporary['namespace']['self'] = self
                     
                     # Execute the code
                     exec(code_to_run, checkpoint_temporary['namespace'])
@@ -1114,16 +1119,26 @@ class Scene(GLScene):
                     # Animation completed, now finalize the checkpoint
                     self.current_animation_index = next_index
                     
-                    # Get final state and namespace
-                    checkpoint_temporary['index'] = next_index
-                    checkpoint_temporary['line_number'] = next_line_number
-                    checkpoint_temporary['state'] = self.get_state()
+                    # Add state to namespace for deepcopy
+                    checkpoint_temporary['namespace']['__checkpoint_state__'] = self.get_state()
+                    
+                    # Deep copy for final storage
+                    final_checkpoint = deepcopy_namespace(checkpoint_temporary['namespace'])
+                    final_state = final_checkpoint.pop('__checkpoint_state__')
+                    
+                    # Create final checkpoint
+                    checkpoint = {
+                        'index': next_index,
+                        'line_number': next_line_number,
+                        'state': final_state,
+                        'namespace': final_checkpoint
+                    }
                     
                     # Add or update checkpoint
                     if next_index < len(self.animation_checkpoints):
-                        self.animation_checkpoints[next_index] = checkpoint_temporary
+                        self.animation_checkpoints[next_index] = checkpoint
                     else:
-                        self.animation_checkpoints.append(checkpoint_temporary)
+                        self.animation_checkpoints.append(checkpoint)
                     
                     print(f"→ Played animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
                     
@@ -1180,15 +1195,23 @@ class Scene(GLScene):
         # Also include globals from the calling module
         namespace.update(frame.f_globals)
         
+        # Add current state to namespace BEFORE deepcopy
+        namespace['__checkpoint_state__'] = self.get_state()
+        
+        # Deep copy everything together - references are preserved!
+        checkpoint_namespace = deepcopy_namespace(namespace)
+        
+        # Extract state from deepcopied namespace
+        checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+        
         # Save checkpoint AFTER animation completes
         self.current_animation_index += 1
-        state = self.get_state()
         
         checkpoint = {
             'index': self.current_animation_index,
             'line_number': line_no,
-            'state': state,
-            'namespace': namespace
+            'state': checkpoint_state,  # References deepcopied mobjects
+            'namespace': checkpoint_namespace  # Contains same mobjects
         }
         
         self.animation_checkpoints.append(checkpoint)
