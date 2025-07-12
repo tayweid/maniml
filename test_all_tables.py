@@ -63,9 +63,3 @@ class TestAllTables(Scene):
         # Add with animation
         self.play(Create(g1), Create(g2))
         self.wait(3)
-
-if __name__ == "__main__":
-    from manim.renderer.opengl.window import Window
-    window = Window()
-    scene = TestAllTables(window=window)
-    scene.run()

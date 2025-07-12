@@ -1,0 +1,1 @@
+manim example.py SceneName

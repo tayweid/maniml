@@ -26,7 +26,7 @@ class TestBarChart(Scene):
         chart.change_bar_values(new_values)
         new_labels = chart.get_bar_labels(font_size=48)
         self.remove(c_bar_lbls)
-        self.add(new_labels)
+        self.play(FadeIn(new_labels))
         self.wait(2)
 
 class TestBarChartSimple(Scene):
@@ -46,9 +46,3 @@ class TestBarChartSimple(Scene):
         
         self.add(chart, labels)
         self.wait()
-
-if __name__ == "__main__":
-    from manim.renderer.opengl.window import Window
-    window = Window()
-    scene = TestBarChart(window=window)
-    scene.run()
