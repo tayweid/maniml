@@ -177,9 +177,6 @@ class Scene(GLScene):
             
         # Setup interactive elements
         self.setup_interactive_elements()
-        
-        # Initialize checkpoint 0 - baseline state
-        self.initialize_checkpoint_zero()
     
     def initialize_checkpoint_zero(self):
         """Create the initial checkpoint with baseline Python namespace."""
@@ -232,6 +229,22 @@ class Scene(GLScene):
         ]
         self.regenerate_selection_search_set()
         self.add(self.selection_highlight)
+    
+    def setup(self):
+        """Called before construct - initialize checkpoint 0."""
+        super().setup()
+        
+        # Get the scene file path from the call stack
+        frame = inspect.currentframe()
+        while frame:
+            filepath = frame.f_globals.get('__file__')
+            if filepath and not filepath.endswith('scene.py'):
+                self._scene_filepath = filepath
+                break
+            frame = frame.f_back
+        
+        # Initialize checkpoint 0 - baseline state
+        self.initialize_checkpoint_zero()
     
     def update_frame(self, dt=0, force_draw=False):
         """Override update_frame to check for file changes."""
