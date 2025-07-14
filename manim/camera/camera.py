@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional
     from manim.typing import ManimColor, Vect3
-    from manim.window import Window
+    from manim.rendering.window import Window
 
 
 class Camera(object):

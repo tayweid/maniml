@@ -34,7 +34,7 @@ from manim.utils.family_ops import recursive_mobject_remove
 from manim.utils.iterables import batch_by_property
 from manim.utils.sounds import play_sound
 from manim.utils.color import color_to_rgba
-from manim.window import Window
+from manim.rendering.window import Window
 
 from typing import TYPE_CHECKING
 

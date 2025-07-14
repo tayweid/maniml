@@ -43,7 +43,7 @@ from manim.utils.space_ops import rotation_between_vectors
 from manim.utils.space_ops import rotation_matrix_transpose
 from manim.utils.space_ops import poly_line_length
 from manim.utils.space_ops import z_to_vector
-from manim.shader_wrapper import VShaderWrapper
+from manim.rendering.shader_wrapper import VShaderWrapper
 
 from typing import TYPE_CHECKING
 from typing import Generic, TypeVar, Iterable

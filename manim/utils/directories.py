@@ -43,4 +43,4 @@ def get_sound_dir() -> str:
 
 
 def get_shader_dir() -> str:
-    return os.path.join(get_manim_dir(), "shaders")
+    return os.path.join(get_manim_dir(), "rendering", "shaders")

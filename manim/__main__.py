@@ -76,7 +76,7 @@ def run_simple(script_file):
             scene_class = getattr(module, scene_name)
             if callable(scene_class):
                 # Always create window for preview mode (default)
-                from manim.window import Window
+                from manim.rendering.window import Window
                 window = Window()
                 scene = scene_class(window=window)
                 # Pass the script file path to the scene
