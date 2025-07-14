@@ -895,7 +895,7 @@ class SceneState():
             if mob in last_m2c and last_m2c[mob].looks_identical(mob):
                 self.mobjects_to_copies[mob] = last_m2c[mob]
             else:
-                self.mobjects_to_copies[mob] = mob.copy()
+                self.mobjects_to_copies[mob] = mob#.copy()
 
     def __eq__(self, state: SceneState):
         return all((
