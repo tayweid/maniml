@@ -23,7 +23,7 @@ from manim.event_handler import EVENT_DISPATCHER
 from manim.event_handler.event_listner import EventListener
 from manim.event_handler.event_type import EventType
 from manim.logger import log
-from manim.shader_wrapper import ShaderWrapper
+from manim.rendering.shader_wrapper import ShaderWrapper
 from manim.utils.color import color_gradient
 from manim.utils.color import color_to_rgb
 from manim.utils.color import get_colormap_list
