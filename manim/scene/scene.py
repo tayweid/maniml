@@ -4,6 +4,7 @@ from collections import OrderedDict
 import platform
 import random
 import time
+import inspect
 from functools import wraps
 from contextlib import contextmanager
 from contextlib import ExitStack
@@ -139,6 +140,12 @@ class Scene(object):
         if self.random_seed is not None:
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
+        
+        # Checkpoint system for arrow key navigation
+        self.animation_checkpoints = []  # List of dicts with {index, line_number, state, namespace}
+        self.current_animation_index = -1
+        self._navigating_animations = False  # Flag to prevent checkpoint creation during navigation
+        self._processing_key = False  # Flag to prevent re-entry during key processing
 
     def __str__(self) -> str:
         return self.__class__.__name__
@@ -153,6 +160,8 @@ class Scene(object):
 
         self.setup()
         try:
+            # Create checkpoint 0 right before construct
+            self._create_checkpoint_zero()
             self.construct()
             self.interact()
         except EndScene:
@@ -170,6 +179,73 @@ class Scene(object):
         involved before the construct method is called.
         """
         pass
+
+    def _create_checkpoint_zero(self) -> None:
+        """
+        Create checkpoint 0 with the full namespace from the scene file.
+        Called right before construct() to capture all imports.
+        """
+        import sys
+        
+        # Get the main module namespace (the scene file that was run)
+        namespace = {}
+        
+        # If we have the scene filepath, use it to find the module
+        if hasattr(self, '_scene_filepath') and self._scene_filepath:
+            # Find the module in sys.modules that matches our scene file
+            for module_name, module in sys.modules.items():
+                if hasattr(module, '__file__') and module.__file__ == self._scene_filepath:
+                    namespace.update(vars(module))
+                    break
+        
+        # If we didn't find it that way, try __main__
+        if not namespace and '__main__' in sys.modules:
+            main_module = sys.modules['__main__']
+            if hasattr(main_module, self.__class__.__name__):
+                namespace.update(vars(main_module))
+        
+        # Last resort: get from frame
+        if not namespace:
+            frame = inspect.currentframe()
+            while frame:
+                if frame.f_code.co_filename.endswith('.py') and 'manim' not in frame.f_code.co_filename:
+                    namespace.update(frame.f_globals)
+                    break
+                frame = frame.f_back
+        
+        # Ensure we have manim imports
+        if 'Circle' not in namespace:
+            exec("from manim import *", namespace)
+        
+        # Explicitly import constants if BLUE is missing
+        if 'BLUE' not in namespace:
+            import manim
+            # Get all color constants from manim.constants
+            for name in dir(manim.constants):
+                if not name.startswith('_'):
+                    namespace[name] = getattr(manim.constants, name)
+        
+        # Add self reference
+        namespace['self'] = self
+        
+        # Add current (empty) state to namespace
+        namespace['__checkpoint_state__'] = self.get_state()
+        
+        # Deep copy to create checkpoint
+        checkpoint_namespace = deepcopy_namespace(namespace)
+        checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+        
+        # Create checkpoint 0
+        checkpoint_zero = {
+            'index': 0,
+            'line_number': 0,  # No specific line for initial state
+            'state': checkpoint_state,  # Empty scene state
+            'namespace': checkpoint_namespace
+        }
+        
+        self.animation_checkpoints.append(checkpoint_zero)
+        self.current_animation_index = 0
+
 
     def construct(self) -> None:
         # Where all the animation happens
@@ -581,17 +657,97 @@ class Scene(object):
         rate_func: Callable[[float], float] | None = None,
         lag_ratio: float | None = None,
     ) -> None:
+        """Play animations with checkpoint support."""
         if len(proto_animations) == 0:
             log.warning("Called Scene.play with no animations")
             return
+            
         animations = list(map(prepare_animation, proto_animations))
         for anim in animations:
             anim.update_rate_info(run_time, rate_func, lag_ratio)
+            
+        # Don't save checkpoints if we're navigating with arrow keys
+        save_checkpoint = not (hasattr(self, '_navigating_animations') and self._navigating_animations)
+        
+        # Get the line number where this play was called
+        line_no = None
+        if save_checkpoint:
+            # We need to find the line number in the actual scene file
+            import traceback
+            stack = traceback.extract_stack()
+            
+            # Find the call from the user's scene file
+            for frame_info in reversed(stack):
+                # Skip internal manim files
+                if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
+                    line_no = frame_info.lineno
+                    break
+                    
+            if line_no is None:
+                # Fallback to direct caller
+                frame = inspect.currentframe().f_back
+                line_no = frame.f_lineno
+            
+        # Play the animation
         self.pre_play()
         self.begin_animations(animations)
         self.progress_through_animations(animations)
         self.finish_animations(animations)
         self.post_play()
+        
+        # Save checkpoint AFTER animation completes
+        if save_checkpoint and line_no:
+            # We need to find the construct method's frame
+            frame = inspect.currentframe()
+            namespace = {}
+            
+            # Walk up the call stack to find the construct method
+            while frame:
+                # Check if this is the construct method
+                if 'self' in frame.f_locals and frame.f_code.co_name == 'construct':
+                    # Found it! Get local variables
+                    namespace = frame.f_locals.copy()
+                    # Also get globals from the module
+                    namespace.update(frame.f_globals)
+                    break
+                frame = frame.f_back
+            
+            # If we didn't find construct, fall back to direct caller
+            if not namespace:
+                frame = inspect.currentframe().f_back
+                namespace = frame.f_locals.copy()
+                namespace.update(frame.f_globals)
+            
+            # Add current state to namespace BEFORE deepcopy
+            namespace['__checkpoint_state__'] = self.get_state()
+            
+            # Deep copy everything together - references are preserved!
+            checkpoint_namespace = deepcopy_namespace(namespace)
+            
+            # Extract state from deepcopied namespace
+            checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+            
+            # Save checkpoint
+            self.current_animation_index += 1
+            checkpoint = {
+                'index': self.current_animation_index,
+                'line_number': line_no,
+                'state': checkpoint_state,
+                'namespace': checkpoint_namespace
+            }
+            self.animation_checkpoints.append(checkpoint)
+            
+            # Store scene file path if available
+            # We need to find the actual scene file, not scene.py
+            if not hasattr(self, '_scene_filepath') or not self._scene_filepath:
+                # Walk up the call stack to find the user's scene file
+                import traceback
+                for frame_info in traceback.extract_stack():
+                    filename = frame_info.filename
+                    # Skip internal manim files
+                    if '/manim/' not in filename and filename.endswith('.py'):
+                        self._scene_filepath = filename
+                        break
 
     def wait(
         self,
@@ -814,6 +970,107 @@ class Scene(object):
             about_point=point
         )
 
+    def run_next_animation(self):
+        """Run the next animation using checkpoint_temporary workflow."""
+        if self.current_animation_index >= len(self.animation_checkpoints) - 1:
+            print("Already at last animation")
+            return
+            
+        # Get current checkpoint
+        current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+        next_index = self.current_animation_index + 1
+        
+        # Deep copy the current checkpoint's namespace
+        # This gives us the state AFTER the current animation
+        checkpoint_namespace = deepcopy_namespace(current_checkpoint['namespace'])
+        
+        # Clear the scene completely - start fresh
+        self.clear()
+        
+        # Add self reference to namespace
+        checkpoint_namespace['self'] = self
+
+        # Get the code to run
+        if hasattr(self, '_scene_filepath') and self._scene_filepath:
+            try:
+                with open(self._scene_filepath, 'r') as f:
+                    lines = f.readlines()
+                
+                # Extract code from current checkpoint to next play() call
+                current_line = current_checkpoint['line_number']
+                code_lines = []
+                in_construct = False
+                base_indent = None
+                found_next_play = False
+                next_line_number = 0
+                
+                for i, line in enumerate(lines):
+                    line_no = i + 1
+                    
+                    if 'def construct(self):' in line:
+                        in_construct = True
+                        base_indent = len(line) - len(line.lstrip())
+                        continue
+                    
+                    if in_construct:
+                        # Check if we've exited construct
+                        if line.strip() and not line.startswith(' ' * (base_indent + 1)):
+                            break
+                        
+                        # Start collecting after current line
+                        if line_no > current_line:
+                            # Stop at next play() call
+                            if 'self.play(' in line or '.play(' in line:
+                                found_next_play = True
+                                next_line_number = line_no
+                                # Include the play line
+                                code_lines.append(line.rstrip())
+                                # Check if play continues on next lines
+                                j = i + 1
+                                while j < len(lines) and ')' not in lines[j-1]:
+                                    code_lines.append(lines[j].rstrip())
+                                    j += 1
+                                break
+                            else:
+                                code_lines.append(line.rstrip())
+                
+                if found_next_play and code_lines:
+                    # Remove common indentation from all lines
+                    if code_lines:
+                        # Find minimum indentation (excluding empty lines)
+                        min_indent = float('inf')
+                        for line in code_lines:
+                            if line.strip():  # Skip empty lines
+                                indent = len(line) - len(line.lstrip())
+                                min_indent = min(min_indent, indent)
+                        
+                        # Remove the common indentation
+                        if min_indent < float('inf'):
+                            code_lines = [line[min_indent:] if line.strip() else line for line in code_lines]
+                    
+                    code_to_run = '\n'.join(code_lines)
+                    
+                    # Set flag to allow next checkpoint
+                    self._navigating_animations = False
+                    
+                    print(f"→ Running animation {next_index} at line {next_line_number}")
+                    
+                    # Execute in the checkpoint namespace
+                    exec(code_to_run, checkpoint_namespace)
+                    
+                    print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
+                else:
+                    print("No more animations found")
+                    
+            except FileNotFoundError:
+                print(f"Scene file not found: {self._scene_filepath}")
+            except Exception as e:
+                print(f"Error running animation: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("No scene file path stored")
+
     def on_key_release(
         self,
         symbol: int,
@@ -829,29 +1086,111 @@ class Scene(object):
         symbol: int,
         modifiers: int
     ) -> None:
-        try:
-            char = chr(symbol)
-        except OverflowError:
-            log.warning("The value of the pressed key is too large.")
-            return
+        # Handle UP arrow - jump to previous animation
+        if symbol == PygletWindowKeys.UP:
+            # Prevent if we're processing another key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            # If animation is playing, skip to end first
+            if hasattr(self, 'playing') and self.playing:
+                self.skip_animations = True
+                return  # Let animation finish, then user can press UP again
+                
+            if self.current_animation_index > 0:
+                self.current_animation_index -= 1
+                checkpoint = self.animation_checkpoints[self.current_animation_index]
+                print(f"↑ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
+                self.restore_state(checkpoint['state'])
+                self.update_frame(dt=0, force_draw=True)
+            else:
+                print("Already at first animation")
+        
+        # Handle DOWN arrow - jump to next animation
+        elif symbol == PygletWindowKeys.DOWN:
+            # Prevent if we're processing another key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            # If animation is playing, skip to end first
+            if hasattr(self, 'playing') and self.playing:
+                self.skip_animations = True
+                return  # Let animation finish, then user can press DOWN again
+                
+            if self.current_animation_index < len(self.animation_checkpoints) - 1:
+                self.current_animation_index += 1
+                checkpoint = self.animation_checkpoints[self.current_animation_index]
+                print(f"↓ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
+                self.restore_state(checkpoint['state'])
+                self.update_frame(dt=0, force_draw=True)
+            else:
+                print("Already at last animation")
+        
+        # Handle LEFT arrow - play animation in reverse
+        elif symbol == PygletWindowKeys.LEFT:
+            # Prevent handling if we're already processing a key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+                
+            if self.current_animation_index > 0:
+                # Set flag to prevent re-entry
+                self._processing_key = True
+                try:
+                    # Get the current checkpoint and the previous one
+                    current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+                    prev_checkpoint = self.animation_checkpoints[self.current_animation_index - 1]
+                    
+                    # We need to reverse the animation from current to previous state
+                    # This is tricky - for now just jump back
+                    self.current_animation_index -= 1
+                    print(f"← Reverse to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
+                    self.restore_state(prev_checkpoint['state'])
+                    self.update_frame(dt=0, force_draw=True)
+                    # TODO: Implement actual reverse animation playback
+                finally:
+                    # Clear the flag
+                    self._processing_key = False
+            else:
+                print("Already at first animation")
+        
+        # Handle RIGHT arrow - play next animation forward
+        elif symbol == PygletWindowKeys.RIGHT:
+            # Prevent handling if we're already processing a key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            
+            # Set flag to prevent re-entry
+            self._processing_key = True
+            try:
+                self.run_next_animation()
+            finally:
+                self._processing_key = False
+        
+        else:
+            # Handle other keys
+            try:
+                char = chr(symbol)
+            except OverflowError:
+                log.warning("The value of the pressed key is too large.")
+                return
 
-        event_data = {"symbol": symbol, "modifiers": modifiers}
-        propagate_event = EVENT_DISPATCHER.dispatch(EventType.KeyPressEvent, **event_data)
-        if propagate_event is not None and propagate_event is False:
-            return
+            event_data = {"symbol": symbol, "modifiers": modifiers}
+            propagate_event = EVENT_DISPATCHER.dispatch(EventType.KeyPressEvent, **event_data)
+            if propagate_event is not None and propagate_event is False:
+                return
 
-        if char == manim_config.key_bindings.reset:
-            self.play(self.camera.frame.animate.to_default_state())
-        elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
-            self.undo()
-        elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL | PygletWindowKeys.MOD_SHIFT)):
-            self.redo()
-        # command + q
-        elif char == manim_config.key_bindings.quit and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
-            self.quit_interaction = True
-        # Space or right arrow
-        elif char == " " or symbol == PygletWindowKeys.RIGHT:
-            self.hold_on_wait = False
+            if char == manim_config.key_bindings.reset:
+                self.play(self.camera.frame.animate.to_default_state())
+            elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+                self.undo()
+            elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL | PygletWindowKeys.MOD_SHIFT)):
+                self.redo()
+            # command + q
+            elif char == manim_config.key_bindings.quit and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+                self.quit_interaction = True
+            # Space
+            elif char == " ":
+                self.hold_on_wait = False
 
     def on_resize(self, width: int, height: int) -> None:
         pass
@@ -917,10 +1256,8 @@ class SceneState():
     def restore_scene(self, scene: Scene):
         scene.time = self.time
         scene.num_plays = self.num_plays
-        scene.mobjects = [
-            mob.become(mob_copy)
-            for mob, mob_copy in self.mobjects_to_copies.items()
-        ]
+        # Use the mobject copies directly instead of transforming originals
+        scene.mobjects = list(self.mobjects_to_copies.values())
 
 
 class EndScene(Exception):
@@ -939,3 +1276,40 @@ class ThreeDScene(Scene):
             if isinstance(mob, VMobject) and mob.has_stroke() and perp_stroke:
                 mob.set_flat_stroke(False)
         super().add(*mobjects)
+
+
+def deepcopy_namespace(namespace):
+    """Deep copy a namespace while preserving references between objects."""
+    import copy
+    
+    # First pass: Create a mapping of old id to new object
+    id_map = {}
+    new_namespace = {}
+    
+    # Handle simple types first
+    for key, value in namespace.items():
+        if isinstance(value, (int, float, str, bool, type(None))):
+            new_namespace[key] = value
+        elif hasattr(value, '__module__') and value.__module__ in ('builtins', 'manim'):
+            # Don't deep copy built-in functions or manim classes
+            new_namespace[key] = value
+    
+    # Deep copy complex objects
+    for key, value in namespace.items():
+        if key not in new_namespace:
+            try:
+                # Use copy.deepcopy with memo to preserve references
+                if key == '__checkpoint_state__':
+                    # Special handling for state objects
+                    new_namespace[key] = copy.deepcopy(value, id_map)
+                elif hasattr(value, 'copy'):
+                    # For mobjects and similar
+                    new_namespace[key] = value.copy()
+                    id_map[id(value)] = new_namespace[key]
+                else:
+                    new_namespace[key] = copy.deepcopy(value, id_map)
+            except:
+                # If deep copy fails, use the original
+                new_namespace[key] = value
+    
+    return new_namespace
