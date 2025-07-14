@@ -1,103 +1,218 @@
-"""
-Fading animations with CE compatibility.
-"""
+from __future__ import annotations
 
-import manim.renderer.opengl
-from manim.renderer.opengl.animation.fading import (
-    FadeIn as GLFadeIn,
-    FadeOut as GLFadeOut,
-    FadeInFromPoint as GLFadeInFromPoint,
-    FadeOutToPoint as GLFadeOutToPoint,
-    FadeTransform as GLFadeTransform,
-    FadeTransformPieces as GLFadeTransformPieces,
-)
-from manim.renderer.opengl.constants import *
-import warnings
+import numpy as np
 
+from manim.animation.animation import Animation
+from manim.animation.transform import Transform
+from manim.constants import ORIGIN
+from manim.mobject.types.vectorized_mobject import VMobject
+from manim.mobject.mobject import Group
+from manim.utils.bezier import interpolate
+from manim.utils.rate_functions import there_and_back
 
-class FadeIn(GLFadeIn):
-    """CE-compatible FadeIn with shift parameter."""
-    
-    def __init__(self, mobject, shift=None, target_position=None, scale=1, **kwargs):
-        # GL FadeIn already supports shift and scale!
-        # Just need to handle target_position warning
-        if target_position is not None:
-            warnings.warn(
-                "maniml: target_position not supported in FadeIn. Use shift.",
-                UserWarning
-            )
-        
-        # Convert shift to numpy array if needed
-        if shift is not None:
-            import numpy as np
-            shift = np.array(shift)
-        else:
-            import numpy as np
-            shift = np.array([0., 0., 0.])
-            
-        super().__init__(mobject, shift=shift, scale=scale, **kwargs)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Callable
+    from manim.mobject.mobject import Mobject
+    from manim.scene.scene import Scene
+    from manim.typing import Vect3
 
 
-class FadeOut(GLFadeOut):
-    """CE-compatible FadeOut with shift parameter."""
-    
-    def __init__(self, mobject, shift=None, target_position=None, scale=1, **kwargs):
-        # GL FadeOut already supports shift!
-        if target_position is not None:
-            warnings.warn(
-                "maniml: target_position not supported in FadeOut. Use shift.",
-                UserWarning
-            )
-        
-        # Convert shift to numpy array if needed
-        if shift is not None:
-            import numpy as np
-            shift = np.array(shift)
-        else:
-            import numpy as np
-            shift = np.array([0., 0., 0.])
-        
-        # Note: GL FadeOut doesn't have scale parameter
-        if scale != 1:
-            warnings.warn(
-                "maniml: scale parameter not supported in FadeOut.",
-                UserWarning
-            )
-            
-        super().__init__(mobject, shift=shift, **kwargs)
-
-
-# Aliases for CE compatibility
-class FadeInFrom(FadeIn):
-    """CE compatibility - FadeInFrom is same as FadeIn with direction."""
-    
-    def __init__(self, mobject, direction=DOWN, **kwargs):
-        super().__init__(mobject, shift=direction, **kwargs)
-
-
-class FadeOutAndShift(FadeOut):
-    """CE compatibility - FadeOutAndShift is same as FadeOut with direction."""
-    
-    def __init__(self, mobject, direction=DOWN, **kwargs):
-        super().__init__(mobject, shift=direction, **kwargs)
-
-
-# Direct mappings
-FadeInFromPoint = GLFadeInFromPoint
-FadeOutToPoint = GLFadeOutToPoint
-FadeTransform = GLFadeTransform
-
-# FadeInFromLarge doesn't exist in GL, create it
-class FadeInFromLarge(GLFadeIn):
-    """CE-compatible FadeInFromLarge - fade in with scaling."""
-    
-    def __init__(self, mobject, scale_factor=2, **kwargs):
-        # Start larger
-        mobject.scale(scale_factor)
+class Fade(Transform):
+    def __init__(
+        self,
+        mobject: Mobject,
+        shift: np.ndarray = ORIGIN,
+        scale: float = 1,
+        **kwargs
+    ):
+        self.shift_vect = shift
+        self.scale_factor = scale
         super().__init__(mobject, **kwargs)
-        # Store target size
-        self.target_scale = 1.0 / scale_factor
 
 
-# Direct mapping
-FadeTransformPieces = GLFadeTransformPieces
+class FadeIn(Fade):
+    def create_target(self) -> Mobject:
+        return self.mobject.copy()
+
+    def create_starting_mobject(self) -> Mobject:
+        start = super().create_starting_mobject()
+        start.set_opacity(0)
+        start.scale(1.0 / self.scale_factor)
+        start.shift(-self.shift_vect)
+        return start
+
+
+class FadeOut(Fade):
+    def __init__(
+        self,
+        mobject: Mobject,
+        shift: Vect3 = ORIGIN,
+        remover: bool = True,
+        final_alpha_value: float = 0.0,  # Put it back in original state when done,
+        **kwargs
+    ):
+        super().__init__(
+            mobject, shift,
+            remover=remover,
+            final_alpha_value=final_alpha_value,
+            **kwargs
+        )
+
+    def create_target(self) -> Mobject:
+        result = self.mobject.copy()
+        result.set_opacity(0)
+        result.shift(self.shift_vect)
+        result.scale(self.scale_factor)
+        return result
+
+
+class FadeInFromPoint(FadeIn):
+    def __init__(self, mobject: Mobject, point: Vect3, **kwargs):
+        super().__init__(
+            mobject,
+            shift=mobject.get_center() - point,
+            scale=np.inf,
+            **kwargs,
+        )
+
+
+class FadeOutToPoint(FadeOut):
+    def __init__(self, mobject: Mobject, point: Vect3, **kwargs):
+        super().__init__(
+            mobject,
+            shift=point - mobject.get_center(),
+            scale=0,
+            **kwargs,
+        )
+
+
+class FadeTransform(Transform):
+    def __init__(
+        self,
+        mobject: Mobject,
+        target_mobject: Mobject,
+        stretch: bool = True,
+        dim_to_match: int = 1,
+        **kwargs
+    ):
+        self.to_add_on_completion = target_mobject
+        self.stretch = stretch
+        self.dim_to_match = dim_to_match
+
+        mobject.save_state()
+        super().__init__(Group(mobject, target_mobject.copy()), **kwargs)
+
+    def begin(self) -> None:
+        self.ending_mobject = self.mobject.copy()
+        Animation.begin(self)
+        # Both 'start' and 'end' consists of the source and target mobjects.
+        # At the start, the traget should be faded replacing the source,
+        # and at the end it should be the other way around.
+        start, end = self.starting_mobject, self.ending_mobject
+        for m0, m1 in ((start[1], start[0]), (end[0], end[1])):
+            self.ghost_to(m0, m1)
+
+    def ghost_to(self, source: Mobject, target: Mobject) -> None:
+        source.replace(target, stretch=self.stretch, dim_to_match=self.dim_to_match)
+        source.set_uniform(**target.get_uniforms())
+        source.set_opacity(0)
+
+    def get_all_mobjects(self) -> list[Mobject]:
+        return [
+            self.mobject,
+            self.starting_mobject,
+            self.ending_mobject,
+        ]
+
+    def get_all_families_zipped(self) -> zip[tuple[Mobject]]:
+        return Animation.get_all_families_zipped(self)
+
+    def clean_up_from_scene(self, scene: Scene) -> None:
+        Animation.clean_up_from_scene(self, scene)
+        scene.remove(self.mobject)
+        self.mobject[0].restore()
+        if not self.remover:
+            scene.add(self.to_add_on_completion)
+
+
+class FadeTransformPieces(FadeTransform):
+    def begin(self) -> None:
+        self.mobject[0].align_family(self.mobject[1])
+        super().begin()
+
+    def ghost_to(self, source: Mobject, target: Mobject) -> None:
+        for sm0, sm1 in zip(source.get_family(), target.get_family()):
+            super().ghost_to(sm0, sm1)
+
+
+class VFadeIn(Animation):
+    """
+    VFadeIn and VFadeOut only work for VMobjects,
+    """
+    def __init__(self, vmobject: VMobject, suspend_mobject_updating: bool = False, **kwargs):
+        super().__init__(
+            vmobject,
+            suspend_mobject_updating=suspend_mobject_updating,
+            **kwargs
+        )
+
+    def interpolate_submobject(
+        self,
+        submob: VMobject,
+        start: VMobject,
+        alpha: float
+    ) -> None:
+        submob.set_stroke(
+            opacity=interpolate(0, start.get_stroke_opacity(), alpha)
+        )
+        submob.set_fill(
+            opacity=interpolate(0, start.get_fill_opacity(), alpha)
+        )
+
+
+class VFadeOut(VFadeIn):
+    def __init__(
+        self,
+        vmobject: VMobject,
+        remover: bool = True,
+        final_alpha_value: float = 0.0,
+        **kwargs
+    ):
+        super().__init__(
+            vmobject,
+            remover=remover,
+            final_alpha_value=final_alpha_value,
+            **kwargs
+        )
+
+    def interpolate_submobject(
+        self,
+        submob: VMobject,
+        start: VMobject,
+        alpha: float
+    ) -> None:
+        super().interpolate_submobject(submob, start, 1 - alpha)
+
+
+class VFadeInThenOut(VFadeIn):
+    def __init__(
+        self,
+        vmobject: VMobject,
+        rate_func: Callable[[float], float] = there_and_back,
+        remover: bool = True,
+        final_alpha_value: float = 0.5,
+        **kwargs
+    ):
+        super().__init__(
+            vmobject,
+            rate_func=rate_func,
+            remover=remover,
+            final_alpha_value=final_alpha_value,
+            **kwargs
+        )
+
+# CE Compatibility Mappings (simplified)
+FadeOutAndShift = FadeOut  # Simplified CE compatibility
+FadeInFromLarge = FadeIn  # Simplified CE compatibility
