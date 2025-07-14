@@ -162,7 +162,8 @@ class Scene(object):
         try:
             # Create checkpoint 0 right before construct
             self._create_checkpoint_zero()
-            self.construct()
+            # Run only the first animation instead of all of construct
+            self.run_next_animation()
             self.interact()
         except EndScene:
             pass
@@ -672,21 +673,33 @@ class Scene(object):
         # Get the line number where this play was called
         line_no = None
         if save_checkpoint:
-            # We need to find the line number in the actual scene file
-            import traceback
-            stack = traceback.extract_stack()
-            
-            # Find the call from the user's scene file
-            for frame_info in reversed(stack):
-                # Skip internal manim files
-                if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
-                    line_no = frame_info.lineno
+            # Check if we have a line number passed from run_next_animation
+            # Walk up the stack to find our special variable
+            frame = inspect.currentframe()
+            while frame:
+                if '__animation_line_number__' in frame.f_locals:
+                    line_no = frame.f_locals['__animation_line_number__']
                     break
-                    
+                if '__animation_line_number__' in frame.f_globals:
+                    line_no = frame.f_globals['__animation_line_number__']
+                    break
+                frame = frame.f_back
+            
             if line_no is None:
-                # Fallback to direct caller
-                frame = inspect.currentframe().f_back
-                line_no = frame.f_lineno
+                # We need to find the line number in the actual scene file
+                import traceback
+                stack = traceback.extract_stack()
+                
+                # Find the call from the user's scene file
+                for frame_info in reversed(stack):
+                    # Skip internal manim files
+                    if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
+                        line_no = frame_info.lineno
+                        break
+                        
+                if line_no is None:
+                    # Fallback to direct caller
+                    line_no = frame.f_lineno
             
         # Play the animation
         self.pre_play()
@@ -709,6 +722,13 @@ class Scene(object):
                     namespace = frame.f_locals.copy()
                     # Also get globals from the module
                     namespace.update(frame.f_globals)
+                    break
+                # Also check if we're running from exec (called by run_next_animation)
+                elif frame.f_code.co_filename == '<string>':
+                    # We're in exec'd code - get the globals which is our checkpoint namespace
+                    namespace = frame.f_globals.copy()
+                    # Also include locals
+                    namespace.update(frame.f_locals)
                     break
                 frame = frame.f_back
             
@@ -735,7 +755,14 @@ class Scene(object):
                 'state': checkpoint_state,
                 'namespace': checkpoint_namespace
             }
-            self.animation_checkpoints.append(checkpoint)
+            
+            # Check if we're replacing an existing checkpoint or creating a new one
+            if self.current_animation_index < len(self.animation_checkpoints):
+                # We're re-running an animation, replace the checkpoint
+                self.animation_checkpoints[self.current_animation_index] = checkpoint
+            else:
+                # New checkpoint
+                self.animation_checkpoints.append(checkpoint)
             
             # Store scene file path if available
             # We need to find the actual scene file, not scene.py
@@ -972,23 +999,23 @@ class Scene(object):
 
     def run_next_animation(self):
         """Run the next animation using checkpoint_temporary workflow."""
-        if self.current_animation_index >= len(self.animation_checkpoints) - 1:
-            print("Already at last animation")
-            return
-            
+        
         # Get current checkpoint
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
         
-        # Deep copy the current checkpoint's namespace
-        # This gives us the state AFTER the current animation
-        checkpoint_namespace = deepcopy_namespace(current_checkpoint['namespace'])
+        # Deep copy the entire checkpoint to preserve references between state and namespace
+        checkpoint_temporary = deepcopy_namespace(current_checkpoint)
         
         # Clear the scene completely - start fresh
         self.clear()
         
+        # Restore state from the deep copied checkpoint
+        # This adds all the mobjects to the scene
+        self.restore_state(checkpoint_temporary['state'])
+        
         # Add self reference to namespace
-        checkpoint_namespace['self'] = self
+        checkpoint_temporary['namespace']['self'] = self
 
         # Get the code to run
         if hasattr(self, '_scene_filepath') and self._scene_filepath:
@@ -1018,7 +1045,8 @@ class Scene(object):
                             break
                         
                         # Start collecting after current line
-                        if line_no > current_line:
+                        # Special case: for checkpoint 0, start from beginning of construct
+                        if line_no > current_line or (current_line == 0 and in_construct):
                             # Stop at next play() call
                             if 'self.play(' in line or '.play(' in line:
                                 found_next_play = True
@@ -1054,13 +1082,17 @@ class Scene(object):
                     self._navigating_animations = False
                     
                     print(f"→ Running animation {next_index} at line {next_line_number}")
+                    print(f"DEBUG: Scene has {len(self.mobjects)} mobjects before exec")
+                    
+                    # Pass the line number through the namespace so play() can use it
+                    checkpoint_temporary['namespace']['__animation_line_number__'] = next_line_number
                     
                     # Execute in the checkpoint namespace
-                    exec(code_to_run, checkpoint_namespace)
+                    exec(code_to_run, checkpoint_temporary['namespace'])
                     
                     print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
                 else:
-                    print("No more animations found")
+                    print(f"No more animations found after line {current_line}")
                     
             except FileNotFoundError:
                 print(f"Scene file not found: {self._scene_filepath}")
@@ -1222,19 +1254,15 @@ class SceneState():
     def __init__(self, scene: Scene, ignore: list[Mobject] | None = None):
         self.time = scene.time
         self.num_plays = scene.num_plays
-        self.mobjects_to_copies = OrderedDict.fromkeys(scene.mobjects)
+        # Store direct references instead of copies
+        self.mobjects = list(scene.mobjects)
         if ignore:
-            for mob in ignore:
-                self.mobjects_to_copies.pop(mob, None)
-
-        last_m2c = scene.undo_stack[-1].mobjects_to_copies if scene.undo_stack else dict()
-        for mob in self.mobjects_to_copies:
-            # If it hasn't changed since the last state, just point to the
-            # same copy as before
-            if mob in last_m2c and last_m2c[mob].looks_identical(mob):
-                self.mobjects_to_copies[mob] = last_m2c[mob]
-            else:
-                self.mobjects_to_copies[mob] = mob.copy()
+            self.mobjects = [mob for mob in self.mobjects if mob not in ignore]
+        
+        # For compatibility, keep the old attribute name but with direct references
+        self.mobjects_to_copies = OrderedDict()
+        for mob in self.mobjects:
+            self.mobjects_to_copies[mob] = mob  # Direct reference, not a copy
 
     def __eq__(self, state: SceneState):
         return all((
@@ -1256,8 +1284,8 @@ class SceneState():
     def restore_scene(self, scene: Scene):
         scene.time = self.time
         scene.num_plays = self.num_plays
-        # Use the mobject copies directly instead of transforming originals
-        scene.mobjects = list(self.mobjects_to_copies.values())
+        # Use the stored mobjects directly (they're references now, not copies)
+        scene.mobjects = list(self.mobjects)
 
 
 class EndScene(Exception):
@@ -1278,38 +1306,136 @@ class ThreeDScene(Scene):
         super().add(*mobjects)
 
 
-def deepcopy_namespace(namespace):
-    """Deep copy a namespace while preserving references between objects."""
+"""Utility functions for scene checkpoint management."""
+
+import copy
+from manim.mobject.mobject import Mobject
+
+
+def deepcopy_namespace(namespace_or_checkpoint):
+    """Deep copy a namespace or checkpoint, filtering out uncopyable items first."""
     import copy
     
-    # First pass: Create a mapping of old id to new object
-    id_map = {}
-    new_namespace = {}
-    
-    # Handle simple types first
-    for key, value in namespace.items():
-        if isinstance(value, (int, float, str, bool, type(None))):
-            new_namespace[key] = value
-        elif hasattr(value, '__module__') and value.__module__ in ('builtins', 'manim'):
-            # Don't deep copy built-in functions or manim classes
-            new_namespace[key] = value
-    
-    # Deep copy complex objects
-    for key, value in namespace.items():
-        if key not in new_namespace:
+    # Check if this is a checkpoint dict (has 'namespace' and 'state' keys)
+    if isinstance(namespace_or_checkpoint, dict) and 'namespace' in namespace_or_checkpoint and 'state' in namespace_or_checkpoint:
+        # This is a checkpoint - we need to deepcopy namespace and state together
+        checkpoint = namespace_or_checkpoint
+        
+        # Combine namespace and state into one dict for deepcopying together
+        combined = {}
+        combined['__checkpoint_state__'] = checkpoint['state']
+        
+        # Add namespace items
+        for name, value in checkpoint['namespace'].items():
+            if name in ['__builtins__', '__loader__', '__spec__', '__cached__', 'self']:
+                continue
+            combined[name] = value
+            
+        # Test what can be deepcopied
+        deepcopyable = {}
+        non_deepcopyable = {}
+        
+        for name, value in combined.items():
             try:
-                # Use copy.deepcopy with memo to preserve references
-                if key == '__checkpoint_state__':
-                    # Special handling for state objects
-                    new_namespace[key] = copy.deepcopy(value, id_map)
-                elif hasattr(value, 'copy'):
-                    # For mobjects and similar
-                    new_namespace[key] = value.copy()
-                    id_map[id(value)] = new_namespace[key]
-                else:
-                    new_namespace[key] = copy.deepcopy(value, id_map)
-            except:
-                # If deep copy fails, use the original
-                new_namespace[key] = value
+                test_copy = copy.deepcopy(value)
+                deepcopyable[name] = value
+            except Exception:
+                non_deepcopyable[name] = value
+                
+        # Deepcopy all deepcopyable items together
+        try:
+            copied_items = copy.deepcopy(deepcopyable)
+            
+            # Extract the state
+            state = copied_items.pop('__checkpoint_state__', checkpoint['state'])
+            
+            # Add non-deepcopyable items
+            for name, value in non_deepcopyable.items():
+                if name != '__checkpoint_state__':
+                    copied_items[name] = value
+                    
+            # Return checkpoint structure
+            return {
+                'index': checkpoint.get('index', 0),
+                'line_number': checkpoint.get('line_number', 0),
+                'state': state,
+                'namespace': copied_items
+            }
+            
+        except Exception as e:
+            print(f"Warning: Checkpoint deepcopy failed ({e}), falling back")
+            # Fall through to regular handling
     
-    return new_namespace
+    # Regular namespace handling
+    namespace = namespace_or_checkpoint
+    
+    # First pass: test what can be deepcopied
+    deepcopyable = {}
+    non_deepcopyable = {}
+    
+    for name, value in namespace.items():
+        # Always skip these
+        if name in ['__builtins__', '__loader__', '__spec__', '__cached__', 'self']:
+            continue
+            
+        # Test if this item can be deepcopied
+        try:
+            test_copy = copy.deepcopy(value)
+            deepcopyable[name] = value
+        except Exception:
+            # Can't deepcopy this item, keep as reference
+            non_deepcopyable[name] = value
+    
+    # Second pass: deepcopy all deepcopyable items together
+    # This preserves reference relationships between them
+    try:
+        copied_items = copy.deepcopy(deepcopyable)
+        
+        # Add back the non-deepcopyable items as references
+        for name, value in non_deepcopyable.items():
+            copied_items[name] = value
+            
+        return copied_items
+        
+    except Exception as e:
+        # If even this fails, fall back to manual implementation
+        print(f"Warning: Filtered deepcopy failed ({e}), falling back to individual copy")
+        
+        # Fallback implementation
+        new_namespace = {}
+        
+        for name, value in filtered.items():
+            try:
+                if isinstance(value, Mobject):
+                    # Deep copy mobjects
+                    new_namespace[name] = value.copy()
+                elif isinstance(value, (list, tuple)):
+                    # Handle collections that might contain mobjects
+                    new_items = []
+                    for item in value:
+                        if isinstance(item, Mobject):
+                            new_items.append(item.copy())
+                        else:
+                            new_items.append(item)
+                    new_namespace[name] = type(value)(new_items)
+                elif isinstance(value, dict):
+                    # Handle dicts that might contain mobjects
+                    new_dict = {}
+                    for k, v in value.items():
+                        if isinstance(v, Mobject):
+                            new_dict[k] = v.copy()
+                        else:
+                            new_dict[k] = v
+                    new_namespace[name] = new_dict
+                else:
+                    # Try to deepcopy, but fall back to reference if it fails
+                    try:
+                        new_namespace[name] = copy.deepcopy(value)
+                    except (TypeError, AttributeError):
+                        # Keep reference for unpicklable objects
+                        new_namespace[name] = value
+            except Exception:
+                # If anything goes wrong, keep the reference
+                new_namespace[name] = value
+                
+        return new_namespace
