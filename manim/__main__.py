@@ -50,8 +50,7 @@ Examples:
         # Import and run ManimGL's main
         from manim.renderer.opengl.extract_scene import main as gl_main
         gl_main()
-    except ImportError as e:
-        print(f"[DEBUG] Import failed: {e}")
+    except ImportError:
         # Fallback to our simple runner
         sys.argv = original_argv
         run_simple(script_file)
@@ -79,8 +78,7 @@ def run_simple(script_file):
                 # Always create window for preview mode (default)
                 from manim.renderer.opengl.window import Window
                 window = Window()
-                # Pass filepath as kwarg so it's available in __init__
-                scene = scene_class(window=window, scene_filepath=os.path.abspath(script_file))
+                scene = scene_class(window=window)
                 scene.run()
         else:
             print(f"Error: Scene '{scene_name}' not found in {script_file}")
