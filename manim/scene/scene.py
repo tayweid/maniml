@@ -148,6 +148,10 @@ class Scene(GLScene):
         self._original_content = None
         self._file_changed_flag = False  # Thread-safe flag
         
+        # Animation control for playing only first animation
+        self._animations_to_play = 1  # Default to play only first animation
+        self._animations_played = 0   # Counter for animations played
+        
         # InteractiveScene attributes
         self.selection = Group()
         self.selection_highlight = None  # Will be initialized in setup()
@@ -243,8 +247,28 @@ class Scene(GLScene):
                 break
             frame = frame.f_back
         
+        # Setup file watching if enabled and we have a file path
+        if SimpleFileWatcher and self.auto_reload_enabled and self._scene_filepath:
+            try:
+                # Store the original file content
+                with open(self._scene_filepath, 'r') as f:
+                    self._original_content = f.readlines()
+                
+                # Create file watcher that sets a flag
+                self._file_watcher = SimpleFileWatcher(
+                    self._scene_filepath,
+                    lambda: setattr(self, '_file_changed_flag', True)
+                )
+                self._file_watcher.start()
+                print(f"[AUTO-RELOAD] Watching for changes in: {self._scene_filepath}")
+            except Exception as e:
+                print(f"[AUTO-RELOAD] Failed to setup file watcher: {e}")
+        
         # Initialize checkpoint 0 - baseline state
         self.initialize_checkpoint_zero()
+        
+        # Reset animation counter to ensure we start fresh
+        self._animations_played = 0
     
     def update_frame(self, dt=0, force_draw=False):
         """Override update_frame to check for file changes."""
@@ -266,10 +290,39 @@ class Scene(GLScene):
         super().remove(*mobjects)
         return self
     
-    def play(self, *animations, **kwargs):
+    def play_old(self, *animations, **kwargs):
         """
+        DEPRECATED - This method is overridden later in the file.
         CE-style play with multiple animations and lag_ratio support.
         """
+        # Check if we should skip animations (for playing only first animation)
+        if hasattr(self, '_animations_to_play') and hasattr(self, '_animations_played'):
+            # Count this animation BEFORE checking if we should skip
+            self._animations_played += 1
+            
+            if self._animations_played > self._animations_to_play:
+                # Skip but still need to add mobjects to scene
+                from manim.renderer.opengl.animation.animation import prepare_animation
+                from manim.renderer.opengl.mobject.mobject import _AnimationBuilder
+                
+                # Convert any animation builders to actual animations
+                prepared_animations = []
+                for proto in animations:
+                    if isinstance(proto, _AnimationBuilder):
+                        proto = proto.build()
+                    anim = prepare_animation(proto)
+                    prepared_animations.append(anim)
+                
+                # Add mobjects to scene (similar to how GL scene does it)
+                all_mobjects = set(self.get_mobject_family_members())
+                for anim in prepared_animations:
+                    anim.begin()
+                    if anim.mobject not in all_mobjects:
+                        self.add(anim.mobject)
+                        all_mobjects = all_mobjects.union(anim.mobject.get_family())
+                
+                return animations[0] if animations else None
+        
         # Extract CE-specific kwargs
         run_time = kwargs.pop('run_time', None)
         lag_ratio = kwargs.pop('lag_ratio', 0)
@@ -303,6 +356,15 @@ class Scene(GLScene):
     
     def wait(self, duration=1.0, stop_condition=None, frozen_frame=None):
         """CE-style wait with proper event handling."""
+        # Check if we should skip animations (for playing only first animation)
+        if hasattr(self, '_animations_to_play') and hasattr(self, '_animations_played'):
+            # Count this animation BEFORE checking if we should skip
+            self._animations_played += 1
+            
+            if self._animations_played > self._animations_to_play:
+                # Skip the wait
+                return self
+        
         super().wait(duration=duration, stop_condition=stop_condition)
         return self
     
@@ -1190,6 +1252,17 @@ class Scene(GLScene):
     
     def play(self, *animations, **kwargs):
         """Play animations with checkpoint support."""
+        # Check if we should skip animations (for playing only first animation)
+        should_skip = False
+        if hasattr(self, '_animations_to_play') and hasattr(self, '_animations_played'):
+            self._animations_played += 1
+            
+            if self._animations_played > self._animations_to_play:
+                # Enable skip mode for animations beyond the limit
+                should_skip = True
+                prev_skip = self.skip_animations
+                self.skip_animations = True
+        
         # Don't save checkpoints if we're navigating with arrow keys
         if hasattr(self, '_navigating_animations') and self._navigating_animations:
             return super().play(*animations, **kwargs)
@@ -1200,6 +1273,10 @@ class Scene(GLScene):
         
         # Play the animation first
         result = super().play(*animations, **kwargs)
+        
+        # Restore skip_animations if we changed it
+        if should_skip:
+            self.skip_animations = prev_skip
         
         # Capture the namespace AFTER animation completes
         # This includes all variables defined up to this point
@@ -1237,6 +1314,14 @@ class Scene(GLScene):
     
     def wait(self, duration=1.0, stop_condition=None, frozen_frame=None):
         """CE-style wait without checkpoint creation."""
+        # Check if we should skip this wait (for playing only first animation)
+        if hasattr(self, '_animations_to_play') and hasattr(self, '_animations_played'):
+            self._animations_played += 1
+            
+            if self._animations_played > self._animations_to_play:
+                # Skip the wait by setting duration to 0
+                duration = 0
+        
         # Simply execute the wait without creating checkpoints
         result = super().wait(duration, stop_condition, frozen_frame)
         return result
