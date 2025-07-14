@@ -1,0 +1,25 @@
+from manim import *
+
+class TestMultiplePlays(Scene):
+    def construct(self):
+        # First animation
+        circle = Circle(color=BLUE)
+        self.play(Create(circle))
+        
+        # Second animation
+        square = Square(color=RED)
+        self.play(Create(square))
+        
+        # Third animation
+        self.play(circle.animate.shift(LEFT * 2))
+        
+        # Fourth animation
+        self.play(square.animate.shift(RIGHT * 2))
+        
+        # Fifth animation
+        self.play(
+            circle.animate.scale(0.5),
+            square.animate.scale(1.5)
+        )
+        
+        self.wait(1)

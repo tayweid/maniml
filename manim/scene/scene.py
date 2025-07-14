@@ -235,13 +235,19 @@ class Scene(GLScene):
         super().setup()
         
         # Get the scene file path from the call stack
-        frame = inspect.currentframe()
-        while frame:
-            filepath = frame.f_globals.get('__file__')
-            if filepath and not filepath.endswith('scene.py'):
-                self._scene_filepath = filepath
-                break
-            frame = frame.f_back
+        # (Note: _scene_filepath may already be set by __main__.py)
+        if not hasattr(self, '_scene_filepath') or not self._scene_filepath:
+            frame = inspect.currentframe()
+            while frame:
+                filepath = frame.f_globals.get('__file__')
+                if filepath and filepath.endswith('.py'):
+                    # Skip framework files
+                    if any(skip in filepath for skip in ['scene.py', '__main__.py', 'runpy.py', 'site-packages', 'lib/python']):
+                        frame = frame.f_back
+                        continue
+                    self._scene_filepath = filepath
+                    break
+                frame = frame.f_back
         
         # Initialize checkpoint 0 - baseline state
         self.initialize_checkpoint_zero()
@@ -375,7 +381,11 @@ class Scene(GLScene):
             frame = inspect.currentframe()
             while frame:
                 filepath = frame.f_globals.get('__file__')
-                if filepath and not filepath.endswith('scene.py'):
+                if filepath and filepath.endswith('.py'):
+                    # Skip framework files
+                    if any(skip in filepath for skip in ['scene.py', '__main__.py', 'runpy.py', 'site-packages', 'lib/python']):
+                        frame = frame.f_back
+                        continue
                     # Store the filepath for later use
                     self._scene_filepath = filepath
                     

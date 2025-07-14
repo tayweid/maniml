@@ -79,6 +79,8 @@ def run_simple(script_file):
                 from manim.renderer.opengl.window import Window
                 window = Window()
                 scene = scene_class(window=window)
+                # Pass the script file path to the scene
+                scene._scene_filepath = os.path.abspath(script_file)
                 scene.run()
         else:
             print(f"Error: Scene '{scene_name}' not found in {script_file}")
