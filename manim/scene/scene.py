@@ -825,14 +825,16 @@ class Scene(object):
         line_no = None
         if save_checkpoint:
             # Check if we have a line number passed from run_next_animation
-            # Walk up the stack to find our special variable
+            # This will be the END line for multi-line play calls
             frame = inspect.currentframe()
             while frame:
                 if '__animation_line_number__' in frame.f_locals:
                     line_no = frame.f_locals['__animation_line_number__']
+                    print(f"DEBUG: Using passed line number {line_no} from run_next_animation")
                     break
                 if '__animation_line_number__' in frame.f_globals:
                     line_no = frame.f_globals['__animation_line_number__']
+                    print(f"DEBUG: Using passed line number {line_no} from run_next_animation (globals)")
                     break
                 frame = frame.f_back
             
@@ -841,12 +843,21 @@ class Scene(object):
                 import traceback
                 stack = traceback.extract_stack()
                 
-                # Find the call from the user's scene file
-                for frame_info in reversed(stack):
+                # Find ALL calls from the user's scene file to get the END line
+                user_frames = []
+                for frame_info in stack:
                     # Skip internal manim files
                     if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
-                        line_no = frame_info.lineno
-                        break
+                        user_frames.append(frame_info)
+                        print(f"DEBUG: Found user frame at {frame_info.filename}:{frame_info.lineno}")
+                
+                # The last (deepest) frame is the END of the play call
+                if user_frames:
+                    line_no = user_frames[-1].lineno
+                    print(f"DEBUG: Using line {line_no} as checkpoint line")
+                    # Debug: show if this is a multi-line call
+                    if len(user_frames) > 1:
+                        print(f"DEBUG: Multi-line play() call from line {user_frames[0].lineno} to {user_frames[-1].lineno}")
                         
                 if line_no is None:
                     # Fallback to direct caller
@@ -926,6 +937,12 @@ class Scene(object):
                     if '/manim/' not in filename and filename.endswith('.py'):
                         self._scene_filepath = filename
                         break
+        
+        # If we're navigating animations, raise exception to stop execution
+        if self._navigating_animations:
+            class AnimationComplete(Exception):
+                pass
+            raise AnimationComplete("Animation complete, stopping execution")
 
     def wait(
         self,
@@ -1175,7 +1192,13 @@ class Scene(object):
                     lines = f.readlines()
                 
                 # Extract code from current checkpoint to next play() call
+                # The line_number in the checkpoint is where the animation ENDS (the play call)
+                # So we need to start collecting from the next line
                 current_line = current_checkpoint['line_number']
+                
+                # Debug: check what line we're starting from
+                print(f"DEBUG: Current checkpoint ends at line {current_line}, looking for next animation after that")
+                
                 code_lines = []
                 in_construct = False
                 base_indent = None
@@ -1198,25 +1221,30 @@ class Scene(object):
                         # Start collecting after current line
                         # Special case: for checkpoint 0, start from beginning of construct
                         if line_no > current_line or (current_line == 0 and in_construct):
-                            # Stop at next play() call
+                            # Always add the line
+                            code_lines.append(line.rstrip())
+                            
+                            # If we found a play call, track parentheses to find the end
                             if 'self.play(' in line or '.play(' in line:
                                 found_next_play = True
                                 next_line_number = line_no
-                                # Include the play line
-                                code_lines.append(line.rstrip())
-                                
-                                # Check if play continues on next lines (multi-line play call)
-                                # Count open and close parentheses to handle nested calls
+                                # Track parentheses to find the end of the play call
                                 paren_count = line.count('(') - line.count(')')
+                                play_end_line = line_no
+                                
+                                # Continue until we find the closing parenthesis
                                 j = i + 1
                                 while j < len(lines) and paren_count > 0:
                                     next_line = lines[j]
                                     code_lines.append(next_line.rstrip())
                                     paren_count += next_line.count('(') - next_line.count(')')
+                                    play_end_line = j + 1
                                     j += 1
+                                
+                                # Use the END line for the checkpoint
+                                next_line_number = play_end_line
+                                print(f"DEBUG: Found play() call from line {line_no} to {play_end_line}")
                                 break
-                            else:
-                                code_lines.append(line.rstrip())
                 
                 if found_next_play and code_lines:
                     # Remove common indentation from all lines
@@ -1234,17 +1262,31 @@ class Scene(object):
                     
                     code_to_run = '\n'.join(code_lines)
                     
-                    # Set flag to allow next checkpoint
-                    self._navigating_animations = False
-                    
+                    # Debug: show what code we're about to run
                     print(f"→ Running animation {next_index} at line {next_line_number}")
                     print(f"DEBUG: Scene has {len(self.mobjects)} mobjects before exec")
+                    print(f"DEBUG: Code to run ({len(code_lines)} lines):")
+                    for i, line in enumerate(code_lines):
+                        print(f"  {i+1}: {repr(line)}")
+                    
+                    # Set flag to allow next checkpoint
+                    self._navigating_animations = False
                     
                     # Pass the line number through the namespace so play() can use it
                     checkpoint_temporary['namespace']['__animation_line_number__'] = next_line_number
                     
                     # Execute in the checkpoint namespace
-                    exec(code_to_run, checkpoint_temporary['namespace'])
+                    try:
+                        exec(code_to_run, checkpoint_temporary['namespace'])
+                    except Exception as e:
+                        # Check if it's our AnimationComplete exception
+                        if e.__class__.__name__ == 'AnimationComplete':
+                            # This is expected - animation completed successfully
+                            pass
+                        else:
+                            # Real error
+                            print(f"Error running animation: {e}")
+                            raise
                     
                     print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
                 else:
