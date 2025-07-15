@@ -11,15 +11,13 @@ class TestMultiplePlays(Scene):
         self.play(FadeIn(square))
         
         # Third animation
-        self.play(circle.animate.shift(LEFT * 2))
+        self.play(circle.animate.shift(LEFT * 3))
         
         # Fourth animation
-        self.play(square.animate.shift(RIGHT * 2))
+        self.play(
+            square.animate.shift(RIGHT * 4)
+            )
         
         # Fifth animation
-        self.play(
-            circle.animate.scale(0.5),
-            square.animate.scale(1.5)
-        )
+        self.play(circle.animate.scale(0.5), square.animate.scale(1.6))
         
-        self.wait(1)
