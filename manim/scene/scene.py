@@ -325,7 +325,7 @@ class Scene(object):
     
     def _on_file_changed(self, change_info: dict) -> None:
         """Callback when file changes are detected."""
-        log.info(f"File change detected: Line {change_info['earliest_changed_line']}, Safe animation index: {change_info['safe_animation_index']}")
+        log.info(f"File change detected: Line {change_info['earliest_changed_line']}")
         # Set flag for main thread to handle
         self._file_changed_flag = True
         self._pending_change_info = change_info
@@ -339,43 +339,32 @@ class Scene(object):
         log.info(f"Handling file change at line {change_info['earliest_changed_line']}")
         
         earliest_change = change_info['earliest_changed_line']
-        safe_animation_index = change_info['safe_animation_index']
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         current_line = current_checkpoint['line_number']
         
         log.info(f"Current checkpoint {self.current_animation_index} at line {current_line}")
-        log.info(f"Safe animation index from tracker: {safe_animation_index}")
-        
-        # The safe_animation_index is the last animation before the edit
-        # But if the edit IS on an animation line, we need to run that animation
-        # Check if the edited line is an animation line
-        animation_lines = change_info.get('animation_lines', [])
-        if animation_lines and earliest_change in animation_lines:
-            # The edit is ON an animation line, so we need to run that animation
-            target_animation_index = animation_lines.index(earliest_change)
-            log.info(f"Edit is ON animation line, target animation index: {target_animation_index}")
-        else:
-            # The edit is between animations, so run the next one after safe
-            target_animation_index = safe_animation_index + 1 if safe_animation_index is not None else 0
-            log.info(f"Edit is between animations, target animation index: {target_animation_index}")
-        
-        # Debug: Let's see what the AnimationTracker is telling us
-        log.info(f"AnimationTracker says: safe_animation_index={safe_animation_index}, target={target_animation_index}")
         
         # Debug: Show all checkpoint line numbers
         checkpoint_lines = [cp['line_number'] for cp in self.animation_checkpoints]
         log.info(f"Current checkpoints at lines: {checkpoint_lines}")
         
         # Case 1: Edit is after current position - need to forward to it
-        if target_animation_index > self.current_animation_index:
-            log.info(f"Edit is after current position, need to forward to animation {target_animation_index}")
+        if earliest_change > current_line:
+            log.info(f"Edit is after current position, need to forward past line {earliest_change}")
             
-            # Jump to the animation just before the target if we can
-            if target_animation_index - 1 < len(self.animation_checkpoints) and target_animation_index - 1 > self.current_animation_index:
-                jump_to_idx = target_animation_index - 1
-                log.info(f"Jumping forward to checkpoint {jump_to_idx}")
-                self.current_animation_index = jump_to_idx
-                checkpoint = self.animation_checkpoints[jump_to_idx]
+            # Find the furthest checkpoint we can jump to that's still before the edit
+            furthest_safe_idx = self.current_animation_index
+            for i in range(self.current_animation_index + 1, len(self.animation_checkpoints)):
+                if self.animation_checkpoints[i]['line_number'] < earliest_change:
+                    furthest_safe_idx = i
+                else:
+                    break
+            
+            # Jump forward if we can
+            if furthest_safe_idx > self.current_animation_index:
+                log.info(f"Jumping forward to checkpoint {furthest_safe_idx}")
+                self.current_animation_index = furthest_safe_idx
+                checkpoint = self.animation_checkpoints[furthest_safe_idx]
                 self.restore_state(checkpoint['state'])
                 self.update_frame(dt=0, force_draw=True)
             
