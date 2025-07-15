@@ -1,6 +1,5 @@
 """File watching functionality for automatic scene reloading."""
 
-import ast
 import difflib
 import logging
 import threading
@@ -12,53 +11,6 @@ logger = logging.getLogger(__name__)
 # Set to DEBUG for testing
 logger.setLevel(logging.DEBUG)
 
-
-class AnimationTracker:
-    """Tracks animation calls in a Python file using AST parsing."""
-    
-    def __init__(self, filepath: str):
-        self.filepath = Path(filepath)
-        self.animation_lines: List[int] = []
-        self.animation_methods = {'play', 'wait', 'add', 'remove'}
-        self._parse_file()
-    
-    def _parse_file(self):
-        """Parse the file and find all animation method calls."""
-        try:
-            content = self.filepath.read_text()
-            tree = ast.parse(content)
-            
-            class AnimationVisitor(ast.NodeVisitor):
-                def __init__(self, tracker):
-                    self.tracker = tracker
-                
-                def visit_Call(self, node):
-                    # Check for self.play(), self.wait(), etc.
-                    if (isinstance(node.func, ast.Attribute) and
-                        isinstance(node.func.value, ast.Name) and
-                        node.func.value.id == 'self' and
-                        node.func.attr in self.tracker.animation_methods):
-                        self.tracker.animation_lines.append(node.lineno)
-                    self.generic_visit(node)
-            
-            visitor = AnimationVisitor(self)
-            visitor.visit(tree)
-            self.animation_lines.sort()
-            logger.debug(f"[AnimationTracker] Found {len(self.animation_lines)} animations at lines: {self.animation_lines}")
-            
-        except Exception as e:
-            logger.warning(f"[AnimationTracker] Failed to parse file {self.filepath}: {e}")
-    
-    def get_animation_index_for_line(self, line_number: int) -> Optional[int]:
-        """Get the animation index for a given line number.
-        
-        Returns the index of the last animation before the given line,
-        or None if the line is before any animations.
-        """
-        for i, anim_line in enumerate(self.animation_lines):
-            if anim_line >= line_number:
-                return i - 1 if i > 0 else None
-        return len(self.animation_lines) - 1 if self.animation_lines else None
 
 
 class CodeDiffer:
@@ -124,7 +76,6 @@ class SimpleFileWatcher:
         self._thread = None
         self._last_mtime = None
         self._last_content = self._read_file()
-        self.animation_tracker = AnimationTracker(str(self.filepath))
         
     def _read_file(self) -> str:
         """Read the current file content."""
@@ -165,10 +116,6 @@ class SimpleFileWatcher:
                             if old != new:
                                 logger.debug(f"[FileWatcher] Line {i} changed: '{old}' -> '{new}'")
                         
-                        # Find the last animation before the change
-                        safe_animation_index = self.animation_tracker.get_animation_index_for_line(earliest_change)
-                        logger.info(f"[FileWatcher] Safe animation index: {safe_animation_index}")
-                        
                         # Get changed ranges for logging
                         changed_ranges = CodeDiffer.find_changed_line_ranges(self._last_content, new_content)
                         logger.debug(f"[FileWatcher] Changed ranges: {changed_ranges}")
@@ -177,15 +124,12 @@ class SimpleFileWatcher:
                         logger.info(f"[FileWatcher] Calling callback with change info")
                         self.callback({
                             'earliest_changed_line': earliest_change,
-                            'safe_animation_index': safe_animation_index,
                             'new_content': new_content,
-                            'changed_ranges': changed_ranges,
-                            'animation_lines': self.animation_tracker.animation_lines
+                            'changed_ranges': changed_ranges
                         })
                         
                         # Update our records
                         self._last_content = new_content
-                        self.animation_tracker = AnimationTracker(str(self.filepath))
                     else:
                         logger.debug(f"[FileWatcher] File changed but no line changes detected (maybe just whitespace?)")
                     
@@ -220,7 +164,7 @@ class FileWatcher:
         
     def start(self, callback: Callable[[Dict], None]):
         """Start watching the file."""
-        logger.info(f"[FileWatcher Main] Starting file watcher for {self.filepath}")
+        logger.info(f"[FileWatcher] Starting file watcher for {self.filepath}")
         self.watcher = SimpleFileWatcher(str(self.filepath), callback, self.check_interval)
         self.watcher.start()
     
