@@ -71,32 +71,38 @@ class CodeDiffer:
         Returns a list of (start_line, end_line) tuples for changed regions.
         Line numbers are 1-based.
         """
-        old_lines = old_content.splitlines(keepends=True)
-        new_lines = new_content.splitlines(keepends=True)
+        old_lines = old_content.splitlines()
+        new_lines = new_content.splitlines()
         
-        differ = difflib.unified_diff(old_lines, new_lines, lineterm='')
+        # Use a simpler line-by-line comparison
+        changed_lines = []
+        max_lines = max(len(old_lines), len(new_lines))
         
-        changed_ranges = []
-        current_range_start = None
+        for i in range(max_lines):
+            old_line = old_lines[i] if i < len(old_lines) else None
+            new_line = new_lines[i] if i < len(new_lines) else None
+            
+            if old_line != new_line:
+                changed_lines.append(i + 1)  # 1-based line numbers
         
-        # Parse unified diff output
-        for i, line in enumerate(differ):
-            if line.startswith('@@'):
-                # Parse hunk header: @@ -old_start,old_count +new_start,new_count @@
-                parts = line.split()
-                if len(parts) >= 3:
-                    new_range = parts[2]  # Format: +new_start,new_count
-                    if ',' in new_range:
-                        start, count = new_range[1:].split(',')
-                        start_line = int(start)
-                        end_line = start_line + int(count) - 1
-                    else:
-                        start_line = int(new_range[1:])
-                        end_line = start_line
-                    
-                    changed_ranges.append((start_line, end_line))
+        # Group consecutive changed lines into ranges
+        if not changed_lines:
+            return []
         
-        return changed_ranges
+        ranges = []
+        start = changed_lines[0]
+        end = changed_lines[0]
+        
+        for line_num in changed_lines[1:]:
+            if line_num == end + 1:
+                end = line_num
+            else:
+                ranges.append((start, end))
+                start = line_num
+                end = line_num
+        
+        ranges.append((start, end))
+        return ranges
     
     @staticmethod
     def get_earliest_changed_line(old_content: str, new_content: str) -> Optional[int]:
@@ -152,6 +158,13 @@ class SimpleFileWatcher:
                     if earliest_change is not None:
                         logger.info(f"[FileWatcher] Earliest change at line {earliest_change}")
                         
+                        # Debug: Show actual diff
+                        old_lines = self._last_content.splitlines()
+                        new_lines = new_content.splitlines()
+                        for i, (old, new) in enumerate(zip(old_lines, new_lines), 1):
+                            if old != new:
+                                logger.debug(f"[FileWatcher] Line {i} changed: '{old}' -> '{new}'")
+                        
                         # Find the last animation before the change
                         safe_animation_index = self.animation_tracker.get_animation_index_for_line(earliest_change)
                         logger.info(f"[FileWatcher] Safe animation index: {safe_animation_index}")
@@ -166,7 +179,8 @@ class SimpleFileWatcher:
                             'earliest_changed_line': earliest_change,
                             'safe_animation_index': safe_animation_index,
                             'new_content': new_content,
-                            'changed_ranges': changed_ranges
+                            'changed_ranges': changed_ranges,
+                            'animation_lines': self.animation_tracker.animation_lines
                         })
                         
                         # Update our records

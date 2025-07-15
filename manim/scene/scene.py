@@ -325,7 +325,7 @@ class Scene(object):
     
     def _on_file_changed(self, change_info: dict) -> None:
         """Callback when file changes are detected."""
-        log.info(f"File change detected: Line {change_info['earliest_changed_line']}")
+        log.info(f"File change detected: Line {change_info['earliest_changed_line']}, Safe animation index: {change_info['safe_animation_index']}")
         # Set flag for main thread to handle
         self._file_changed_flag = True
         self._pending_change_info = change_info
@@ -338,36 +338,113 @@ class Scene(object):
         change_info = self._pending_change_info
         log.info(f"Handling file change at line {change_info['earliest_changed_line']}")
         
-        # Find the safe checkpoint to restore to
-        safe_checkpoint_idx = -1
         earliest_change = change_info['earliest_changed_line']
+        safe_animation_index = change_info['safe_animation_index']
+        current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+        current_line = current_checkpoint['line_number']
         
-        for i, checkpoint in enumerate(self.animation_checkpoints):
-            if checkpoint['line_number'] < earliest_change:
-                safe_checkpoint_idx = i
-            else:
-                break
+        log.info(f"Current checkpoint {self.current_animation_index} at line {current_line}")
+        log.info(f"Safe animation index from tracker: {safe_animation_index}")
         
-        log.info(f"Safe checkpoint index: {safe_checkpoint_idx}")
-        
-        # Truncate checkpoints after the safe point
-        if safe_checkpoint_idx >= 0:
-            self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
-            self.current_animation_index = safe_checkpoint_idx
-            
-            # Restore the checkpoint state
-            checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
-            self.restore_state(checkpoint['state'])
-            log.info(f"Restored to checkpoint {safe_checkpoint_idx}")
-            
-            # Force a frame update to show the restored state
-            self.update_frame(dt=0, force_draw=True)
-            
-            # Run the next animation
-            self.run_next_animation()
+        # The safe_animation_index is the last animation before the edit
+        # But if the edit IS on an animation line, we need to run that animation
+        # Check if the edited line is an animation line
+        animation_lines = change_info.get('animation_lines', [])
+        if animation_lines and earliest_change in animation_lines:
+            # The edit is ON an animation line, so we need to run that animation
+            target_animation_index = animation_lines.index(earliest_change)
+            log.info(f"Edit is ON animation line, target animation index: {target_animation_index}")
         else:
-            log.info("No safe checkpoint found, would need to restart from beginning")
-            # TODO: Implement full restart logic
+            # The edit is between animations, so run the next one after safe
+            target_animation_index = safe_animation_index + 1 if safe_animation_index is not None else 0
+            log.info(f"Edit is between animations, target animation index: {target_animation_index}")
+        
+        # Debug: Let's see what the AnimationTracker is telling us
+        log.info(f"AnimationTracker says: safe_animation_index={safe_animation_index}, target={target_animation_index}")
+        
+        # Debug: Show all checkpoint line numbers
+        checkpoint_lines = [cp['line_number'] for cp in self.animation_checkpoints]
+        log.info(f"Current checkpoints at lines: {checkpoint_lines}")
+        
+        # Case 1: Edit is after current position - need to forward to it
+        if target_animation_index > self.current_animation_index:
+            log.info(f"Edit is after current position, need to forward to animation {target_animation_index}")
+            
+            # Jump to the animation just before the target if we can
+            if target_animation_index - 1 < len(self.animation_checkpoints) and target_animation_index - 1 > self.current_animation_index:
+                jump_to_idx = target_animation_index - 1
+                log.info(f"Jumping forward to checkpoint {jump_to_idx}")
+                self.current_animation_index = jump_to_idx
+                checkpoint = self.animation_checkpoints[jump_to_idx]
+                self.restore_state(checkpoint['state'])
+                self.update_frame(dt=0, force_draw=True)
+            
+            # Now run animations until we've played the edited line
+            while True:
+                # Check if we've reached or passed the edited line
+                current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+                if current_checkpoint['line_number'] >= earliest_change:
+                    log.info(f"Current checkpoint at line {current_checkpoint['line_number']} covers edit at line {earliest_change}")
+                    break
+                
+                # Run the next animation
+                log.info(f"Current at line {current_checkpoint['line_number']}, running next animation to reach line {earliest_change}")
+                last_index = self.current_animation_index
+                self.run_next_animation()
+                
+                # Check if we advanced
+                if self.current_animation_index == last_index:
+                    log.info("No more animations available")
+                    break
+                        
+        # Case 2: Edit is before current position - need to rewind
+        else:
+            log.info(f"Edit is before current position, need to rewind")
+            
+            # Find the safe checkpoint to restore to
+            safe_checkpoint_idx = -1
+            for i, checkpoint in enumerate(self.animation_checkpoints):
+                if checkpoint['line_number'] < earliest_change:
+                    safe_checkpoint_idx = i
+                else:
+                    break
+            
+            log.info(f"Safe checkpoint index: {safe_checkpoint_idx}")
+            
+            # Truncate checkpoints after the safe point
+            if safe_checkpoint_idx >= 0:
+                self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
+                self.current_animation_index = safe_checkpoint_idx
+                
+                # Restore the checkpoint state
+                checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
+                self.restore_state(checkpoint['state'])
+                log.info(f"Restored to checkpoint {safe_checkpoint_idx}")
+                
+                # Force a frame update to show the restored state
+                self.update_frame(dt=0, force_draw=True)
+                
+                # Run animations through the edited line
+                # We need to run at least the animation that contains the edit
+                while True:
+                    # Run the next animation
+                    log.info(f"Running animation to show edited content")
+                    last_index = self.current_animation_index
+                    self.run_next_animation()
+                    
+                    # Check if we've covered the edit
+                    current_checkpoint = self.animation_checkpoints[self.current_animation_index]
+                    if current_checkpoint['line_number'] >= earliest_change:
+                        log.info(f"Animation at line {current_checkpoint['line_number']} covers the edit")
+                        break
+                    
+                    # Check if we didn't advance (no more animations)
+                    if self.current_animation_index == last_index:
+                        log.info("No more animations available")
+                        break
+            else:
+                log.info("No safe checkpoint found, would need to restart from beginning")
+                # TODO: Implement full restart logic
 
     # Only these methods should touch the camera
 
@@ -1127,10 +1204,15 @@ class Scene(object):
                                 next_line_number = line_no
                                 # Include the play line
                                 code_lines.append(line.rstrip())
-                                # Check if play continues on next lines
+                                
+                                # Check if play continues on next lines (multi-line play call)
+                                # Count open and close parentheses to handle nested calls
+                                paren_count = line.count('(') - line.count(')')
                                 j = i + 1
-                                while j < len(lines) and ')' not in lines[j-1]:
-                                    code_lines.append(lines[j].rstrip())
+                                while j < len(lines) and paren_count > 0:
+                                    next_line = lines[j]
+                                    code_lines.append(next_line.rstrip())
+                                    paren_count += next_line.count('(') - next_line.count(')')
                                     j += 1
                                 break
                             else:
