@@ -29,6 +29,7 @@ from manim.mobject.types.vectorized_mobject import VMobject
 from manim.scene.scene_embed import InteractiveSceneEmbed
 from manim.scene.scene_embed import CheckpointManager
 from manim.scene.scene_file_writer import SceneFileWriter
+from manim.scene.file_watcher import FileWatcher
 from manim.utils.dict_ops import merge_dicts_recursively
 from manim.utils.family_ops import extract_mobject_family_members
 from manim.utils.family_ops import recursive_mobject_remove
@@ -146,6 +147,11 @@ class Scene(object):
         self.current_animation_index = -1
         self._navigating_animations = False  # Flag to prevent checkpoint creation during navigation
         self._processing_key = False  # Flag to prevent re-entry during key processing
+        
+        # File watcher for auto-reload
+        self._file_watcher = None
+        self._file_changed_flag = False  # Thread-safe flag for file changes
+        self.auto_reload_enabled = True  # Can be disabled if needed
 
     def __str__(self) -> str:
         return self.__class__.__name__
@@ -256,6 +262,9 @@ class Scene(object):
     def tear_down(self) -> None:
         self.stop_skipping()
         self.file_writer.finish()
+        if self._file_watcher:
+            self._file_watcher.stop()
+            self._file_watcher = None
         if self.window:
             self.window.destroy()
             self.window = None
@@ -273,8 +282,18 @@ class Scene(object):
             "you can interact with the scene. " +
             "Press `command + q` or `esc` to quit"
         )
+        
+        # Setup file watcher if enabled
+        if self.auto_reload_enabled:
+            self._setup_file_watcher()
+        
         self.skip_animations = False
         while not self.is_window_closing():
+            # Check for file changes
+            if self._file_changed_flag:
+                self._file_changed_flag = False
+                self._handle_file_change()
+            
             self.update_frame(1 / self.camera.fps)
 
     def embed(
@@ -294,6 +313,61 @@ class Scene(object):
         # End scene when exiting an embed
         if close_scene_on_exit:
             raise EndScene()
+    
+    def _setup_file_watcher(self) -> None:
+        """Setup the file watcher for auto-reload functionality."""
+        if hasattr(self, '_scene_filepath') and self._scene_filepath:
+            log.info(f"Setting up file watcher for: {self._scene_filepath}")
+            self._file_watcher = FileWatcher(self._scene_filepath)
+            self._file_watcher.start(self._on_file_changed)
+        else:
+            log.warning("No scene filepath available, file watching disabled")
+    
+    def _on_file_changed(self, change_info: dict) -> None:
+        """Callback when file changes are detected."""
+        log.info(f"File change detected: Line {change_info['earliest_changed_line']}")
+        # Set flag for main thread to handle
+        self._file_changed_flag = True
+        self._pending_change_info = change_info
+    
+    def _handle_file_change(self) -> None:
+        """Handle file changes in the main thread."""
+        if not hasattr(self, '_pending_change_info'):
+            return
+            
+        change_info = self._pending_change_info
+        log.info(f"Handling file change at line {change_info['earliest_changed_line']}")
+        
+        # Find the safe checkpoint to restore to
+        safe_checkpoint_idx = -1
+        earliest_change = change_info['earliest_changed_line']
+        
+        for i, checkpoint in enumerate(self.animation_checkpoints):
+            if checkpoint['line_number'] < earliest_change:
+                safe_checkpoint_idx = i
+            else:
+                break
+        
+        log.info(f"Safe checkpoint index: {safe_checkpoint_idx}")
+        
+        # Truncate checkpoints after the safe point
+        if safe_checkpoint_idx >= 0:
+            self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
+            self.current_animation_index = safe_checkpoint_idx
+            
+            # Restore the checkpoint state
+            checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
+            self.restore_state(checkpoint['state'])
+            log.info(f"Restored to checkpoint {safe_checkpoint_idx}")
+            
+            # Force a frame update to show the restored state
+            self.update_frame(dt=0, force_draw=True)
+            
+            # Run the next animation
+            self.run_next_animation()
+        else:
+            log.info("No safe checkpoint found, would need to restart from beginning")
+            # TODO: Implement full restart logic
 
     # Only these methods should touch the camera
 

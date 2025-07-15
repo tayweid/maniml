@@ -8,7 +8,7 @@ class TestMultiplePlays(Scene):
         
         # Second animation
         square = Square(color=RED)
-        self.play(Create(square))
+        self.play(FadeIn(square))
         
         # Third animation
         self.play(circle.animate.shift(LEFT * 2))
