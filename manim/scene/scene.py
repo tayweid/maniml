@@ -1491,6 +1491,41 @@ class ThreeDScene(Scene):
             if isinstance(mob, VMobject) and mob.has_stroke() and perp_stroke:
                 mob.set_flat_stroke(False)
         super().add(*mobjects)
+    
+    def set_camera_orientation(
+        self,
+        phi: float | None = None,
+        theta: float | None = None,
+        gamma: float | None = None,
+        zoom: float | None = None,
+        focal_distance: float | None = None,
+        frame_center: np.ndarray | None = None,
+    ):
+        """Set the camera's spherical orientation."""
+        if phi is not None:
+            self.frame.set_phi(phi)
+        if theta is not None:
+            self.frame.set_theta(theta)
+        if gamma is not None:
+            self.frame.set_gamma(gamma)
+        if zoom is not None:
+            self.frame.scale(zoom)
+        if focal_distance is not None:
+            self.frame.set_focal_distance(focal_distance)
+        if frame_center is not None:
+            self.frame.move_to(frame_center)
+    
+    def begin_ambient_camera_rotation(self, rate: float = 0.02, about: str = "theta"):
+        """Begin ambient rotation of the camera."""
+        # Store the rotation state
+        self.ambient_rotation_rate = rate
+        self.ambient_rotation_about = about
+        self.ambient_rotation_active = True
+        # Note: Actual rotation would need to be implemented in the update loop
+        
+    def stop_ambient_camera_rotation(self):
+        """Stop ambient rotation of the camera."""
+        self.ambient_rotation_active = False
 
 
 """Utility functions for scene checkpoint management."""
