@@ -52,6 +52,12 @@ from .compatibility import (
     MathTex,
 )
 
+# Import rate functions
+from .utils.rate_functions import (
+    linear, smooth, there_and_back, there_and_back_with_pause,
+    rush_into, rush_from, slow_into, double_smooth
+)
+
 # For convenience, make everything available at package level
 __all__ = [
     # Scenes
@@ -79,4 +85,7 @@ __all__ = [
     'Create', 'Uncreate', 'Write', 'Unwrite',
     'Shift', 'MoveTo', 'Scale', 'Rotate',
     'Wait',
+    # Rate functions
+    'linear', 'smooth', 'there_and_back', 'there_and_back_with_pause',
+    'rush_into', 'rush_from', 'slow_into', 'double_smooth',
 ]
