@@ -59,8 +59,25 @@ class Scale(_Transform):
 
 class Rotate(_Transform):
     """Rotate animation - rotates mobject by an angle."""
-    def __init__(self, mobject, angle, **kwargs):
-        target = mobject.copy().rotate(angle)
+    def __init__(self, mobject, angle, axis=None, about_point=None, **kwargs):
+        import numpy as np
+        from .constants import OUT
+        
+        # Default axis is OUT (z-axis)
+        if axis is None:
+            axis = OUT
+            
+        # Extract axis from kwargs if passed there (for compatibility)
+        axis = kwargs.pop('axis', axis)
+        about_point = kwargs.pop('about_point', about_point)
+        
+        # Create target with rotation
+        target = mobject.copy()
+        if about_point is not None:
+            target.rotate(angle, axis=axis, about_point=about_point)
+        else:
+            target.rotate(angle, axis=axis)
+            
         super().__init__(mobject, target, **kwargs)
 
 

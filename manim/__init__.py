@@ -4,6 +4,15 @@ maniml - ManimCE-compatible animations with OpenGL performance
 
 # Import all constants first
 from .constants import *
+# Explicitly import commonly used constants for better IDE support
+from .constants import (
+    PI, TAU, DEGREES, DEG,
+    UP, DOWN, LEFT, RIGHT, IN, OUT,
+    UL, UR, DL, DR,
+    ORIGIN,
+    BLUE, RED, GREEN, YELLOW, WHITE, BLACK,
+    FRAME_WIDTH, FRAME_HEIGHT
+)
 
 # Import essential scene classes
 from .scene.scene import Scene, ThreeDScene
@@ -15,6 +24,14 @@ from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
 from .mobject.svg.text_mobject import Text
 from .mobject.numbers import DecimalNumber
+
+# Import 3D-related classes
+from .mobject.types.surface import Surface, SGroup
+from .mobject.three_dimensions import (
+    Sphere, Cube, Torus, Cylinder, Cone,
+    Line3D, Disk3D, Square3D, Prism
+)
+from .mobject.coordinate_systems import ThreeDAxes
 
 # Import core animations directly
 from .animation.animation import Animation
@@ -43,6 +60,11 @@ __all__ = [
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
     'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Arrow', 'Vector',
+    # 3D Shapes
+    'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
+    'Line3D', 'Disk3D', 'Square3D', 'Prism',
+    # Coordinate Systems
+    'ThreeDAxes',
     # Text
     'Text', 'Tex', 'MathTex', 'DecimalNumber',
     # Core Animations
