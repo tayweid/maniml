@@ -23,6 +23,48 @@ if TYPE_CHECKING:
 
 
 class StringMobject(SVGMobject, ABC):
+    def apply_depth_test(self, recurse: bool = True):
+        """Override to ensure all string submobjects get depth test properly."""
+        # Call parent implementation
+        super().apply_depth_test(recurse)
+        
+        # Additionally ensure each submobject gets proper treatment
+        for submob in self.get_family(recurse):
+            submob.depth_test = True
+            # Force shader wrapper refresh for each submobject
+            if hasattr(submob, 'shader_wrapper') and submob.shader_wrapper is not None:
+                submob.shader_wrapper.depth_test = True
+                if hasattr(submob.shader_wrapper, 'refresh_id'):
+                    submob.shader_wrapper.refresh_id()
+            # Also refresh the shader wrapper id
+            if hasattr(submob, 'refresh_shader_wrapper_id'):
+                submob.refresh_shader_wrapper_id()
+        
+        return self
+    
+    def add_to_back(self, *mobjects):
+        """Override to ensure depth test is maintained when adding submobjects."""
+        result = super().add_to_back(*mobjects)
+        # If this object has depth test enabled, apply it to new submobjects
+        if self.depth_test:
+            for mob in mobjects:
+                if hasattr(mob, 'apply_depth_test'):
+                    mob.apply_depth_test()
+        return result
+    
+    def get_shader_wrapper_list(self):
+        """Override to ensure depth test is properly set on all submobjects."""
+        # First get the normal shader wrapper list
+        shader_wrappers = super().get_shader_wrapper_list()
+        
+        # If this text object has depth_test enabled, ensure all shader wrappers do too
+        if self.depth_test:
+            for wrapper in shader_wrappers:
+                if wrapper is not None:
+                    wrapper.depth_test = True
+                    
+        return shader_wrappers
+    
     """
     An abstract base class for `Tex` and `MarkupText`
 

@@ -36,6 +36,17 @@ def _convert_point_to_3d(x: float, y: float) -> np.ndarray:
 
 
 class SVGMobject(VMobject):
+    def apply_depth_test(self, recurse: bool = True):
+        """Override to ensure all SVG submobjects get depth test."""
+        # Call parent implementation
+        super().apply_depth_test(recurse)
+        
+        # Additionally ensure all submobjects refresh their shader wrappers
+        for submob in self.get_family(recurse):
+            if hasattr(submob, 'refresh_shader_wrapper_id'):
+                submob.refresh_shader_wrapper_id()
+        
+        return self
     file_name: str = ""
     height: float | None = 2.0
     width: float | None = None
