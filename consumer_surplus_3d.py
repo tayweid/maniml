@@ -7,9 +7,9 @@ class ConsumerSurplus3D(ThreeDScene):
         
         # Create a dark grey square plane at the origin
         plane = Square3D(
-            side_length=6,
+            side_length=10,
             color=GREY_D,
-            opacity=0.8,
+            opacity=1,
             shading=(0.1, 0.3, 0.1)
         )
         self.play(Create(plane))
@@ -24,15 +24,19 @@ class ConsumerSurplus3D(ThreeDScene):
         person.shift(OUT * 0.01)
         
         # Create label for the person
-        label = Text("Maxine", font_size=24, color=WHITE)
-        label.rotate(PI/2, RIGHT)  # Rotate to face up
-        label.shift(DOWN * 0.8 + OUT * 0.02)  # Position below the disk
+        person_label = Text("Maxine", font_size=20, color=WHITE, stroke_width=3, stroke_color=BLACK)
+        person_label.rotate(PI/2, RIGHT)  # Rotate to face up
+        person_label.next_to(person, DOWN * 0.5)
+        person_label.shift(OUT * 0.02)  # Position slightly above plane
+
+        circle = Circle()
         
-        # Create together
-        self.play(
-            FadeIn(person),
-            Write(label)
-        )
+        # Add person first
+        self.play(FadeIn(person), FadeIn(circle))
+        
+        # Add person label without depth test to maintain visibility
+        self.add(person_label, set_depth_test=False)
+        self.play(Write(person_label))
         
         # Create a bar representing consumer surplus
         # Using a thin rectangular prism (flattened cube)
@@ -43,20 +47,24 @@ class ConsumerSurplus3D(ThreeDScene):
             shading=(0.2, 0.5, 0.2)
         )
         # Scale to make it bar-shaped
-        surplus_bar.scale([2, 0.3, 0.2])  # Wide, short height, thin depth
+        surplus_bar.scale([0.1, 0.1, 1])  # Wide, short height, thin depth
         # Position above the person with some margin
-        surplus_bar.shift(OUT * 1.5)  # Float 1.5 units above the plane
+        surplus_bar.shift(OUT)  # Float 1.5 units above the plane
         
         # Add a label for the surplus bar
-        surplus_label = Text("Consumer Surplus", font_size=20, color=WHITE)
+        surplus_label = Text("Consumer Surplus", font_size=24, color=WHITE, stroke_width=3, stroke_color=BLACK)
         surplus_label.rotate(PI/2, RIGHT)  # Rotate to face up
-        surplus_label.shift(OUT * 2.0)  # Position above the bar
+        surplus_label.move_to(surplus_bar.get_center() + OUT * 0.6)  # Position above the bar
         
         # Animate the surplus bar appearing
-        self.play(
-            FadeIn(surplus_bar),
-            Write(surplus_label)
-        )
+        self.play(FadeIn(surplus_bar))
+        
+        # Add surplus label without depth test to maintain visibility
+        self.add(surplus_label, set_depth_test=False)
+        self.play(Write(surplus_label))
+
+        # zoom to Maxine
+        
         
         # Add some visual interest - make the bar pulse slightly
         self.play(
@@ -66,10 +74,7 @@ class ConsumerSurplus3D(ThreeDScene):
         )
         
         # Start slow camera rotation around the scene
-        self.begin_ambient_camera_rotation(rate=0.1)
-        
-        # Let it rotate for a while
-        self.wait(8)
+        self.begin_ambient_camera_rotation(rate=1)
         
         # Optional: Add axes for reference
         axes = ThreeDAxes(
@@ -81,9 +86,5 @@ class ConsumerSurplus3D(ThreeDScene):
         axes.set_opacity(0.3)
         self.play(Create(axes), run_time=2)
         
-        # Continue rotation
-        self.wait(4)
-        
         # Stop rotation and hold final view
         self.stop_ambient_camera_rotation()
-        self.wait(2)

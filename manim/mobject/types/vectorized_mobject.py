@@ -1280,6 +1280,8 @@ class VMobject(Mobject):
         for submob in self.get_family():
             if submob.shader_wrapper is not None:
                 submob.shader_wrapper.stroke_behind = submob.stroke_behind
+                # Also update depth_test!
+                submob.shader_wrapper.depth_test = submob.depth_test
         super().refresh_shader_wrapper_id()
         return self
 

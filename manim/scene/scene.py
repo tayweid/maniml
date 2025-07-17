@@ -1488,6 +1488,22 @@ class ThreeDScene(Scene):
         for mob in mobjects:
             if set_depth_test and not mob.is_fixed_in_frame() and self.always_depth_test:
                 mob.apply_depth_test()
+                
+                # Special handling for text objects - ensure all submobjects get depth test
+                if hasattr(mob, '__class__') and any(base.__name__ in ['Text', 'MarkupText', 'StringMobject'] 
+                                                     for base in mob.__class__.__mro__):
+                    # Debug print
+                    print(f"[ThreeDScene.add] Detected text object: {mob.__class__.__name__}")
+                    print(f"  Family size: {len(mob.get_family())}")
+                    
+                    # Force refresh on all family members
+                    for submob in mob.get_family():
+                        submob.depth_test = True
+                        if hasattr(submob, 'refresh_shader_wrapper_id'):
+                            submob.refresh_shader_wrapper_id()
+                    
+                    print(f"  Applied depth test to all {len(mob.get_family())} family members")
+                            
             if isinstance(mob, VMobject) and mob.has_stroke() and perp_stroke:
                 mob.set_flat_stroke(False)
         super().add(*mobjects)

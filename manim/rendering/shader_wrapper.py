@@ -380,6 +380,8 @@ class VShaderWrapper(ShaderWrapper):
             gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE)
             gl.glBlendEquation(gl.GL_MIN)
             self.fill_depth_vao.render()
+            # Important: restore to fill texture for border rendering
+            fill_tx_fbo.use()
 
         # Now add border, just taking the max alpha
         gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE)
@@ -391,7 +393,35 @@ class VShaderWrapper(ShaderWrapper):
         original_fbo.use()
         gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
         gl.glBlendEquation(gl.GL_FUNC_ADD)
+        
+        # If depth test is enabled, we need to enable it for the final composite
+        # so that the fill respects the depth buffer of the main scene
+        if apply_depth_test:
+            self.ctx.enable(moderngl.DEPTH_TEST)
+            # Also ensure depth writing is enabled
+            gl.glDepthMask(gl.GL_TRUE)
+        
+        # Bind the textures to the shader
+        # Get the textures from the framebuffers
+        fill_texture = fill_tx_fbo.color_attachments[0]
+        depth_texture = depth_tx_fbo.color_attachments[0]
+        
+        # Bind them to texture units
+        fill_texture.use(location=0)
+        depth_texture.use(location=1)
+        
+        # Get the shader program from the VAO and set the uniform values
+        program = fill_tx_vao.program
+        if 'Texture' in program:
+            program['Texture'] = 0
+        if 'DepthTexture' in program:
+            program['DepthTexture'] = 1
+        
         fill_tx_vao.render()
+        
+        # Restore depth test state if we changed it
+        if apply_depth_test and not self.depth_test:
+            self.ctx.disable(moderngl.DEPTH_TEST)
 
         # Return to original blending state
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
@@ -416,8 +446,8 @@ class VShaderWrapper(ShaderWrapper):
         # Important to make sure dtype is floating point (not fixed point)
         # so that alpha values can be negative and are not clipped
         fill_texture = ctx.texture(size=double_size, components=4, dtype='f2')
-        # Use another one to keep track of depth
-        depth_texture = ctx.texture(size=size, components=1, dtype='f4')
+        # Use another one to keep track of depth - must match fill texture size!
+        depth_texture = ctx.texture(size=double_size, components=1, dtype='f4')
 
         fill_texture_fbo = ctx.framebuffer(fill_texture)
         depth_texture_fbo = ctx.framebuffer(depth_texture)
@@ -429,6 +459,7 @@ class VShaderWrapper(ShaderWrapper):
             out vec2 uv;
 
             void main() {
+                // Keep the quad in screen space but allow depth to be interpolated
                 gl_Position = vec4((2.0 * texcoord - 1.0), 0.0, 1.0);
                 uv = texcoord;
             }
@@ -454,7 +485,17 @@ class VShaderWrapper(ShaderWrapper):
                 // Counteract scaling in fill frag
                 color *= 1.06;
 
-                gl_FragDepth = texture(DepthTexture, uv)[0];
+                // Read depth from depth texture
+                float depth = texture(DepthTexture, uv).r;
+                
+                // The depth texture contains gl_FragCoord.z values from the fill rendering pass
+                // We need to ensure this depth value is properly used
+                // If depth is 1.0 (default clear value), discard to avoid z-fighting
+                if(depth >= 0.9999) {
+                    discard;
+                } else {
+                    gl_FragDepth = depth;
+                }
             }
         '''
         fill_program = ctx.program(
@@ -472,6 +513,9 @@ class VShaderWrapper(ShaderWrapper):
         return (fill_texture_fbo, fill_texture_vao, depth_texture_fbo)
 
     def render(self):
+        # Ensure pre_render is called to set depth test state
+        self.pre_render()
+        
         if self.stroke_behind:
             self.render_stroke()
             self.render_fill()
