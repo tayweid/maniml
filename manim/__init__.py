@@ -27,6 +27,7 @@ from .mobject.numbers import DecimalNumber
 
 # Import 3D-related classes
 from .mobject.types.surface import Surface, SGroup
+from .mobject.types.vmobject_3d import VMobject3D, Circle3D, Text3D
 from .mobject.three_dimensions import (
     Sphere, Cube, Torus, Cylinder, Cone,
     Line3D, Disk3D, Square3D, Prism
@@ -69,6 +70,7 @@ __all__ = [
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
     'Line3D', 'Disk3D', 'Square3D', 'Prism',
+    'VMobject3D', 'Circle3D', 'Text3D',
     # Coordinate Systems
     'ThreeDAxes',
     # Text
