@@ -30,7 +30,7 @@ from .mobject.types.surface import Surface, SGroup
 from .mobject.types.vmobject_3d import VMobject3D, Circle3D, Text3D
 from .mobject.three_dimensions import (
     Sphere, Cube, Torus, Cylinder, Cone,
-    Line3D, Disk3D, Square3D, Prism
+    Line3D, Disk3D, Square3D, Rectangle3D, Prism
 )
 from .mobject.coordinate_systems import ThreeDAxes
 
@@ -69,7 +69,7 @@ __all__ = [
     'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Arrow', 'Vector',
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
-    'Line3D', 'Disk3D', 'Square3D', 'Prism',
+    'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism',
     'VMobject3D', 'Circle3D', 'Text3D',
     # Coordinate Systems
     'ThreeDAxes',

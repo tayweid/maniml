@@ -28,19 +28,18 @@ class VMobject3D(Surface):
         vmobject: VMobject | None = None,
         resolution: int = 50,
         color: ManimColor | None = None,
-        opacity: float | None = None,
+        opacity: float = 1.0,
         **kwargs
     ):
         # If no vmobject provided, we'll initialize empty
         self.source_vmobject = vmobject
         self.polygon_resolution = resolution
         
-        # Extract color and opacity from source if not specified
+        # Extract color from source if not specified
         if vmobject is not None:
             if color is None:
                 color = vmobject.get_fill_color()
-            if opacity is None:
-                opacity = vmobject.get_fill_opacity()
+            # Note: we now use the default opacity=1.0 unless explicitly overridden
         
         # Initialize as Surface with extracted properties
         super().__init__(
@@ -150,8 +149,11 @@ class VMobject3D(Surface):
     def set_points_from_triangulation(self, vertices: np.ndarray, triangle_indices: list[int]):
         """Set up Surface data from triangulated vertices"""
         if len(triangle_indices) == 0:
+            print("[VMobject3D] No triangle indices!")
             return
             
+        print(f"[VMobject3D] Setting up {len(vertices)} vertices and {len(triangle_indices)//3} triangles")
+        
         # Store the vertices
         self.set_points(vertices)
         

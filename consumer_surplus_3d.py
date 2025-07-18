@@ -24,10 +24,9 @@ class ConsumerSurplus3D(ThreeDScene):
         person.shift(OUT * 0.01)
         
         # Create label for the person
-        person_label = Text("Maxine", font_size=20, color=WHITE, stroke_width=3, stroke_color=BLACK)
+        person_label = Text3D("Maxine", font_size=20, color=YELLOW)
         person_label.rotate(PI/2, RIGHT)  # Rotate to face up
-        person_label.next_to(person, DOWN * 0.5)
-        person_label.shift(OUT * 0.02)  # Position slightly above plane
+        person_label.next_to(person, OUT)
 
         circle = Circle()
         
@@ -35,7 +34,6 @@ class ConsumerSurplus3D(ThreeDScene):
         self.play(FadeIn(person), FadeIn(circle))
         
         # Add person label without depth test to maintain visibility
-        self.add(person_label, set_depth_test=False)
         self.play(Write(person_label))
         
         # Create a bar representing consumer surplus
@@ -51,17 +49,12 @@ class ConsumerSurplus3D(ThreeDScene):
         # Position above the person with some margin
         surplus_bar.shift(OUT)  # Float 1.5 units above the plane
         
-        # Add a label for the surplus bar
-        surplus_label = Text("Consumer Surplus", font_size=24, color=WHITE, stroke_width=3, stroke_color=BLACK)
-        surplus_label.rotate(PI/2, RIGHT)  # Rotate to face up
-        surplus_label.move_to(surplus_bar.get_center() + OUT * 0.6)  # Position above the bar
-        
+
         # Animate the surplus bar appearing
-        self.play(FadeIn(surplus_bar))
-        
-        # Add surplus label without depth test to maintain visibility
-        self.add(surplus_label, set_depth_test=False)
-        self.play(Write(surplus_label))
+        self.play(
+            FadeIn(surplus_bar),
+            person_label.animate.move_to(surplus_bar.get_center() + OUT)  # Position above the bar
+            )
 
         # zoom to Maxine
         
