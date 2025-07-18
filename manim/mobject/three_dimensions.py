@@ -255,6 +255,33 @@ class Square3D(Surface):
         return np.array([u, v, 0])
 
 
+class Rectangle3D(Surface):
+    def __init__(
+        self,
+        width: float = 4.0,
+        height: float = 2.0,
+        u_range: Tuple[float, float] = None,
+        v_range: Tuple[float, float] = None,
+        resolution: Tuple[int, int] = (2, 2),
+        **kwargs,
+    ):
+        # Set ranges based on width and height
+        if u_range is None:
+            u_range = (-width/2, width/2)
+        if v_range is None:
+            v_range = (-height/2, height/2)
+            
+        super().__init__(
+            u_range=u_range, 
+            v_range=v_range, 
+            resolution=resolution, 
+            **kwargs
+        )
+
+    def uv_func(self, u: float, v: float) -> np.ndarray:
+        return np.array([u, v, 0])
+
+
 def square_to_cube_faces(square: T) -> list[T]:
     radius = square.get_height() / 2
     square.move_to(radius * OUT)
