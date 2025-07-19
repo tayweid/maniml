@@ -348,6 +348,11 @@ class VShaderWrapper(ShaderWrapper):
         self.stroke_vao.render()
 
     def render_fill(self):
+        # Check if we should use triangulated fill
+        if hasattr(self.mobject, 'use_triangulated_fill') and self.mobject.use_triangulated_fill:
+            self.render_triangulated_fill()
+            return
+            
         if self.fill_vao is None:
             return
 
@@ -425,6 +430,137 @@ class VShaderWrapper(ShaderWrapper):
 
         # Return to original blending state
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+    def render_triangulated_fill(self):
+        """
+        Render fill using triangulation for proper 3D depth testing.
+        Uses the Surface rendering approach for simple, fast triangle rendering.
+        """
+        if not hasattr(self.mobject, 'get_fill_color'):
+            return
+            
+        # Only render if there's actual fill
+        if self.mobject.get_fill_opacity() == 0:
+            return
+            
+        # Import here to avoid circular imports
+        from manim.utils.color import color_to_rgb
+        from manim.utils.shaders import get_shader_program
+        
+        # Check if we have cached triangulation data
+        if not hasattr(self.mobject, '_triangulation_cache'):
+            from manim.mobject.types.vmobject_3d import VMobject3D
+            
+            # Create a temporary VMobject3D from our mobject
+            # This handles all the complex bezier-to-polygon conversion
+            temp_3d = VMobject3D(
+                self.mobject,
+                color=self.mobject.get_fill_color(),
+                opacity=self.mobject.get_fill_opacity()
+            )
+            
+            # Check if triangulation succeeded
+            if not hasattr(temp_3d, 'triangle_indices') or len(temp_3d.triangle_indices) == 0:
+                return
+                
+            # Cache the triangulation data on the mobject
+            self.mobject._triangulation_cache = {
+                'vertices': temp_3d.get_points().copy(),
+                'indices': temp_3d.triangle_indices.copy()
+            }
+        
+        # Get the cached triangulated data
+        vertices = self.mobject._triangulation_cache['vertices']
+        triangle_indices = self.mobject._triangulation_cache['indices']
+        
+        if len(vertices) == 0:
+            return
+            
+        # Create data array matching the Surface data structure
+        # Surface expects: (point, d_normal_point, rgba)
+        surface_dtype = np.dtype([
+            ('point', np.float32, (3,)),
+            ('d_normal_point', np.float32, (3,)),
+            ('rgba', np.float32, (4,)),
+        ])
+        
+        num_vertices = len(vertices)
+        surface_data = np.zeros(num_vertices, dtype=surface_dtype)
+        
+        # Set vertex positions
+        surface_data['point'][:] = vertices
+        
+        # For 2D objects, normals point in the +z direction
+        # d_normal_point is slightly offset from the point in the normal direction
+        normal_offset = 0.001  # Small offset for normal calculation
+        surface_data['d_normal_point'][:] = vertices + np.array([0, 0, normal_offset])
+        
+        # Set color and opacity
+        fill_color = self.mobject.get_fill_color()
+        fill_opacity = self.mobject.get_fill_opacity()
+        fill_rgb = color_to_rgb(fill_color)
+        fill_rgba = np.array([*fill_rgb, fill_opacity], dtype=np.float32)
+        surface_data['rgba'][:] = fill_rgba
+        
+        # Get or create surface shader program
+        if not hasattr(self, '_surface_program'):
+            # Load surface shader
+            from manim.utils.shaders import get_shader_code_from_file
+            vertex_shader = get_shader_code_from_file(
+                os.path.join("surface", "vert.glsl")
+            )
+            fragment_shader = get_shader_code_from_file(
+                os.path.join("surface", "frag.glsl")
+            )
+            self._surface_program = get_shader_program(
+                self.ctx,
+                vertex_shader=vertex_shader,
+                fragment_shader=fragment_shader
+            )
+        
+        # Create temporary buffers
+        vbo = self.ctx.buffer(surface_data)
+        ibo = self.ctx.buffer(np.array(triangle_indices, dtype='i4'))
+        
+        # Create vertex array
+        vert_format = '3f 3f 4f'  # point, d_normal_point, rgba
+        vert_attributes = ['point', 'd_normal_point', 'rgba']
+        vao = self.ctx.vertex_array(
+            program=self._surface_program,
+            content=[(vbo, vert_format, *vert_attributes)],
+            index_buffer=ibo,
+            mode=moderngl.TRIANGLES
+        )
+        
+        # Update uniforms on the surface program
+        # The camera uniforms were already set on our programs by update_program_uniforms
+        # We need to set them on this program too
+        for program in self.programs:
+            if program and program._members:
+                # Copy uniform values from the fill program to surface program
+                for name, member in program._members.items():
+                    if hasattr(member, 'value') and name in self._surface_program:
+                        try:
+                            self._surface_program[name].value = member.value
+                        except:
+                            pass
+                break
+        
+        # Also set mobject uniforms
+        from manim.utils.shaders import set_program_uniform
+        for name, value in self.mobject_uniforms.items():
+            set_program_uniform(self._surface_program, name, value)
+        
+        # Enable depth testing
+        self.ctx.enable(moderngl.DEPTH_TEST)
+        
+        # Render the triangles
+        vao.render()
+        
+        # Clean up
+        vao.release()
+        vbo.release()
+        ibo.release()
 
     # Static method returning one shared value across all VShaderWrappers
     @lru_cache

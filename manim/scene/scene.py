@@ -1504,8 +1504,16 @@ class ThreeDScene(Scene):
                     
                     print(f"  Applied depth test to all {len(mob.get_family())} family members")
                             
-            if isinstance(mob, VMobject) and mob.has_stroke() and perp_stroke:
-                mob.set_flat_stroke(False)
+            if isinstance(mob, VMobject):
+                # Enable triangulated fill for proper 3D depth
+                mob.use_triangulated_fill = True
+                # Apply to all submobjects as well
+                for submob in mob.get_family():
+                    if isinstance(submob, VMobject):
+                        submob.use_triangulated_fill = True
+                        
+                if mob.has_stroke() and perp_stroke:
+                    mob.set_flat_stroke(False)
         super().add(*mobjects)
     
     def set_camera_orientation(

@@ -204,6 +204,9 @@ class Mobject(object):
 
     def note_changed_data(self, recurse_up: bool = True) -> Self:
         self._data_has_changed = True
+        # Clear triangulation cache if it exists
+        if hasattr(self, '_triangulation_cache'):
+            delattr(self, '_triangulation_cache')
         if recurse_up:
             for mob in self.parents:
                 mob.note_changed_data()
