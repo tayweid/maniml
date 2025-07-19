@@ -9,6 +9,13 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 - **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing*
 - **Hot reloading:** *the preview window automatically plays edited animations*
 
+
+
+## To Do
+
+- self.begin_ambient_camera_rotation(rate=0.1)
+- z_index and stroke vs fill
+
 ## Installation
 
 ```bash

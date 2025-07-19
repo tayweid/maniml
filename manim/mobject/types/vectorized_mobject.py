@@ -95,6 +95,7 @@ class VMobject(Mobject):
         # Measured in pixel widths
         anti_alias_width: float = 1.5,
         fill_border_width: float = 0.0,
+        use_triangulated_fill: bool = False,
         **kwargs
     ):
         self.fill_color = fill_color or color or DEFAULT_VMOBJECT_FILL_COLOR
@@ -111,6 +112,7 @@ class VMobject(Mobject):
         self.use_simple_quadratic_approx = use_simple_quadratic_approx
         self.anti_alias_width = anti_alias_width
         self.fill_border_width = fill_border_width
+        self.use_triangulated_fill = use_triangulated_fill
 
         self.needs_new_joint_angles = True
         self.needs_new_unit_normal = True
@@ -1275,6 +1277,8 @@ class VMobject(Mobject):
             stroke_behind=self.stroke_behind,
             depth_test=self.depth_test
         )
+        # Store reference to the mobject in the shader wrapper
+        self.shader_wrapper.mobject = self
 
     def refresh_shader_wrapper_id(self):
         for submob in self.get_family():
