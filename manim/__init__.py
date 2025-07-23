@@ -19,18 +19,18 @@ from .scene.scene import Scene, ThreeDScene
 
 # Import basic mobjects directly
 from .mobject.mobject import Mobject, Group
-from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Arrow, Vector
+from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector
 from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
-from .mobject.svg.text_mobject import Text
+from .mobject.types.vmobject_3d import Text
 from .mobject.numbers import DecimalNumber
 
 # Import 3D-related classes
 from .mobject.types.surface import Surface, SGroup
-from .mobject.types.vmobject_3d import VMobject3D, Circle3D, Text3D
+from .mobject.types.vmobject_3d import VMobject3D, Circle3D
 from .mobject.three_dimensions import (
     Sphere, Cube, Torus, Cylinder, Cone,
-    Line3D, Disk3D, Square3D, Rectangle3D, Prism
+    Line3D, Disk3D, Square3D, Rectangle3D, Prism, Squircle3D
 )
 from .mobject.coordinate_systems import ThreeDAxes
 
@@ -66,11 +66,11 @@ __all__ = [
     # Basic Mobjects
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
-    'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Arrow', 'Vector',
+    'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Squircle', 'Arrow', 'Vector',
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
-    'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism',
-    'VMobject3D', 'Circle3D', 'Text3D',
+    'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism', 'Squircle3D',
+    'VMobject3D', 'Circle3D',
     # Coordinate Systems
     'ThreeDAxes',
     # Text

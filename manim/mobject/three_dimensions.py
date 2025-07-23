@@ -14,6 +14,7 @@ from manim.mobject.types.vectorized_mobject import VGroup
 from manim.mobject.types.vectorized_mobject import VMobject
 from manim.mobject.geometry import Polygon
 from manim.mobject.geometry import Square
+from manim.mobject.geometry import Squircle
 from manim.utils.bezier import interpolate
 from manim.utils.iterables import adjacent_pairs
 from manim.utils.space_ops import compass_directions
@@ -438,3 +439,250 @@ class Prismify(VGroup3D):
         top.reverse_points()
         pieces.append(top)
         super().__init__(*pieces, **kwargs)
+
+
+class Squircle3DSides(Surface):
+    '''
+    Creates the sides of a 3D squircle prism - an extruded squircle shape using Surface.
+    
+    Parameters
+    ----------
+    width : float
+        Width of the bounding rectangle
+    height : float
+        Height of the bounding rectangle
+    depth : float
+        Depth of the 3D extrusion
+    squareness : float
+        Parameter controlling the shape (2 = ellipse, >2 = more rectangular, typically 4)
+    u_range : Tuple[float, float]
+        Parameter range for the perimeter (0 to 2π)
+    v_range : Tuple[float, float]
+        Parameter range for the height (-1 to 1)
+    resolution : Tuple[int, int]
+        Resolution of the surface mesh (perimeter_points, height_points)
+    **kwargs
+        Additional keyword arguments for Surface
+        
+    Examples
+    --------
+        squircle_3d = Squircle3D(side_length=2, height=1, squareness=4)
+        squircle_3d = Squircle3D(side_length=3, height=2, squareness=3, color=BLUE)
+        
+    Returns
+    -------
+    out : Squircle3D object
+        A 3D squircle prism object
+    '''
+    
+    def __init__(
+        self,
+        width: float = 2.0,
+        height: float = None,
+        depth: float = 2.0,
+        side_length: float = None,  # For backwards compatibility
+        squareness: float = 4.0,
+        u_range: Tuple[float, float] = (0, TAU),
+        v_range: Tuple[float, float] = (-1, 1),
+        resolution: Tuple[int, int] = (101, 11),
+        **kwargs
+    ):
+        # Handle backwards compatibility
+        if side_length is not None:
+            width = side_length
+            height = side_length
+        elif height is None:
+            height = width
+            
+        self.width = width
+        self.height = height
+        self.depth = depth
+        self.squareness = squareness
+        super().__init__(
+            u_range=u_range,
+            v_range=v_range,
+            resolution=resolution,
+            **kwargs
+        )
+    
+    def init_points(self):
+        super().init_points()
+        # Scale x and y by width and height respectively
+        self.apply_matrix(np.array([
+            [self.width / 2, 0, 0],
+            [0, self.height / 2, 0],
+            [0, 0, 1]
+        ]))
+        # Set the depth
+        self.set_depth(self.depth, stretch=True)
+    
+    def uv_func(self, u: float, v: float) -> np.ndarray:
+        # Parametric equations for squircle in xy plane
+        # For rectangular squircle, we keep the unit squircle
+        # and scale in init_points
+        n = self.squareness
+        exponent = 2.0 / n
+        
+        cos_u = np.cos(u)
+        sin_u = np.sin(u)
+        
+        x = np.sign(cos_u) * np.abs(cos_u) ** exponent
+        y = np.sign(sin_u) * np.abs(sin_u) ** exponent
+        z = v  # Height varies with v from -1 to 1
+        
+        return np.array([x, y, z])
+
+
+class SquircleCap(Surface):
+    '''A flat squircle surface for use as end caps'''
+    def __init__(
+        self,
+        width: float = 2.0,
+        height: float = None,
+        side_length: float = None,  # For backwards compatibility
+        squareness: float = 4.0,
+        at_height: float = 0.0,
+        u_range: Tuple[float, float] = (0, TAU),
+        v_range: Tuple[float, float] = (0.01, 1),  # Start slightly away from center to avoid singularity
+        resolution: Tuple[int, int] = (101, 51),
+        **kwargs
+    ):
+        # Handle backwards compatibility
+        if side_length is not None:
+            width = side_length
+            height = side_length
+        elif height is None:
+            height = width
+            
+        self.width = width
+        self.height = height
+        self.squareness = squareness
+        self.at_height = at_height
+        super().__init__(
+            u_range=u_range,
+            v_range=v_range,
+            resolution=resolution,
+            **kwargs
+        )
+    
+    def init_points(self):
+        super().init_points()
+        # Scale x and y by width and height respectively
+        self.apply_matrix(np.array([
+            [self.width / 2, 0, 0],
+            [0, self.height / 2, 0],
+            [0, 0, 1]
+        ]))
+        self.shift(self.at_height * OUT)
+    
+    def uv_func(self, u: float, v: float) -> np.ndarray:
+        # Create a filled disk using the squircle perimeter
+        n = self.squareness
+        exponent = 2.0 / n
+        
+        cos_u = np.cos(u)
+        sin_u = np.sin(u)
+        
+        # Outer edge at v=1, center at v=0
+        x = v * np.sign(cos_u) * np.abs(cos_u) ** exponent
+        y = v * np.sign(sin_u) * np.abs(sin_u) ** exponent
+        z = 0  # Flat surface
+        
+        return np.array([x, y, z])
+
+
+class Squircle3D(SGroup):
+    '''
+    Creates a complete 3D squircle prism with sides and end caps.
+    
+    Parameters
+    ----------
+    width : float
+        Width of the bounding rectangle
+    height : float
+        Height of the bounding rectangle (base shape height, not extrusion depth)
+    depth : float
+        Depth of the 3D extrusion (how tall the 3D shape is)
+    side_length : float
+        Edge length of the bounding square (for backwards compatibility)
+    squareness : float
+        Parameter controlling the shape (2 = ellipse, >2 = more rectangular, typically 4)
+    **kwargs
+        Additional keyword arguments for Surface
+        
+    Examples
+    --------
+        squircle_3d = Squircle3D(side_length=2, depth=1, squareness=4)
+        squircle_3d = Squircle3D(width=3, height=2, depth=1, squareness=3, color=BLUE)
+    '''
+    
+    def __init__(
+        self,
+        width: float = 2.0,
+        height: float = None,
+        depth: float = 2.0,
+        side_length: float = None,  # For backwards compatibility
+        squareness: float = 4.0,
+        color: ManimColor = BLUE,
+        opacity: float = 1,
+        shading: Tuple[float, float, float] = (0.1, 0.5, 0.1),
+        resolution: Tuple[int, int] = (101, 11),
+        **kwargs
+    ):
+        # Handle backwards compatibility
+        if side_length is not None:
+            width = side_length
+            height = side_length
+            if 'height' in kwargs:
+                # Legacy parameter name for depth
+                depth = kwargs.pop('height')
+        elif height is None:
+            height = width
+            
+        # Remove our custom parameters from kwargs before passing to parent
+        kwargs.pop('width', None)
+        kwargs.pop('height', None)
+        kwargs.pop('depth', None)
+        kwargs.pop('side_length', None)
+        kwargs.pop('squareness', None)
+            
+        # Create the sides
+        sides = Squircle3DSides(
+            width=width,
+            height=height,
+            depth=depth,
+            squareness=squareness,
+            color=color,
+            opacity=opacity,
+            shading=shading,
+            resolution=resolution,
+        )
+        
+        # Create top and bottom caps
+        bottom_cap = SquircleCap(
+            width=width,
+            height=height,
+            squareness=squareness,
+            at_height=-depth/2,
+            color=color,
+            opacity=opacity,
+            shading=shading,
+        )
+        
+        top_cap = SquircleCap(
+            width=width,
+            height=height,
+            squareness=squareness,
+            at_height=depth/2,
+            color=color,
+            opacity=opacity,
+            shading=shading,
+        )
+        
+        # Combine all pieces
+        super().__init__(
+            sides,
+            bottom_cap,
+            top_cap,
+            **kwargs
+        )

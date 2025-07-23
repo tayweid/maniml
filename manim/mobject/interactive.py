@@ -15,7 +15,7 @@ from manim.mobject.geometry import Line
 from manim.mobject.geometry import Rectangle
 from manim.mobject.geometry import RoundedRectangle
 from manim.mobject.geometry import Square
-from manim.mobject.svg.text_mobject import Text
+from manim.mobject.types.vmobject_3d import Text
 from manim.mobject.types.vectorized_mobject import VGroup
 from manim.mobject.value_tracker import ValueTracker
 from manim.utils.color import rgb_to_hex

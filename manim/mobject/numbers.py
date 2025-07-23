@@ -6,7 +6,7 @@ import numpy as np
 from manim.constants import DOWN, LEFT, RIGHT, UP
 from manim.constants import DEFAULT_MOBJECT_COLOR
 from manim.mobject.svg.tex_mobject import Tex
-from manim.mobject.svg.text_mobject import Text
+from manim.mobject.types.vmobject_3d import Text
 from manim.mobject.types.vectorized_mobject import VMobject
 from manim.utils.paths import straight_path
 from manim.utils.bezier import interpolate

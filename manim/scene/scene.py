@@ -277,11 +277,11 @@ class Scene(object):
         """
         if self.window is None:
             return
-        log.info(
-            "\nTips: Using the keys `d`, `f`, or `z` " +
-            "you can interact with the scene. " +
-            "Press `command + q` or `esc` to quit"
-        )
+        # log.info(
+        #     "\nTips: Using the keys `d`, `f`, or `z` " +
+        #     "you can interact with the scene. " +
+        #     "Press `command + q` or `esc` to quit"
+        # )
         
         # Setup file watcher if enabled
         if self.auto_reload_enabled:
@@ -317,7 +317,7 @@ class Scene(object):
     def _setup_file_watcher(self) -> None:
         """Setup the file watcher for auto-reload functionality."""
         if hasattr(self, '_scene_filepath') and self._scene_filepath:
-            log.info(f"Setting up file watcher for: {self._scene_filepath}")
+            # log.info(f"Setting up file watcher for: {self._scene_filepath}")
             self._file_watcher = FileWatcher(self._scene_filepath)
             self._file_watcher.start(self._on_file_changed)
         else:
@@ -819,11 +819,11 @@ class Scene(object):
             while frame:
                 if '__animation_line_number__' in frame.f_locals:
                     line_no = frame.f_locals['__animation_line_number__']
-                    print(f"DEBUG: Using passed line number {line_no} from run_next_animation")
+                    # print(f"DEBUG: Using passed line number {line_no} from run_next_animation")
                     break
                 if '__animation_line_number__' in frame.f_globals:
                     line_no = frame.f_globals['__animation_line_number__']
-                    print(f"DEBUG: Using passed line number {line_no} from run_next_animation (globals)")
+                    # print(f"DEBUG: Using passed line number {line_no} from run_next_animation (globals)")
                     break
                 frame = frame.f_back
             
@@ -838,15 +838,16 @@ class Scene(object):
                     # Skip internal manim files
                     if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
                         user_frames.append(frame_info)
-                        print(f"DEBUG: Found user frame at {frame_info.filename}:{frame_info.lineno}")
+                        # print(f"DEBUG: Found user frame at {frame_info.filename}:{frame_info.lineno}")
                 
                 # The last (deepest) frame is the END of the play call
                 if user_frames:
                     line_no = user_frames[-1].lineno
-                    print(f"DEBUG: Using line {line_no} as checkpoint line")
+                    # print(f"DEBUG: Using line {line_no} as checkpoint line")
                     # Debug: show if this is a multi-line call
                     if len(user_frames) > 1:
-                        print(f"DEBUG: Multi-line play() call from line {user_frames[0].lineno} to {user_frames[-1].lineno}")
+                        # print(f"DEBUG: Multi-line play() call from line {user_frames[0].lineno} to {user_frames[-1].lineno}")
+                        pass
                         
                 if line_no is None:
                     # Fallback to direct caller
@@ -1186,7 +1187,7 @@ class Scene(object):
                 current_line = current_checkpoint['line_number']
                 
                 # Debug: check what line we're starting from
-                print(f"DEBUG: Current checkpoint ends at line {current_line}, looking for next animation after that")
+                # print(f"DEBUG: Current checkpoint ends at line {current_line}, looking for next animation after that")
                 
                 code_lines = []
                 in_construct = False
@@ -1232,7 +1233,7 @@ class Scene(object):
                                 
                                 # Use the END line for the checkpoint
                                 next_line_number = play_end_line
-                                print(f"DEBUG: Found play() call from line {line_no} to {play_end_line}")
+                                # print(f"DEBUG: Found play() call from line {line_no} to {play_end_line}")
                                 break
                 
                 if found_next_play and code_lines:
@@ -1251,12 +1252,12 @@ class Scene(object):
                     
                     code_to_run = '\n'.join(code_lines)
                     
-                    # Debug: show what code we're about to run
-                    print(f"→ Running animation {next_index} at line {next_line_number}")
-                    print(f"DEBUG: Scene has {len(self.mobjects)} mobjects before exec")
-                    print(f"DEBUG: Code to run ({len(code_lines)} lines):")
-                    for i, line in enumerate(code_lines):
-                        print(f"  {i+1}: {repr(line)}")
+                    # Show what animation we're running
+                    print(f"→ Running animation {next_index}")
+                    # print(f"DEBUG: Scene has {len(self.mobjects)} mobjects before exec")
+                    # print(f"DEBUG: Code to run ({len(code_lines)} lines):")
+                    # for i, line in enumerate(code_lines):
+                    #     print(f"  {i+1}: {repr(line)}")
                     
                     # Set flag to allow next checkpoint
                     self._navigating_animations = False
@@ -1278,8 +1279,8 @@ class Scene(object):
                             raise
                     
                     print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
-                else:
-                    print(f"No more animations found after line {current_line}")
+                # else:
+                #     print(f"No more animations found after line {current_line}")
                     
             except FileNotFoundError:
                 print(f"Scene file not found: {self._scene_filepath}")
@@ -1545,11 +1546,26 @@ class ThreeDScene(Scene):
         self.ambient_rotation_rate = rate
         self.ambient_rotation_about = about
         self.ambient_rotation_active = True
-        # Note: Actual rotation would need to be implemented in the update loop
         
     def stop_ambient_camera_rotation(self):
         """Stop ambient rotation of the camera."""
         self.ambient_rotation_active = False
+    
+    def update_mobjects(self, dt: float) -> None:
+        """Update mobjects and handle ambient camera rotation."""
+        super().update_mobjects(dt)
+        
+        # Handle ambient camera rotation if active
+        if hasattr(self, 'ambient_rotation_active') and self.ambient_rotation_active:
+            if self.ambient_rotation_about == "theta":
+                new_theta = self.frame.get_theta() + self.ambient_rotation_rate
+                self.frame.set_theta(new_theta)
+            elif self.ambient_rotation_about == "phi":
+                new_phi = self.frame.get_phi() + self.ambient_rotation_rate
+                self.frame.set_phi(new_phi)
+            elif self.ambient_rotation_about == "gamma":
+                new_gamma = self.frame.get_gamma() + self.ambient_rotation_rate
+                self.frame.set_gamma(new_gamma)
 
 
 """Utility functions for scene checkpoint management."""

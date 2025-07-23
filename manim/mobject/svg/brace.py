@@ -13,7 +13,7 @@ from manim.animation.fading import FadeIn
 from manim.animation.growing import GrowFromCenter
 from manim.mobject.svg.tex_mobject import Tex
 from manim.mobject.svg.tex_mobject import TexText
-from manim.mobject.svg.text_mobject import Text
+from manim.mobject.types.vmobject_3d import Text
 from manim.mobject.types.vectorized_mobject import VGroup
 from manim.mobject.types.vectorized_mobject import VMobject
 from manim.utils.iterables import listify

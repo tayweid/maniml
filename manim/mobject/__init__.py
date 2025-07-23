@@ -18,7 +18,7 @@ from .types.vectorized_mobject import VMobject, VGroup
 # For other mobjects, users should import them as needed:
 # from manim.mobject.geometry import Circle, Square, Arrow
 # from manim.mobject.svg.tex_mobject import Tex
-# from manim.mobject.svg.text_mobject import Text
+# from manim.mobject.types.vmobject_3d import Text
 # etc.
 
 __all__ = ['Mobject', 'Group', 'Point', 'VMobject', 'VGroup']

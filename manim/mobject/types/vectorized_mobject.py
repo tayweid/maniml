@@ -89,8 +89,8 @@ class VMobject(Mobject):
         long_lines: bool = False,
         # Could also be "no_joint", "bevel", "miter"
         joint_type: str = "auto",
-        flat_stroke: bool = False,
-        scale_stroke_with_zoom: bool = False,
+        flat_stroke: bool = True,
+        scale_stroke_with_zoom: bool = True,
         use_simple_quadratic_approx: bool = False,
         # Measured in pixel widths
         anti_alias_width: float = 1.5,
