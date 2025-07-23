@@ -1506,6 +1506,93 @@ class Square(Rectangle):
         super().__init__(side_length, side_length, **kwargs)
 
 
+class Squircle(VMobject):
+    '''
+    Creates a squircle (superellipse) - a shape between a rectangle and ellipse.
+    
+    The squircle is defined by the equation:
+    |x/a|^n + |y/b|^n = 1
+    
+    Parameters
+    ----------
+    width : float
+        Width of the bounding rectangle (2*a)
+    height : float
+        Height of the bounding rectangle (2*b)
+    squareness : float
+        Parameter controlling the shape (2 = ellipse, >2 = more rectangular, typically 4)
+    arc_center : Vect3Array
+        Center point of the squircle
+    **kwargs
+        Additional keyword arguments to pass to VMobject
+        
+    Examples
+    --------
+        squircle = Squircle(width=2, height=2, squareness=4)  # Square squircle
+        squircle = Squircle(width=3, height=2, squareness=4)  # Rectangular squircle
+        squircle = Squircle(width=3, height=2, squareness=3, color=BLUE)
+        
+    Returns
+    -------
+    out : Squircle object
+        A Squircle object satisfying the specified parameters
+    '''
+    
+    def __init__(
+        self,
+        width: float = 2.0,
+        height: float = None,
+        side_length: float = None,  # For backwards compatibility
+        squareness: float = 4.0,
+        arc_center: Vect3Array = ORIGIN,
+        **kwargs
+    ):
+        # Handle backwards compatibility
+        if side_length is not None:
+            width = side_length
+            height = side_length
+        elif height is None:
+            height = width
+            
+        self.width = width
+        self.height = height
+        self.squareness = squareness
+        self.arc_center = arc_center
+        super().__init__(**kwargs)
+        
+    def init_points(self) -> None:
+        # Generate points for the squircle using parametric equations
+        n_points = 100
+        t = np.linspace(0, TAU, n_points)
+        a = self.width / 2   # Semi-width
+        b = self.height / 2  # Semi-height
+        
+        # Parametric equations for superellipse
+        # Using the fact that for |x|^n + |y|^n = 1:
+        # x = sign(cos(t)) * |cos(t)|^(2/n)
+        # y = sign(sin(t)) * |sin(t)|^(2/n)
+        n = self.squareness
+        exponent = 2.0 / n
+        
+        cos_t = np.cos(t)
+        sin_t = np.sin(t)
+        
+        x = a * np.sign(cos_t) * np.abs(cos_t) ** exponent
+        y = b * np.sign(sin_t) * np.abs(sin_t) ** exponent
+        z = np.zeros_like(x)
+        
+        points = np.column_stack([x, y, z])
+        points += self.arc_center
+        
+        # Close the path
+        points = np.append(points, [points[0]], axis=0)
+        
+        # Set points using quadratic bezier curves
+        # We'll create the shape by connecting the points
+        self.set_points_as_corners(points)
+        self.close_path()
+
+
 class RoundedRectangle(Rectangle):
     '''
     Creates a rectangle with round edges at the center of the screen.

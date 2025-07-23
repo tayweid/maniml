@@ -5,6 +5,7 @@ VMobject3D - A Surface-based implementation of VMobjects for proper 3D depth ren
 from __future__ import annotations
 
 import numpy as np
+import re
 from typing import TYPE_CHECKING
 
 from manim.mobject.types.surface import Surface
@@ -55,16 +56,17 @@ class VMobject3D(Surface):
     
     def init_from_vmobject(self, vmobject: VMobject):
         """Extract path data from VMobject and triangulate"""
-        print(f"\n[VMobject3D] Initializing from {type(vmobject).__name__}")
-        print(f"[VMobject3D] VMobject has {len(vmobject.get_points())} points")
-        print(f"[VMobject3D] VMobject has {len(vmobject.get_subpaths())} subpaths")
+        # print(f"\n[VMobject3D] Initializing from {type(vmobject).__name__}")
+        # print(f"[VMobject3D] VMobject has {len(vmobject.get_points())} points")
+        # print(f"[VMobject3D] VMobject has {len(vmobject.get_subpaths())} subpaths")
         
         # Get all the points from the vmobject's bezier curves
         polygon_points_list = self.get_polygon_from_vmobject(vmobject)
         
-        print(f"[VMobject3D] Got {len(polygon_points_list)} polygon rings")
+        # print(f"[VMobject3D] Got {len(polygon_points_list)} polygon rings")
         if len(polygon_points_list) == 0:
-            print("[VMobject3D] No polygon points found!")
+            # print("[VMobject3D] No polygon points found!")
+            pass
             return
         
         # Flatten the list and get ring ends
@@ -84,7 +86,7 @@ class VMobject3D(Surface):
         try:
             triangle_indices = earclip_triangulation(polygon_points[:, :2], ring_ends)
         except Exception as e:
-            print(f"Triangulation failed: {e}")
+            # print(f"Triangulation failed: {e}")
             # Fallback: create a simple triangulated shape
             self.init_simple_triangulation(polygon_points)
             return
@@ -98,7 +100,7 @@ class VMobject3D(Surface):
         
         # Check if this VMobject has submobjects (like Text which has letters)
         if len(vmobject.submobjects) > 0:
-            print(f"[VMobject3D] Processing {len(vmobject.submobjects)} submobjects")
+            # print(f"[VMobject3D] Processing {len(vmobject.submobjects)} submobjects")
             for submob in vmobject.get_family():
                 if submob is vmobject:
                     continue  # Skip the parent
@@ -116,7 +118,7 @@ class VMobject3D(Surface):
         all_rings = []
         
         subpaths = vmobject.get_subpaths()
-        print(f"[VMobject3D] Single VMobject has {len(subpaths)} subpaths")
+        # print(f"[VMobject3D] Single VMobject has {len(subpaths)} subpaths")
         for subpath in subpaths:
             if len(subpath) < 3:
                 continue
@@ -149,10 +151,10 @@ class VMobject3D(Surface):
     def set_points_from_triangulation(self, vertices: np.ndarray, triangle_indices: list[int]):
         """Set up Surface data from triangulated vertices"""
         if len(triangle_indices) == 0:
-            print("[VMobject3D] No triangle indices!")
+            # print("[VMobject3D] No triangle indices!")
             return
             
-        print(f"[VMobject3D] Setting up {len(vertices)} vertices and {len(triangle_indices)//3} triangles")
+        # print(f"[VMobject3D] Setting up {len(vertices)} vertices and {len(triangle_indices)//3} triangles")
         
         # Store the vertices
         self.set_points(vertices)
@@ -216,7 +218,7 @@ class Circle3D(VMobject3D):
         )
 
 
-class Text3D(VMobject3D):
+class Text(VMobject3D):
     """A 3D-rendered text using triangulated fill"""
     
     def __init__(
@@ -226,7 +228,7 @@ class Text3D(VMobject3D):
         **kwargs
     ):
         # Import here to avoid circular import
-        from manim.mobject.svg.text_mobject import Text
+        from manim.mobject.svg.text_mobject import MarkupText
         
         # Separate Text-specific kwargs from Surface kwargs
         text_kwargs = {}
@@ -241,8 +243,15 @@ class Text3D(VMobject3D):
             else:
                 surface_kwargs[key] = value
         
-        # Create a regular Text VMobject with text-specific kwargs
-        text_mob = Text(text, **text_kwargs)
+        # Create a regular MarkupText VMobject with text-specific kwargs
+        # Use the same defaults as the old Text class for compatibility
+        text_mob = MarkupText(
+            text, 
+            isolate=(re.compile(r"\w+", re.U), re.compile(r"\S+", re.U)),
+            use_labelled_svg=True,
+            path_string_config=dict(use_simple_quadratic_approx=True),
+            **text_kwargs
+        )
         
         # Initialize as VMobject3D with the text and surface kwargs
         super().__init__(

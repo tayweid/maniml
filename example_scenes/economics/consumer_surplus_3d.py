@@ -24,7 +24,7 @@ class ConsumerSurplus3D(ThreeDScene):
         person.shift(OUT * 0.01)
         
         # Create label for the person
-        person_label = Text3D("Maxine", font_size=20, color=YELLOW)
+        person_label = Text("Maxine", font_size=20, color=YELLOW)
         person_label.rotate(PI/2, RIGHT)  # Rotate to face up
         person_label.next_to(person, OUT)
 

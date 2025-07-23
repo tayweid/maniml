@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
-# Set to DEBUG for testing
-logger.setLevel(logging.DEBUG)
+# Set to WARNING to suppress INFO and DEBUG messages
+logger.setLevel(logging.WARNING)
 
 
 

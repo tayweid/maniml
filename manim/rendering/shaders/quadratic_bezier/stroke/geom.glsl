@@ -148,7 +148,11 @@ void emit_point_with_width(
     // reflecting where in the stroke that point is
     for (int sign = -1; sign <= 1; sign += 2){
         float dist_to_curve = sign * 0.5 * (width + aaw);
-        emit_gl_Position(point + dist_to_curve * step);
+        // Add small offset towards camera to prevent z-fighting with fill
+        vec3 offset_point = point + dist_to_curve * step;
+        // Always apply small offset to prevent z-fighting
+        offset_point += unit_normal * 0.0001;
+        emit_gl_Position(offset_point);
         half_width_to_aaw = 0.5 * width / aaw;
         dist_to_aaw = dist_to_curve / aaw;
         EmitVertex();
