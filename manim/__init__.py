@@ -19,16 +19,7 @@ from .scene.scene import Scene, ThreeDScene
 
 # Import basic mobjects directly
 from .mobject.mobject import Mobject, Group
-from .mobject.geometry import (
-    TipableVMobject,
-    Arc, ArcBetweenPoints, CurvedArrow, CurvedDoubleArrow,
-    Circle, Dot, SmallDot, Ellipse,
-    AnnularSector, Sector, Annulus,
-    Line, DashedLine, TangentLine, Elbow, StrokeArrow, Arrow, Vector,
-    CubicBezier,
-    Polygon, Polyline, RegularPolygon, Triangle, ArrowTip,
-    Rectangle, Square, Squircle, RoundedRectangle
-)
+from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector, Polygon
 from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
 from .mobject.svg.text_mobject import Text, MarkupText
@@ -45,34 +36,10 @@ from .mobject.coordinate_systems import ThreeDAxes
 
 # Import core animations directly
 from .animation.animation import Animation
-from .animation.creation import (
-    ShowCreation, Uncreate, DrawBorderThenFill, Write, Unwrite,
-    ShowIncreasingSubsets, ShowSubmobjectsOneByOne, AddTextWordByWord,
-    ShowPassingFlash as ShowPassingFlashCreation
-)
-from .animation.transform import (
-    Transform, ReplacementTransform, TransformFromCopy,
-    MoveToTarget, ApplyMethod, ApplyPointwiseFunction, ApplyPointwiseFunctionToCenter,
-    ApplyFunction, ApplyMatrix, ApplyComplexFunction,
-    FadeToColor, ScaleInPlace, ShrinkToCenter, Restore, Swap, CyclicReplace
-)
-from .animation.fading import (
-    Fade, FadeIn, FadeOut, FadeInFromPoint, FadeOutToPoint,
-    FadeTransform, FadeTransformPieces, VFadeIn, VFadeOut, VFadeInThenOut
-)
-from .animation.composition import AnimationGroup, Succession, LaggedStart, LaggedStartMap
-from .animation.growing import GrowFromPoint, GrowFromCenter, GrowFromEdge, GrowArrow
-from .animation.movement import Homotopy, SmoothedVectorizedHomotopy, ComplexHomotopy, PhaseFlow, MoveAlongPath
-from .animation.indication import (
-    FocusOn, Indicate, Flash, CircleIndicate, ShowPassingFlash,
-    VShowPassingFlash, FlashAround, FlashUnder,
-    ShowCreationThenDestruction, ShowCreationThenFadeOut,
-    AnimationOnSurroundingRectangle, ShowPassingFlashAround,
-    ShowCreationThenDestructionAround, ShowCreationThenFadeAround,
-    ApplyWave, WiggleOutThenIn, TurnInsideOut, FlashyFadeIn
-)
-from .animation.rotation import Rotating, Rotate
-from .animation.update import UpdateFromFunc, UpdateFromAlphaFunc, MaintainPositionRelativeTo
+from .animation.creation import ShowCreation
+from .animation.transform import Transform, ReplacementTransform
+from .animation.fading import FadeIn, FadeOut
+from .animation.composition import AnimationGroup, Succession, LaggedStart
 
 # Import CE compatibility layer
 from .compatibility import (
@@ -99,14 +66,7 @@ __all__ = [
     # Basic Mobjects
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
-    'TipableVMobject',
-    'Arc', 'ArcBetweenPoints', 'CurvedArrow', 'CurvedDoubleArrow',
-    'Circle', 'Dot', 'SmallDot', 'Ellipse',
-    'AnnularSector', 'Sector', 'Annulus',
-    'Line', 'DashedLine', 'TangentLine', 'Elbow', 'StrokeArrow', 'Arrow', 'Vector',
-    'CubicBezier',
-    'Polygon', 'Polyline', 'RegularPolygon', 'Triangle', 'ArrowTip',
-    'Rectangle', 'Square', 'Squircle', 'RoundedRectangle',
+    'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Squircle', 'Arrow', 'Vector', 'Polygon',
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
     'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism', 'Squircle3D',
@@ -115,36 +75,18 @@ __all__ = [
     'ThreeDAxes',
     # Text
     'Text', 'MarkupText', 'Tex', 'MathTex', 'DecimalNumber',
-    # Creation Animations
-    'Animation', 'ShowCreation', 'Uncreate', 'DrawBorderThenFill', 'Write', 'Unwrite',
-    'ShowIncreasingSubsets', 'ShowSubmobjectsOneByOne', 'AddTextWordByWord',
+    # Core Animations
+    'Animation', 'ShowCreation',
     # Transform Animations
-    'Transform', 'ReplacementTransform', 'TransformFromCopy',
-    'MoveToTarget', 'ApplyMethod', 'ApplyPointwiseFunction', 'ApplyPointwiseFunctionToCenter',
-    'ApplyFunction', 'ApplyMatrix', 'ApplyComplexFunction',
-    'FadeToColor', 'ScaleInPlace', 'ShrinkToCenter', 'Restore', 'Swap', 'CyclicReplace',
+    'Transform', 'ReplacementTransform',
     # Fade Animations
-    'Fade', 'FadeIn', 'FadeOut', 'FadeInFromPoint', 'FadeOutToPoint',
-    'FadeTransform', 'FadeTransformPieces', 'VFadeIn', 'VFadeOut', 'VFadeInThenOut',
+    'FadeIn', 'FadeOut',
     # Composition
-    'AnimationGroup', 'Succession', 'LaggedStart', 'LaggedStartMap',
-    # Growing Animations
-    'GrowFromPoint', 'GrowFromCenter', 'GrowFromEdge', 'GrowArrow',
-    # Movement Animations
-    'Homotopy', 'SmoothedVectorizedHomotopy', 'ComplexHomotopy', 'PhaseFlow', 'MoveAlongPath',
-    # Indication Animations
-    'FocusOn', 'Indicate', 'Flash', 'CircleIndicate', 'ShowPassingFlash',
-    'VShowPassingFlash', 'FlashAround', 'FlashUnder',
-    'ShowCreationThenDestruction', 'ShowCreationThenFadeOut',
-    'AnimationOnSurroundingRectangle', 'ShowPassingFlashAround',
-    'ShowCreationThenDestructionAround', 'ShowCreationThenFadeAround',
-    'ApplyWave', 'WiggleOutThenIn', 'TurnInsideOut', 'FlashyFadeIn',
-    # Rotation Animations
-    'Rotating', 'Rotate',
-    # Update Animations
-    'UpdateFromFunc', 'UpdateFromAlphaFunc', 'MaintainPositionRelativeTo',
+    'AnimationGroup', 'Succession', 'LaggedStart',
     # CE-Compatible Animations
-    'Create', 'Shift', 'MoveTo', 'Scale', 'Wait',
+    'Create', 'Uncreate', 'Write', 'Unwrite',
+    'Shift', 'MoveTo', 'Scale', 'Rotate',
+    'Wait',
     # Rate functions
     'linear', 'smooth', 'there_and_back', 'there_and_back_with_pause',
     'rush_into', 'rush_from', 'slow_into', 'double_smooth',
