@@ -13,6 +13,10 @@ void emit_gl_Position(vec3 point){
     result.w = 1.0 - result.z;
     // Flip and scale to prevent premature clipping
     result.z *= -0.1;
+    // Fixed-in-frame objects should render in front of everything else
+    if (is_fixed_in_frame > 0.5) {
+        result.z = 0.09;  // Close to near plane, always in front
+    }
     gl_Position = result;
     
     if(clip_plane.xyz != vec3(0.0, 0.0, 0.0)){
