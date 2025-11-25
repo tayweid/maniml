@@ -7,7 +7,10 @@ import subprocess as sp
 import sys
 
 import numpy as np
-from pydub import AudioSegment
+try:
+    from pydub import AudioSegment
+except ImportError:
+    AudioSegment = None
 from tqdm.auto import tqdm as ProgressDisplay
 from pathlib import Path
 
@@ -130,6 +133,12 @@ class SceneFileWriter(object):
         self.includes_sound: bool = False
 
     def create_audio_segment(self) -> None:
+        if AudioSegment is None:
+            raise ImportError(
+                "Audio features require pydub, which is not available. "
+                "On Python 3.13+, pydub is incompatible due to the removal of the audioop module. "
+                "Please use Python 3.12 or earlier for audio support."
+            )
         self.audio_segment = AudioSegment.silent()
 
     def add_audio_segment(
