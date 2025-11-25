@@ -60,11 +60,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/maniml"
-Documentation = "https://maniml.readthedocs.io"
-Repository = "https://github.com/yourusername/maniml.git"
-"Bug Tracker" = "https://github.com/yourusername/maniml/issues"
-Changelog = "https://github.com/yourusername/maniml/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/tayweid/maniml"
+Documentation = "https://github.com/tayweid/maniml"
+Repository = "https://github.com/tayweid/maniml.git"
+"Bug Tracker" = "https://github.com/tayweid/maniml/issues"
+Changelog = "https://github.com/tayweid/maniml/blob/master/CHANGELOG.md"
 
 [project.scripts]
 manim = "manim.__main__:main"

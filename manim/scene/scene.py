@@ -1279,8 +1279,8 @@ class Scene(object):
                             raise
                     
                     print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
-                # else:
-                #     print(f"No more animations found after line {current_line}")
+                else:
+                    print("Already at last animation")
                     
             except FileNotFoundError:
                 print(f"Scene file not found: {self._scene_filepath}")

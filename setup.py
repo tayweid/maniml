@@ -14,7 +14,7 @@ setup(
     description="Standalone Manim without external dependencies",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/maniml",
+    url="https://github.com/tayweid/maniml",
     packages=find_packages(),
     entry_points={
         'console_scripts': [
