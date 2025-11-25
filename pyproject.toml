@@ -43,6 +43,7 @@ dependencies = [
     "IPython>=7.0.0",
     "PyYAML>=5.3.0",
     "addict>=2.4.0",
+    "PyOpenGL>=3.1.0",
 ]
 
 [project.optional-dependencies]

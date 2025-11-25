@@ -46,6 +46,7 @@ setup(
         'IPython',
         'PyYAML',
         'addict',
+        'PyOpenGL',
     ],
     extras_require={
         "dev": [
