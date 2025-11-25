@@ -71,7 +71,7 @@ Changelog = "https://github.com/tayweid/maniml/blob/master/CHANGELOG.md"
 maniml = "manim.__main__:main"
 
 [tool.setuptools]
-packages = ["manim"]
+packages = {find = {}}  # Auto-discover all packages
 
 [tool.setuptools.package-data]
 manim = [
