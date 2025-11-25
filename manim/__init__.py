@@ -22,12 +22,12 @@ from .mobject.mobject import Mobject, Group
 from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector
 from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
-from .mobject.types.vmobject_3d import Text
+from .mobject.svg.text_mobject import MarkupText as Text
 from .mobject.numbers import DecimalNumber
 
 # Import 3D-related classes
 from .mobject.types.surface import Surface, SGroup
-from .mobject.types.vmobject_3d import VMobject3D, Circle3D
+from .mobject.types.vmobject_3d import VMobject3D, Circle3D, Text as Text3D
 from .mobject.three_dimensions import (
     Sphere, Cube, Torus, Cylinder, Cone,
     Line3D, Disk3D, Square3D, Rectangle3D, Prism, Squircle3D
@@ -70,7 +70,7 @@ __all__ = [
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
     'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism', 'Squircle3D',
-    'VMobject3D', 'Circle3D',
+    'VMobject3D', 'Circle3D', 'Text3D',
     # Coordinate Systems
     'ThreeDAxes',
     # Text
