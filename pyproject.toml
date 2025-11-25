@@ -37,7 +37,6 @@ dependencies = [
     "pillow>=8.0.0",
     "scipy>=1.5.0",
     "colour>=0.1.5",
-    "pydub>=0.25.0",
     "pygments>=2.6.0",
     "pyperclip>=1.8.0",
     "IPython>=7.0.0",
@@ -47,6 +46,9 @@ dependencies = [
     "validators>=0.18.0",
     "diskcache>=5.0.0",
     "screeninfo>=0.6.0",
+    "appdirs>=1.4.0",
+    "matplotlib>=3.0.0",
+    "mapbox-earcut>=1.0.0",
 ]
 
 [project.optional-dependencies]

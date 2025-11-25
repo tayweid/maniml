@@ -40,7 +40,6 @@ setup(
         'pillow',
         'scipy',
         'colour',
-        'pydub',
         'pygments',
         'pyperclip',
         'IPython',
@@ -50,6 +49,9 @@ setup(
         'validators',
         'diskcache',
         'screeninfo',
+        'appdirs',
+        'matplotlib',
+        'mapbox-earcut',
     ],
     extras_require={
         "dev": [
