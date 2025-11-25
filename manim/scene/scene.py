@@ -380,7 +380,7 @@ class Scene(object):
                 # Run the next animation
                 log.info(f"Current at line {current_checkpoint['line_number']}, running next animation to reach line {earliest_change}")
                 last_index = self.current_animation_index
-                self.run_next_animation()
+                self.run_next_animation(_from_navigation=True)
                 
                 # Check if we advanced
                 if self.current_animation_index == last_index:
@@ -423,7 +423,7 @@ class Scene(object):
                     # Run the next animation
                     log.info(f"Running animation to show edited content")
                     last_index = self.current_animation_index
-                    self.run_next_animation()
+                    self.run_next_animation(_from_navigation=True)
                     
                     # Check if we've covered the edit
                     current_checkpoint = self.animation_checkpoints[self.current_animation_index]
@@ -1162,43 +1162,48 @@ class Scene(object):
             about_point=point
         )
 
-    def run_next_animation(self):
-        """Run the next animation using checkpoint_temporary workflow."""
-        import time as _time
+    def run_next_animation(self, _from_navigation=False):
+        """Run the next animation using checkpoint_temporary workflow.
 
+        Args:
+            _from_navigation: If True, we're navigating back/forward and need to restore
+                            from checkpoint. If False, we're continuing forward and can
+                            skip the expensive deep copy.
+        """
         # Get current checkpoint
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
 
-        # Use cached deep copy if available, otherwise create and cache it
-        cache_key = self.current_animation_index
-        t0 = _time.perf_counter()
-        if cache_key in self._checkpoint_cache:
-            # Reuse cached copy (much faster for repeated navigation)
-            checkpoint_temporary = self._checkpoint_cache[cache_key]
-            t1 = _time.perf_counter()
-            print(f"[PERF] Cache hit: {(t1-t0)*1000:.1f}ms")
+        # Optimization: If we're just running forward (not navigating), we don't need
+        # to restore from checkpoint - we can use the current scene state directly.
+        # This avoids the expensive deep copy.
+        if not _from_navigation and next_index == len(self.animation_checkpoints):
+            # Running forward - use current namespace directly (no deep copy needed)
+            checkpoint_temporary = {
+                'state': current_checkpoint['state'],
+                'namespace': dict(current_checkpoint['namespace'])  # Shallow copy is fine
+            }
+            checkpoint_temporary['namespace']['self'] = self
         else:
-            # Deep copy and cache for future use
-            checkpoint_temporary = deepcopy_namespace(current_checkpoint)
-            self._checkpoint_cache[cache_key] = checkpoint_temporary
-            t1 = _time.perf_counter()
-            print(f"[PERF] Deep copy: {(t1-t0)*1000:.1f}ms")
+            # Navigating or re-running - need to restore from checkpoint
+            cache_key = self.current_animation_index
+            if cache_key in self._checkpoint_cache:
+                # Reuse cached copy (much faster for repeated navigation)
+                checkpoint_temporary = self._checkpoint_cache[cache_key]
+            else:
+                # Deep copy and cache for future use
+                checkpoint_temporary = deepcopy_namespace(current_checkpoint)
+                self._checkpoint_cache[cache_key] = checkpoint_temporary
 
-        # Clear the scene completely - start fresh
-        t2 = _time.perf_counter()
-        self.clear()
-        t3 = _time.perf_counter()
-        print(f"[PERF] Clear scene: {(t3-t2)*1000:.1f}ms")
+            # Clear the scene completely - start fresh
+            self.clear()
 
-        # Restore state from the deep copied checkpoint
-        # This adds all the mobjects to the scene
-        self.restore_state(checkpoint_temporary['state'])
-        t4 = _time.perf_counter()
-        print(f"[PERF] Restore state: {(t4-t3)*1000:.1f}ms")
+            # Restore state from the deep copied checkpoint
+            # This adds all the mobjects to the scene
+            self.restore_state(checkpoint_temporary['state'])
 
-        # Add self reference to namespace
-        checkpoint_temporary['namespace']['self'] = self
+            # Add self reference to namespace
+            checkpoint_temporary['namespace']['self'] = self
 
         # Get the code to run
         if hasattr(self, '_scene_filepath') and self._scene_filepath:
@@ -1403,11 +1408,13 @@ class Scene(object):
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-            
+
             # Set flag to prevent re-entry
             self._processing_key = True
             try:
-                self.run_next_animation()
+                # Check if we're at the frontier (running new animation) or re-running
+                at_frontier = self.current_animation_index == len(self.animation_checkpoints) - 1
+                self.run_next_animation(_from_navigation=not at_frontier)
             finally:
                 self._processing_key = False
         
@@ -1679,7 +1686,7 @@ def _is_likely_copyable(value):
     return classification != 'can_skip'
 
 
-def deepcopy_namespace(namespace_or_checkpoint):
+def deepcopy_namespace(namespace_or_checkpoint, debug=False):
     """
     Deep copy a namespace or checkpoint, using selective copying.
 
@@ -1692,6 +1699,12 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
     # Names to always skip (these are never useful to copy)
     SKIP_NAMES = {'__builtins__', '__loader__', '__spec__', '__cached__', 'self'}
+
+    # Debug: count what we're copying
+    if debug:
+        mobject_count = 0
+        list_count = 0
+        other_count = 0
 
     # Check if this is a checkpoint dict (has 'namespace' and 'state' keys)
     if isinstance(namespace_or_checkpoint, dict) and 'namespace' in namespace_or_checkpoint and 'state' in namespace_or_checkpoint:
