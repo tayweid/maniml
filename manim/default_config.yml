@@ -48,7 +48,7 @@ window:
   # size: (1920, 1080)  # Specific size, in pixels
 camera:
   resolution: (1920, 1080)
-  background_color: "#000000"
+  background_color: "#1a1a1a"
   fps: 24
   background_opacity: 1.0
 file_writer:
