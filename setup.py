@@ -48,6 +48,7 @@ setup(
         'addict',
         'PyOpenGL',
         'validators',
+        'diskcache',
     ],
     extras_require={
         "dev": [
