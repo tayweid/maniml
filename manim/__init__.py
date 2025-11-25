@@ -22,7 +22,7 @@ from .mobject.mobject import Mobject, Group
 from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector
 from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
-from .mobject.svg.text_mobject import MarkupText as Text
+from .mobject.svg.text_mobject import Text, MarkupText
 from .mobject.numbers import DecimalNumber
 
 # Import 3D-related classes
@@ -74,7 +74,7 @@ __all__ = [
     # Coordinate Systems
     'ThreeDAxes',
     # Text
-    'Text', 'Tex', 'MathTex', 'DecimalNumber',
+    'Text', 'MarkupText', 'Tex', 'MathTex', 'DecimalNumber',
     # Core Animations
     'Animation', 'ShowCreation',
     # Transform Animations
