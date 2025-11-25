@@ -49,6 +49,7 @@ setup(
         'PyOpenGL',
         'validators',
         'diskcache',
+        'screeninfo',
     ],
     extras_require={
         "dev": [
