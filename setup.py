@@ -47,6 +47,7 @@ setup(
         'PyYAML',
         'addict',
         'PyOpenGL',
+        'validators',
     ],
     extras_require={
         "dev": [
