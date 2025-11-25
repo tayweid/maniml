@@ -81,9 +81,9 @@ tex:
   template: "default"
 text:
   # font: "Cambria Math"
-  # font: "Times New Roman"
   # font: "Roboto Slab"
-  font: "CMU Serif"
+  # font: "CMU Serif"
+  font: "Times New Roman"
   weight: 200
   # font: "Consolas"
   alignment: "LEFT"
