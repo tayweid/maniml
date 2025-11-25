@@ -12,6 +12,14 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 ## Installation
 
 ```bash
+pip install git+https://github.com/tayweid/maniml.git
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/tayweid/maniml.git
+cd maniml
 pip install -e .
 ```
 
@@ -31,7 +39,7 @@ class Example(Scene):
 
 Run with:
 ```bash
-manim example.py Example
+maniml example.py Example
 ```
 
 ## Status

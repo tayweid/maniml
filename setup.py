@@ -9,7 +9,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="maniml",
-    version="0.1.0",
+    version="0.0.1",
     author="maniml Contributors",
     description="Standalone Manim without external dependencies",
     long_description=long_description,
@@ -18,7 +18,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'maniml=maniml.__main__:main',
+            'maniml=manim.__main__:main',
         ],
     },
     classifiers=[

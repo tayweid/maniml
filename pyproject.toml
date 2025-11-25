@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "manim"
-version = "0.19.0"
+name = "maniml"
+version = "0.0.1"
 description = "Animation engine for explanatory math videos with OpenGL renderer"
 readme = "README.md"
 authors = [
@@ -68,8 +68,7 @@ Repository = "https://github.com/tayweid/maniml.git"
 Changelog = "https://github.com/tayweid/maniml/blob/master/CHANGELOG.md"
 
 [project.scripts]
-manim = "manim.__main__:main"
-maniml = "manim.__main__:main"  # Backwards compatibility
+maniml = "manim.__main__:main"
 
 [tool.setuptools]
 packages = ["manim"]
