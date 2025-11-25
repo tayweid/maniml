@@ -147,8 +147,7 @@ class Scene(object):
         self.current_animation_index = -1
         self._navigating_animations = False  # Flag to prevent checkpoint creation during navigation
         self._processing_key = False  # Flag to prevent re-entry during key processing
-        self._checkpoint_cache = {}  # Cache for deep-copied checkpoints (index -> copied checkpoint)
-
+        
         # File watcher for auto-reload
         self._file_watcher = None
         self._file_changed_flag = False  # Thread-safe flag for file changes
@@ -380,7 +379,7 @@ class Scene(object):
                 # Run the next animation
                 log.info(f"Current at line {current_checkpoint['line_number']}, running next animation to reach line {earliest_change}")
                 last_index = self.current_animation_index
-                self.run_next_animation(_from_navigation=True)
+                self.run_next_animation()
                 
                 # Check if we advanced
                 if self.current_animation_index == last_index:
@@ -405,10 +404,7 @@ class Scene(object):
             if safe_checkpoint_idx >= 0:
                 self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
                 self.current_animation_index = safe_checkpoint_idx
-
-                # Invalidate cached checkpoints that are no longer valid
-                self._checkpoint_cache = {k: v for k, v in self._checkpoint_cache.items() if k <= safe_checkpoint_idx}
-
+                
                 # Restore the checkpoint state
                 checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
                 self.restore_state(checkpoint['state'])
@@ -423,7 +419,7 @@ class Scene(object):
                     # Run the next animation
                     log.info(f"Running animation to show edited content")
                     last_index = self.current_animation_index
-                    self.run_next_animation(_from_navigation=True)
+                    self.run_next_animation()
                     
                     # Check if we've covered the edit
                     current_checkpoint = self.animation_checkpoints[self.current_animation_index]
@@ -916,9 +912,6 @@ class Scene(object):
             if self.current_animation_index < len(self.animation_checkpoints):
                 # We're re-running an animation, replace the checkpoint
                 self.animation_checkpoints[self.current_animation_index] = checkpoint
-                # Invalidate cached copy since checkpoint changed
-                if self.current_animation_index in self._checkpoint_cache:
-                    del self._checkpoint_cache[self.current_animation_index]
             else:
                 # New checkpoint
                 self.animation_checkpoints.append(checkpoint)
@@ -1162,48 +1155,25 @@ class Scene(object):
             about_point=point
         )
 
-    def run_next_animation(self, _from_navigation=False):
-        """Run the next animation using checkpoint_temporary workflow.
-
-        Args:
-            _from_navigation: If True, we're navigating back/forward and need to restore
-                            from checkpoint. If False, we're continuing forward and can
-                            skip the expensive deep copy.
-        """
+    def run_next_animation(self):
+        """Run the next animation using checkpoint_temporary workflow."""
+        
         # Get current checkpoint
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
-
-        # Optimization: If we're just running forward (not navigating), we don't need
-        # to restore from checkpoint - we can use the current scene state directly.
-        # This avoids the expensive deep copy.
-        if not _from_navigation and next_index == len(self.animation_checkpoints):
-            # Running forward - use current namespace directly (no deep copy needed)
-            checkpoint_temporary = {
-                'state': current_checkpoint['state'],
-                'namespace': dict(current_checkpoint['namespace'])  # Shallow copy is fine
-            }
-            checkpoint_temporary['namespace']['self'] = self
-        else:
-            # Navigating or re-running - need to restore from checkpoint
-            cache_key = self.current_animation_index
-            if cache_key in self._checkpoint_cache:
-                # Reuse cached copy (much faster for repeated navigation)
-                checkpoint_temporary = self._checkpoint_cache[cache_key]
-            else:
-                # Deep copy and cache for future use
-                checkpoint_temporary = deepcopy_namespace(current_checkpoint)
-                self._checkpoint_cache[cache_key] = checkpoint_temporary
-
-            # Clear the scene completely - start fresh
-            self.clear()
-
-            # Restore state from the deep copied checkpoint
-            # This adds all the mobjects to the scene
-            self.restore_state(checkpoint_temporary['state'])
-
-            # Add self reference to namespace
-            checkpoint_temporary['namespace']['self'] = self
+        
+        # Deep copy the entire checkpoint to preserve references between state and namespace
+        checkpoint_temporary = deepcopy_namespace(current_checkpoint)
+        
+        # Clear the scene completely - start fresh
+        self.clear()
+        
+        # Restore state from the deep copied checkpoint
+        # This adds all the mobjects to the scene
+        self.restore_state(checkpoint_temporary['state'])
+        
+        # Add self reference to namespace
+        checkpoint_temporary['namespace']['self'] = self
 
         # Get the code to run
         if hasattr(self, '_scene_filepath') and self._scene_filepath:
@@ -1408,13 +1378,11 @@ class Scene(object):
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-
+            
             # Set flag to prevent re-entry
             self._processing_key = True
             try:
-                # Check if we're at the frontier (running new animation) or re-running
-                at_frontier = self.current_animation_index == len(self.animation_checkpoints) - 1
-                self.run_next_animation(_from_navigation=not at_frontier)
+                self.run_next_animation()
             finally:
                 self._processing_key = False
         
@@ -1612,133 +1580,48 @@ import copy
 from manim.mobject.mobject import Mobject
 
 
-def _classify_value(value):
-    """
-    Classify a value into one of three categories:
-    - 'must_copy': Mutable objects that change between animations (Mobjects, lists of Mobjects)
-    - 'can_skip': Immutable or non-copyable (modules, functions, classes, primitives)
-    - 'shallow_copy': Collections that might contain Mobjects but are themselves cheap to copy
-
-    Returns: ('must_copy' | 'can_skip' | 'shallow_copy', value)
-    """
-    import types
-    import numpy as np
-
-    # These types are never copyable - keep as references
-    NON_COPYABLE_TYPES = (
-        types.ModuleType,           # Imported modules (numpy, manim, etc.)
-        types.FunctionType,         # User-defined functions
-        types.BuiltinFunctionType,  # Built-in functions
-        types.MethodType,           # Bound methods
-        type,                       # Classes themselves
-    )
-
-    if isinstance(value, NON_COPYABLE_TYPES):
-        return 'can_skip'
-
-    # Check for common non-copyable objects by attribute
-    if hasattr(value, '__module__'):
-        if value.__module__ in ('builtins', 'types') and callable(value):
-            return 'can_skip'
-
-    # Mobjects MUST be deep copied - they change between animations
-    if isinstance(value, Mobject):
-        return 'must_copy'
-
-    # Primitives and immutable types can be skipped (kept as reference)
-    if isinstance(value, (int, float, str, bool, type(None), bytes, frozenset)):
-        return 'can_skip'
-
-    # Tuples are immutable but might contain mutable items
-    if isinstance(value, tuple):
-        # Check if tuple contains any Mobjects
-        if any(isinstance(item, Mobject) for item in value):
-            return 'must_copy'
-        return 'can_skip'
-
-    # Lists and dicts might contain Mobjects - need to check
-    if isinstance(value, (list, dict)):
-        items = value if isinstance(value, list) else value.values()
-        if any(isinstance(item, Mobject) for item in items):
-            return 'must_copy'
-        # Even if no Mobjects, lists/dicts are mutable so we should copy them
-        return 'must_copy'
-
-    # NumPy arrays - these are often large and expensive to copy
-    # Only copy if they might be animation-related
-    if isinstance(value, np.ndarray):
-        return 'must_copy'
-
-    # SceneState must be copied
-    if isinstance(value, SceneState):
-        return 'must_copy'
-
-    # Default: copy to be safe
-    return 'must_copy'
-
-
-def _is_likely_copyable(value):
-    """
-    Quick type-based check if something is likely copyable.
-    Avoids expensive test copies by checking type instead.
-    """
-    classification = _classify_value(value)
-    return classification != 'can_skip'
-
-
-def deepcopy_namespace(namespace_or_checkpoint, debug=False):
-    """
-    Deep copy a namespace or checkpoint, using selective copying.
-
-    Optimizations:
-    1. Type-based classification instead of test copies (avoids N+1 copy problem)
-    2. Skip immutable values (primitives, modules, functions, classes)
-    3. Only deep copy Mobjects and mutable collections that contain them
-    """
+def deepcopy_namespace(namespace_or_checkpoint):
+    """Deep copy a namespace or checkpoint, filtering out uncopyable items first."""
     import copy
-
-    # Names to always skip (these are never useful to copy)
-    SKIP_NAMES = {'__builtins__', '__loader__', '__spec__', '__cached__', 'self'}
-
-    # Debug: count what we're copying
-    if debug:
-        mobject_count = 0
-        list_count = 0
-        other_count = 0
-
+    
     # Check if this is a checkpoint dict (has 'namespace' and 'state' keys)
     if isinstance(namespace_or_checkpoint, dict) and 'namespace' in namespace_or_checkpoint and 'state' in namespace_or_checkpoint:
         # This is a checkpoint - we need to deepcopy namespace and state together
         checkpoint = namespace_or_checkpoint
-
-        # Classify items: must_copy vs can_skip
-        must_copy = {}
-        references = {}
-
+        
+        # Combine namespace and state into one dict for deepcopying together
+        combined = {}
+        combined['__checkpoint_state__'] = checkpoint['state']
+        
+        # Add namespace items
         for name, value in checkpoint['namespace'].items():
-            if name in SKIP_NAMES:
+            if name in ['__builtins__', '__loader__', '__spec__', '__cached__', 'self']:
                 continue
-            classification = _classify_value(value)
-            if classification == 'must_copy':
-                must_copy[name] = value
-            else:
-                # Keep as reference (immutable or non-copyable)
-                references[name] = value
-
-        # Always deep copy the state
-        must_copy['__checkpoint_state__'] = checkpoint['state']
-
-        # Single deepcopy call for items that need it
+            combined[name] = value
+            
+        # Test what can be deepcopied
+        deepcopyable = {}
+        non_deepcopyable = {}
+        
+        for name, value in combined.items():
+            try:
+                test_copy = copy.deepcopy(value)
+                deepcopyable[name] = value
+            except Exception:
+                non_deepcopyable[name] = value
+                
+        # Deepcopy all deepcopyable items together
         try:
-            copied_items = copy.deepcopy(must_copy)
-
+            copied_items = copy.deepcopy(deepcopyable)
+            
             # Extract the state
             state = copied_items.pop('__checkpoint_state__', checkpoint['state'])
-
-            # Add references (no copying needed)
-            for name, value in references.items():
-                copied_items[name] = value
-
+            
+            # Add non-deepcopyable items
+            for name, value in non_deepcopyable.items():
+                if name != '__checkpoint_state__':
+                    copied_items[name] = value
+                    
             # Return checkpoint structure
             return {
                 'index': checkpoint.get('index', 0),
@@ -1746,53 +1629,81 @@ def deepcopy_namespace(namespace_or_checkpoint, debug=False):
                 'state': state,
                 'namespace': copied_items
             }
-
+            
         except Exception as e:
             print(f"Warning: Checkpoint deepcopy failed ({e}), falling back")
             # Fall through to regular handling
-
+    
     # Regular namespace handling
     namespace = namespace_or_checkpoint
-
-    # Classify items: must_copy vs can_skip
-    must_copy = {}
-    references = {}
-
+    
+    # First pass: test what can be deepcopied
+    deepcopyable = {}
+    non_deepcopyable = {}
+    
     for name, value in namespace.items():
-        if name in SKIP_NAMES:
+        # Always skip these
+        if name in ['__builtins__', '__loader__', '__spec__', '__cached__', 'self']:
             continue
-        classification = _classify_value(value)
-        if classification == 'must_copy':
-            must_copy[name] = value
-        else:
-            # Keep as reference (immutable or non-copyable)
-            references[name] = value
-
-    # Single deepcopy call for items that need it
+            
+        # Test if this item can be deepcopied
+        try:
+            test_copy = copy.deepcopy(value)
+            deepcopyable[name] = value
+        except Exception:
+            # Can't deepcopy this item, keep as reference
+            non_deepcopyable[name] = value
+    
+    # Second pass: deepcopy all deepcopyable items together
+    # This preserves reference relationships between them
     try:
-        copied_items = copy.deepcopy(must_copy)
-
-        # Add references (no copying needed)
-        for name, value in references.items():
+        copied_items = copy.deepcopy(deepcopyable)
+        
+        # Add back the non-deepcopyable items as references
+        for name, value in non_deepcopyable.items():
             copied_items[name] = value
-
+            
         return copied_items
-
+        
     except Exception as e:
-        # If deepcopy fails, try copying items individually
-        print(f"Warning: Batch deepcopy failed ({e}), falling back to individual copy")
-
+        # If even this fails, fall back to manual implementation
+        print(f"Warning: Filtered deepcopy failed ({e}), falling back to individual copy")
+        
+        # Fallback implementation
         new_namespace = {}
-
-        for name, value in must_copy.items():
+        
+        for name, value in filtered.items():
             try:
-                new_namespace[name] = copy.deepcopy(value)
+                if isinstance(value, Mobject):
+                    # Deep copy mobjects
+                    new_namespace[name] = value.copy()
+                elif isinstance(value, (list, tuple)):
+                    # Handle collections that might contain mobjects
+                    new_items = []
+                    for item in value:
+                        if isinstance(item, Mobject):
+                            new_items.append(item.copy())
+                        else:
+                            new_items.append(item)
+                    new_namespace[name] = type(value)(new_items)
+                elif isinstance(value, dict):
+                    # Handle dicts that might contain mobjects
+                    new_dict = {}
+                    for k, v in value.items():
+                        if isinstance(v, Mobject):
+                            new_dict[k] = v.copy()
+                        else:
+                            new_dict[k] = v
+                    new_namespace[name] = new_dict
+                else:
+                    # Try to deepcopy, but fall back to reference if it fails
+                    try:
+                        new_namespace[name] = copy.deepcopy(value)
+                    except (TypeError, AttributeError):
+                        # Keep reference for unpicklable objects
+                        new_namespace[name] = value
             except Exception:
-                # If individual copy fails, keep reference
+                # If anything goes wrong, keep the reference
                 new_namespace[name] = value
-
-        # Add references
-        for name, value in references.items():
-            new_namespace[name] = value
-
+                
         return new_namespace
