@@ -45,6 +45,7 @@ setup(
         'pyperclip',
         'IPython',
         'PyYAML',
+        'addict',
     ],
     extras_require={
         "dev": [
