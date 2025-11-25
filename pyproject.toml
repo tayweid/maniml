@@ -51,6 +51,7 @@ dependencies = [
     "mapbox-earcut>=1.0.0",
     "svgelements>=1.0.0",
     "isosurfaces>=0.1.0",
+    "manimpango>=0.4.0",
 ]
 
 [project.optional-dependencies]

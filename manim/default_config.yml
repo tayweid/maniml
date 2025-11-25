@@ -82,7 +82,8 @@ tex:
 text:
   # font: "Cambria Math"
   # font: "Times New Roman"
-  font: "Roboto Slab"
+  # font: "Roboto Slab"
+  font: "CMU Serif"
   weight: 200
   # font: "Consolas"
   alignment: "LEFT"

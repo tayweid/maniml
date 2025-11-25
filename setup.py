@@ -54,6 +54,7 @@ setup(
         'mapbox-earcut',
         'svgelements',
         'isosurfaces',
+        'manimpango',
     ],
     extras_require={
         "dev": [
