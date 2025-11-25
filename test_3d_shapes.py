@@ -20,9 +20,9 @@ class Test3DShapes(ThreeDScene):
         squircle = Squircle3D(width=2.5, height=1.5, depth=1, squareness=4, color=GREEN, shading=(0.1, 0.5, 0.1))
         squircle.shift(UP * 2)
         
-        text = Text("Test 3D Text", font="Arial", font_size=48).fix_in_frame()
+        text = Text("Test 3D Text", font="Times New Roman", font_size=48).fix_in_frame()
         text.to_corner(UL)
-        subtext = Text("Subtitle", font="Arial", color=GREY, font_size=24, slant=ITALIC).fix_in_frame()
+        subtext = Text("Subtitle", font="Times New Roman", color=GREY, font_size=24, slant=ITALIC).fix_in_frame()
         subtext.to_corner(UL).shift(DOWN/2)
         
         # Add a 3D object for depth comparison
@@ -77,7 +77,7 @@ class Test3DShapes(ThreeDScene):
         graph_group.fix_in_frame()
         
         # Add label
-        label = Text("sin(x)", font="Arial", font_size=16)
+        label = Text("sin(x)", font="Times New Roman", font_size=16)
         label.next_to(graph_group, UP, buff=0.1)
         label.fix_in_frame()
         
