@@ -226,7 +226,12 @@ class Camera(object):
         self.clear()
         self.refresh_uniforms()
         self.fbo.use()
-        for mobject in mobjects:
+        # Sort mobjects so fixed-in-frame objects render last (on top)
+        sorted_mobjects = sorted(
+            mobjects,
+            key=lambda m: 1 if m.is_fixed_in_frame() else 0
+        )
+        for mobject in sorted_mobjects:
             mobject.render(self.ctx, self.uniforms)
 
         if self.window:
