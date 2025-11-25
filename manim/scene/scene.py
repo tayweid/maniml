@@ -1164,6 +1164,7 @@ class Scene(object):
 
     def run_next_animation(self):
         """Run the next animation using checkpoint_temporary workflow."""
+        import time as _time
 
         # Get current checkpoint
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
@@ -1171,21 +1172,31 @@ class Scene(object):
 
         # Use cached deep copy if available, otherwise create and cache it
         cache_key = self.current_animation_index
+        t0 = _time.perf_counter()
         if cache_key in self._checkpoint_cache:
             # Reuse cached copy (much faster for repeated navigation)
             checkpoint_temporary = self._checkpoint_cache[cache_key]
+            t1 = _time.perf_counter()
+            print(f"[PERF] Cache hit: {(t1-t0)*1000:.1f}ms")
         else:
             # Deep copy and cache for future use
             checkpoint_temporary = deepcopy_namespace(current_checkpoint)
             self._checkpoint_cache[cache_key] = checkpoint_temporary
-        
+            t1 = _time.perf_counter()
+            print(f"[PERF] Deep copy: {(t1-t0)*1000:.1f}ms")
+
         # Clear the scene completely - start fresh
+        t2 = _time.perf_counter()
         self.clear()
-        
+        t3 = _time.perf_counter()
+        print(f"[PERF] Clear scene: {(t3-t2)*1000:.1f}ms")
+
         # Restore state from the deep copied checkpoint
         # This adds all the mobjects to the scene
         self.restore_state(checkpoint_temporary['state'])
-        
+        t4 = _time.perf_counter()
+        print(f"[PERF] Restore state: {(t4-t3)*1000:.1f}ms")
+
         # Add self reference to namespace
         checkpoint_temporary['namespace']['self'] = self
 
