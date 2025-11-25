@@ -19,7 +19,7 @@ from .scene.scene import Scene, ThreeDScene
 
 # Import basic mobjects directly
 from .mobject.mobject import Mobject, Group
-from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector
+from .mobject.geometry import Circle, Dot, Line, Rectangle, Square, Squircle, Arrow, Vector, Polygon
 from .mobject.types.vectorized_mobject import VMobject, VGroup
 from .mobject.svg.tex_mobject import Tex
 from .mobject.svg.text_mobject import Text, MarkupText
@@ -66,7 +66,7 @@ __all__ = [
     # Basic Mobjects
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
-    'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Squircle', 'Arrow', 'Vector',
+    'Circle', 'Dot', 'Line', 'Rectangle', 'Square', 'Squircle', 'Arrow', 'Vector', 'Polygon',
     # 3D Shapes
     'Surface', 'SGroup', 'Sphere', 'Cube', 'Torus', 'Cylinder', 'Cone',
     'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism', 'Squircle3D',
