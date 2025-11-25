@@ -53,6 +53,7 @@ dependencies = [
     "isosurfaces>=0.1.0",
     "manimpango>=0.4.0",
     "tqdm>=4.0.0",
+    "pyglet>=2.0.0",
 ]
 
 [project.optional-dependencies]
