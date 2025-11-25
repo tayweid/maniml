@@ -1506,19 +1506,13 @@ class ThreeDScene(Scene):
                     print(f"  Applied depth test to all {len(mob.get_family())} family members")
                             
             if isinstance(mob, VMobject):
-                # Check if this is a text object - don't use triangulated fill for text
-                # as it breaks the SVG path rendering
-                is_text = any(base.__name__ in ['Text', 'MarkupText', 'StringMobject', 'SVGMobject']
-                              for base in mob.__class__.__mro__)
-
-                if not is_text:
-                    # Enable triangulated fill for proper 3D depth (but not for text)
-                    mob.use_triangulated_fill = True
-                    # Apply to all submobjects as well
-                    for submob in mob.get_family():
-                        if isinstance(submob, VMobject):
-                            submob.use_triangulated_fill = True
-
+                # Enable triangulated fill for proper 3D depth
+                mob.use_triangulated_fill = True
+                # Apply to all submobjects as well
+                for submob in mob.get_family():
+                    if isinstance(submob, VMobject):
+                        submob.use_triangulated_fill = True
+                        
                 if mob.has_stroke() and perp_stroke:
                     mob.set_flat_stroke(False)
         super().add(*mobjects)
