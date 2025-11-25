@@ -52,6 +52,8 @@ setup(
         'appdirs',
         'matplotlib',
         'mapbox-earcut',
+        'svgelements',
+        'isosurfaces',
     ],
     extras_require={
         "dev": [

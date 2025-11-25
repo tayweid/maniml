@@ -49,6 +49,8 @@ dependencies = [
     "appdirs>=1.4.0",
     "matplotlib>=3.0.0",
     "mapbox-earcut>=1.0.0",
+    "svgelements>=1.0.0",
+    "isosurfaces>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -83,9 +85,8 @@ packages = {find = {}}  # Auto-discover all packages
 manim = [
     "*.yml",
     "*.yaml",
-    "renderer/opengl/shaders/**/*.glsl",
-    "renderer/opengl/tex_templates.yml",
-    "renderer/opengl/default_config.yml",
+    "rendering/shaders/**/*.glsl",
+    "default_config.yml",
 ]
 
 [tool.black]
