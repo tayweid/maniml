@@ -1460,11 +1460,17 @@ class SceneState():
         self.mobjects = list(scene.mobjects)
         if ignore:
             self.mobjects = [mob for mob in self.mobjects if mob not in ignore]
-        
+
         # For compatibility, keep the old attribute name but with direct references
         self.mobjects_to_copies = OrderedDict()
         for mob in self.mobjects:
             self.mobjects_to_copies[mob] = mob  # Direct reference, not a copy
+
+        # Save camera frame state (since it's mutated by animations but stored as reference)
+        if hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
+            self.camera_frame_points = scene.camera.frame.get_points().copy()
+        else:
+            self.camera_frame_points = None
 
     def __eq__(self, state: SceneState):
         return all((
@@ -1488,6 +1494,9 @@ class SceneState():
         scene.num_plays = self.num_plays
         # Use the stored mobjects directly (they're references now, not copies)
         scene.mobjects = list(self.mobjects)
+        # Restore camera frame state
+        if self.camera_frame_points is not None and hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
+            scene.camera.frame.set_points(self.camera_frame_points)
 
 
 class EndScene(Exception):
