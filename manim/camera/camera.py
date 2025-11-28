@@ -90,7 +90,8 @@ class Camera(object):
             self.fbo = self.fbo_for_files
         else:
             self.window_fbo = self.ctx.detect_framebuffer()
-            self.fbo = self.window_fbo
+            # Always render to fixed-size FBO, then blit to window with letterboxing
+            self.fbo = self.fbo_for_files
 
         self.fbo.use()
 
