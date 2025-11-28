@@ -138,6 +138,36 @@ class Camera(object):
             gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR
         )
 
+    def blit_letterboxed(self, src_fbo, dst_fbo):
+        """
+        Copy between FBOs with letterboxing to maintain aspect ratio.
+        """
+        src_w, src_h = src_fbo.viewport[2], src_fbo.viewport[3]
+        dst_w, dst_h = dst_fbo.viewport[2], dst_fbo.viewport[3]
+
+        src_aspect = src_w / src_h
+        dst_aspect = dst_w / dst_h
+
+        if dst_aspect > src_aspect:
+            # Window is wider - pillarbox (bars on sides)
+            new_w = int(dst_h * src_aspect)
+            new_h = dst_h
+        else:
+            # Window is taller - letterbox (bars on top/bottom)
+            new_w = dst_w
+            new_h = int(dst_w / src_aspect)
+
+        x_offset = (dst_w - new_w) // 2
+        y_offset = (dst_h - new_h) // 2
+
+        gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, src_fbo.glo)
+        gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, dst_fbo.glo)
+        gl.glBlitFramebuffer(
+            0, 0, src_w, src_h,  # source rect
+            x_offset, y_offset, x_offset + new_w, y_offset + new_h,  # dest rect
+            gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR
+        )
+
     def get_raw_fbo_data(self, dtype: str = 'f1') -> bytes:
         self.blit(self.fbo, self.draw_fbo)
         return self.draw_fbo.read(
@@ -237,7 +267,11 @@ class Camera(object):
         if self.window:
             self.window.swap_buffers()
             if self.fbo is not self.window_fbo:
-                self.blit(self.fbo, self.window_fbo)
+                # Clear window to black for letterbox bars
+                self.window_fbo.use()
+                self.window_fbo.clear(0, 0, 0, 1)
+                # Blit with letterboxing to maintain aspect ratio
+                self.blit_letterboxed(self.fbo, self.window_fbo)
                 self.window.swap_buffers()
 
     def refresh_uniforms(self) -> None:
