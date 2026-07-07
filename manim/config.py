@@ -46,7 +46,6 @@ def initialize_manim_config() -> Dict:
     update_file_writer_config(config, args)
     update_scene_config(config, args)
     update_run_config(config, args)
-    update_embed_config(config, args)
 
     return config
 
@@ -162,12 +161,6 @@ def parse_cli():
                  "the rendering at the second value",
         )
         parser.add_argument(
-            "-e", "--embed",
-            metavar="LINE_NUMBER",
-            help="Adds a breakpoint at the inputted file dropping into an " + \
-                 "interactive iPython session at that point of the code."
-        )
-        parser.add_argument(
             "-r", "--resolution",
             help="Resolution, passed as \"WxH\", e.g. \"1920x1080\"",
         )
@@ -217,12 +210,6 @@ def parse_cli():
             "--clear-cache",
             action="store_true",
             help="Erase the cache used for Tex and Text Mobjects"
-        )
-        parser.add_argument(
-            "--autoreload",
-            action="store_true",
-            help="Automatically reload Python modules to pick up code changes " +
-                 "across different files",
         )
         args = parser.parse_args()
         args.write_file = any([args.write_file, args.open, args.finder])
@@ -315,7 +302,6 @@ def update_scene_config(config: Dict, args: Namespace):
 def update_run_config(config: Dict, args: Namespace):
     config.run = Dict(
         file_name=args.file,
-        embed_line=(int(args.embed) if args.embed is not None else None),
         is_reload=False,
         prerun=args.prerun,
         scene_names=args.scene_names,
@@ -323,11 +309,6 @@ def update_run_config(config: Dict, args: Namespace):
         write_all=args.write_all,
         show_in_window=not args.write_file
     )
-
-
-def update_embed_config(config: Dict, args: Namespace):
-    if args.autoreload:
-        config.embed.autoreload = True
 
 
 # Helpers for the functions above
