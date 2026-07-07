@@ -15,8 +15,8 @@ Options:
 
 Interactive controls (in the preview window):
   RIGHT arrow      Run the next animation (re-executed from source)
-  LEFT arrow       Step back to the previous checkpoint
-  UP/DOWN arrows   Jump between checkpoints
+  LEFT arrow       Reverse to the previous checkpoint (animated)
+  UP/DOWN arrows   Jump between checkpoints instantly
   Saving the scene file auto-reloads from the last safe checkpoint
 
 Examples:

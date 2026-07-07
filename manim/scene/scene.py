@@ -829,7 +829,10 @@ class Scene(object):
         for anim in animations:
             anim.update_rate_info(run_time, rate_func, lag_ratio)
 
-        line_no, unit_index = self._find_animation_anchor()
+        if getattr(self, '_suppress_checkpoints', False):
+            line_no, unit_index = None, None
+        else:
+            line_no, unit_index = self._find_animation_anchor()
 
         # Play the animation
         self.pre_play()
@@ -1040,9 +1043,9 @@ class Scene(object):
         scene_state.restore_scene(self)
 
     def save_state(self) -> None:
-        state = self.get_state()
-        if self.undo_stack and state.mobjects_match(self.undo_stack[-1]):
-            return
+        # Store a copy: a reference snapshot aliases the live mobjects
+        # and mutates along with them, making undo a no-op
+        state = self.get_state().copy()
         self.redo_stack = []
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.max_num_saved_states:
@@ -1050,13 +1053,24 @@ class Scene(object):
 
     def undo(self):
         if self.undo_stack:
-            self.redo_stack.append(self.get_state())
+            self.redo_stack.append(self.get_state().copy())
             self.restore_state(self.undo_stack.pop())
 
     def redo(self):
         if self.redo_stack:
-            self.undo_stack.append(self.get_state())
+            self.undo_stack.append(self.get_state().copy())
             self.restore_state(self.redo_stack.pop())
+
+    @contextmanager
+    def _no_checkpoints(self):
+        """Play animations without saving checkpoints (e.g. the reverse
+        transition, which is display-only and not part of history)."""
+        prev = getattr(self, '_suppress_checkpoints', False)
+        self._suppress_checkpoints = True
+        try:
+            yield
+        finally:
+            self._suppress_checkpoints = prev
 
     @contextmanager
     def temp_skip(self):
@@ -1258,6 +1272,31 @@ class Scene(object):
 
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
+    def _play_reverse_to(self, index: int) -> None:
+        """Animate the display back to the checkpoint at `index`.
+
+        This is a whole-scene morph between the current display and the
+        target state, not a true reversal of the original animation
+        (source re-execution can't run backwards), so complex changes
+        blend rather than retrace. Lands exactly on a copy of the
+        target state; falls back to an instant jump if the morph fails.
+        """
+        from manim.animation.transform import Transform
+
+        target_state = self.animation_checkpoints[index]['state'].copy()
+        try:
+            current = Group(*self.mobjects)
+            target = Group(*target_state.mobjects)
+            if len(current.get_family()) > 1 and len(target.get_family()) > 1:
+                with self._no_checkpoints():
+                    self.play(Transform(current, target), run_time=0.7)
+        except Exception as e:
+            log.warning(f"Reverse transition failed ({e}); jumping instead")
+        # Land exactly on the checkpoint state regardless of how the
+        # morph went
+        self.clear()
+        self.restore_state(target_state)
+
     def on_key_release(
         self,
         symbol: int,
@@ -1283,7 +1322,9 @@ class Scene(object):
                 self.current_animation_index -= 1
                 checkpoint = self.animation_checkpoints[self.current_animation_index]
                 print(f"↑ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                self.restore_state(checkpoint['state'])
+                # Restore a copy: putting the stored mobjects on screen
+                # would let later mutation corrupt the checkpoint
+                self.restore_state(checkpoint['state'].copy())
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at first animation")
@@ -1298,7 +1339,7 @@ class Scene(object):
                 self.current_animation_index += 1
                 checkpoint = self.animation_checkpoints[self.current_animation_index]
                 print(f"↓ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                self.restore_state(checkpoint['state'])
+                self.restore_state(checkpoint['state'].copy())
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at last animation")
@@ -1313,17 +1354,10 @@ class Scene(object):
                 # Set flag to prevent re-entry
                 self._processing_key = True
                 try:
-                    # Get the current checkpoint and the previous one
-                    current_checkpoint = self.animation_checkpoints[self.current_animation_index]
-                    prev_checkpoint = self.animation_checkpoints[self.current_animation_index - 1]
-                    
-                    # We need to reverse the animation from current to previous state
-                    # This is tricky - for now just jump back
                     self.current_animation_index -= 1
                     print(f"← Reverse to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                    self.restore_state(prev_checkpoint['state'])
+                    self._play_reverse_to(self.current_animation_index)
                     self.update_frame(dt=0, force_draw=True)
-                    # TODO: Implement actual reverse animation playback
                 finally:
                     # Clear the flag
                     self._processing_key = False
@@ -1432,6 +1466,17 @@ class SceneState():
             for mob in self.mobjects_to_copies
         )
 
+    def copy(self) -> SceneState:
+        """Return an isolated deep copy of this state.
+
+        SceneState itself stores direct references (checkpoint saving
+        deep-copies state and namespace together to preserve identity).
+        Anything restored for *display* must be a copy, or on-screen
+        mutation (updaters, dragging, later animations) would corrupt
+        the stored history.
+        """
+        return deepcopy_namespace({'__state__': self})['__state__']
+
     def restore_scene(self, scene: Scene):
         scene.time = self.time
         scene.num_plays = self.num_plays
@@ -1457,20 +1502,14 @@ class ThreeDScene(Scene):
                 mob.apply_depth_test()
                 
                 # Special handling for text objects - ensure all submobjects get depth test
-                if hasattr(mob, '__class__') and any(base.__name__ in ['Text', 'MarkupText', 'StringMobject'] 
+                if hasattr(mob, '__class__') and any(base.__name__ in ['Text', 'MarkupText', 'StringMobject']
                                                      for base in mob.__class__.__mro__):
-                    # Debug print
-                    print(f"[ThreeDScene.add] Detected text object: {mob.__class__.__name__}")
-                    print(f"  Family size: {len(mob.get_family())}")
-                    
                     # Force refresh on all family members
                     for submob in mob.get_family():
                         submob.depth_test = True
                         if hasattr(submob, 'refresh_shader_wrapper_id'):
                             submob.refresh_shader_wrapper_id()
-                    
-                    print(f"  Applied depth test to all {len(mob.get_family())} family members")
-                            
+
             if isinstance(mob, VMobject):
                 # Check if this is a text object - don't use triangulated fill for text
                 # as it breaks the SVG path rendering

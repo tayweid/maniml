@@ -10,6 +10,9 @@ import tempfile
 import textwrap
 import unittest
 
+import numpy as np
+from pyglet.window import key as PygletWindowKeys
+
 from manim.__main__ import load_scene_module
 
 BASE = textwrap.dedent('''\
@@ -89,6 +92,53 @@ class TestForwardExecution(CheckpointSceneTest):
         scene.run_next_animation()  # re-runs the loop unit
         self.assertEqual(scene.current_animation_index, 3)
         self.assertEqual(len(scene.animation_checkpoints), 6)
+
+
+class TestNavigation(CheckpointSceneTest):
+    def test_jump_back_restores_copies_not_history(self):
+        self.run_all()
+        scene = self.scene
+        checkpoint = scene.animation_checkpoints[4]
+        stored = [m.get_center().copy() for m in checkpoint['state'].mobjects]
+
+        scene.on_key_press(PygletWindowKeys.UP, 0)  # index 5 -> 4
+        self.assertEqual(scene.current_animation_index, 4)
+        # the on-screen mobjects must be copies, not the stored ones
+        for live in scene.mobjects:
+            self.assertNotIn(live, checkpoint['state'].mobjects)
+
+        # mutating the live scene must not touch the stored history
+        for live in scene.mobjects:
+            live.shift(np.array([5.0, 5.0, 0.0]))
+        for mob, pos in zip(checkpoint['state'].mobjects, stored):
+            self.assertTrue(np.allclose(mob.get_center(), pos),
+                            "stored checkpoint mobject moved with the live scene")
+
+    def test_left_arrow_reverses_one_checkpoint(self):
+        self.run_all()
+        scene = self.scene
+        n = len(scene.animation_checkpoints)
+        scene.on_key_press(PygletWindowKeys.LEFT, 0)
+        self.assertEqual(scene.current_animation_index, 4)
+        # the reverse transition itself must not create checkpoints
+        self.assertEqual(len(scene.animation_checkpoints), n)
+        # display landed exactly on (a copy of) the target state
+        target = scene.animation_checkpoints[4]['state']
+        self.assertEqual(len(scene.mobjects), len(target.mobjects))
+        for live in scene.mobjects:
+            self.assertNotIn(live, target.mobjects)
+
+    def test_undo_actually_restores(self):
+        self.run_all()
+        scene = self.scene
+        mob = scene.mobjects[-1]
+        before = mob.get_center().copy()
+        scene.save_state()
+        mob.shift(np.array([3.0, 0.0, 0.0]))
+        scene.undo()
+        restored = scene.mobjects[-1]
+        self.assertTrue(np.allclose(restored.get_center(), before),
+                        "undo did not restore the pre-mutation state")
 
 
 class TestFileChange(CheckpointSceneTest):
