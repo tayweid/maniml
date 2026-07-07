@@ -194,18 +194,19 @@ class Scene(object):
         """
         pass
 
-    def _create_checkpoint_zero(self) -> None:
+    def _create_checkpoint_zero(self, namespace: dict | None = None) -> None:
         """
         Create checkpoint 0 with the full namespace from the scene file.
-        Called right before construct() to capture all imports.
+        Called right before the first animation to capture all imports.
+        Pass an explicit namespace (e.g. from a freshly reloaded module)
+        to skip the module discovery.
         """
         import sys
-        
-        # Get the main module namespace (the scene file that was run)
-        namespace = {}
-        
+
+        namespace = dict(namespace) if namespace else {}
+
         # If we have the scene filepath, use it to find the module
-        if hasattr(self, '_scene_filepath') and self._scene_filepath:
+        if not namespace and hasattr(self, '_scene_filepath') and self._scene_filepath:
             # Find the module in sys.modules that matches our scene file
             for module_name, module in sys.modules.items():
                 if hasattr(module, '__file__') and module.__file__ == self._scene_filepath:
@@ -342,108 +343,119 @@ class Scene(object):
         self._file_changed_flag = True
 
     def _handle_file_change(self) -> None:
-        """Handle file changes in the main thread."""
+        """Handle a file save in the main thread.
+
+        Checkpoints are re-anchored against the freshly parsed source:
+        the ones from units before the edited unit are kept (the source
+        above the edit is identical, so their unit indices still hold),
+        everything from the edited unit on is discarded and replayed —
+        fast-forwarded with animations skipped, except the edited unit
+        itself, which plays at real speed. Edits outside construct()
+        (imports, constants, helpers, other methods) rebuild the whole
+        scene from a freshly reloaded module.
+        """
         change_info = self._pending_change_info
         if change_info is None:
             return
-        log.info(f"Handling file change at line {change_info['earliest_changed_line']}")
-        
+        self._pending_change_info = None
         earliest_change = change_info['earliest_changed_line']
-        current_checkpoint = self.animation_checkpoints[self.current_animation_index]
-        current_line = current_checkpoint['line_number']
-        
-        log.info(f"Current checkpoint {self.current_animation_index} at line {current_line}")
-        
-        # Debug: Show all checkpoint line numbers
-        checkpoint_lines = [cp['line_number'] for cp in self.animation_checkpoints]
-        log.info(f"Current checkpoints at lines: {checkpoint_lines}")
-        
-        # Case 1: Edit is after current position - need to forward to it
-        if earliest_change > current_line:
-            log.info(f"Edit is after current position, need to forward past line {earliest_change}")
-            
-            # Find the furthest checkpoint we can jump to that's still before the edit
-            furthest_safe_idx = self.current_animation_index
-            for i in range(self.current_animation_index + 1, len(self.animation_checkpoints)):
-                if self.animation_checkpoints[i]['line_number'] < earliest_change:
-                    furthest_safe_idx = i
-                else:
-                    break
-            
-            # Jump forward if we can
-            if furthest_safe_idx > self.current_animation_index:
-                log.info(f"Jumping forward to checkpoint {furthest_safe_idx}")
-                self.current_animation_index = furthest_safe_idx
-                checkpoint = self.animation_checkpoints[furthest_safe_idx]
-                self.restore_state(checkpoint['state'])
-                self.update_frame(dt=0, force_draw=True)
-            
-            # Now run animations until we've played the edited line
-            while True:
-                # Check if we've reached or passed the edited line
-                current_checkpoint = self.animation_checkpoints[self.current_animation_index]
-                if current_checkpoint['line_number'] >= earliest_change:
-                    log.info(f"Current checkpoint at line {current_checkpoint['line_number']} covers edit at line {earliest_change}")
-                    break
-                
-                # Run the next animation
-                log.info(f"Current at line {current_checkpoint['line_number']}, running next animation to reach line {earliest_change}")
-                last_index = self.current_animation_index
-                self.run_next_animation()
-                
-                # Check if we advanced
-                if self.current_animation_index == last_index:
-                    log.info("No more animations available")
-                    break
-                        
-        # Case 2: Edit is before current position - need to rewind
-        else:
-            log.info(f"Edit is before current position, need to rewind")
-            
-            # Find the safe checkpoint to restore to
-            safe_checkpoint_idx = -1
-            for i, checkpoint in enumerate(self.animation_checkpoints):
-                if checkpoint['line_number'] < earliest_change:
-                    safe_checkpoint_idx = i
-                else:
-                    break
-            
-            log.info(f"Safe checkpoint index: {safe_checkpoint_idx}")
-            
-            # Truncate checkpoints after the safe point
-            if safe_checkpoint_idx >= 0:
-                self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
-                self.current_animation_index = safe_checkpoint_idx
+        log.info(f"Handling file change at line {earliest_change}")
 
-                # Restore the checkpoint state
-                checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
-                self.restore_state(checkpoint['state'])
-                log.info(f"Restored to checkpoint {safe_checkpoint_idx}")
-                
-                # Force a frame update to show the restored state
-                self.update_frame(dt=0, force_draw=True)
-                
-                # Run animations through the edited line
-                # We need to run at least the animation that contains the edit
-                while True:
-                    # Run the next animation
-                    log.info(f"Running animation to show edited content")
-                    last_index = self.current_animation_index
-                    self.run_next_animation()
-                    
-                    # Check if we've covered the edit
-                    current_checkpoint = self.animation_checkpoints[self.current_animation_index]
-                    if current_checkpoint['line_number'] >= earliest_change:
-                        log.info(f"Animation at line {current_checkpoint['line_number']} covers the edit")
-                        break
-                    
-                    # Check if we didn't advance (no more animations)
-                    if self.current_animation_index == last_index:
-                        log.info("No more animations available")
-                        break
+        self._source_units_cache = None
+        units = self._get_source_units()
+        if units is None:
+            print("Scene file has errors; fix them and save again")
+            return
+
+        if not (units and units[0].start_line <= earliest_change <= units[-1].end_line):
+            print("Change outside construct(): rebuilding scene")
+            self._restart_from_source()
+            return
+
+        # First unit whose code reaches the edit; everything before it
+        # is untouched source
+        affected = next(u for u in units if u.end_line >= earliest_change)
+
+        # Keep only checkpoints created by units before the affected one
+        safe_idx = 0
+        for checkpoint in self.animation_checkpoints[1:]:
+            unit_index = checkpoint.get('unit_index')
+            if unit_index is not None and unit_index < affected.index:
+                safe_idx = checkpoint['index']
             else:
-                log.info("No safe checkpoint found, would need to restart from beginning")
-                # TODO: Implement full restart logic
+                break
+        self.animation_checkpoints = self.animation_checkpoints[:safe_idx + 1]
+
+        if self.current_animation_index != safe_idx:
+            self.current_animation_index = safe_idx
+            self.restore_state(self.animation_checkpoints[safe_idx]['state'])
+            self.update_frame(dt=0, force_draw=True)
+        log.info(f"Replaying from checkpoint {safe_idx} to unit {affected.index}")
+
+        self._replay_to_unit(affected.index)
+
+    def _replay_to_unit(self, target_unit_index: int) -> None:
+        """Re-run units up to and including target_unit_index.
+
+        Units before the target are fast-forwarded (animations skipped,
+        so each costs only its state evaluation); the target unit itself
+        plays at real speed.
+        """
+        for _ in range(10000):  # bound against non-advancing loops
+            units = self._get_source_units()
+            if units is None:
+                return
+            current = self.animation_checkpoints[self.current_animation_index]
+            current_unit = current.get('unit_index')
+            if current_unit is None:
+                current_unit = -1
+            if current_unit >= target_unit_index:
+                return
+            last_index = self.current_animation_index
+            next_unit = next_play_unit(units, after_unit_index=current_unit)
+            if next_unit is None or next_unit.index >= target_unit_index:
+                # The edited unit itself (or a trailing no-play unit):
+                # play at real speed and stop
+                self.run_next_animation()
+                return
+            with self.temp_skip():
+                self.run_next_animation()
+            if self.current_animation_index == last_index:
+                return  # no progress (error or nothing left)
+
+    def _restart_from_source(self) -> None:
+        """Reload the scene module and rebuild all checkpoints.
+
+        Used when an edit falls outside construct(): checkpoint
+        namespaces may hold stale copies of module-level objects, so
+        replaying from any existing checkpoint would use the old code.
+        Fast-forwards back to the unit the user was on.
+        """
+        if not getattr(self, '_scene_filepath', None):
+            return
+
+        previous_unit = None
+        if self.animation_checkpoints:
+            previous_unit = self.animation_checkpoints[self.current_animation_index].get('unit_index')
+
+        from manim.__main__ import load_scene_module
+        try:
+            module = load_scene_module(self._scene_filepath)
+        except Exception as e:
+            print(f"Error reloading scene file: {e}")
+            traceback.print_exc()
+            return
+
+        self.animation_checkpoints = []
+        self.current_animation_index = -1
+        self._source_units_cache = None
+        self.clear()
+        self._create_checkpoint_zero(namespace=vars(module))
+        self.update_frame(dt=0, force_draw=True)
+
+        units = self._get_source_units()
+        if units and previous_unit is not None and previous_unit >= 0:
+            self._replay_to_unit(min(previous_unit, units[-1].index))
 
     # Only these methods should touch the camera
 
@@ -1221,7 +1233,10 @@ class Scene(object):
         namespace['__animation_line_number__'] = unit.end_line
         namespace['__animation_unit_index__'] = unit.index
 
-        print(f"→ Running animation {next_index}")
+        if self.skip_animations:
+            print(f"⏩ Fast-forwarding animation {next_index}")
+        else:
+            print(f"→ Running animation {next_index}")
         try:
             code = compile(unit.source, self._scene_filepath, 'exec')
             exec(code, namespace)
