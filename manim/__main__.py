@@ -60,7 +60,13 @@ def load_scene_module(script_file):
     module.__dict__.update({k: v for k, v in manim.__dict__.items() if not k.startswith('_')})
 
     sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    # Compile the source directly instead of spec.loader.exec_module():
+    # the loader's bytecode cache validates by (mtime, size) with
+    # one-second granularity, so a quick same-size edit (e.g. changing a
+    # constant) can silently reload stale bytecode during auto-reload.
+    with open(script_file) as f:
+        source = f.read()
+    exec(compile(source, script_file, 'exec'), module.__dict__)
     return module
 
 
