@@ -4,87 +4,95 @@ import sys
 import os
 import importlib.util
 
-def main():
-    """Main entry point for maniml command."""
-    
-    if len(sys.argv) < 2 or '--help' in sys.argv or '-h' in sys.argv:
-        print("""
-maniml - Standalone Manim without external dependencies
 
-Usage: maniml [file] [Scene] [options]
+USAGE = """
+maniml - ManimCE-compatible API on an OpenGL backend
+
+Usage: maniml [file] [Scene]
 
 Options:
-  --help           Show this help message
-  -p, --preview    Preview animation after rendering
-  -e, --embed      Run in embed mode (interactive)
+  --help, -h       Show this help message
+
+Interactive controls (in the preview window):
+  RIGHT arrow      Run the next animation (re-executed from source)
+  LEFT arrow       Step back to the previous checkpoint
+  UP/DOWN arrows   Jump between checkpoints
+  Saving the scene file auto-reloads from the last safe checkpoint
 
 Examples:
   maniml example.py MyScene
-  maniml example.py MyScene -p
-""")
+"""
+
+
+def main():
+    """Main entry point for maniml command."""
+    args = [a for a in sys.argv[1:] if not a.startswith('-')]
+
+    if not args or '--help' in sys.argv or '-h' in sys.argv:
+        print(USAGE)
         sys.exit(0)
-    
-    # Get the file and scene name
-    script_file = sys.argv[1]
-    
+
+    script_file = args[0]
+    scene_name = args[1] if len(args) > 1 else None
+
     if not os.path.exists(script_file):
         print(f"Error: File '{script_file}' not found")
         sys.exit(1)
-    
-    # Use ManimGL's main runner which handles everything properly
-    # First, modify sys.argv to match what ManimGL expects
-    original_argv = sys.argv.copy()
-    
-    # Convert our simple args to ManimGL args
-    gl_args = ['manimgl', script_file]
-    if len(sys.argv) > 2:
-        gl_args.append(sys.argv[2])  # Scene name
-    
-    # Check for embed mode
-    if '-e' in sys.argv or '--embed' in sys.argv:
-        gl_args.extend(['-e', '1'])  # Default to line 1 if not specified
-    
-    sys.argv = gl_args
-    
-    try:
-        # Import and run ManimGL's main
-        from manim.extract_scene import main as gl_main
-        gl_main()
-    except ImportError:
-        # Fallback to our simple runner
-        sys.argv = original_argv
-        run_simple(script_file)
-    finally:
-        sys.argv = original_argv
 
-def run_simple(script_file):
-    """Simple runner when GL main is not available."""
-    spec = importlib.util.spec_from_file_location("__main__", script_file)
+    run_scene(script_file, scene_name)
+
+
+def load_scene_module(script_file):
+    """Load the user's scene file as a real module registered in sys.modules.
+
+    Registering the module is what lets the checkpoint system find the
+    scene file's namespace later (Scene._create_checkpoint_zero scans
+    sys.modules by __file__).
+    """
+    script_file = os.path.abspath(script_file)
+    module_name = os.path.splitext(os.path.basename(script_file))[0]
+    spec = importlib.util.spec_from_file_location(module_name, script_file)
     module = importlib.util.module_from_spec(spec)
-    
-    # Import manim into the module's namespace
+
+    # Pre-populate with manim's public names so plain scene files work
+    # even without `from manim import *`.
     import manim
     module.__dict__.update({k: v for k, v in manim.__dict__.items() if not k.startswith('_')})
-    
-    # Execute the module
+
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
-    
-    # If scene name provided, try to render it
-    if len(sys.argv) > 2:
-        scene_name = sys.argv[2]
-        if hasattr(module, scene_name):
-            scene_class = getattr(module, scene_name)
-            if callable(scene_class):
-                # Always create window for preview mode (default)
-                from manim.rendering.window import Window
-                window = Window()
-                scene = scene_class(window=window)
-                # Pass the script file path to the scene
-                scene._scene_filepath = os.path.abspath(script_file)
-                scene.run()
+    return module
+
+
+def run_scene(script_file, scene_name):
+    module = load_scene_module(script_file)
+
+    if scene_name is None:
+        from manim.scene.scene import Scene
+        scenes = [
+            name for name, obj in vars(module).items()
+            if isinstance(obj, type) and issubclass(obj, Scene)
+            and obj.__module__ == module.__name__
+        ]
+        if len(scenes) == 1:
+            scene_name = scenes[0]
         else:
-            print(f"Error: Scene '{scene_name}' not found in {script_file}")
+            print("Error: Specify a scene name. " +
+                  (f"Available scenes: {', '.join(scenes)}" if scenes
+                   else f"No scenes found in {script_file}"))
             sys.exit(1)
+
+    scene_class = getattr(module, scene_name, None)
+    if scene_class is None or not callable(scene_class):
+        print(f"Error: Scene '{scene_name}' not found in {script_file}")
+        sys.exit(1)
+
+    from manim.rendering.window import Window
+    window = Window()
+    scene = scene_class(window=window)
+    scene._scene_filepath = os.path.abspath(script_file)
+    scene.run()
+
 
 if __name__ == '__main__':
     main()

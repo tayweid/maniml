@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import os
 import platform
 import random
 import time
+import traceback
 import inspect
 from functools import wraps
 from contextlib import contextmanager
@@ -30,6 +32,10 @@ from manim.scene.scene_embed import InteractiveSceneEmbed
 from manim.scene.scene_embed import CheckpointManager
 from manim.scene.scene_file_writer import SceneFileWriter
 from manim.scene.file_watcher import FileWatcher
+from manim.scene.source_map import SourceMapError
+from manim.scene.source_map import build_units
+from manim.scene.source_map import next_play_unit
+from manim.scene.source_map import unit_for_line
 from manim.utils.dict_ops import merge_dicts_recursively
 from manim.utils.family_ops import extract_mobject_family_members
 from manim.utils.family_ops import recursive_mobject_remove
@@ -143,15 +149,15 @@ class Scene(object):
             np.random.seed(self.random_seed)
         
         # Checkpoint system for arrow key navigation
-        self.animation_checkpoints = []  # List of dicts with {index, line_number, state, namespace}
+        self.animation_checkpoints = []  # List of dicts with {index, line_number, unit_index, state, namespace}
         self.current_animation_index = -1
-        self._navigating_animations = False  # Flag to prevent checkpoint creation during navigation
         self._processing_key = False  # Flag to prevent re-entry during key processing
-        self._checkpoint_cache = {}  # Cache for deep-copied checkpoints (index -> copied checkpoint)
+        self._source_units_cache = None  # ((path, mtime), units) for the parsed scene file
 
         # File watcher for auto-reload
         self._file_watcher = None
         self._file_changed_flag = False  # Thread-safe flag for file changes
+        self._pending_change_info = None
         self.auto_reload_enabled = True  # Can be disabled if needed
 
     def __str__(self) -> str:
@@ -247,6 +253,7 @@ class Scene(object):
         checkpoint_zero = {
             'index': 0,
             'line_number': 0,  # No specific line for initial state
+            'unit_index': -1,  # Before the first animation unit
             'state': checkpoint_state,  # Empty scene state
             'namespace': checkpoint_namespace
         }
@@ -325,18 +332,20 @@ class Scene(object):
             log.warning("No scene filepath available, file watching disabled")
     
     def _on_file_changed(self, change_info: dict) -> None:
-        """Callback when file changes are detected."""
+        """Callback when file changes are detected.
+
+        Runs on the watcher thread: store the payload before raising the
+        flag, since the main loop clears the flag and reads the payload.
+        """
         log.info(f"File change detected: Line {change_info['earliest_changed_line']}")
-        # Set flag for main thread to handle
-        self._file_changed_flag = True
         self._pending_change_info = change_info
-    
+        self._file_changed_flag = True
+
     def _handle_file_change(self) -> None:
         """Handle file changes in the main thread."""
-        if not hasattr(self, '_pending_change_info'):
-            return
-            
         change_info = self._pending_change_info
+        if change_info is None:
+            return
         log.info(f"Handling file change at line {change_info['earliest_changed_line']}")
         
         earliest_change = change_info['earliest_changed_line']
@@ -405,9 +414,6 @@ class Scene(object):
             if safe_checkpoint_idx >= 0:
                 self.animation_checkpoints = self.animation_checkpoints[:safe_checkpoint_idx + 1]
                 self.current_animation_index = safe_checkpoint_idx
-
-                # Invalidate cached checkpoints that are no longer valid
-                self._checkpoint_cache = {k: v for k, v in self._checkpoint_cache.items() if k <= safe_checkpoint_idx}
 
                 # Restore the checkpoint state
                 checkpoint = self.animation_checkpoints[safe_checkpoint_idx]
@@ -802,144 +808,154 @@ class Scene(object):
         rate_func: Callable[[float], float] | None = None,
         lag_ratio: float | None = None,
     ) -> None:
-        """Play animations with checkpoint support."""
+        """Play animations, saving a checkpoint once they complete."""
         if len(proto_animations) == 0:
             log.warning("Called Scene.play with no animations")
             return
-            
+
         animations = list(map(prepare_animation, proto_animations))
         for anim in animations:
             anim.update_rate_info(run_time, rate_func, lag_ratio)
-            
-        # Don't save checkpoints if we're navigating with arrow keys
-        save_checkpoint = not (hasattr(self, '_navigating_animations') and self._navigating_animations)
-        
-        # Get the line number where this play was called
-        line_no = None
-        if save_checkpoint:
-            # Check if we have a line number passed from run_next_animation
-            # This will be the END line for multi-line play calls
-            frame = inspect.currentframe()
-            while frame:
-                if '__animation_line_number__' in frame.f_locals:
-                    line_no = frame.f_locals['__animation_line_number__']
-                    # print(f"DEBUG: Using passed line number {line_no} from run_next_animation")
-                    break
-                if '__animation_line_number__' in frame.f_globals:
-                    line_no = frame.f_globals['__animation_line_number__']
-                    # print(f"DEBUG: Using passed line number {line_no} from run_next_animation (globals)")
-                    break
-                frame = frame.f_back
-            
-            if line_no is None:
-                # We need to find the line number in the actual scene file
-                import traceback
-                stack = traceback.extract_stack()
-                
-                # Find ALL calls from the user's scene file to get the END line
-                user_frames = []
-                for frame_info in stack:
-                    # Skip internal manim files
-                    if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
-                        user_frames.append(frame_info)
-                        # print(f"DEBUG: Found user frame at {frame_info.filename}:{frame_info.lineno}")
-                
-                # The last (deepest) frame is the END of the play call
-                if user_frames:
-                    line_no = user_frames[-1].lineno
-                    # print(f"DEBUG: Using line {line_no} as checkpoint line")
-                    # Debug: show if this is a multi-line call
-                    if len(user_frames) > 1:
-                        # print(f"DEBUG: Multi-line play() call from line {user_frames[0].lineno} to {user_frames[-1].lineno}")
-                        pass
-                        
-                if line_no is None:
-                    # Fallback to direct caller
-                    line_no = frame.f_lineno
-            
+
+        line_no, unit_index = self._find_animation_anchor()
+
         # Play the animation
         self.pre_play()
         self.begin_animations(animations)
         self.progress_through_animations(animations)
         self.finish_animations(animations)
         self.post_play()
-        
+
         # Save checkpoint AFTER animation completes
-        if save_checkpoint and line_no:
-            # We need to find the construct method's frame
-            frame = inspect.currentframe()
-            namespace = {}
-            
-            # Walk up the call stack to find the construct method
-            while frame:
-                # Check if this is the construct method
-                if 'self' in frame.f_locals and frame.f_code.co_name == 'construct':
-                    # Found it! Get local variables
-                    namespace = frame.f_locals.copy()
-                    # Also get globals from the module
-                    namespace.update(frame.f_globals)
-                    break
-                # Also check if we're running from exec (called by run_next_animation)
-                elif frame.f_code.co_filename == '<string>':
-                    # We're in exec'd code - get the globals which is our checkpoint namespace
-                    namespace = frame.f_globals.copy()
-                    # Also include locals
-                    namespace.update(frame.f_locals)
-                    break
-                frame = frame.f_back
-            
-            # If we didn't find construct, fall back to direct caller
-            if not namespace:
-                frame = inspect.currentframe().f_back
+        if line_no:
+            namespace = self._capture_caller_namespace()
+            self._save_checkpoint(line_no, unit_index, namespace)
+            self._remember_scene_filepath()
+
+    def _find_animation_anchor(self) -> tuple[int | None, int | None]:
+        """Locate the source anchor (end line and unit index) of the play()
+        call currently on the stack.
+
+        When run_next_animation execs a unit it plants
+        __animation_line_number__ / __animation_unit_index__ in the exec
+        namespace. Otherwise (e.g. construct() called directly) fall back
+        to the deepest stack frame in the user's scene file, mapped
+        through the source map.
+        """
+        frame = inspect.currentframe()
+        while frame:
+            for scope in (frame.f_locals, frame.f_globals):
+                if '__animation_line_number__' in scope:
+                    return (
+                        scope['__animation_line_number__'],
+                        scope.get('__animation_unit_index__'),
+                    )
+            frame = frame.f_back
+
+        # The deepest user-file frame is the END line of a multi-line play call
+        line_no = None
+        for frame_info in traceback.extract_stack():
+            if '/manim/' not in frame_info.filename and frame_info.filename.endswith('.py'):
+                line_no = frame_info.lineno
+
+        unit_index = None
+        if line_no is not None:
+            units = self._get_source_units()
+            if units:
+                unit = unit_for_line(units, line_no)
+                if unit is not None:
+                    unit_index = unit.index
+        return line_no, unit_index
+
+    def _capture_caller_namespace(self) -> dict:
+        """Copy the variables of the frame that triggered this play call:
+        either a construct() frame or a unit exec'd by run_next_animation."""
+        frame = inspect.currentframe()
+        while frame:
+            if frame.f_code.co_name == 'construct' and 'self' in frame.f_locals:
                 namespace = frame.f_locals.copy()
                 namespace.update(frame.f_globals)
-            
-            # Add current state to namespace BEFORE deepcopy
-            namespace['__checkpoint_state__'] = self.get_state()
-            
-            # Deep copy everything together - references are preserved!
-            checkpoint_namespace = deepcopy_namespace(namespace)
-            
-            # Extract state from deepcopied namespace
-            checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
-            
-            # Save checkpoint
-            self.current_animation_index += 1
-            checkpoint = {
-                'index': self.current_animation_index,
-                'line_number': line_no,
-                'state': checkpoint_state,
-                'namespace': checkpoint_namespace
-            }
-            
-            # Check if we're replacing an existing checkpoint or creating a new one
-            if self.current_animation_index < len(self.animation_checkpoints):
-                # We're re-running an animation, replace the checkpoint
-                self.animation_checkpoints[self.current_animation_index] = checkpoint
-                # Invalidate cached copy since checkpoint changed
-                if self.current_animation_index in self._checkpoint_cache:
-                    del self._checkpoint_cache[self.current_animation_index]
-            else:
-                # New checkpoint
-                self.animation_checkpoints.append(checkpoint)
-            
-            # Store scene file path if available
-            # We need to find the actual scene file, not scene.py
-            if not hasattr(self, '_scene_filepath') or not self._scene_filepath:
-                # Walk up the call stack to find the user's scene file
-                import traceback
-                for frame_info in traceback.extract_stack():
-                    filename = frame_info.filename
-                    # Skip internal manim files
-                    if '/manim/' not in filename and filename.endswith('.py'):
-                        self._scene_filepath = filename
-                        break
-        
-        # If we're navigating animations, raise exception to stop execution
-        if self._navigating_animations:
-            class AnimationComplete(Exception):
-                pass
-            raise AnimationComplete("Animation complete, stopping execution")
+                return namespace
+            if '__animation_line_number__' in frame.f_globals:
+                # A unit exec'd by run_next_animation
+                namespace = frame.f_globals.copy()
+                namespace.update(frame.f_locals)
+                return namespace
+            frame = frame.f_back
+
+        # Fallback: the direct caller of play()
+        frame = inspect.currentframe()
+        while frame and frame.f_code.co_name != 'play':
+            frame = frame.f_back
+        if frame is not None and frame.f_back is not None:
+            caller = frame.f_back
+            namespace = caller.f_locals.copy()
+            namespace.update(caller.f_globals)
+            return namespace
+        return {}
+
+    def _save_checkpoint(self, line_no: int, unit_index: int | None, namespace: dict) -> None:
+        """Deep-copy the namespace and scene state into the checkpoint at
+        current_animation_index + 1, replacing any existing one there."""
+        namespace = dict(namespace)
+        namespace.pop('__animation_line_number__', None)
+        namespace.pop('__animation_unit_index__', None)
+
+        # Deep copy state and namespace together so references between
+        # namespace variables and on-screen mobjects are preserved
+        namespace['__checkpoint_state__'] = self.get_state()
+        checkpoint_namespace = deepcopy_namespace(namespace)
+        checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+
+        self.current_animation_index += 1
+        checkpoint = {
+            'index': self.current_animation_index,
+            'line_number': line_no,
+            'unit_index': unit_index,
+            'state': checkpoint_state,
+            'namespace': checkpoint_namespace,
+        }
+        if self.current_animation_index < len(self.animation_checkpoints):
+            # Re-running an existing animation: replace its checkpoint
+            self.animation_checkpoints[self.current_animation_index] = checkpoint
+        else:
+            self.animation_checkpoints.append(checkpoint)
+
+    def _remember_scene_filepath(self) -> None:
+        """Record the user's scene file path from the stack if not yet known."""
+        if getattr(self, '_scene_filepath', None):
+            return
+        for frame_info in traceback.extract_stack():
+            filename = frame_info.filename
+            if '/manim/' not in filename and filename.endswith('.py'):
+                self._scene_filepath = filename
+                break
+
+    def _get_source_units(self):
+        """Parse the scene file into animation units, cached by mtime.
+
+        Returns None (with a warning) if the file is missing, unparseable,
+        or has no matching construct().
+        """
+        path = getattr(self, '_scene_filepath', None)
+        if not path:
+            return None
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        cached = self._source_units_cache
+        if cached is not None and cached[0] == (path, mtime):
+            return cached[1]
+        try:
+            with open(path) as f:
+                source = f.read()
+            units = build_units(source, self.__class__.__name__)
+        except (OSError, SyntaxError, SourceMapError) as e:
+            log.warning(f"Could not map scene source: {e}")
+            return None
+        self._source_units_cache = ((path, mtime), units)
+        return units
 
     def wait(
         self,
@@ -1163,147 +1179,69 @@ class Scene(object):
         )
 
     def run_next_animation(self):
-        """Run the next animation using checkpoint_temporary workflow."""
+        """Run the next animation unit, re-executed from the scene source."""
+        if not getattr(self, '_scene_filepath', None):
+            print("No scene file path stored")
+            return
 
-        # Get current checkpoint
+        units = self._get_source_units()
+        if units is None:
+            print("Cannot parse scene file; fix the error and save again")
+            return
+
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
 
-        # Use cached deep copy if available, otherwise create and cache it
-        cache_key = self.current_animation_index
-        if cache_key in self._checkpoint_cache:
-            # Reuse cached copy (much faster for repeated navigation)
-            checkpoint_temporary = self._checkpoint_cache[cache_key]
-        else:
-            # Deep copy and cache for future use
-            checkpoint_temporary = deepcopy_namespace(current_checkpoint)
-            self._checkpoint_cache[cache_key] = checkpoint_temporary
-        
-        # Clear the scene completely - start fresh
-        self.clear()
-        
-        # Restore state from the deep copied checkpoint
-        # This adds all the mobjects to the scene
-        self.restore_state(checkpoint_temporary['state'])
-        
-        # Add self reference to namespace
-        checkpoint_temporary['namespace']['self'] = self
+        unit = next_play_unit(
+            units,
+            after_unit_index=current_checkpoint.get('unit_index'),
+            after_line=current_checkpoint['line_number'],
+        )
+        if unit is None:
+            # Past the last play call: run any trailing statements
+            # (e.g. a final self.wait()) exactly once
+            tail = units[-1] if units and not units[-1].has_play else None
+            current_unit = current_checkpoint.get('unit_index')
+            if tail is None or (current_unit is not None and current_unit >= tail.index):
+                print("Already at last animation")
+                return
+            unit = tail
 
-        # Get the code to run
-        if hasattr(self, '_scene_filepath') and self._scene_filepath:
-            try:
-                with open(self._scene_filepath, 'r') as f:
-                    lines = f.readlines()
-                
-                # Extract code from current checkpoint to next play() call
-                # The line_number in the checkpoint is where the animation ENDS (the play call)
-                # So we need to start collecting from the next line
-                current_line = current_checkpoint['line_number']
-                
-                # Debug: check what line we're starting from
-                # print(f"DEBUG: Current checkpoint ends at line {current_line}, looking for next animation after that")
-                
-                code_lines = []
-                in_construct = False
-                base_indent = None
-                found_next_play = False
-                next_line_number = 0
-                
-                for i, line in enumerate(lines):
-                    line_no = i + 1
-                    
-                    if 'def construct(self):' in line:
-                        in_construct = True
-                        base_indent = len(line) - len(line.lstrip())
-                        continue
-                    
-                    if in_construct:
-                        # Check if we've exited construct
-                        if line.strip() and not line.startswith(' ' * (base_indent + 1)):
-                            break
-                        
-                        # Start collecting after current line
-                        # Special case: for checkpoint 0, start from beginning of construct
-                        if line_no > current_line or (current_line == 0 and in_construct):
-                            # Always add the line
-                            code_lines.append(line.rstrip())
-                            
-                            # If we found a play call, track parentheses to find the end
-                            if 'self.play(' in line or '.play(' in line:
-                                found_next_play = True
-                                next_line_number = line_no
-                                # Track parentheses to find the end of the play call
-                                paren_count = line.count('(') - line.count(')')
-                                play_end_line = line_no
-                                
-                                # Continue until we find the closing parenthesis
-                                j = i + 1
-                                while j < len(lines) and paren_count > 0:
-                                    next_line = lines[j]
-                                    code_lines.append(next_line.rstrip())
-                                    paren_count += next_line.count('(') - next_line.count(')')
-                                    play_end_line = j + 1
-                                    j += 1
-                                
-                                # Use the END line for the checkpoint
-                                next_line_number = play_end_line
-                                # print(f"DEBUG: Found play() call from line {line_no} to {play_end_line}")
-                                break
-                
-                if found_next_play and code_lines:
-                    # Remove common indentation from all lines
-                    if code_lines:
-                        # Find minimum indentation (excluding empty lines)
-                        min_indent = float('inf')
-                        for line in code_lines:
-                            if line.strip():  # Skip empty lines
-                                indent = len(line) - len(line.lstrip())
-                                min_indent = min(min_indent, indent)
-                        
-                        # Remove the common indentation
-                        if min_indent < float('inf'):
-                            code_lines = [line[min_indent:] if line.strip() else line for line in code_lines]
-                    
-                    code_to_run = '\n'.join(code_lines)
-                    
-                    # Show what animation we're running
-                    print(f"→ Running animation {next_index}")
-                    # print(f"DEBUG: Scene has {len(self.mobjects)} mobjects before exec")
-                    # print(f"DEBUG: Code to run ({len(code_lines)} lines):")
-                    # for i, line in enumerate(code_lines):
-                    #     print(f"  {i+1}: {repr(line)}")
-                    
-                    # Set flag to allow next checkpoint
-                    self._navigating_animations = False
-                    
-                    # Pass the line number through the namespace so play() can use it
-                    checkpoint_temporary['namespace']['__animation_line_number__'] = next_line_number
-                    
-                    # Execute in the checkpoint namespace
-                    try:
-                        exec(code_to_run, checkpoint_temporary['namespace'])
-                    except Exception as e:
-                        # Check if it's our AnimationComplete exception
-                        if e.__class__.__name__ == 'AnimationComplete':
-                            # This is expected - animation completed successfully
-                            pass
-                        else:
-                            # Real error
-                            print(f"Error running animation: {e}")
-                            raise
-                    
-                    print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
-                else:
-                    print("Already at last animation")
-                    
-            except FileNotFoundError:
-                print(f"Scene file not found: {self._scene_filepath}")
-            except Exception as e:
-                print(f"Error running animation: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("No scene file path stored")
+        # Work on a deep copy so the stored checkpoint stays pristine.
+        # State and namespace are copied together, preserving references
+        # between namespace variables and on-screen mobjects.
+        checkpoint_temporary = deepcopy_namespace(current_checkpoint)
+
+        self.clear()
+        self.restore_state(checkpoint_temporary['state'])
+
+        namespace = checkpoint_temporary['namespace']
+        namespace['self'] = self
+        # Anchor for the checkpoint(s) that play() will save during exec
+        namespace['__animation_line_number__'] = unit.end_line
+        namespace['__animation_unit_index__'] = unit.index
+
+        print(f"→ Running animation {next_index}")
+        try:
+            code = compile(unit.source, self._scene_filepath, 'exec')
+            exec(code, namespace)
+        except Exception as e:
+            print(f"Error running animation: {e}")
+            traceback.print_exc()
+            # Restore the last successfully saved checkpoint so the scene
+            # isn't left in a half-executed state
+            checkpoint = self.animation_checkpoints[self.current_animation_index]
+            self.clear()
+            self.restore_state(checkpoint['state'])
+            self.update_frame(dt=0, force_draw=True)
+            return
+
+        if not unit.has_play:
+            # Tail unit: no play() fired to save a checkpoint, save one
+            # here so the tail doesn't re-run on the next RIGHT arrow
+            self._save_checkpoint(unit.end_line, unit.index, namespace)
+
+        print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
     def on_key_release(
         self,
@@ -1325,12 +1263,7 @@ class Scene(object):
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-            
-            # If animation is playing, skip to end first
-            if hasattr(self, 'playing') and self.playing:
-                self.skip_animations = True
-                return  # Let animation finish, then user can press UP again
-                
+
             if self.current_animation_index > 0:
                 self.current_animation_index -= 1
                 checkpoint = self.animation_checkpoints[self.current_animation_index]
@@ -1345,12 +1278,7 @@ class Scene(object):
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-            
-            # If animation is playing, skip to end first
-            if hasattr(self, 'playing') and self.playing:
-                self.skip_animations = True
-                return  # Let animation finish, then user can press DOWN again
-                
+
             if self.current_animation_index < len(self.animation_checkpoints) - 1:
                 self.current_animation_index += 1
                 checkpoint = self.animation_checkpoints[self.current_animation_index]
