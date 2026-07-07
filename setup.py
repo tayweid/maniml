@@ -41,8 +41,6 @@ setup(
         'scipy',
         'colour',
         'pygments',
-        'pyperclip',
-        'IPython',
         'PyYAML',
         'addict',
         'PyOpenGL',

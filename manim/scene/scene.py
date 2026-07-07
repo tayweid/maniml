@@ -28,8 +28,6 @@ from manim.mobject.mobject import Mobject
 from manim.mobject.mobject import Point
 from manim.mobject.types.vectorized_mobject import VGroup
 from manim.mobject.types.vectorized_mobject import VMobject
-from manim.scene.scene_embed import InteractiveSceneEmbed
-from manim.scene.scene_embed import CheckpointManager
 from manim.scene.scene_file_writer import SceneFileWriter
 from manim.scene.file_watcher import FileWatcher
 from manim.scene.source_map import SourceMapError
@@ -305,23 +303,17 @@ class Scene(object):
             
             self.update_frame(1 / self.camera.fps)
 
-    def embed(
-        self,
-        close_scene_on_exit: bool = True,
-        show_animation_progress: bool = False,
-    ) -> None:
-        if not self.window:
-            # Embed is only relevant for interactive development with a Window
-            return
-        self.show_animation_progress = show_animation_progress
-        self.stop_skipping()
-        self.update_frame(force_draw=True)
+    def embed(self, *args, **kwargs) -> None:
+        """ManimGL's IPython embed mode was removed from maniml.
 
-        InteractiveSceneEmbed(self).launch()
-
-        # End scene when exiting an embed
-        if close_scene_on_exit:
-            raise EndScene()
+        The checkpoint system supersedes it: arrow keys navigate
+        animations and saving the file hot-reloads from the last safe
+        checkpoint.
+        """
+        log.warning(
+            "self.embed() is not supported in maniml; "
+            "use arrow-key navigation and auto-reload instead"
+        )
     
     def _setup_file_watcher(self) -> None:
         """Setup the file watcher for auto-reload functionality."""
