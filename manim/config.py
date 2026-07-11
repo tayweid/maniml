@@ -211,7 +211,10 @@ def parse_cli():
             action="store_true",
             help="Erase the cache used for Tex and Text Mobjects"
         )
-        args = parser.parse_args()
+        # Tolerate unknown flags: this parser runs at import time, and
+        # maniml's own entry point (manim/__main__.py) defines its own
+        # options (e.g. --present, --render) that it handles itself
+        args, _unknown = parser.parse_known_args()
         args.write_file = any([args.write_file, args.open, args.finder])
         return args
     except argparse.ArgumentError as err:
