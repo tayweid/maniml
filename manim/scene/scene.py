@@ -14,6 +14,7 @@ from contextlib import ExitStack
 import numpy as np
 from tqdm.auto import tqdm as ProgressDisplay
 from pyglet.window import key as PygletWindowKeys
+from pyglet.window import mouse as PygletMouseButtons
 
 from manim.animation.animation import prepare_animation
 from manim.camera.camera import Camera
@@ -151,6 +152,20 @@ class Scene(object):
         self.current_animation_index = -1
         self._processing_key = False  # Flag to prevent re-entry during key processing
         self._source_units_cache = None  # ((path, mtime), units) for the parsed scene file
+        self._live_namespace = {}  # Variable name -> live (on-screen) object, for click-to-inspect
+
+        # Run modes (set by __main__)
+        self._present_mode = False  # Pre-built checkpoints, watcher off, timeline scrubber
+        self._render_mode = False   # Headless: write video + checkpoint PNGs
+
+        # Presentation timeline overlay
+        self._timeline_group = None
+        self._timeline_xs = None
+
+        # Click-to-inspect / drag state
+        self._grabbed_mobject = None
+        self._grab_offset = None
+        self._grabbed_name = None
 
         # File watcher for auto-reload
         self._file_watcher = None
@@ -173,9 +188,15 @@ class Scene(object):
         try:
             # Create checkpoint 0 right before construct
             self._create_checkpoint_zero()
-            # Run only the first animation instead of all of construct
-            self.run_next_animation()
-            self.interact()
+            if self._render_mode:
+                self._render_all()
+            elif self._present_mode:
+                self._prepare_presentation()
+                self.interact()
+            else:
+                # Run only the first animation instead of all of construct
+                self.run_next_animation()
+                self.interact()
         except EndScene:
             pass
         except KeyboardInterrupt:
@@ -448,6 +469,178 @@ class Scene(object):
         units = self._get_source_units()
         if units and previous_unit is not None and previous_unit >= 0:
             self._replay_to_unit(min(previous_unit, units[-1].index))
+
+    # Run modes
+
+    def _run_all_units(self) -> None:
+        """Run every remaining animation unit, stopping when no progress
+        is made (end of scene or an error already reported)."""
+        while True:
+            last_index = self.current_animation_index
+            self.run_next_animation()
+            if self.current_animation_index == last_index:
+                break
+
+    def _prepare_presentation(self) -> None:
+        """Pre-run every animation unit (skipped, so it takes seconds)
+        to validate the whole scene and build every checkpoint, then
+        rewind to the start. The file watcher stays off: nothing
+        re-parses mid-presentation."""
+        print("Preparing presentation...")
+        self.auto_reload_enabled = False
+        with self.temp_skip():
+            self._run_all_units()
+        total = len(self.animation_checkpoints) - 1
+        self._restore_checkpoint_for_display(0)
+        self.update_frame(dt=0, force_draw=True)
+        print(f"Ready: {total} animations pre-built. RIGHT arrow to begin;")
+        print("move the mouse to the bottom edge for the timeline.")
+
+    def _render_all(self) -> None:
+        """Run every unit at full speed so frames reach the file writer,
+        saving a PNG snapshot of each checkpoint along the way."""
+        image_dir = os.path.join(
+            self.file_writer.output_directory,
+            f"{self.file_writer.get_output_file_name()}_checkpoints",
+        )
+        os.makedirs(image_dir, exist_ok=True)
+        self._save_checkpoint_image(image_dir)  # initial (empty) state
+        while True:
+            last_index = self.current_animation_index
+            self.run_next_animation()
+            final = self.current_animation_index
+            if final == last_index:
+                break
+            if final == last_index + 1:
+                self._save_checkpoint_image(image_dir)
+            else:
+                # One unit produced several checkpoints (e.g. play() in a
+                # loop): restore each to capture its snapshot
+                for i in range(last_index + 1, final + 1):
+                    self._restore_checkpoint_for_display(i)
+                    self._save_checkpoint_image(image_dir)
+        print(f"Wrote {self.current_animation_index + 1} checkpoint images to {image_dir}")
+
+    def _save_checkpoint_image(self, image_dir: str) -> None:
+        self.update_frame(dt=0, force_draw=True)
+        path = os.path.join(image_dir, f"{self.current_animation_index:03d}.png")
+        self.get_image().save(path)
+
+    # Presentation timeline (clickable checkpoint scrubber)
+
+    def _restore_checkpoint_for_display(self, index: int) -> None:
+        """Put a copy of the checkpoint at `index` on screen and keep its
+        namespace as the live one (for click-to-inspect). State and
+        namespace are copied together so names still point at the
+        on-screen objects."""
+        self.current_animation_index = index
+        temp = deepcopy_namespace(self.animation_checkpoints[index])
+        self.restore_state(temp['state'])
+        namespace = temp['namespace']
+        namespace['self'] = self
+        self._live_namespace = namespace
+
+    def _timeline_zone_contains(self, point) -> bool:
+        frame = self.camera.frame
+        bottom = frame.get_bottom()[1]
+        return point[1] < bottom + 0.08 * frame.get_height()
+
+    def _show_timeline(self) -> None:
+        from manim.mobject.geometry import Dot
+        self._hide_timeline()
+        n = len(self.animation_checkpoints)
+        if n < 2:
+            return
+        frame = self.camera.frame
+        span = frame.get_width() * 0.6
+        y = frame.get_bottom()[1] + 0.045 * frame.get_height()
+        cx = frame.get_center()[0]
+        xs = np.linspace(cx - span / 2, cx + span / 2, n)
+        scale = frame.get_height() / 8.0  # keep dot size stable under zoom
+        dots = []
+        for i, x in enumerate(xs):
+            current = (i == self.current_animation_index)
+            dot = Dot(radius=0.06 if current else 0.035)
+            dot.scale(scale)
+            dot.set_fill('#FFFFFF', opacity=1.0 if current else 0.4)
+            dot.move_to(np.array([x, y, 0.0]))
+            dots.append(dot)
+        self._timeline_group = Group(*dots)
+        self._timeline_xs = xs
+        self.add(self._timeline_group)
+
+    def _hide_timeline(self) -> None:
+        group = self._timeline_group
+        if group is not None and group in self.mobjects:
+            self.remove(group)
+        self._timeline_group = None
+        self._timeline_xs = None
+
+    def _handle_timeline_click(self, point) -> bool:
+        """Jump to the clicked checkpoint. Returns True if handled."""
+        if self._timeline_xs is None or not self._timeline_zone_contains(point):
+            return False
+        index = int(np.argmin(np.abs(self._timeline_xs - point[0])))
+        self._hide_timeline()
+        print(f"⤳ Jump to animation {index}/{len(self.animation_checkpoints) - 1}")
+        self._restore_checkpoint_for_display(index)
+        self._show_timeline()
+        self.update_frame(dt=0, force_draw=True)
+        return True
+
+    # Click-to-inspect and drag-to-move (development mode)
+
+    def _inspectable_mobjects(self) -> list[Mobject]:
+        return [
+            mob for mob in self.mobjects
+            if mob is not self._timeline_group
+            and not isinstance(mob, CameraFrame)
+            and not mob.is_fixed_in_frame()
+        ]
+
+    def _find_mobject_at(self, point) -> Mobject | None:
+        """Topmost mobject whose bounding box contains the point."""
+        from manim.constants import SMALL_BUFF
+        return self.point_to_mobject(
+            point, self._inspectable_mobjects(), buff=SMALL_BUFF)
+
+    def _name_of(self, mobject) -> str | None:
+        """Variable name of a live mobject in the current animation's
+        namespace — or of the container (e.g. VGroup) holding it."""
+        items = [
+            (name, value) for name, value in self._live_namespace.items()
+            if not name.startswith('_') and name != 'self'
+        ]
+        for name, value in items:
+            if value is mobject:
+                return name
+        for name, value in items:
+            if isinstance(value, Mobject) and mobject in value.get_family():
+                return name
+        return None
+
+    def _begin_grab(self, mobject: Mobject, point) -> None:
+        name = self._name_of(mobject)
+        self._grabbed_mobject = mobject
+        self._grabbed_name = name
+        self._grab_offset = point - mobject.get_center()
+        mobject.set_animating_status(True)
+        x, y, z = mobject.get_center()
+        label = name or mobject.__class__.__name__
+        print(f"⊙ {label}  center=({x:.2f}, {y:.2f}, {z:.2f})")
+
+    def _end_grab(self) -> None:
+        mobject = self._grabbed_mobject
+        if mobject is None:
+            return
+        mobject.set_animating_status(False)
+        mobject.refresh_bounding_box()
+        x, y, z = mobject.get_center()
+        name = self._grabbed_name or mobject.__class__.__name__
+        print(f"  {name}.move_to([{x:.2f}, {y:.2f}, {z:.2f}])")
+        self._grabbed_mobject = None
+        self._grabbed_name = None
+        self._grab_offset = None
 
     # Only these methods should touch the camera
 
@@ -1028,7 +1221,10 @@ class Scene(object):
     # Helpers for interactive development
 
     def get_state(self) -> SceneState:
-        return SceneState(self)
+        # The timeline scrubber is a display overlay, never part of
+        # checkpoint history
+        ignore = [self._timeline_group] if self._timeline_group is not None else None
+        return SceneState(self, ignore=ignore)
 
     @affects_mobject_list
     def restore_state(self, scene_state: SceneState):
@@ -1128,6 +1324,14 @@ class Scene(object):
         if propagate_event is not None and propagate_event is False:
             return
 
+        # Presentation timeline appears when the mouse nears the bottom edge
+        if self._present_mode:
+            if self._timeline_zone_contains(point):
+                if self._timeline_group is None:
+                    self._show_timeline()
+            elif self._timeline_group is not None:
+                self._hide_timeline()
+
         frame = self.camera.frame
         # Handle perspective changes
         if self.window.is_key_pressed(ord(manim_config.key_bindings.pan_3d)):
@@ -1147,7 +1351,10 @@ class Scene(object):
         modifiers: int
     ) -> None:
         self.mouse_drag_point.move_to(point)
-        if self.drag_to_pan:
+        if self._grabbed_mobject is not None:
+            # Dragging a mobject: move it, don't pan
+            self._grabbed_mobject.move_to(point - self._grab_offset)
+        elif self.drag_to_pan:
             self.frame.shift(-d_point)
 
         event_data = {"point": point, "d_point": d_point, "buttons": buttons, "modifiers": modifiers}
@@ -1167,6 +1374,15 @@ class Scene(object):
         if propagate_event is not None and propagate_event is False:
             return
 
+        if self._present_mode:
+            if self._handle_timeline_click(point):
+                return
+        elif button == PygletMouseButtons.LEFT:
+            # Click a mobject to identify it; keep holding to drag it
+            mobject = self._find_mobject_at(point)
+            if mobject is not None:
+                self._begin_grab(mobject, point)
+
     def on_mouse_release(
         self,
         point: Vect3,
@@ -1177,6 +1393,8 @@ class Scene(object):
         propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseReleaseEvent, **event_data)
         if propagate_event is not None and propagate_event is False:
             return
+
+        self._end_grab()
 
     def on_mouse_scroll(
         self,
@@ -1262,6 +1480,10 @@ class Scene(object):
             # here so the tail doesn't re-run on the next RIGHT arrow
             self._save_checkpoint(unit.end_line, unit.index, namespace)
 
+        # The exec namespace holds the objects now on screen; keep it
+        # for click-to-inspect name lookup
+        self._live_namespace = namespace
+
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
     def _play_reverse_to(self, index: int) -> None:
@@ -1275,7 +1497,8 @@ class Scene(object):
         """
         from manim.animation.transform import Transform
 
-        target_state = self.animation_checkpoints[index]['state'].copy()
+        temp = deepcopy_namespace(self.animation_checkpoints[index])
+        target_state = temp['state']
         try:
             current = Group(*self.mobjects)
             target = Group(*target_state.mobjects)
@@ -1288,6 +1511,9 @@ class Scene(object):
         # morph went
         self.clear()
         self.restore_state(target_state)
+        namespace = temp['namespace']
+        namespace['self'] = self
+        self._live_namespace = namespace
 
     def on_key_release(
         self,
@@ -1304,6 +1530,10 @@ class Scene(object):
         symbol: int,
         modifiers: int
     ) -> None:
+        # Keyboard navigation redraws the scene; drop the timeline overlay
+        if self._present_mode and self._timeline_group is not None:
+            self._hide_timeline()
+
         # Handle UP arrow - jump to previous animation
         if symbol == PygletWindowKeys.UP:
             # Prevent if we're processing another key
@@ -1311,12 +1541,10 @@ class Scene(object):
                 return
 
             if self.current_animation_index > 0:
-                self.current_animation_index -= 1
-                checkpoint = self.animation_checkpoints[self.current_animation_index]
-                print(f"↑ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                # Restore a copy: putting the stored mobjects on screen
+                print(f"↑ Jump to animation {self.current_animation_index - 1}/{len(self.animation_checkpoints) - 1}")
+                # Restores a copy: putting the stored mobjects on screen
                 # would let later mutation corrupt the checkpoint
-                self.restore_state(checkpoint['state'].copy())
+                self._restore_checkpoint_for_display(self.current_animation_index - 1)
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at first animation")
@@ -1328,10 +1556,8 @@ class Scene(object):
                 return
 
             if self.current_animation_index < len(self.animation_checkpoints) - 1:
-                self.current_animation_index += 1
-                checkpoint = self.animation_checkpoints[self.current_animation_index]
-                print(f"↓ Jump to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                self.restore_state(checkpoint['state'].copy())
+                print(f"↓ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints) - 1}")
+                self._restore_checkpoint_for_display(self.current_animation_index + 1)
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at last animation")
