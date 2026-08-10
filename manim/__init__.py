@@ -149,3 +149,11 @@ __all__ = [
     'linear', 'smooth', 'there_and_back', 'there_and_back_with_pause',
     'rush_into', 'rush_from', 'slow_into', 'double_smooth',
 ]
+
+# Also star-export every ALL_CAPS constant (colors, directions, frame
+# dimensions, ...) so plain `from manim import *` scene files see them
+from . import constants as _constants
+__all__ += [
+    _name for _name in dir(_constants)
+    if _name.isupper() and _name not in __all__
+]

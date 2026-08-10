@@ -389,12 +389,12 @@ class Circle(Arc):
     def __init__(
         self,
         start_angle: float = 0,
-        stroke_color: ManimColor = RED,
+        color: ManimColor = RED,
         **kwargs
     ):
         super().__init__(
             start_angle, TAU,
-            stroke_color=stroke_color,
+            color=color,
             **kwargs
         )
 
@@ -440,19 +440,17 @@ class Dot(Circle):
         self,
         point: Vect3 = ORIGIN,
         radius: float = DEFAULT_DOT_RADIUS,
-        stroke_color: ManimColor = BLACK,
         stroke_width: float = 0.0,
         fill_opacity: float = 1.0,
-        fill_color: ManimColor = DEFAULT_MOBJECT_COLOR,
+        color: ManimColor = DEFAULT_MOBJECT_COLOR,
         **kwargs
     ):
         super().__init__(
             arc_center=point,
             radius=radius,
-            stroke_color=stroke_color,
             stroke_width=stroke_width,
             fill_opacity=fill_opacity,
-            fill_color=fill_color,
+            color=color,
             **kwargs
         )
 
@@ -543,13 +541,13 @@ class AnnularSector(VMobject):
         inner_radius: float = 1.0,
         outer_radius: float = 2.0,
         arc_center: Vect3 = ORIGIN,
-        fill_color: ManimColor = DEFAULT_LIGHT_COLOR,
+        color: ManimColor = DEFAULT_LIGHT_COLOR,
         fill_opacity: float = 1.0,
         stroke_width: float = 0.0,
         **kwargs,
     ):
         super().__init__(
-            fill_color=fill_color,
+            color=color,
             fill_opacity=fill_opacity,
             stroke_width=stroke_width,
             **kwargs,
@@ -633,12 +631,12 @@ class Annulus(VMobject):
         outer_radius: float = 2.0,
         fill_opacity: float = 1.0,
         stroke_width: float = 0.0,
-        fill_color: ManimColor = DEFAULT_LIGHT_COLOR,
+        color: ManimColor = DEFAULT_LIGHT_COLOR,
         center: Vect3 = ORIGIN,
         **kwargs,
     ):
         super().__init__(
-            fill_color=fill_color,
+            color=color,
             fill_opacity=fill_opacity,
             stroke_width=stroke_width,
             **kwargs,
@@ -925,7 +923,7 @@ class StrokeArrow(Line):
         self,
         start: Vect3 | Mobject,
         end: Vect3 | Mobject,
-        stroke_color: ManimColor = DEFAULT_LIGHT_COLOR,
+        color: ManimColor = DEFAULT_LIGHT_COLOR,
         stroke_width: float = 5,
         buff: float = 0.25,
         tip_width_ratio: float = 5,
@@ -942,7 +940,7 @@ class StrokeArrow(Line):
         self.original_stroke_width = stroke_width
         super().__init__(
             start, end,
-            stroke_color=stroke_color,
+            color=color,
             stroke_width=stroke_width,
             buff=buff,
             **kwargs
@@ -1066,7 +1064,7 @@ class Arrow(Line):
         end: Vect3 | Mobject = LEFT,
         buff: float = MED_SMALL_BUFF,
         path_arc: float = 0,
-        fill_color: ManimColor = DEFAULT_LIGHT_COLOR,
+        color: ManimColor = DEFAULT_LIGHT_COLOR,
         fill_opacity: float = 1.0,
         stroke_width: float = 0.0,
         thickness: float = 3.0,
@@ -1083,7 +1081,7 @@ class Arrow(Line):
         self.max_width_to_length_ratio = max_width_to_length_ratio
         super().__init__(
             start, end,
-            fill_color=fill_color,
+            color=color,
             fill_opacity=fill_opacity,
             stroke_width=stroke_width,
             buff=buff,
@@ -1415,7 +1413,7 @@ class ArrowTip(Triangle):
         width: float = DEFAULT_ARROW_TIP_WIDTH,
         length: float = DEFAULT_ARROW_TIP_LENGTH,
         fill_opacity: float = 1.0,
-        fill_color: ManimColor = DEFAULT_MOBJECT_COLOR,
+        color: ManimColor = DEFAULT_MOBJECT_COLOR,
         stroke_width: float = 0.0,
         tip_style: int = 0,  # triangle=0, inner_smooth=1, dot=2
         **kwargs
@@ -1423,7 +1421,7 @@ class ArrowTip(Triangle):
         super().__init__(
             start_angle=0,
             fill_opacity=fill_opacity,
-            fill_color=fill_color,
+            color=color,
             stroke_width=stroke_width,
             **kwargs
         )

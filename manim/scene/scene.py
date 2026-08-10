@@ -1500,8 +1500,17 @@ class Scene(object):
         temp = deepcopy_namespace(self.animation_checkpoints[index])
         target_state = temp['state']
         try:
-            current = Group(*self.mobjects)
-            target = Group(*target_state.mobjects)
+            # The camera frame lives in self.mobjects (and in stored
+            # states) but can't be morphed like scene content
+            current = Group(*(
+                mob for mob in self.mobjects
+                if not isinstance(mob, CameraFrame)
+                and mob is not self._timeline_group
+            ))
+            target = Group(*(
+                mob for mob in target_state.mobjects
+                if not isinstance(mob, CameraFrame)
+            ))
             if len(current.get_family()) > 1 and len(target.get_family()) > 1:
                 with self._no_checkpoints():
                     self.play(Transform(current, target), run_time=0.7)
