@@ -33,7 +33,7 @@ class ImageMobject(Mobject):
         height: float = 4.0,
         **kwargs
     ):
-        self.height = height
+        self._height = height
         self.image_path = get_full_raster_image_path(filename)
         self.image = Image.open(self.image_path)
         super().__init__(texture_paths={"Texture": self.image_path}, **kwargs)
@@ -47,7 +47,7 @@ class ImageMobject(Mobject):
     def init_points(self) -> None:
         size = self.image.size
         self.set_width(2 * size[0] / size[1], stretch=True)
-        self.set_height(self.height)
+        self.set_height(self._height)
 
     @Mobject.affects_data
     def set_opacity(self, opacity: float, recurse: bool = True):

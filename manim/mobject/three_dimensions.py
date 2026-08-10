@@ -156,7 +156,7 @@ class Cylinder(Surface):
         axis: Vect3 = OUT,
         **kwargs,
     ):
-        self.height = height
+        self._height = height
         self.radius = radius
         self.axis = axis
         super().__init__(
@@ -169,7 +169,7 @@ class Cylinder(Surface):
     def init_points(self):
         super().init_points()
         self.scale(self.radius)
-        self.set_depth(self.height, stretch=True)
+        self.set_depth(self._height, stretch=True)
         self.apply_matrix(z_to_vector(self.axis))
 
     def uv_func(self, u: float, v: float) -> np.ndarray:
@@ -494,9 +494,9 @@ class Squircle3DSides(Surface):
         elif height is None:
             height = width
             
-        self.width = width
-        self.height = height
-        self.depth = depth
+        self._width = width
+        self._height = height
+        self._depth = depth
         self.squareness = squareness
         super().__init__(
             u_range=u_range,
@@ -509,12 +509,12 @@ class Squircle3DSides(Surface):
         super().init_points()
         # Scale x and y by width and height respectively
         self.apply_matrix(np.array([
-            [self.width / 2, 0, 0],
-            [0, self.height / 2, 0],
+            [self._width / 2, 0, 0],
+            [0, self._height / 2, 0],
             [0, 0, 1]
         ]))
         # Set the depth
-        self.set_depth(self.depth, stretch=True)
+        self.set_depth(self._depth, stretch=True)
     
     def uv_func(self, u: float, v: float) -> np.ndarray:
         # Parametric equations for squircle in xy plane
@@ -554,8 +554,8 @@ class SquircleCap(Surface):
         elif height is None:
             height = width
             
-        self.width = width
-        self.height = height
+        self._width = width
+        self._height = height
         self.squareness = squareness
         self.at_height = at_height
         super().__init__(
@@ -569,8 +569,8 @@ class SquircleCap(Surface):
         super().init_points()
         # Scale x and y by width and height respectively
         self.apply_matrix(np.array([
-            [self.width / 2, 0, 0],
-            [0, self.height / 2, 0],
+            [self._width / 2, 0, 0],
+            [0, self._height / 2, 0],
             [0, 0, 1]
         ]))
         self.shift(self.at_height * OUT)

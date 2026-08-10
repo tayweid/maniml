@@ -5,7 +5,7 @@ import numpy as np
 from manim.constants import DOWN, LEFT, RIGHT, ORIGIN
 from manim.constants import DEG
 from manim.mobject.numbers import DecimalNumber
-from manim.mobject.svg.tex_mobject import Tex
+from manim.mobject.svg.tex_mobject import MathTex as Tex
 from manim.mobject.types.vectorized_mobject import VGroup
 from manim.mobject.types.vectorized_mobject import VMobject
 

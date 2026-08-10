@@ -83,7 +83,7 @@ class StringMobject(SVGMobject, ABC):
     so that each submobject of the original `SVGMobject` will be labelled
     by the color of its paired submobject from the additional `SVGMobject`.
     """
-    height = None
+    svg_default_height = None
 
     def __init__(
         self,

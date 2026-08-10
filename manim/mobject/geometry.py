@@ -1552,8 +1552,8 @@ class Squircle(VMobject):
         elif height is None:
             height = width
             
-        self.width = width
-        self.height = height
+        self._width = width
+        self._height = height
         self.squareness = squareness
         self.arc_center = arc_center
         super().__init__(**kwargs)
@@ -1562,8 +1562,8 @@ class Squircle(VMobject):
         # Generate points for the squircle using parametric equations
         n_points = 100
         t = np.linspace(0, TAU, n_points)
-        a = self.width / 2   # Semi-width
-        b = self.height / 2  # Semi-height
+        a = self._width / 2   # Semi-width
+        b = self._height / 2  # Semi-height
         
         # Parametric equations for superellipse
         # Using the fact that for |x|^n + |y|^n = 1:

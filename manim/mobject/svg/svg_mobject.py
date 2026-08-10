@@ -48,8 +48,10 @@ class SVGMobject(VMobject):
         
         return self
     file_name: str = ""
-    height: float | None = 2.0
-    width: float | None = None
+    # Class-level size defaults, named so they don't shadow the CE
+    # width/height properties on Mobject
+    svg_default_height: float | None = 2.0
+    svg_default_width: float | None = None
 
     def __init__(
         self,
@@ -106,8 +108,8 @@ class SVGMobject(VMobject):
         )
 
         # Initialize position
-        height = height or self.height
-        width = width or self.width
+        height = height or self.svg_default_height
+        width = width or self.svg_default_width
 
         if should_center:
             self.center()

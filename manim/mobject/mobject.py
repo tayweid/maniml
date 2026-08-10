@@ -170,6 +170,44 @@ class Mobject(object):
         """
         return _AnimationBuilder(self)
 
+    def set(self, **kwargs) -> Self:
+        """CE-compatible generic setter: set(width=2) calls set_width(2),
+        set(color=RED) calls set_color(RED), etc. Unknown keys fall back
+        to plain attribute assignment."""
+        for key, value in kwargs.items():
+            setter = getattr(self, f"set_{key}", None)
+            if callable(setter):
+                setter(value)
+            else:
+                setattr(self, key, value)
+        return self
+
+    # CE-compatible dimension properties (getters mirror get_width etc.,
+    # setters rescale like set_width etc.)
+    @property
+    def width(self) -> float:
+        return self.get_width()
+
+    @width.setter
+    def width(self, value: float):
+        self.set_width(value)
+
+    @property
+    def height(self) -> float:
+        return self.get_height()
+
+    @height.setter
+    def height(self, value: float):
+        self.set_height(value)
+
+    @property
+    def depth(self) -> float:
+        return self.get_depth()
+
+    @depth.setter
+    def depth(self, value: float):
+        self.set_depth(value)
+
     @property
     def always(self) -> _UpdaterBuilder:
         """

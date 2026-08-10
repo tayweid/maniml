@@ -22,7 +22,9 @@ TEX_MOB_SCALE_FACTOR = 0.001
 
 
 class Tex(StringMobject):
-    tex_environment: str = "align*"
+    # CE semantics: Tex is text mode ($...$ toggles inline math);
+    # MathTex below is the math-mode variant
+    tex_environment: str = "center"
 
     def __init__(
         self,
@@ -269,3 +271,7 @@ class Tex(StringMobject):
 
 class TexText(Tex):
     tex_environment: str = ""
+
+
+class MathTex(Tex):
+    tex_environment: str = "align*"
