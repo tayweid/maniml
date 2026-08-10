@@ -545,27 +545,51 @@ class Scene(object):
         bottom = frame.get_bottom()[1]
         return point[1] < bottom + 0.08 * frame.get_height()
 
-    def _show_timeline(self) -> None:
-        from manim.mobject.geometry import Dot
+    def _show_timeline(self, active_segment: tuple[int, int] | None = None) -> None:
+        """Checkpoint scrubber: a ring per pause point joined by a line.
+
+        The current ring holds a filled pip; while a unit is playing,
+        pass `active_segment=(i, j)` to emphasize the stretch being
+        traversed instead of showing a pip.
+        """
+        from manim.mobject.geometry import Circle, Dot, Line
         self._hide_timeline()
         n = len(self.animation_checkpoints)
         if n < 2:
             return
+        if active_segment is not None:
+            active_segment = tuple(sorted(active_segment))
         frame = self.camera.frame
         span = frame.get_width() * 0.6
         y = frame.get_bottom()[1] + 0.045 * frame.get_height()
         cx = frame.get_center()[0]
         xs = np.linspace(cx - span / 2, cx + span / 2, n)
-        scale = frame.get_height() / 8.0  # keep dot size stable under zoom
-        dots = []
+        scale = frame.get_height() / 8.0  # keep marker size stable under zoom
+        r = 0.055 * scale
+        marks = []
+        for i in range(n - 1):
+            active = active_segment == (i, i + 1)
+            line = Line(
+                np.array([xs[i] + r, y, 0.0]),
+                np.array([xs[i + 1] - r, y, 0.0]),
+                color='#FFFFFF',
+                stroke_width=5.0 if active else 1.5,
+            )
+            line.set_stroke(opacity=0.9 if active else 0.25)
+            marks.append(line)
         for i, x in enumerate(xs):
             current = (i == self.current_animation_index)
-            dot = Dot(radius=0.06 if current else 0.035)
-            dot.scale(scale)
-            dot.set_fill('#FFFFFF', opacity=1.0 if current else 0.4)
-            dot.move_to(np.array([x, y, 0.0]))
-            dots.append(dot)
-        self._timeline_group = Group(*dots)
+            endpoint = active_segment is not None and i in active_segment
+            ring = Circle(radius=r, color='#FFFFFF',
+                          stroke_width=2.0, fill_opacity=0.0)
+            ring.set_stroke(opacity=0.9 if current or endpoint else 0.45)
+            ring.move_to(np.array([x, y, 0.0]))
+            marks.append(ring)
+            if current and active_segment is None:
+                pip = Dot(radius=r * 0.55, color='#FFFFFF')
+                pip.move_to(np.array([x, y, 0.0]))
+                marks.append(pip)
+        self._timeline_group = Group(*marks)
         self._timeline_xs = xs
         self.add(self._timeline_group)
 
@@ -1229,6 +1253,13 @@ class Scene(object):
     @affects_mobject_list
     def restore_state(self, scene_state: SceneState):
         scene_state.restore_scene(self)
+        # Restoring replaces self.mobjects wholesale; keep the
+        # presentation timeline overlay alive across restores so it
+        # stays on screen while a unit plays (it is excluded from
+        # checkpoints via the ignore list in get_state)
+        group = self._timeline_group
+        if group is not None and group not in self.mobjects:
+            self.add(group)
 
     def save_state(self) -> None:
         # Store a copy: a reference snapshot aliases the live mobjects
@@ -1496,24 +1527,51 @@ class Scene(object):
         target state; falls back to an instant jump if the morph fails.
         """
         from manim.animation.transform import Transform
+        from manim.animation.fading import FadeIn, FadeOut
 
         temp = deepcopy_namespace(self.animation_checkpoints[index])
         target_state = temp['state']
         try:
             # The camera frame lives in self.mobjects (and in stored
             # states) but can't be morphed like scene content
-            current = Group(*(
+            current_mobs = [
                 mob for mob in self.mobjects
                 if not isinstance(mob, CameraFrame)
                 and mob is not self._timeline_group
-            ))
-            target = Group(*(
+            ]
+            target_mobs = [
                 mob for mob in target_state.mobjects
                 if not isinstance(mob, CameraFrame)
-            ))
-            if len(current.get_family()) > 1 and len(target.get_family()) > 1:
+            ]
+            # Pair each on-screen mobject with its counterpart in the
+            # target checkpoint by variable name (identity can't match
+            # across deep copies). Matched pairs morph one-to-one;
+            # unmatched ones fade, so a mobject that doesn't exist in
+            # the target never blends into an unrelated shape.
+            live = self._live_namespace or {}
+            names_by_id = {
+                id(v): n for n, v in live.items() if isinstance(v, Mobject)
+            }
+            target_by_name = {
+                n: v for n, v in temp['namespace'].items()
+                if isinstance(v, Mobject)
+            }
+            target_ids = set(map(id, target_mobs))
+            anims = []
+            matched = set()
+            for mob in current_mobs:
+                tgt = target_by_name.get(names_by_id.get(id(mob)))
+                if tgt is not None and id(tgt) in target_ids:
+                    anims.append(Transform(mob, tgt))
+                    matched.add(id(tgt))
+                else:
+                    anims.append(FadeOut(mob))
+            anims.extend(
+                FadeIn(tgt) for tgt in target_mobs if id(tgt) not in matched
+            )
+            if anims:
                 with self._no_checkpoints():
-                    self.play(Transform(current, target), run_time=0.7)
+                    self.play(*anims, run_time=0.7)
         except Exception as e:
             log.warning(f"Reverse transition failed ({e}); jumping instead")
         # Land exactly on the checkpoint state regardless of how the
@@ -1539,9 +1597,11 @@ class Scene(object):
         symbol: int,
         modifiers: int
     ) -> None:
-        # Keyboard navigation redraws the scene; drop the timeline overlay
-        if self._present_mode and self._timeline_group is not None:
-            self._hide_timeline()
+        # In present mode the timeline overlay rides along through
+        # navigation: it survives checkpoint restores (see
+        # restore_state) and is rebuilt around each move, with the
+        # traversed segment emphasized while a unit plays
+        timeline_visible = self._present_mode and self._timeline_group is not None
 
         # Handle UP arrow - jump to previous animation
         if symbol == PygletWindowKeys.UP:
@@ -1554,10 +1614,12 @@ class Scene(object):
                 # Restores a copy: putting the stored mobjects on screen
                 # would let later mutation corrupt the checkpoint
                 self._restore_checkpoint_for_display(self.current_animation_index - 1)
+                if timeline_visible:
+                    self._show_timeline()
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at first animation")
-        
+
         # Handle DOWN arrow - jump to next animation
         elif symbol == PygletWindowKeys.DOWN:
             # Prevent if we're processing another key
@@ -1567,40 +1629,57 @@ class Scene(object):
             if self.current_animation_index < len(self.animation_checkpoints) - 1:
                 print(f"↓ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints) - 1}")
                 self._restore_checkpoint_for_display(self.current_animation_index + 1)
+                if timeline_visible:
+                    self._show_timeline()
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at last animation")
-        
+
         # Handle LEFT arrow - play animation in reverse
         elif symbol == PygletWindowKeys.LEFT:
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-                
+
             if self.current_animation_index > 0:
                 # Set flag to prevent re-entry
                 self._processing_key = True
                 try:
                     self.current_animation_index -= 1
                     print(f"← Reverse to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
+                    if timeline_visible:
+                        self._show_timeline(active_segment=(
+                            self.current_animation_index,
+                            self.current_animation_index + 1,
+                        ))
                     self._play_reverse_to(self.current_animation_index)
+                    if timeline_visible:
+                        self._show_timeline()
                     self.update_frame(dt=0, force_draw=True)
                 finally:
                     # Clear the flag
                     self._processing_key = False
             else:
                 print("Already at first animation")
-        
+
         # Handle RIGHT arrow - play next animation forward
         elif symbol == PygletWindowKeys.RIGHT:
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
-            
+
             # Set flag to prevent re-entry
             self._processing_key = True
             try:
+                if (timeline_visible and self.current_animation_index
+                        < len(self.animation_checkpoints) - 1):
+                    self._show_timeline(active_segment=(
+                        self.current_animation_index,
+                        self.current_animation_index + 1,
+                    ))
                 self.run_next_animation()
+                if timeline_visible:
+                    self._show_timeline()
             finally:
                 self._processing_key = False
         
