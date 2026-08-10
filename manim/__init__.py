@@ -17,6 +17,10 @@ from .constants import (
 # Import essential scene classes
 from .scene.scene import Scene, ThreeDScene
 
+# CE's MovingCameraScene is redundant on the GL backend: every scene's
+# camera frame is a mobject you can animate. Alias for compatibility.
+MovingCameraScene = Scene
+
 # Import basic mobjects directly
 from .mobject.mobject import Mobject, Group
 from .mobject.geometry import (
@@ -30,7 +34,7 @@ from .mobject.geometry import (
     Rectangle, Square, Squircle, RoundedRectangle
 )
 from .mobject.types.vectorized_mobject import VMobject, VGroup
-from .mobject.svg.tex_mobject import Tex
+from .mobject.svg.tex_mobject import Tex, MathTex, TexText
 from .mobject.svg.text_mobject import Text, MarkupText
 from .mobject.numbers import DecimalNumber
 
@@ -41,7 +45,9 @@ from .mobject.three_dimensions import (
     Sphere, Cube, Torus, Cylinder, Cone,
     Line3D, Disk3D, Square3D, Rectangle3D, Prism, Squircle3D
 )
-from .mobject.coordinate_systems import ThreeDAxes
+from .mobject.coordinate_systems import Axes, ThreeDAxes, NumberPlane
+from .mobject.shape_matchers import SurroundingRectangle
+from .mobject.mobject_update_utils import always, f_always
 
 # Import core animations directly
 from .animation.animation import Animation
@@ -82,8 +88,6 @@ from .compatibility import (
     Shift, MoveTo, Scale, Rotate,
     # Special animations
     Wait,
-    # Aliases
-    MathTex,
 )
 
 # Import rate functions
@@ -95,7 +99,7 @@ from .utils.rate_functions import (
 # For convenience, make everything available at package level
 __all__ = [
     # Scenes
-    'Scene', 'ThreeDScene',
+    'Scene', 'ThreeDScene', 'MovingCameraScene',
     # Basic Mobjects
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
@@ -112,7 +116,9 @@ __all__ = [
     'Line3D', 'Disk3D', 'Square3D', 'Rectangle3D', 'Prism', 'Squircle3D',
     'VMobject3D', 'Circle3D', 'Text3D',
     # Coordinate Systems
-    'ThreeDAxes',
+    'Axes', 'ThreeDAxes', 'NumberPlane',
+    # Helpers
+    'SurroundingRectangle', 'always', 'f_always',
     # Text
     'Text', 'MarkupText', 'Tex', 'MathTex', 'DecimalNumber',
     # Creation Animations

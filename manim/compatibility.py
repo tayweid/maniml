@@ -90,9 +90,9 @@ class Wait(Animation):
 
 # Text/Math Aliases
 def MathTex(*args, **kwargs):
-    """CE-compatible alias for Tex."""
-    from .mobject.svg.tex_mobject import Tex
-    return Tex(*args, **kwargs)
+    """CE-compatible math-mode Tex."""
+    from .mobject.svg.tex_mobject import MathTex as _MathTex
+    return _MathTex(*args, **kwargs)
 
 
 def Tex(*args, **kwargs):

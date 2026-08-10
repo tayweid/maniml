@@ -17,7 +17,7 @@ from manim.mobject.geometry import DashedLine
 from manim.mobject.geometry import Line
 from manim.mobject.geometry import Rectangle
 from manim.mobject.number_line import NumberLine
-from manim.mobject.svg.tex_mobject import Tex
+from manim.mobject.svg.tex_mobject import MathTex as Tex
 from manim.mobject.types.dot_cloud import DotCloud
 from manim.mobject.types.surface import ParametricSurface
 from manim.mobject.types.vectorized_mobject import VGroup
@@ -209,6 +209,18 @@ class CoordinateSystem(ABC):
             self.bind_graph_to_func(graph, function)
 
         return graph
+
+    def plot(
+        self,
+        function: Callable[[float], float],
+        x_range: Sequence[float] | None = None,
+        **kwargs
+    ) -> ParametricCurve:
+        """CE-compatible alias for get_graph. Drops CE-only kwargs that
+        have no GL equivalent."""
+        kwargs.pop('z_index', None)
+        kwargs.pop('use_smoothing', None)
+        return self.get_graph(function, x_range=x_range, **kwargs)
 
     def get_parametric_curve(
         self,
@@ -447,8 +459,16 @@ class Axes(VGroup, CoordinateSystem):
         height: float | None = None,
         width: float | None = None,
         unit_size: float = 1.0,
+        # CE-compatible aliases
+        x_length: float | None = None,
+        y_length: float | None = None,
+        tips: bool | None = None,
         **kwargs
     ):
+        width = width if width is not None else x_length
+        height = height if height is not None else y_length
+        if tips is not None:
+            axis_config = dict(axis_config, include_tip=tips)
         CoordinateSystem.__init__(self, x_range, y_range, **kwargs)
         kwargs.pop("num_sampled_graph_points_per_tick", None)
         VGroup.__init__(self, **kwargs)
@@ -488,8 +508,16 @@ class Axes(VGroup, CoordinateSystem):
         axis_config: dict,
         length: float | None
     ) -> NumberLine:
+        # CE-compatible axis-config keys
+        axis_config = dict(axis_config)
+        numbers_to_include = axis_config.pop('numbers_to_include', None)
+        elongated = axis_config.pop('numbers_with_elongated_ticks', None)
+        if elongated is not None:
+            axis_config.setdefault('big_tick_numbers', list(elongated))
         axis = NumberLine(range_terms, width=length, **axis_config)
         axis.shift(-axis.n2p(0))
+        if numbers_to_include is not None:
+            axis.add_numbers(list(numbers_to_include), excluding=[])
         return axis
 
     def coords_to_point(self, *coords: float | VectN) -> Vect3 | Vect3Array:

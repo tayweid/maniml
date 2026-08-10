@@ -22,11 +22,13 @@ if TYPE_CHECKING:
 class Fade(Transform):
     def __init__(
         self,
-        mobject: Mobject,
+        *mobjects: Mobject,
         shift: np.ndarray = ORIGIN,
         scale: float = 1,
         **kwargs
     ):
+        # CE compatibility: several mobjects fade together as a group
+        mobject = mobjects[0] if len(mobjects) == 1 else Group(*mobjects)
         self.shift_vect = shift
         self.scale_factor = scale
         super().__init__(mobject, **kwargs)
@@ -47,14 +49,15 @@ class FadeIn(Fade):
 class FadeOut(Fade):
     def __init__(
         self,
-        mobject: Mobject,
+        *mobjects: Mobject,
         shift: Vect3 = ORIGIN,
         remover: bool = True,
         final_alpha_value: float = 0.0,  # Put it back in original state when done,
         **kwargs
     ):
         super().__init__(
-            mobject, shift,
+            *mobjects,
+            shift=shift,
             remover=remover,
             final_alpha_value=final_alpha_value,
             **kwargs
