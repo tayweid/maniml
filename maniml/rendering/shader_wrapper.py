@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import os
 import re
 
@@ -9,7 +8,6 @@ import moderngl
 import numpy as np
 from functools import lru_cache
 
-from maniml.config import parse_cli
 from maniml.config import manim_config
 from maniml.utils.shaders import get_shader_code_from_file
 from maniml.utils.shaders import get_shader_program

@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 from functools import wraps
 import itertools as it
-import os
 import pickle
 import random
 import sys
@@ -22,7 +21,6 @@ from maniml.constants import DEFAULT_MOBJECT_COLOR
 from maniml.event_handler import EVENT_DISPATCHER
 from maniml.event_handler.event_listner import EventListener
 from maniml.event_handler.event_type import EventType
-from maniml.logger import log
 from maniml.rendering.shader_wrapper import ShaderWrapper
 from maniml.utils.color import color_gradient
 from maniml.utils.color import color_to_rgb
