@@ -219,6 +219,15 @@ from .utils.space_ops import (
     rotation_about_z, rotation_matrix, thick_diagonal, z_to_vector
 )
 
+# CE shims implemented for compatibility (no GL ancestor)
+from .mobject.ce_shapes import (
+    Angle, DoubleArrow, LabeledDot, Paragraph, RegularPolygram, RightAngle,
+    Star, Title, VDict,
+)
+from .compatibility import Broadcast, Circumscribe, SpinInFromNothing, Wiggle
+from .utils.rate_functions import smootherstep
+from .utils.color import ManimColor
+
 # CE-compatible config object (module-level assignments like
 # config.background_color take effect; unsupported settings warn).
 # Bound LAST so no later submodule import can rebind manim.config back
@@ -330,4 +339,8 @@ __all__ += [
     'normalize', 'quaternion_conjugate', 'quaternion_from_angle_axis',
     'quaternion_mult', 'rotate_vector', 'rotation_about_z',
     'rotation_matrix', 'thick_diagonal', 'z_to_vector'
+]
+
+__all__ += [
+    'Angle', 'DoubleArrow', 'LabeledDot', 'Paragraph', 'RegularPolygram', 'RightAngle', 'Star', 'Title', 'VDict', 'Broadcast', 'Circumscribe', 'SpinInFromNothing', 'Wiggle', 'smootherstep', 'ManimColor',
 ]

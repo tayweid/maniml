@@ -2,6 +2,7 @@
 # conformance test guards this set against regression.
 # Regenerate with: python -m tests.ce_conformance.update_baseline
 AddTextWordByWord
+Angle
 Animation
 AnimationGroup
 AnnularSector
@@ -23,8 +24,10 @@ BackgroundRectangle
 Brace
 BraceLabel
 BraceText
+Broadcast
 Camera
 Circle
+Circumscribe
 Code
 ComplexHomotopy
 ComplexPlane
@@ -52,6 +55,7 @@ DecimalNumber
 Dodecahedron
 Dot
 DotCloud
+DoubleArrow
 DrawBorderThenFill
 Elbow
 Ellipse
@@ -79,6 +83,7 @@ Integer
 IntegerMatrix
 LARGE_BUFF
 LEFT
+LabeledDot
 LaggedStart
 LaggedStartMap
 Line
@@ -86,6 +91,7 @@ Line3D
 MED_LARGE_BUFF
 MED_SMALL_BUFF
 MaintainPositionRelativeTo
+ManimColor
 MarkupText
 MathTex
 Matrix
@@ -103,6 +109,7 @@ OUT
 PGroup
 PI
 PMobject
+Paragraph
 PhaseFlow
 Point
 Polygon
@@ -111,8 +118,10 @@ R3_to_complex
 RIGHT
 Rectangle
 RegularPolygon
+RegularPolygram
 ReplacementTransform
 Restore
+RightAngle
 Rotate
 Rotating
 RoundedRectangle
@@ -131,7 +140,9 @@ ShowSubmobjectsOneByOne
 ShrinkToCenter
 SmoothedVectorizedHomotopy
 Sphere
+SpinInFromNothing
 Square
+Star
 Succession
 Surface
 SurroundingRectangle
@@ -144,6 +155,7 @@ ThreeDAxes
 ThreeDCamera
 ThreeDScene
 TipableVMobject
+Title
 Torus
 Transform
 TransformFromCopy
@@ -158,6 +170,7 @@ UnitInterval
 Unwrite
 UpdateFromAlphaFunc
 UpdateFromFunc
+VDict
 VGroup
 VMobject
 VMobjectFromSVGPath
@@ -165,6 +178,7 @@ ValueTracker
 Vector
 VectorizedPoint
 Wait
+Wiggle
 Window
 Write
 X_AXIS
@@ -256,6 +270,7 @@ scene
 sigmoid
 slow_into
 smooth
+smootherstep
 squish_rate_func
 straight_path
 there_and_back

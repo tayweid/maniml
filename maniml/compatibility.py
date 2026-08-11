@@ -88,6 +88,73 @@ class Wait(Animation):
         super().__init__(None, run_time=duration, **kwargs)
 
 
+def Circumscribe(mobject, shape=None, time_width=0.3, buff=None,
+                 color=None, stroke_width=3, run_time=1, **kwargs):
+    """CE-compatible flash around a mobject.
+
+    Backed by GL's FlashAround; the `shape` argument is accepted for
+    signature compatibility but the flash outline is always the
+    surrounding rectangle.
+    """
+    from .animation.indication import FlashAround
+    from .constants import SMALL_BUFF, YELLOW
+    kwargs.pop('fade_in', None)
+    kwargs.pop('fade_out', None)
+    return FlashAround(
+        mobject,
+        time_width=time_width,
+        buff=SMALL_BUFF if buff is None else buff,
+        color=YELLOW if color is None else color,
+        stroke_width=stroke_width,
+        run_time=run_time,
+        **kwargs,
+    )
+
+
+def Wiggle(mobject, scale_value=1.1, rotation_angle=None, n_wiggles=6, **kwargs):
+    """CE-compatible wiggle (GL: WiggleOutThenIn, same semantics)."""
+    from .animation.indication import WiggleOutThenIn
+    from .constants import TAU
+    return WiggleOutThenIn(
+        mobject,
+        scale_value=scale_value,
+        rotation_angle=0.01 * TAU if rotation_angle is None else rotation_angle,
+        n_wiggles=n_wiggles,
+        **kwargs,
+    )
+
+
+class SpinInFromNothing(Animation):
+    """CE-compatible grow-with-spin entrance."""
+    def __new__(cls, mobject, angle=None, **kwargs):
+        from .animation.growing import GrowFromCenter
+        from .constants import PI
+        return GrowFromCenter(
+            mobject, path_arc=PI / 2 if angle is None else angle, **kwargs)
+
+
+class Broadcast(Animation):
+    """CE-compatible broadcast: ripples of `mobject` from a focal point."""
+    def __new__(cls, mobject, focal_point=None, n_mobs=5, initial_opacity=1.0,
+                final_opacity=0.0, initial_width=0.0, remover=True,
+                lag_ratio=0.2, run_time=3, **kwargs):
+        from .animation.composition import LaggedStart
+        from .animation.transform import Transform
+        from .constants import ORIGIN
+        focal_point = ORIGIN if focal_point is None else focal_point
+        anims = []
+        for _ in range(n_mobs):
+            start = mobject.copy()
+            start.set_width(max(initial_width, 1e-3))
+            start.move_to(focal_point)
+            start.set_opacity(initial_opacity)
+            target = mobject.copy().move_to(focal_point)
+            target.set_opacity(final_opacity)
+            anims.append(Transform(start, target, remover=remover))
+        return LaggedStart(*anims, lag_ratio=lag_ratio,
+                           run_time=run_time, **kwargs)
+
+
 # Text/Math Aliases
 def MathTex(*args, **kwargs):
     """CE-compatible math-mode Tex."""

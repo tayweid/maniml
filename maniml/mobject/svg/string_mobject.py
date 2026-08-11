@@ -88,9 +88,12 @@ class StringMobject(SVGMobject, ABC):
     def __init__(
         self,
         string: str,
-        fill_color: ManimColor = DEFAULT_MOBJECT_COLOR,
+        # CE-style color kwarg: default for both fill and stroke.
+        # Explicit fill_color/stroke_color still override it.
+        color: ManimColor = None,
+        fill_color: ManimColor = None,
         fill_border_width: float = 0.5,
-        stroke_color: ManimColor = DEFAULT_MOBJECT_COLOR,
+        stroke_color: ManimColor = None,
         stroke_width: float = 0,
         base_color: ManimColor = DEFAULT_MOBJECT_COLOR,
         isolate: Selector = (),
@@ -110,8 +113,9 @@ class StringMobject(SVGMobject, ABC):
         self.parse()
         svg_string = self.get_svg_string()
         super().__init__(svg_string=svg_string, **kwargs)
-        self.set_stroke(stroke_color, stroke_width)
-        self.set_fill(fill_color, border_width=fill_border_width)
+        self.set_stroke(stroke_color or color or DEFAULT_MOBJECT_COLOR, stroke_width)
+        self.set_fill(fill_color or color or DEFAULT_MOBJECT_COLOR,
+                      border_width=fill_border_width)
         self.labels = [submob.label for submob in self.submobjects]
 
     def get_svg_string(self, is_labelled: bool = False) -> str:
