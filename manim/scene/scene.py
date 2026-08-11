@@ -2016,6 +2016,7 @@ def deepcopy_namespace(namespace_or_checkpoint):
             return {
                 'index': checkpoint.get('index', 0),
                 'line_number': checkpoint.get('line_number', 0),
+                'unit_index': checkpoint.get('unit_index'),
                 'state': state,
                 'namespace': copied_items
             }
@@ -2052,14 +2053,20 @@ def deepcopy_namespace(namespace_or_checkpoint):
         return copied_items
 
     except Exception as e:
-        # If deepcopy fails, try copying items individually
+        # If deepcopy fails, try copying items individually. A single
+        # memo shared across all the calls (and with the state, which
+        # is inside must_copy) keeps namespace variables and on-screen
+        # mobjects aliased to each other; separate memos would produce
+        # diverging copies, and later plays would then animate detached
+        # duplicates (ghost mobjects).
         print(f"Warning: Batch deepcopy failed ({e}), falling back to individual copy")
 
         new_namespace = {}
+        memo = {}
 
         for name, value in must_copy.items():
             try:
-                new_namespace[name] = copy.deepcopy(value)
+                new_namespace[name] = copy.deepcopy(value, memo)
             except Exception:
                 # If individual copy fails, keep reference
                 new_namespace[name] = value

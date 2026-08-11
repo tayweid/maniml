@@ -2272,6 +2272,12 @@ class _AnimationBuilder:
         self.can_pass_args = True
 
     def __getattr__(self, method_name: str):
+        # Reject dunder probes (copy/pickle protocol lookups) and any
+        # access before __init__ has run (e.g. during deepcopy
+        # reconstruction) — dereferencing self.mobject in either case
+        # would recurse into this __getattr__ forever
+        if method_name.startswith('__') or 'mobject' not in self.__dict__:
+            raise AttributeError(method_name)
         method = getattr(self.mobject.target, method_name)
         self.methods.append(method)
         has_overridden_animation = hasattr(method, "_override_animate")
