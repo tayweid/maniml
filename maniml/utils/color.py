@@ -185,3 +185,30 @@ def get_colormap_list(
     else:
         rgbs = cmaps_listed[map_name].colors  # Make more general?
     return resize_with_interpolation(np.array(rgbs), n_colors)
+
+
+class ManimColor(str):
+    """CE-compatible color type, minimally: normalizes any color spec
+    (hex string, named color, Color instance, rgb triple) to a hex
+    string, which is what the GL backend consumes everywhere."""
+
+    def __new__(cls, value=WHITE):
+        if isinstance(value, (tuple, list, np.ndarray)):
+            hex_code = rgb_to_hex(value[:3])
+        else:
+            hex_code = Color(str(value)).get_hex_l()
+        return str.__new__(cls, hex_code.upper())
+
+    @classmethod
+    def from_rgb(cls, rgb):
+        return cls(rgb)
+
+    @classmethod
+    def from_hex(cls, hex_code):
+        return cls(hex_code)
+
+    def to_hex(self) -> str:
+        return str(self)
+
+    def to_rgb(self):
+        return hex_to_rgb(self)

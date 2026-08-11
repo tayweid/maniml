@@ -107,3 +107,9 @@ def exponential_decay(t: float, half_life: float = 0.1) -> float:
     # The half-life should be rather small to minimize
     # the cut-off error at the end
     return 1 - np.exp(-t / half_life)
+
+
+def smootherstep(t: float) -> float:
+    """CE-compatible 5th-degree smoothstep."""
+    t = np.clip(t, 0, 1)
+    return t * t * t * (t * (6 * t - 15) + 10)
