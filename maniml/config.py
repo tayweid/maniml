@@ -52,7 +52,7 @@ def initialize_manim_config() -> Dict:
 
 def parse_cli():
     try:
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(add_help=False)
         module_location = parser.add_mutually_exclusive_group()
         module_location.add_argument(
             "file",

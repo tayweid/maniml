@@ -134,3 +134,7 @@ dist/
 
 # Ignore the built dependencies
 third_party/*
+
+# maniml
+*.egg-info/
+media/
