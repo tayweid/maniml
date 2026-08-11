@@ -2063,6 +2063,7 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
         new_namespace = {}
         memo = {}
+        degraded = []
 
         for name, value in must_copy.items():
             try:
@@ -2070,6 +2071,14 @@ def deepcopy_namespace(namespace_or_checkpoint):
             except Exception:
                 # If individual copy fails, keep reference
                 new_namespace[name] = value
+                degraded.append(name)
+
+        if degraded:
+            log.warning(
+                "Checkpoint isolation degraded — these variables could "
+                f"not be copied and stay live: {', '.join(sorted(degraded))}. "
+                "Navigating back may not fully restore them."
+            )
 
         # Add references
         for name, value in references.items():
