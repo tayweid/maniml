@@ -96,6 +96,129 @@ from .utils.rate_functions import (
     rush_into, rush_from, slow_into, double_smooth
 )
 
+
+# CE-compatible names that were implemented but unexported
+# (surfaced by tests/ce_conformance)
+from .animation.creation import (
+    ShowPartial
+)
+from .camera.camera import (
+    Camera, ThreeDCamera
+)
+from .mobject.coordinate_systems import (
+    ComplexPlane, CoordinateSystem
+)
+from .mobject.frame import (
+    FullScreenRectangle, ScreenRectangle
+)
+from .mobject.functions import (
+    FunctionGraph, ImplicitFunction
+)
+from .mobject.matrix import (
+    DecimalMatrix, IntegerMatrix, Matrix, MobjectMatrix
+)
+from .mobject.mobject import (
+    Point, override_animate
+)
+from .mobject.mobject_update_utils import (
+    always_redraw, always_rotate, always_shift, assert_is_mobject_method,
+    cycle_animation, turn_animation_into_updater
+)
+from .mobject.number_line import (
+    NumberLine, UnitInterval
+)
+from .mobject.numbers import (
+    Integer
+)
+from .mobject.shape_matchers import (
+    BackgroundRectangle, Cross, Underline
+)
+from .mobject.svg.brace import (
+    Brace, BraceLabel, BraceText
+)
+from .mobject.svg.svg_mobject import (
+    SVGMobject, VMobjectFromSVGPath
+)
+from .mobject.svg.text_mobject import (
+    Code, register_font
+)
+from .mobject.three_dimensions import (
+    Dodecahedron
+)
+from .mobject.types.dot_cloud import (
+    DotCloud, TrueDot
+)
+from .mobject.types.image_mobject import (
+    ImageMobject
+)
+from .mobject.types.point_cloud_mobject import (
+    PGroup, PMobject
+)
+from .mobject.types.vectorized_mobject import (
+    CurvesAsSubmobjects, DashedVMobject, VectorizedPoint
+)
+from .mobject.value_tracker import (
+    ComplexValueTracker, ValueTracker
+)
+from .rendering.shader_wrapper import (
+    ShaderWrapper
+)
+from .rendering.window import (
+    Window
+)
+from .scene.scene_file_writer import (
+    SceneFileWriter
+)
+from .utils.bezier import (
+    bezier, get_smooth_cubic_bezier_handle_points, integer_interpolate,
+    interpolate, inverse_interpolate, is_closed, match_interpolate, mid,
+    partial_bezier_points
+)
+from .utils.color import (
+    average_color, color_gradient, color_to_int_rgb, color_to_int_rgba,
+    color_to_rgb, color_to_rgba, hex_to_rgb, interpolate_color, invert_color,
+    random_bright_color, random_color, rgb_to_color, rgb_to_hex,
+    rgba_to_color
+)
+from .utils.dict_ops import (
+    merge_dicts_recursively
+)
+from .utils.family_ops import (
+    extract_mobject_family_members
+)
+from .utils.file_ops import (
+    guarantee_existence
+)
+from .utils.images import (
+    get_full_raster_image_path, invert_image
+)
+from .utils.iterables import (
+    adjacent_n_tuples, adjacent_pairs, list_difference_update, list_update,
+    listify, make_even, remove_list_redundancies
+)
+from .utils.paths import (
+    clockwise_path, counterclockwise_path, path_along_arc, straight_path
+)
+from .utils.rate_functions import (
+    exponential_decay, lingering, not_quite_there, running_start,
+    squish_rate_func, wiggle
+)
+from .utils.simple_functions import (
+    binary_search, choose, clip, sigmoid
+)
+from .utils.sounds import (
+    get_full_sound_file_path
+)
+from .utils.space_ops import (
+    R3_to_complex, angle_axis_from_quaternion, angle_between_vectors,
+    angle_of_vector, center_of_mass, compass_directions,
+    complex_func_to_R3_func, complex_to_R3, cross2d, earclip_triangulation,
+    find_intersection, get_unit_normal, get_winding_number,
+    line_intersection, midpoint, normalize, quaternion_conjugate,
+    quaternion_from_angle_axis, quaternion_mult, rotate_vector,
+    rotation_about_z, rotation_matrix, thick_diagonal, z_to_vector
+)
+
 # CE-compatible config object (module-level assignments like
 # config.background_color take effect; unsupported settings warn).
 # Bound LAST so no later submodule import can rebind manim.config back
@@ -171,4 +294,40 @@ from . import constants as _constants
 __all__ += [
     _name for _name in dir(_constants)
     if _name.isupper() and _name not in __all__
+]
+
+__all__ += [
+    'ShowPartial', 'Camera', 'ThreeDCamera', 'ComplexPlane',
+    'CoordinateSystem', 'FullScreenRectangle', 'ScreenRectangle',
+    'FunctionGraph', 'ImplicitFunction', 'DecimalMatrix', 'IntegerMatrix',
+    'Matrix', 'MobjectMatrix', 'Point', 'override_animate', 'always_redraw',
+    'always_rotate', 'always_shift', 'assert_is_mobject_method',
+    'cycle_animation', 'turn_animation_into_updater', 'NumberLine',
+    'UnitInterval', 'Integer', 'BackgroundRectangle', 'Cross', 'Underline',
+    'Brace', 'BraceLabel', 'BraceText', 'SVGMobject', 'VMobjectFromSVGPath',
+    'Code', 'register_font', 'Dodecahedron', 'DotCloud', 'TrueDot',
+    'ImageMobject', 'PGroup', 'PMobject', 'CurvesAsSubmobjects',
+    'DashedVMobject', 'VectorizedPoint', 'ComplexValueTracker',
+    'ValueTracker', 'ShaderWrapper', 'Window', 'SceneFileWriter', 'bezier',
+    'get_smooth_cubic_bezier_handle_points', 'integer_interpolate',
+    'interpolate', 'inverse_interpolate', 'is_closed', 'match_interpolate',
+    'mid', 'partial_bezier_points', 'average_color', 'color_gradient',
+    'color_to_int_rgb', 'color_to_int_rgba', 'color_to_rgb', 'color_to_rgba',
+    'hex_to_rgb', 'interpolate_color', 'invert_color', 'random_bright_color',
+    'random_color', 'rgb_to_color', 'rgb_to_hex', 'rgba_to_color',
+    'merge_dicts_recursively', 'extract_mobject_family_members',
+    'guarantee_existence', 'get_full_raster_image_path', 'invert_image',
+    'adjacent_n_tuples', 'adjacent_pairs', 'list_difference_update',
+    'list_update', 'listify', 'make_even', 'remove_list_redundancies',
+    'clockwise_path', 'counterclockwise_path', 'path_along_arc',
+    'straight_path', 'exponential_decay', 'lingering', 'not_quite_there',
+    'running_start', 'squish_rate_func', 'wiggle', 'binary_search', 'choose',
+    'clip', 'sigmoid', 'get_full_sound_file_path', 'R3_to_complex',
+    'angle_axis_from_quaternion', 'angle_between_vectors', 'angle_of_vector',
+    'center_of_mass', 'compass_directions', 'complex_func_to_R3_func',
+    'complex_to_R3', 'cross2d', 'earclip_triangulation', 'find_intersection',
+    'get_unit_normal', 'get_winding_number', 'line_intersection', 'midpoint',
+    'normalize', 'quaternion_conjugate', 'quaternion_from_angle_axis',
+    'quaternion_mult', 'rotate_vector', 'rotation_about_z',
+    'rotation_matrix', 'thick_diagonal', 'z_to_vector'
 ]

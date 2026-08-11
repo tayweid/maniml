@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     Updater = Union[TimeBasedUpdater, NonTimeUpdater]
 
 
+_PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 _z_index_warned = False
 
 
@@ -232,7 +234,13 @@ class Mobject(object):
     @z_index.setter
     def z_index(self, value: float):
         self.__dict__['_z_index'] = value
-        warn_z_index_once()
+        # Warn only for user code: the library itself sets z_index
+        # internally (e.g. every Mobject.__init__), and that noise
+        # would drown the one warning users actually need
+        import inspect
+        frame = inspect.currentframe().f_back
+        if frame is not None and not frame.f_code.co_filename.startswith(_PACKAGE_DIR):
+            warn_z_index_once()
 
     @property
     def always(self) -> _UpdaterBuilder:
