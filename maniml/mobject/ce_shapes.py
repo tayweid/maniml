@@ -124,10 +124,9 @@ class DoubleArrow(Line):
         self.add_tip(at_start=True)
 
 
-class LabeledDot(VGroup):
-    """Dot sized to fit a label. A VGroup of (dot, label) rather than a
-    Dot subclass: on the GL backend a filled submobject nested inside
-    another filled mobject's family does not composite reliably."""
+class LabeledDot(Dot):
+    """Dot sized to fit a label, with the label as a submobject (CE
+    structure)."""
 
     def __init__(self, label, point=ORIGIN, radius: float | None = None, **kwargs):
         if isinstance(label, str):
@@ -135,10 +134,9 @@ class LabeledDot(VGroup):
             label = MathTex(label, color=BLACK)
         if radius is None:
             radius = 0.1 + max(label.get_width(), label.get_height()) / 2
-        dot = Dot(point=point, radius=radius, **kwargs)
-        label.move_to(dot.get_center())
-        super().__init__(dot, label)
-        self.dot = dot
+        super().__init__(point=point, radius=radius, **kwargs)
+        label.move_to(self.get_center())
+        self.add(label)
         self.label = label
 
 

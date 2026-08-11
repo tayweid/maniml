@@ -50,6 +50,9 @@ class TestInteractive(unittest.TestCase):
     def test_ghost_regression(self):
         self.assert_scenario_passes("tests.interactive.ghost_regression")
 
+    def test_three_d(self):
+        self.assert_scenario_passes("tests.interactive.three_d")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -143,6 +143,14 @@ class Camera(object):
         """
         Copy between FBOs with letterboxing to maintain aspect ratio.
         """
+        # A multisampled source may only blit to an equal-sized rect
+        # (GL_INVALID_OPERATION otherwise, e.g. ThreeDScene's samples=4).
+        # Resolve it into the same-size single-sample draw_fbo first,
+        # then do the scaled letterbox blit from that.
+        if getattr(src_fbo.color_attachments[0], 'samples', 0) > 0:
+            self.blit(src_fbo, self.draw_fbo)
+            src_fbo = self.draw_fbo
+
         src_w, src_h = src_fbo.viewport[2], src_fbo.viewport[3]
         dst_w, dst_h = dst_fbo.viewport[2], dst_fbo.viewport[3]
 
