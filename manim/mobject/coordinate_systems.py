@@ -218,7 +218,9 @@ class CoordinateSystem(ABC):
     ) -> ParametricCurve:
         """CE-compatible alias for get_graph. Drops CE-only kwargs that
         have no GL equivalent."""
-        kwargs.pop('z_index', None)
+        if kwargs.pop('z_index', None) is not None:
+            from manim.mobject.mobject import warn_z_index_once
+            warn_z_index_once()
         kwargs.pop('use_smoothing', None)
         return self.get_graph(function, x_range=x_range, **kwargs)
 

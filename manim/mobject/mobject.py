@@ -61,6 +61,20 @@ if TYPE_CHECKING:
     Updater = Union[TimeBasedUpdater, NonTimeUpdater]
 
 
+_z_index_warned = False
+
+
+def warn_z_index_once():
+    global _z_index_warned
+    if not _z_index_warned:
+        _z_index_warned = True
+        log.warning(
+            "z_index has no effect in maniml: the GL backend draws in "
+            "add order. Reorder self.add()/self.play() calls to control "
+            "layering."
+        )
+
+
 class Mobject(object):
     """
     Mathematical Object
@@ -207,6 +221,18 @@ class Mobject(object):
     @depth.setter
     def depth(self, value: float):
         self.set_depth(value)
+
+    # CE's z_index has no GL equivalent: the GL backend draws in add
+    # order. Accept it (stored, unused) but say so instead of silently
+    # rendering CE scenes with different layering.
+    @property
+    def z_index(self) -> float:
+        return self.__dict__.get('_z_index', 0)
+
+    @z_index.setter
+    def z_index(self, value: float):
+        self.__dict__['_z_index'] = value
+        warn_z_index_once()
 
     @property
     def always(self) -> _UpdaterBuilder:

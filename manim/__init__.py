@@ -96,8 +96,17 @@ from .utils.rate_functions import (
     rush_into, rush_from, slow_into, double_smooth
 )
 
+# CE-compatible config object (module-level assignments like
+# config.background_color take effect; unsupported settings warn).
+# Bound LAST so no later submodule import can rebind manim.config back
+# to the config module; `from manim.config import manim_config` still
+# resolves via sys.modules and keeps working.
+from .ce_config import config
+
 # For convenience, make everything available at package level
 __all__ = [
+    # Configuration
+    'config',
     # Scenes
     'Scene', 'ThreeDScene', 'MovingCameraScene',
     # Basic Mobjects
