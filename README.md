@@ -1,10 +1,10 @@
 # ManimLive
 
-ManimLive speeds up Manim's animation workflow by bringing hot reloading and interactive navigation on top of ManimGL's OpenGL renderer, all compatabile with the existing ManimCE API. 
+ManimLive speeds up Manim's animation workflow by bringing hot reloading and interactive navigation on top of ManimGL's OpenGL renderer, targeting compatibility with the current ManimCE API.
 
 ## Features
 
-- **ManimCE API compatibility**: *all existing ManimCE code will (should) render*
+- **ManimCE API compatibility (growing)**: *targets the current ManimCE API; coverage is tracked by a conformance test (`tests/ce_conformance/`) and unsupported settings warn rather than fail silently*
 - **Live preview:** *real-time OpenGL rendering in a separate window*
 - **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing*
 - **Hot reloading:** *the preview window automatically plays edited animations*
