@@ -17,8 +17,8 @@ def load_ce_names() -> list[str]:
 
 
 def compute_supported() -> list[str]:
-    import manim
-    return [name for name in load_ce_names() if hasattr(manim, name)]
+    import maniml
+    return [name for name in load_ce_names() if hasattr(maniml, name)]
 
 
 def main() -> int:

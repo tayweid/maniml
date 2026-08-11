@@ -4,15 +4,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from manim.animation.animation import Animation, Wait
-from manim.animation.composition import AnimationGroup, Succession
-from manim.animation.creation import Create, Write
-from manim.animation.fading import FadeIn, FadeOut
-from manim.constants import DOWN, UP
-from manim.mobject.geometry.arc import Circle
-from manim.mobject.geometry.line import Line
-from manim.mobject.geometry.polygram import RegularPolygon, Square
-from manim.scene.scene import Scene
+from maniml.animation.animation import Animation, Wait
+from maniml.animation.composition import AnimationGroup, Succession
+from maniml.animation.creation import Create, Write
+from maniml.animation.fading import FadeIn, FadeOut
+from maniml.constants import DOWN, UP
+from maniml.mobject.geometry.arc import Circle
+from maniml.mobject.geometry.line import Line
+from maniml.mobject.geometry.polygram import RegularPolygon, Square
+from maniml.scene.scene import Scene
 
 
 def test_succession_timing():

@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from manim import (
+from maniml import (
     LEFT,
     ORIGIN,
     PI,
@@ -19,9 +19,9 @@ from manim import (
     config,
     tempconfig,
 )
-from manim import CoordinateSystem as CS
-from manim.utils.color import BLUE, GREEN, ORANGE, RED, YELLOW
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml import CoordinateSystem as CS
+from maniml.utils.color import BLUE, GREEN, ORANGE, RED, YELLOW
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "coordinate_system_opengl"
 

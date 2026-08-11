@@ -3,7 +3,7 @@
 import textwrap
 import unittest
 
-from manim.scene.source_map import (
+from maniml.scene.source_map import (
     SourceMapError,
     build_units,
     next_play_unit,
@@ -14,7 +14,7 @@ from manim.scene.source_map import (
 def scene_source(body: str) -> str:
     """Wrap a construct() body (4-space indented lines) in a scene class."""
     indented = textwrap.indent(textwrap.dedent(body), ' ' * 8)
-    return f"from manim import *\n\n\nclass MyScene(Scene):\n    def construct(self):\n{indented}"
+    return f"from maniml import *\n\n\nclass MyScene(Scene):\n    def construct(self):\n{indented}"
 
 
 class TestBuildUnits(unittest.TestCase):

@@ -1,4 +1,4 @@
-from manim import Scene, Tex, TexTemplate
+from maniml import Scene, Tex, TexTemplate
 
 
 class BadTex(Scene):

@@ -9,10 +9,10 @@ import unittest
 
 import numpy as np
 
-from manim.__main__ import load_scene_module
+from maniml.__main__ import load_scene_module
 
 SCENE_SRC = textwrap.dedent('''\
-    from manim import *
+    from maniml import *
 
     class ModeScene(Scene):
         def construct(self):

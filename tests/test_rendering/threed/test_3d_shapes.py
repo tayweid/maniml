@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class Test3DShapes(ThreeDScene):
     def construct(self):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from manim import capture
+from maniml import capture
 
 from ..utils.logging_tester import *
 

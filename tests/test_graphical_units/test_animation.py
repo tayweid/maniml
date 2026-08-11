@@ -1,5 +1,5 @@
-from manim import *
-from manim.animation.animation import DEFAULT_ANIMATION_RUN_TIME
+from maniml import *
+from maniml.animation.animation import DEFAULT_ANIMATION_RUN_TIME
 
 __module_test__ = "animation"
 

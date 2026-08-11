@@ -1,9 +1,9 @@
-from manim.mobject.text.code_mobject import Code
-from manim.utils.color.core import ManimColor
+from maniml.mobject.text.code_mobject import Code
+from maniml.utils.color.core import ManimColor
 
 
 def test_code_initialization_from_string():
-    code_string = """from manim import Scene, Square
+    code_string = """from maniml import Scene, Square
 
 class FadeInSquare(Scene):
     def construct(self):

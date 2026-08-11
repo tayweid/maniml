@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestStrokeZFighting(ThreeDScene):
     def construct(self):

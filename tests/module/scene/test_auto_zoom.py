@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from manim import *
+from maniml import *
 
 
 def test_zoom():

@@ -3,7 +3,7 @@ from math import cos, sin
 import numpy as np
 import pytest
 
-from manim import (
+from maniml import (
     Circle,
     CurvesAsSubmobjects,
     Line,
@@ -15,7 +15,7 @@ from manim import (
     VGroup,
     VMobject,
 )
-from manim.constants import PI
+from maniml.constants import PI
 
 
 def test_vmobject_add():

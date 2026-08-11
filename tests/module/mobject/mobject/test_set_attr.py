@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from manim.constants import RIGHT
-from manim.mobject.geometry.polygram import Square
+from maniml.constants import RIGHT
+from maniml.mobject.geometry.polygram import Square
 
 
 def test_Data(using_opengl_renderer):

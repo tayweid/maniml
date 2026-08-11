@@ -13,10 +13,10 @@ import unittest
 import numpy as np
 from pyglet.window import key as PygletWindowKeys
 
-from manim.__main__ import load_scene_module
+from maniml.__main__ import load_scene_module
 
 BASE = textwrap.dedent('''\
-    from manim import *
+    from maniml import *
 
     HELPER_SHIFT = 0.5
 

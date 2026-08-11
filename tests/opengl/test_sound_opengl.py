@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from manim import Scene
+from maniml import Scene
 
 
 @pytest.mark.xfail(reason="Not currently implemented for opengl")

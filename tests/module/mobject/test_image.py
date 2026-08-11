@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from manim import ImageMobject
+from maniml import ImageMobject
 
 
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])

@@ -77,7 +77,7 @@ Repository = "https://github.com/tayweid/maniml.git"
 Changelog = "https://github.com/tayweid/maniml/blob/master/CHANGELOG.md"
 
 [project.scripts]
-maniml = "manim.__main__:main"
+maniml = "maniml.__main__:main"
 
 [tool.setuptools]
 packages = {find = {}}  # Auto-discover all packages

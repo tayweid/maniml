@@ -1,4 +1,4 @@
-from manim import Circle, Square, ThreeDScene
+from maniml import Circle, Square, ThreeDScene
 
 
 def test_fixed_mobjects():

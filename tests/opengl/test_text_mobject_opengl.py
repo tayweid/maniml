@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from manim.mobject.text.text_mobject import MarkupText, Text
+from maniml.mobject.text.text_mobject import MarkupText, Text
 
 
 def test_font_size(using_opengl_renderer):

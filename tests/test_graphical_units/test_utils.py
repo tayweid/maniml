@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "utils"
 

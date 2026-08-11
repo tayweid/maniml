@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestStrokeOffset(ThreeDScene):
     def construct(self):
