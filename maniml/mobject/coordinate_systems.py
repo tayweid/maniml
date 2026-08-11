@@ -216,13 +216,13 @@ class CoordinateSystem(ABC):
         x_range: Sequence[float] | None = None,
         **kwargs
     ) -> ParametricCurve:
-        """CE-compatible alias for get_graph. Drops CE-only kwargs that
-        have no GL equivalent."""
-        if kwargs.pop('z_index', None) is not None:
-            from maniml.mobject.mobject import warn_z_index_once
-            warn_z_index_once()
+        """CE-compatible alias for get_graph."""
+        z_index = kwargs.pop('z_index', None)
         kwargs.pop('use_smoothing', None)
-        return self.get_graph(function, x_range=x_range, **kwargs)
+        graph = self.get_graph(function, x_range=x_range, **kwargs)
+        if z_index is not None:
+            graph.z_index = z_index
+        return graph
 
     def get_parametric_curve(
         self,
