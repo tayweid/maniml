@@ -2110,6 +2110,10 @@ class Mobject(object):
             shader_wrapper = submobs[0].shader_wrapper
             data_list = [sm.get_shader_data() for sm in submobs]
             shader_wrapper.read_in(data_list)
+            # The wrapper renders the whole batch but only knows
+            # submobs[0] as self.mobject; paths that need per-mobject
+            # information (triangulated fill) use this list
+            shader_wrapper.batch_mobjects = submobs
             result.append(shader_wrapper)
         return result
 

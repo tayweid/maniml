@@ -431,51 +431,72 @@ class VShaderWrapper(ShaderWrapper):
         # Return to original blending state
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
+    @staticmethod
+    def _get_triangulation(mob):
+        """Triangulation of one mobject's fill, cached on the mobject
+        and invalidated whenever its points change."""
+        points = mob.get_points()
+        if len(points) == 0:
+            return None
+        key = hash(points.tobytes())
+        cache = getattr(mob, '_triangulation_cache', None)
+        if not isinstance(cache, dict) or cache.get('key') != key:
+            from maniml.mobject.types.vmobject_3d import VMobject3D
+            temp_3d = VMobject3D(
+                mob,
+                color=mob.get_fill_color(),
+                opacity=mob.get_fill_opacity(),
+            )
+            if not hasattr(temp_3d, 'triangle_indices') or len(temp_3d.triangle_indices) == 0:
+                cache = {'key': key, 'vertices': None, 'indices': None}
+            else:
+                cache = {
+                    'key': key,
+                    'vertices': temp_3d.get_points().copy(),
+                    'indices': np.array(temp_3d.triangle_indices, dtype='i4'),
+                }
+            mob._triangulation_cache = cache
+        if cache['vertices'] is None or len(cache['vertices']) == 0:
+            return None
+        return cache['vertices'], cache['indices']
+
     def render_triangulated_fill(self):
         """
         Render fill using triangulation for proper 3D depth testing.
-        Uses the Surface rendering approach for simple, fast triangle rendering.
+        Renders every mobject of the current batch (not just
+        self.mobject, which is only the batch's first member), each
+        with its own fill color and opacity.
         """
-        if not hasattr(self.mobject, 'get_fill_color'):
-            return
-            
-        # Only render if there's actual fill
-        if self.mobject.get_fill_opacity() == 0:
-            return
-            
         # Import here to avoid circular imports
         from maniml.utils.color import color_to_rgb
-        from maniml.utils.shaders import get_shader_program
-        
-        # Check if we have cached triangulation data
-        if not hasattr(self.mobject, '_triangulation_cache'):
-            from maniml.mobject.types.vmobject_3d import VMobject3D
-            
-            # Create a temporary VMobject3D from our mobject
-            # This handles all the complex bezier-to-polygon conversion
-            temp_3d = VMobject3D(
-                self.mobject,
-                color=self.mobject.get_fill_color(),
-                opacity=self.mobject.get_fill_opacity()
-            )
-            
-            # Check if triangulation succeeded
-            if not hasattr(temp_3d, 'triangle_indices') or len(temp_3d.triangle_indices) == 0:
-                return
-                
-            # Cache the triangulation data on the mobject
-            self.mobject._triangulation_cache = {
-                'vertices': temp_3d.get_points().copy(),
-                'indices': temp_3d.triangle_indices.copy()
-            }
-        
-        # Get the cached triangulated data
-        vertices = self.mobject._triangulation_cache['vertices']
-        triangle_indices = self.mobject._triangulation_cache['indices']
-        
-        if len(vertices) == 0:
+
+        mobjects = getattr(self, 'batch_mobjects', None) or [self.mobject]
+
+        vertex_chunks = []
+        index_chunks = []
+        rgba_chunks = []
+        offset = 0
+        for mob in mobjects:
+            if not hasattr(mob, 'get_fill_color') or mob.get_fill_opacity() == 0:
+                continue
+            triangulation = self._get_triangulation(mob)
+            if triangulation is None:
+                continue
+            vertices, indices = triangulation
+            vertex_chunks.append(vertices)
+            index_chunks.append(indices + offset)
+            rgb = color_to_rgb(mob.get_fill_color())
+            rgba = np.array([*rgb, mob.get_fill_opacity()], dtype=np.float32)
+            rgba_chunks.append(np.tile(rgba, (len(vertices), 1)))
+            offset += len(vertices)
+
+        if not vertex_chunks:
             return
-            
+
+        vertices = np.concatenate(vertex_chunks)
+        triangle_indices = np.concatenate(index_chunks)
+        rgbas = np.concatenate(rgba_chunks)
+
         # Create data array matching the Surface data structure
         # Surface expects: (point, d_normal_point, rgba)
         surface_dtype = np.dtype([
@@ -483,24 +504,14 @@ class VShaderWrapper(ShaderWrapper):
             ('d_normal_point', np.float32, (3,)),
             ('rgba', np.float32, (4,)),
         ])
-        
-        num_vertices = len(vertices)
-        surface_data = np.zeros(num_vertices, dtype=surface_dtype)
-        
-        # Set vertex positions
+
+        surface_data = np.zeros(len(vertices), dtype=surface_dtype)
         surface_data['point'][:] = vertices
-        
         # For 2D objects, normals point in the +z direction
         # d_normal_point is slightly offset from the point in the normal direction
         normal_offset = 0.001  # Small offset for normal calculation
         surface_data['d_normal_point'][:] = vertices + np.array([0, 0, normal_offset])
-        
-        # Set color and opacity
-        fill_color = self.mobject.get_fill_color()
-        fill_opacity = self.mobject.get_fill_opacity()
-        fill_rgb = color_to_rgb(fill_color)
-        fill_rgba = np.array([*fill_rgb, fill_opacity], dtype=np.float32)
-        surface_data['rgba'][:] = fill_rgba
+        surface_data['rgba'][:] = rgbas
         
         # Get or create surface shader program
         if not hasattr(self, '_surface_program'):
