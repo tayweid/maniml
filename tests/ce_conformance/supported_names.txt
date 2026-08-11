@@ -159,6 +159,8 @@ Title
 Torus
 Transform
 TransformFromCopy
+TransformMatchingShapes
+TransformMatchingTex
 Triangle
 TrueDot
 UL

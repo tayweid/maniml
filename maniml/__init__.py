@@ -219,6 +219,11 @@ from .utils.space_ops import (
     rotation_about_z, rotation_matrix, thick_diagonal, z_to_vector
 )
 
+from .animation.transform_matching_parts import (
+    TransformMatchingParts, TransformMatchingShapes,
+    TransformMatchingStrings, TransformMatchingTex,
+)
+
 # CE shims implemented for compatibility (no GL ancestor)
 from .mobject.ce_shapes import (
     Angle, DoubleArrow, LabeledDot, Paragraph, RegularPolygram, RightAngle,
@@ -343,4 +348,9 @@ __all__ += [
 
 __all__ += [
     'Angle', 'DoubleArrow', 'LabeledDot', 'Paragraph', 'RegularPolygram', 'RightAngle', 'Star', 'Title', 'VDict', 'Broadcast', 'Circumscribe', 'SpinInFromNothing', 'Wiggle', 'smootherstep', 'ManimColor',
+]
+
+__all__ += [
+    'TransformMatchingParts', 'TransformMatchingShapes',
+    'TransformMatchingStrings', 'TransformMatchingTex',
 ]
