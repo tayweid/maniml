@@ -346,8 +346,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         same type are grouped together, so this function creates
         Groups of all clusters of adjacent Mobjects in the scene
         """
+        # CE-compatible z_index: a stable sort on draw order, so equal
+        # z_index preserves add order and higher z_index draws on top.
+        # In 3D the depth buffer still decides true occlusion; z_index
+        # only orders the draw calls.
         batches = batch_by_property(
-            self.mobjects,
+            sorted(self.mobjects, key=lambda m: m.z_index),
             lambda m: str(type(m)) + str(m.get_shader_wrapper(self.camera.ctx).get_id()) + str(m.z_index)
         )
 

@@ -444,6 +444,10 @@ class VShaderWrapper(ShaderWrapper):
             from maniml.mobject.types.vmobject_3d import VMobject3D
             temp_3d = VMobject3D(
                 mob,
+                # Dense tessellation: the default (50 samples split
+                # across all curves) leaves visibly polygonal
+                # silhouettes on curved fills
+                resolution=240,
                 color=mob.get_fill_color(),
                 opacity=mob.get_fill_opacity(),
             )

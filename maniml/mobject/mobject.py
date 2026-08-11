@@ -61,22 +61,6 @@ if TYPE_CHECKING:
     Updater = Union[TimeBasedUpdater, NonTimeUpdater]
 
 
-_PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-_z_index_warned = False
-
-
-def warn_z_index_once():
-    global _z_index_warned
-    if not _z_index_warned:
-        _z_index_warned = True
-        log.warning(
-            "z_index has no effect in maniml: the GL backend draws in "
-            "add order. Reorder self.add()/self.play() calls to control "
-            "layering."
-        )
-
-
 class Mobject(object):
     """
     Mathematical Object
@@ -224,9 +208,11 @@ class Mobject(object):
     def depth(self, value: float):
         self.set_depth(value)
 
-    # CE's z_index has no GL equivalent: the GL backend draws in add
-    # order. Accept it (stored, unused) but say so instead of silently
-    # rendering CE scenes with different layering.
+    # CE-compatible z_index: the scene stably sorts top-level mobjects
+    # by z_index when assembling render groups (see
+    # Scene.assemble_render_groups), so higher z_index draws on top and
+    # equal z_index preserves add order. Only top-level z_index affects
+    # ordering; in 3D the depth buffer decides true occlusion.
     @property
     def z_index(self) -> float:
         return self.__dict__.get('_z_index', 0)
@@ -234,13 +220,6 @@ class Mobject(object):
     @z_index.setter
     def z_index(self, value: float):
         self.__dict__['_z_index'] = value
-        # Warn only for user code: the library itself sets z_index
-        # internally (e.g. every Mobject.__init__), and that noise
-        # would drown the one warning users actually need
-        import inspect
-        frame = inspect.currentframe().f_back
-        if frame is not None and not frame.f_code.co_filename.startswith(_PACKAGE_DIR):
-            warn_z_index_once()
 
     @property
     def always(self) -> _UpdaterBuilder:
