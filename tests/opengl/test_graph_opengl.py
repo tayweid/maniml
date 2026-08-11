@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from manim import Dot, Graph, Line, Text
+from maniml import Dot, Graph, Line, Text
 
 
 def test_graph_creation(using_opengl_renderer):

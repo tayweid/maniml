@@ -8,7 +8,7 @@ import cairo
 import moderngl
 import pytest
 
-import manim
+import maniml
 
 
 def pytest_report_header(config):

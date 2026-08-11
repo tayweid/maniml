@@ -28,7 +28,7 @@ pip install -e .
 Use exactly like ManimCE:
 
 ```python
-from manim import *
+from maniml import *
 
 class Example(Scene):
     def construct(self):
@@ -41,6 +41,11 @@ Run with:
 ```bash
 maniml example.py Example
 ```
+
+Existing ManimCE scene files run unmodified: under the `maniml`
+command, `from manim import *` resolves to maniml (the alias is local
+to the maniml process, so a real ManimCE install on the same machine
+is unaffected).
 
 ## Status
 

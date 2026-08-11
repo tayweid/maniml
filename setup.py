@@ -18,7 +18,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'maniml=manim.__main__:main',
+            'maniml=maniml.__main__:main',
         ],
     },
     classifiers=[

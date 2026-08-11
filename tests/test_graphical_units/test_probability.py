@@ -1,8 +1,8 @@
-from manim.constants import LEFT
-from manim.mobject.graphing.probability import BarChart
-from manim.mobject.text.tex_mobject import MathTex
-from manim.utils.color import BLUE, GREEN, RED, WHITE, YELLOW
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml.constants import LEFT
+from maniml.mobject.graphing.probability import BarChart
+from maniml.mobject.text.tex_mobject import MathTex
+from maniml.utils.color import BLUE, GREEN, RED, WHITE, YELLOW
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "probability"
 

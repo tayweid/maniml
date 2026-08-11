@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from manim import __version__, capture
-from manim.__main__ import main
-from manim.cli.checkhealth.checks import HEALTH_CHECKS
+from maniml import __version__, capture
+from maniml.__main__ import main
+from maniml.cli.checkhealth.checks import HEALTH_CHECKS
 
 
 def test_manim_version():

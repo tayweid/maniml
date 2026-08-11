@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from manim import Scene, Square
+from maniml import Scene, Square
 
 
 class Wait1(Scene):

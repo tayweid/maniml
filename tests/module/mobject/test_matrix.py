@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from manim.mobject.matrix import (
+from maniml.mobject.matrix import (
     DecimalMatrix,
     IntegerMatrix,
     Matrix,
 )
-from manim.mobject.text.tex_mobject import MathTex
-from manim.mobject.types.vectorized_mobject import VGroup
+from maniml.mobject.text.tex_mobject import MathTex
+from maniml.mobject.types.vectorized_mobject import VGroup
 
 
 class TestMatrix:

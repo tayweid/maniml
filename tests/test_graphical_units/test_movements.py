@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from manim import *
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml import *
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "movements"
 

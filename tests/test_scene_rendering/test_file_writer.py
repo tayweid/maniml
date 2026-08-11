@@ -6,9 +6,9 @@ import av
 import numpy as np
 import pytest
 
-from manim import DR, Circle, Create, Scene, Star, tempconfig
-from manim.scene.scene_file_writer import to_av_frame_rate
-from manim.utils.commands import capture, get_video_metadata
+from maniml import DR, Circle, Create, Scene, Star, tempconfig
+from maniml.scene.scene_file_writer import to_av_frame_rate
+from maniml.utils.commands import capture, get_video_metadata
 
 
 class StarScene(Scene):

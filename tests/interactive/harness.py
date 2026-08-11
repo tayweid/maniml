@@ -13,9 +13,9 @@ import time
 
 import numpy as np
 
-from manim.__main__ import load_scene_module
-from manim.rendering.window import Window
-from manim.camera.camera_frame import CameraFrame
+from maniml.__main__ import load_scene_module
+from maniml.rendering.window import Window
+from maniml.camera.camera_frame import CameraFrame
 from pyglet.window import key as KEY
 
 

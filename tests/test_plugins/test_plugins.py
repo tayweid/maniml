@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from manim import capture
+from maniml import capture
 
 plugin_pyproject_template = textwrap.dedent(
     """\
@@ -29,7 +29,7 @@ plugin_pyproject_template = textwrap.dedent(
 
 plugin_init_template = textwrap.dedent(
     """\
-    from manim import *
+    from maniml import *
     {all_dec}
     class {class_name}(VMobject):
         def __init__(self):

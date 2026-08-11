@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from manim import WHITE, Scene, Square, tempconfig
+from maniml import WHITE, Scene, Square, tempconfig
 
 
 def test_tempconfig(config, using_opengl_renderer):

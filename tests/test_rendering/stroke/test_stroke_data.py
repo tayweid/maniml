@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestStrokeData(ThreeDScene):
     def construct(self):

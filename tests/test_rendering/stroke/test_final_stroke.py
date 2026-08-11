@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestFinalStroke(ThreeDScene):
     def construct(self):

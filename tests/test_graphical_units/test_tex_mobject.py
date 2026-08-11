@@ -1,5 +1,5 @@
-from manim import *
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml import *
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "tex_mobject"
 

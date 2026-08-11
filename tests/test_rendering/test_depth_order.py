@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestDepthOrder(ThreeDScene):
     def construct(self):

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from manim import *
-from manim.renderer.opengl_renderer import OpenGLRenderer
-from manim.utils.testing.frames_comparison import frames_comparison
+from maniml import *
+from maniml.renderer.opengl_renderer import OpenGLRenderer
+from maniml.utils.testing.frames_comparison import frames_comparison
 
 __module_test__ = "opengl"
 

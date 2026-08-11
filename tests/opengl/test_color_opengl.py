@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from manim import BLACK, BLUE, GREEN, PURE_BLUE, PURE_GREEN, PURE_RED, Scene
-from manim.mobject.opengl.opengl_mobject import OpenGLMobject
-from manim.mobject.opengl.opengl_vectorized_mobject import OpenGLVMobject
+from maniml import BLACK, BLUE, GREEN, PURE_BLUE, PURE_GREEN, PURE_RED, Scene
+from maniml.mobject.opengl.opengl_mobject import OpenGLMobject
+from maniml.mobject.opengl.opengl_vectorized_mobject import OpenGLVMobject
 
 
 def test_import_color(using_opengl_renderer):
-    import manim.utils.color as C
+    import maniml.utils.color as C
 
     C.WHITE
 

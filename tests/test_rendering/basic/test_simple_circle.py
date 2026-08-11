@@ -1,4 +1,4 @@
-from manim import *
+from maniml import *
 
 class TestSimpleCircle(Scene):  # Not ThreeDScene - regular 2D
     def construct(self):

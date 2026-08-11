@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from manim import capture
+from maniml import capture
 from tests.assert_utils import assert_dir_exists, assert_dir_not_exists
 
 from ..utils.video_tester import video_comparison
