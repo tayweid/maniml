@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>maniml</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #111; color: #bbb;
+    font: 13px/1.4 -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #stage {
+    position: absolute; inset: 0 0 44px 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #view {
+    max-width: 100%; max-height: 100%;
+    outline: none; cursor: crosshair;
+  }
+  #bar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 44px;
+    display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    box-sizing: border-box; background: #181818; border-top: 1px solid #262626;
+  }
+  #status { width: 8px; height: 8px; border-radius: 50%; background: #d33; flex: none; }
+  #status.live { background: #3a3; }
+  #chips { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
+  .chip {
+    width: 11px; height: 11px; border-radius: 50%; flex: none;
+    background: #333; border: 1px solid #555; cursor: pointer;
+  }
+  .chip:hover { border-color: #999; }
+  .chip.current { background: #e8e8e8; border-color: #e8e8e8; }
+  #hint { margin-left: auto; color: #555; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="view" width="1920" height="1080" tabindex="0"></canvas></div>
+<div id="bar">
+  <div id="status" title="connection"></div>
+  <div id="chips"></div>
+  <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
+</div>
+<script>
+"use strict";
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+const chipsEl = document.getElementById("chips");
+const statusEl = document.getElementById("status");
+const wsUrl = "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
+let ws = null;
+
+function connect() {
+  ws = new WebSocket(wsUrl);
+  ws.binaryType = "blob";
+  ws.onopen = () => { statusEl.classList.add("live"); canvas.focus(); };
+  ws.onclose = () => { statusEl.classList.remove("live"); setTimeout(connect, 1000); };
+  ws.onmessage = (e) => {
+    if (typeof e.data === "string") { handleState(JSON.parse(e.data)); }
+    else { handleFrame(e.data); }
+  };
+}
+connect();
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+// -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up) --
+let drawing = false, pendingBlob = null;
+async function handleFrame(blob) {
+  if (drawing) { pendingBlob = blob; return; }  // coalesce to latest
+  drawing = true;
+  try {
+    const bmp = await createImageBitmap(blob.slice(1));
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+      canvas.width = bmp.width; canvas.height = bmp.height;
+    }
+    ctx.save();
+    ctx.translate(0, canvas.height);
+    ctx.scale(1, -1);
+    ctx.drawImage(bmp, 0, 0);
+    ctx.restore();
+    bmp.close();
+  } finally {
+    drawing = false;
+    if (pendingBlob) { const b = pendingBlob; pendingBlob = null; handleFrame(b); }
+  }
+}
+
+// -- Checkpoint chips --
+function handleState(state) {
+  if (state.type !== "state") return;
+  chipsEl.replaceChildren();
+  for (let i = 0; i < state.count; i++) {
+    const chip = document.createElement("div");
+    chip.className = "chip" + (i === state.current ? " current" : "");
+    chip.title = state.lines[i] ? "line " + state.lines[i] : "start";
+    chip.onclick = () => send({ type: "chip", index: i });
+    chipsEl.appendChild(chip);
+  }
+}
+
+// -- Keyboard --
+const FORWARDED = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "]);
+function mods(e) { return { shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey }; }
+document.addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  if (FORWARDED.has(e.key)) e.preventDefault();
+  if (e.key.length === 1 || FORWARDED.has(e.key) || e.key === "Escape") {
+    send({ type: "key", action: "down", key: e.key, ...mods(e) });
+  }
+});
+document.addEventListener("keyup", (e) => {
+  send({ type: "key", action: "up", key: e.key, ...mods(e) });
+});
+
+// -- Pointer: coordinates normalized to the frame, [0,1], y-up --
+function norm(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) / r.width,
+    y: 1 - (e.clientY - r.top) / r.height,
+    dx: e.movementX / r.width,
+    dy: -e.movementY / r.height,
+  };
+}
+let moveQueued = null;
+canvas.addEventListener("pointermove", (e) => {
+  const p = norm(e);
+  if (moveQueued) {  // coalesce moves to one per frame, accumulating deltas
+    moveQueued.x = p.x; moveQueued.y = p.y;
+    moveQueued.dx += p.dx; moveQueued.dy += p.dy;
+    return;
+  }
+  moveQueued = { type: "pointer", action: "move", buttons: e.buttons, ...mods(e), ...p };
+  requestAnimationFrame(() => { send(moveQueued); moveQueued = null; });
+});
+canvas.addEventListener("pointerdown", (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  canvas.focus();
+  send({ type: "pointer", action: "down", button: e.button, ...mods(e), ...norm(e) });
+});
+canvas.addEventListener("pointerup", (e) => {
+  send({ type: "pointer", action: "up", button: e.button, ...mods(e), ...norm(e) });
+});
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  send({ type: "pointer", action: "wheel", wx: e.deltaX / 30, wy: -e.deltaY / 30,
+         ...mods(e), ...norm(e) });
+}, { passive: false });
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+</script>
+</body>
+</html>

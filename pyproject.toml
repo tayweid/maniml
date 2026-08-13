@@ -52,6 +52,7 @@ dependencies = [
     "manimpango>=0.4.0",
     "tqdm>=4.0.0",
     "pyglet>=2.0.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -88,6 +89,9 @@ manim = [
     "*.yaml",
     "rendering/shaders/**/*.glsl",
     "default_config.yml",
+]
+maniml = [
+    "web/static/*",
 ]
 
 [tool.black]
