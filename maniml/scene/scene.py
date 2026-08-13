@@ -101,6 +101,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         )
 
         self.window = window
+        # The browser viewer (--web) stands in for the pyglet window
+        # everywhere except the camera, which runs on its standalone
+        # (windowless) GL context — the same path --render uses
+        self._web_viewer = window if getattr(window, 'is_web_viewer', False) else None
         if self.window:
             self.window.init_for_scene(self)
             # Make sure camera and Pyglet window sync
@@ -108,7 +112,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
         # Core state of the scene
         self.camera: Camera = Camera(
-            window=self.window,
+            window=None if self._web_viewer else self.window,
             samples=self.samples,
             **self.camera_config
         )
@@ -264,11 +268,13 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         )
     
     def get_image(self) -> Image:
-        if self.window is not None:
+        # Guard on the camera's window: with the web viewer the camera
+        # is windowless, so there is no window fbo to toggle
+        if self.camera.window is not None:
             self.camera.use_window_fbo(False)
             self.camera.capture(*self.render_groups)
         image = self.camera.get_image()
-        if self.window is not None:
+        if self.camera.window is not None:
             self.camera.use_window_fbo(True)
         return image
 
@@ -292,6 +298,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             return
 
         self.camera.capture(*self.render_groups)
+
+        if self._web_viewer is not None:
+            self._web_viewer.on_frame_rendered()
 
         if self.window and not self.skip_animations:
             vt = self.time - self.virtual_animation_start_time
@@ -575,8 +584,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         if self.window:
             self.virtual_animation_start_time = self.time
             self.real_animation_start_time = time.time()
+        if self._web_viewer is not None:
+            self._web_viewer.begin_animation()
 
     def post_play(self):
+        if self._web_viewer is not None:
+            self._web_viewer.end_animation()
         if not self.skip_animations:
             self.file_writer.end_animation()
 
@@ -775,13 +788,15 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     @contextmanager
     def temp_record(self):
-        self.camera.use_window_fbo(False)
+        if self.camera.window is not None:
+            self.camera.use_window_fbo(False)
         self.file_writer.begin_insert()
         try:
             yield
         finally:
             self.file_writer.end_insert()
-            self.camera.use_window_fbo(True)
+            if self.camera.window is not None:
+                self.camera.use_window_fbo(True)
 
     def temp_config_change(self, skip=False, record=False, progress_bar=False):
         stack = ExitStack()

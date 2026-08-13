@@ -15,6 +15,8 @@ Usage: maniml [file] [Scene] [mode]
 
 Modes:
   (default)        Interactive development: window + hot-reload
+  --web            Same interactive development, viewed in the browser
+                   instead of a native window (combines with --present)
   --present        Presentation: pre-runs every animation up front
                    (validating the whole scene), disables the file
                    watcher, then starts at the first checkpoint
@@ -46,7 +48,7 @@ def main():
         print(USAGE)
         sys.exit(0)
 
-    unknown = flags - {'--present', '--render'}
+    unknown = flags - {'--present', '--render', '--web', '--no-browser'}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -64,6 +66,8 @@ def main():
         scene_name,
         present='--present' in flags,
         render='--render' in flags,
+        web='--web' in flags,
+        open_browser='--no-browser' not in flags,
     )
 
 
@@ -134,7 +138,8 @@ def load_scene_module(script_file):
     return module
 
 
-def run_scene(script_file, scene_name, present=False, render=False):
+def run_scene(script_file, scene_name, present=False, render=False,
+              web=False, open_browser=True):
     module = load_scene_module(script_file)
 
     if scene_name is None:
@@ -169,6 +174,11 @@ def run_scene(script_file, scene_name, present=False, render=False):
             ),
         )
         scene._render_mode = True
+    elif web:
+        from maniml.web import WebViewer
+        viewer = WebViewer(open_browser=open_browser)
+        scene = scene_class(window=viewer)
+        scene._present_mode = present
     else:
         from maniml.rendering.window import Window
         window = Window()

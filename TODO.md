@@ -8,34 +8,31 @@ stack that feels wrong; the browser is now the UI toolkit we're fluent in
 investment carries over completely and the shader port never happens at
 the same time as a UI rebuild.
 
-**Stage 1 — browser viewer, native renderer (days, not weeks).**
-- Keep unchanged: scene execution, checkpoints, watcher, and OpenGL
-  rendering — render offscreen into the FBO (camera already renders to an
-  fbo; only the window blit goes away).
-- Delete: `rendering/window.py` and the pyglet dependency. The
-  `InteractionMixin` handlers stay; they're fed by protocol messages
-  instead of pyglet events.
-- Add: a localhost WebSocket server + a small Vite/TS client page:
-  `<canvas>` showing streamed frames, checkpoint-chip timeline, keyboard
-  forwarding, pointer events.
-- Protocol sketch — server→client: binary frame (JPEG during `play()`,
-  one lossless PNG when idle — scenes are static between animations, so
-  stream only while animating); state `{checkpoint index/count, unit
-  line numbers}`. client→server: key events, pointer down/move/up,
-  timeline clicks. Picking stays server-side (`point_to_mobject` owns
-  the geometry) — the click-prints-name / drag-prints-`move_to` flow
-  survives unchanged; client sends canvas px, server maps to scene
-  coords via camera.
-- JPEG over localhost WS comfortably does 30–60fps; WebRTC/H.264 only if
-  streaming ever leaves localhost (remote/iPad second-screen viewing is
-  a free unlock).
-- `--present` becomes a URL: fullscreen API on the projector. The
-  timeline-scrubber crowding item below is ABSORBED by this — the
-  overlay becomes DOM, where windowing every k-th chip is trivial (and
-  the GL overlay + its checkpoint-ignore plumbing gets deleted).
-- CI interplay: the windowed `tests/test_interactive` suite becomes
-  Playwright driving the real client against a headless-GL server — no
-  xvfb window needed anywhere; GL is offscreen-only everywhere.
+**Stage 1 — browser viewer, native renderer. SHIPPED 2026-08-13 as an
+additive `--web` flag** (`maniml scene.py Name --web`, combines with
+`--present`; `--no-browser` suppresses the auto-opened tab). Built in
+`maniml/web/` — server.py (WebSocket + HTTP daemons), viewer.py
+(WebViewer duck-types the Window interface; camera runs windowless on
+the standalone GL context, the `--render` path), static/index.html
+(vanilla-JS client: canvas, keyboard/pointer forwarding, checkpoint
+chips). Protocol as sketched: JPEG while animating / input arriving,
+one lossless PNG at quiet; state JSON on change; picking server-side.
+End-to-end tested headlessly in `tests/test_web_viewer.py`. Measured
+streaming tax ~3.7ms/frame at 1080p (readback 1.4 + PIL JPEG 2.4).
+
+Deliberately NOT done yet (risk containment — pyglet path untouched
+until `--web` earns trust in daily use):
+- Deleting `rendering/window.py` + the pyglet dependency. Also blocked
+  on: viewer.py imports pyglet's key/mouse constants for the
+  InteractionMixin mapping — inline them when pyglet goes.
+- `--present` timeline is still the GL overlay (works over --web since
+  it renders into the FBO); moving it to DOM absorbs the
+  scrubber-crowding item below and deletes the checkpoint-ignore
+  plumbing.
+- Porting `tests/test_interactive` to Playwright against a headless-GL
+  server (kills the xvfb job in the CI plan below).
+- Idle-loop updater scenes stream via a per-tick `has_updaters()` scan
+  of top-level mobjects; nested-family-only updaters would be missed.
 
 **Stage 2 — the client learns to render (the portability payoff).**
 - Same client UI shell, same protocol shape; payload becomes the shader

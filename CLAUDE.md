@@ -33,8 +33,14 @@ maniml script.py SceneName --present
 # checkpoint under ./media/SceneName_checkpoints/
 maniml script.py SceneName --render
 
-# Unit tests (stdlib unittest)
-python -m unittest tests.test_source_map tests.test_checkpoint_reload tests.test_modes tests.test_ce_conformance
+# Browser viewer: same interactive development (checkpoints, watcher,
+# click-to-inspect), viewed in a browser tab instead of the pyglet
+# window; combines with --present. --no-browser skips the auto-open.
+maniml script.py SceneName --web
+
+# Unit tests (stdlib unittest; test_web_viewer is a headless end-to-end
+# drive of --web over a real WebSocket)
+python -m unittest tests.test_source_map tests.test_checkpoint_reload tests.test_modes tests.test_ce_conformance tests.test_web_viewer
 
 # Windowed interactive tests (real OpenGL window; drives actual key/mouse
 # handlers; needs a display, so opt-in)
@@ -70,7 +76,9 @@ All of this lives in `maniml/`:
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame, timeline, fixed-in-frame excluded). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`).
 
-6. **File watcher** (`scene/file_watcher.py` + `_handle_file_change` in `scene/checkpoints.py`): polling thread diffs the file on save and reports the earliest changed line. The handler re-anchors against the new source map: checkpoints from units before the edited unit survive; later ones are discarded and replayed — fast-forwarded via `temp_skip()`, with the edited unit played at real speed (`_replay_to_unit`). Edits **outside** construct() (imports, constants, helpers, other methods) trigger `_restart_from_source()`: reload the module (bypassing the bytecode cache — see `load_scene_module`), rebuild checkpoint 0, fast-forward back to where the user was. Integration-tested headlessly in `tests/test_checkpoint_reload.py`.
+6. **Browser viewer** (`maniml/web/`, `--web` flag): an additive frontend that stands in for the pyglet window; the pyglet path is unchanged and remains the default. `viewer.py`'s `WebViewer` duck-types the small Window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`) and gives the camera `window=None` — rendering happens on the standalone (windowless) GL context, the same tested path `--render` uses. `server.py` runs two daemon threads: a stdlib HTTP server for `static/index.html` and a `websockets` server for the frame/event protocol (server→client: binary frames — 1 header byte, 0x01 JPEG / 0x02 PNG, image GL-bottom-up so the client flips via canvas transform — plus state JSON `{current, count, lines}`; client→server: key/pointer/chip JSON, pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping). Streaming policy in `WebViewer.on_frame_rendered` (hooked after every `camera.capture`): JPEG while animating / input events arriving / any top-level mobject `has_updaters()`, one lossless PNG once quiet, a forced PNG on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events), nothing when no client is connected. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain. End-to-end tested headlessly in `tests/test_web_viewer.py`.
+
+7. **File watcher** (`scene/file_watcher.py` + `_handle_file_change` in `scene/checkpoints.py`): polling thread diffs the file on save and reports the earliest changed line. The handler re-anchors against the new source map: checkpoints from units before the edited unit survive; later ones are discarded and replayed — fast-forwarded via `temp_skip()`, with the edited unit played at real speed (`_replay_to_unit`). Edits **outside** construct() (imports, constants, helpers, other methods) trigger `_restart_from_source()`: reload the module (bypassing the bytecode cache — see `load_scene_module`), rebuild checkpoint 0, fast-forward back to where the user was. Integration-tested headlessly in `tests/test_checkpoint_reload.py`.
 
 ### Known weak spots (as of 2026-08)
 
