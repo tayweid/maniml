@@ -19,19 +19,19 @@
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
-  #glview { display: none; cursor: crosshair; }
+  .altview { display: none; cursor: crosshair; }
   body.gl-active #stage { gap: 8px; }
   body.gl-active #view { max-width: 49%; }
-  body.gl-active #glview { display: block; max-width: 49%; max-height: 100%; }
+  body.gl-active .altview.current { display: block; max-width: 49%; max-height: 100%; }
   body.gl-solo #view { display: none; }
-  body.gl-solo #glview { max-width: 100%; }
-  #glbtn {
+  body.gl-solo .altview.current { max-width: 100%; }
+  .rbtn {
     color: #777; border: 1px solid #333; border-radius: 4px;
     padding: 2px 8px; cursor: pointer; user-select: none; flex: none;
   }
-  #glbtn:hover { border-color: #666; }
-  body.gl-active #glbtn { color: #ddd; border-color: #7a7; }
-  body.gl-solo #glbtn { color: #fff; border-color: #4c4; background: #1d2a1d; }
+  .rbtn:hover { border-color: #666; }
+  .rbtn.active { color: #ddd; border-color: #7a7; }
+  .rbtn.solo { color: #fff; border-color: #4c4; background: #1d2a1d; }
   #glwarn { display: none; color: #d90; white-space: nowrap; }
   body.gl-solo #glwarn.on { display: block; }
   #bar {
@@ -56,16 +56,19 @@
 <body>
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
-  <canvas id="glview" title="WebGL2 client render (experimental)"></canvas>
+  <canvas id="glview" class="altview" title="WebGL2 client render"></canvas>
+  <canvas id="gpuview" class="altview" title="WebGPU client render"></canvas>
 </div>
 <div id="bar">
   <div id="conn">reconnecting&hellip;</div>
   <div id="chips"></div>
   <div id="glwarn"></div>
-  <div id="glbtn" title="Cycle: pixel stream / side-by-side compare / GL only">GL</div>
+  <div id="glbtn" class="rbtn" title="WebGL2 backend — cycle: off / side-by-side compare / solo">GL</div>
+  <div id="gpubtn" class="rbtn" title="WebGPU backend — cycle: off / side-by-side compare / solo">WGPU</div>
   <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
 </div>
 <script src="gl.js"></script>
+<script src="webgpu.js"></script>
 <script>
 "use strict";
 const canvas = document.getElementById("view");
@@ -80,7 +83,7 @@ function connect() {
   ws.onopen = () => {
     document.body.classList.remove("disconnected");
     canvas.focus();
-    if (glState !== "off") sendGlMode();
+    if (activeBackend) sendGlMode();
   };
   ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
   ws.onmessage = (e) => {
@@ -119,59 +122,92 @@ async function handleFrame(blob) {
   }
 }
 
-// -- Stage-2: client-side WebGL2 rendering.
-//    Three states: off -> compare (side-by-side) -> solo (GL is the
-//    viewer; the pixel stream stops entirely) -> off --
-const glBtn = document.getElementById("glbtn");
+// -- Stage-2: client-side rendering, two backends (WebGL2 and WebGPU).
+//    Each button cycles: off -> compare (side-by-side) -> solo (the
+//    client render is the viewer; the pixel stream stops entirely).
+//    Backends are mutually exclusive. --
 const glWarn = document.getElementById("glwarn");
-let glReady = false;
-let glState = "off";  // "off" | "compare" | "solo"
 
-function sendGlMode() {
-  send({ type: "mode", geometry: glState !== "off",
-         pixels: glState !== "solo" });
-  if (glState !== "off") send({ type: "geometry_request" });
+function makeBackend(buttonId, canvasId, module, label) {
+  return {
+    button: document.getElementById(buttonId),
+    canvas: document.getElementById(canvasId),
+    module, label, ready: false, state: "off",
+  };
+}
+const backends = [
+  makeBackend("glbtn", "glview", ManimlGL, "GL"),
+  makeBackend("gpubtn", "gpuview", ManimlWGPU, "WGPU"),
+];
+let activeBackend = null;
+
+function refreshBackendUI() {
+  const state = activeBackend ? activeBackend.state : "off";
+  document.body.classList.toggle("gl-active", state !== "off");
+  document.body.classList.toggle("gl-solo", state === "solo");
+  for (const backend of backends) {
+    const on = backend === activeBackend && backend.state !== "off";
+    backend.canvas.classList.toggle("current", on);
+    backend.button.classList.toggle("active", on);
+    backend.button.classList.toggle(
+      "solo", on && backend.state === "solo");
+    backend.button.textContent = on && backend.state === "solo"
+      ? backend.label + " solo" : backend.label;
+  }
 }
 
-glBtn.onclick = async () => {
-  if (glState === "off") {
-    try {
-      if (!glReady) {
-        await ManimlGL.init(document.getElementById("glview"));
-        // Evicted a batch the server still considers sent: ask for a
-        // full resend on the next payload
-        ManimlGL.onCacheMiss = () => send({ type: "geometry_reset" });
-        glReady = true;
-      }
-    } catch (err) {
-      glBtn.textContent = "GL ✗";
-      glBtn.title = "WebGL2 renderer unavailable: " + err.message;
-      return;
+function sendGlMode() {
+  const state = activeBackend ? activeBackend.state : "off";
+  send({ type: "mode", geometry: state !== "off",
+         pixels: state !== "solo" });
+  if (state !== "off") send({ type: "geometry_request" });
+}
+
+for (const backend of backends) {
+  backend.button.onclick = async () => {
+    if (activeBackend && activeBackend !== backend) {
+      activeBackend.state = "off";  // backends are mutually exclusive
     }
-    glState = "compare";
-  } else if (glState === "compare") {
-    glState = "solo";
-  } else {
-    glState = "off";
-  }
-  document.body.classList.toggle("gl-active", glState !== "off");
-  document.body.classList.toggle("gl-solo", glState === "solo");
-  glBtn.textContent = glState === "solo" ? "GL solo" : "GL";
-  sendGlMode();
-};
+    if (backend.state === "off") {
+      try {
+        if (!backend.ready) {
+          await backend.module.init(backend.canvas);
+          // Evicted a batch the server still considers sent: ask for
+          // a full resend on the next payload
+          backend.module.onCacheMiss =
+            () => send({ type: "geometry_reset" });
+          backend.ready = true;
+        }
+      } catch (err) {
+        backend.button.textContent = backend.label + " ✗";
+        backend.button.title = "renderer unavailable: " + err.message;
+        return;
+      }
+      backend.state = "compare";
+    } else if (backend.state === "compare") {
+      backend.state = "solo";
+    } else {
+      backend.state = "off";
+    }
+    activeBackend = backend.state === "off" ? null : backend;
+    refreshBackendUI();
+    sendGlMode();
+  };
+}
 let glQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
-  if (!glReady) return;
+  const backend = activeBackend;
+  if (!backend || !backend.ready) return;
   // Chain renders: texture decodes are async, and messages must apply
   // in arrival order
   glQueue = glQueue.then(async () => {
-    const header = await ManimlGL.render(arrayBuffer);
+    const header = await backend.module.render(arrayBuffer);
     // In solo mode, missing content has no pixel-stream safety net:
     // surface it loudly in the bar
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";
     glWarn.classList.toggle("on", header.unsupported.length > 0);
-  }).catch((err) => console.error("GL render failed:", err));
+  }).catch((err) => console.error("client render failed:", err));
 }
 
 // -- Checkpoint chips --
@@ -249,6 +285,7 @@ function attachPointer(el) {
 }
 attachPointer(canvas);
 attachPointer(document.getElementById("glview"));
+attachPointer(document.getElementById("gpuview"));
 </script>
 </body>
 </html>

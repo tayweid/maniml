@@ -92,6 +92,8 @@ manim = [
 ]
 maniml = [
     "web/static/*",
+    "web/static/glsl/*",
+    "web/static/wgsl/*",
 ]
 
 [tool.black]
