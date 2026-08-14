@@ -160,6 +160,27 @@ class WebViewerE2E(unittest.TestCase):
             self.assertEqual(
                 states[-1]["current"], start_state["current"])
 
+    def test_geometry_snapshot(self):
+        from maniml.web.geometry import parse_geometry_message
+        with ws_connect(self.ws_url, max_size=2**24) as ws:
+            self._collect(ws, 2)  # drain connect frame/state
+            ws.send(json.dumps({"type": "geometry_request"}))
+            deadline = time.time() + 8
+            message = None
+            while time.time() < deadline and message is None:
+                try:
+                    msg = ws.recv(timeout=1)
+                except TimeoutError:
+                    continue
+                if isinstance(msg, bytes) and msg[0] == 0x03:
+                    message = msg
+            self.assertIsNotNone(message, "no geometry message")
+            header, vertex_bytes = parse_geometry_message(message)
+            self.assertGreater(len(header["batches"]), 0)
+            self.assertEqual(header["unsupported"], [])
+            total = sum(b["num_verts"] * 68 for b in header["batches"])
+            self.assertEqual(total, len(vertex_bytes))
+
     def test_future_chips(self):
         with ws_connect(self.ws_url, max_size=2**24) as ws:
             frames, states = self._collect(ws, 3)

@@ -235,6 +235,14 @@ class WebViewer:
         elif kind == "chip_future":
             self._advance_to_unit(int(event.get("unit", 0)))
 
+        elif kind == "geometry_request":
+            # Stage-2 experiment: one geometry snapshot of the current
+            # state, rendered client-side; pixel streaming continues
+            # unchanged alongside
+            from maniml.web.geometry import serialize_scene
+            self.server.broadcast(serialize_scene(self.scene))
+            self._dirty = False  # the request itself needs no pixel frame
+
     def _jump_to_checkpoint(self, index: int):
         """Timeline-chip click: same behavior as UP/DOWN checkpoint jumps."""
         scene = self.scene
