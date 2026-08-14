@@ -31,6 +31,8 @@ class WebDemo(Scene):
 
         dot = Dot().move_to(ORIGIN)
         self.play(dot.animate.shift(RIGHT * 2))
+
+        self.play(dot.animate.shift(LEFT * 4))
 """
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -157,6 +159,25 @@ class WebViewerE2E(unittest.TestCase):
             self.assertTrue(states, "no state update after UP")
             self.assertEqual(
                 states[-1]["current"], start_state["current"])
+
+    def test_future_chips(self):
+        with ws_connect(self.ws_url, max_size=2**24) as ws:
+            frames, states = self._collect(ws, 3)
+            self.assertTrue(states, "no state after connect")
+            state = states[-1]
+            # Un-run play-units appear as future chips with source lines
+            if not state["future"]:
+                self.skipTest("scene already fully run by test ordering")
+            target = state["future"][-1]
+            self.assertIn("unit", target)
+            self.assertIn("line", target)
+
+            # Clicking a future chip runs the scene forward to that unit
+            ws.send(json.dumps({"type": "chip_future", "unit": target["unit"]}))
+            frames, states = self._collect(ws, 5)
+            self.assertTrue(states, "no state after future-chip click")
+            self.assertGreater(states[-1]["count"], state["count"])
+            self.assertEqual(states[-1]["future"], [])
 
 
 if __name__ == "__main__":

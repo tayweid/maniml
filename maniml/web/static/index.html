@@ -24,8 +24,8 @@
     display: flex; align-items: center; gap: 12px; padding: 0 14px;
     box-sizing: border-box; background: #181818; border-top: 1px solid #262626;
   }
-  #status { width: 8px; height: 8px; border-radius: 50%; background: #d33; flex: none; }
-  #status.live { background: #3a3; }
+  #conn { display: none; color: #d33; flex: none; white-space: nowrap; }
+  body.disconnected #conn { display: block; }
   #chips { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
   .chip {
     width: 11px; height: 11px; border-radius: 50%; flex: none;
@@ -33,13 +33,15 @@
   }
   .chip:hover { border-color: #999; }
   .chip.current { background: #e8e8e8; border-color: #e8e8e8; }
+  .chip.future { background: none; border-style: dashed; border-color: #444; }
+  .chip.future:hover { border-color: #999; }
   #hint { margin-left: auto; color: #555; white-space: nowrap; }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="view" width="1920" height="1080" tabindex="0"></canvas></div>
 <div id="bar">
-  <div id="status" title="connection"></div>
+  <div id="conn">reconnecting&hellip;</div>
   <div id="chips"></div>
   <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
 </div>
@@ -48,15 +50,14 @@
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const chipsEl = document.getElementById("chips");
-const statusEl = document.getElementById("status");
 const wsUrl = "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
 let ws = null;
 
 function connect() {
   ws = new WebSocket(wsUrl);
   ws.binaryType = "blob";
-  ws.onopen = () => { statusEl.classList.add("live"); canvas.focus(); };
-  ws.onclose = () => { statusEl.classList.remove("live"); setTimeout(connect, 1000); };
+  ws.onopen = () => { document.body.classList.remove("disconnected"); canvas.focus(); };
+  ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
   ws.onmessage = (e) => {
     if (typeof e.data === "string") { handleState(JSON.parse(e.data)); }
     else { handleFrame(e.data); }
@@ -99,6 +100,13 @@ function handleState(state) {
     chip.className = "chip" + (i === state.current ? " current" : "");
     chip.title = state.lines[i] ? "line " + state.lines[i] : "start";
     chip.onclick = () => send({ type: "chip", index: i });
+    chipsEl.appendChild(chip);
+  }
+  for (const unit of state.future || []) {
+    const chip = document.createElement("div");
+    chip.className = "chip future";
+    chip.title = "run to line " + unit.line;
+    chip.onclick = () => send({ type: "chip_future", unit: unit.unit });
     chipsEl.appendChild(chip);
   }
 }

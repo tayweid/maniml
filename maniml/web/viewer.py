@@ -232,6 +232,9 @@ class WebViewer:
         elif kind == "chip":
             self._jump_to_checkpoint(int(event.get("index", 0)))
 
+        elif kind == "chip_future":
+            self._advance_to_unit(int(event.get("unit", 0)))
+
     def _jump_to_checkpoint(self, index: int):
         """Timeline-chip click: same behavior as UP/DOWN checkpoint jumps."""
         scene = self.scene
@@ -245,6 +248,18 @@ class WebViewer:
         if scene._present_mode and scene._timeline_group is not None:
             scene._show_timeline()
         scene.update_frame(dt=0, force_draw=True)
+
+    def _advance_to_unit(self, unit_index: int):
+        """Future-chip click: fast-forward to that unit, playing it at
+        real speed — the same replay path the file watcher uses."""
+        scene = self.scene
+        if scene is None or getattr(scene, "_processing_key", False):
+            return
+        scene._processing_key = True
+        try:
+            scene._replay_to_unit(unit_index)
+        finally:
+            scene._processing_key = False
 
     # -- Mapping helpers --
 
@@ -301,7 +316,26 @@ class WebViewer:
             "current": scene.current_animation_index,
             "count": len(checkpoints),
             "lines": [c.get("line_number") for c in checkpoints],
+            "future": self._future_units(),
         }
+
+    def _future_units(self) -> list[dict]:
+        """Play-units not yet checkpointed, so the timeline can show the
+        whole scene up front. One chip per unit — a loop's repeated plays
+        only become individual chips once the unit runs."""
+        scene = self.scene
+        units = scene._get_source_units()  # cached by (path, mtime)
+        if not units:
+            return []
+        last_unit = -1
+        for checkpoint in scene.animation_checkpoints:
+            unit_index = checkpoint.get("unit_index")
+            if unit_index is not None:
+                last_unit = max(last_unit, unit_index)
+        return [
+            {"unit": u.index, "line": u.start_line}
+            for u in units if u.has_play and u.index > last_unit
+        ]
 
     def _broadcast_state(self):
         state = self._current_state()
