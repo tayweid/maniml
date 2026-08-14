@@ -19,6 +19,16 @@
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
+  #glview { display: none; }
+  body.gl-active #stage { gap: 8px; }
+  body.gl-active #view { max-width: 49%; }
+  body.gl-active #glview { display: block; max-width: 49%; max-height: 100%; }
+  #glbtn {
+    color: #777; border: 1px solid #333; border-radius: 4px;
+    padding: 2px 8px; cursor: pointer; user-select: none; flex: none;
+  }
+  #glbtn:hover { border-color: #666; }
+  body.gl-active #glbtn { color: #ddd; border-color: #7a7; }
   #bar {
     position: absolute; left: 0; right: 0; bottom: 0; height: 44px;
     display: flex; align-items: center; gap: 12px; padding: 0 14px;
@@ -39,12 +49,17 @@
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="view" width="1920" height="1080" tabindex="0"></canvas></div>
+<div id="stage">
+  <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
+  <canvas id="glview" title="WebGL2 client render (experimental)"></canvas>
+</div>
 <div id="bar">
   <div id="conn">reconnecting&hellip;</div>
   <div id="chips"></div>
+  <div id="glbtn" title="Render a snapshot client-side with WebGL2, next to the streamed frame">GL</div>
   <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
 </div>
+<script src="gl.js"></script>
 <script>
 "use strict";
 const canvas = document.getElementById("view");
@@ -69,9 +84,12 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-// -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up) --
+// -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up.
+//    0x03 is a Stage-2 geometry snapshot, routed to the WebGL2 renderer) --
 let drawing = false, pendingBlob = null;
 async function handleFrame(blob) {
+  const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
+  if (head === 3) { handleGeometry(await blob.arrayBuffer()); return; }
   if (drawing) { pendingBlob = blob; return; }  // coalesce to latest
   drawing = true;
   try {
@@ -91,9 +109,42 @@ async function handleFrame(blob) {
   }
 }
 
+// -- Stage-2 experiment: client-side WebGL2 rendering --
+const glBtn = document.getElementById("glbtn");
+let glReady = false;
+glBtn.onclick = async () => {
+  if (document.body.classList.contains("gl-active")) {
+    document.body.classList.remove("gl-active");
+    return;
+  }
+  try {
+    if (!glReady) {
+      await ManimlGL.init(document.getElementById("glview"));
+      glReady = true;
+    }
+  } catch (err) {
+    glBtn.textContent = "GL ✗";
+    glBtn.title = "WebGL2 renderer unavailable: " + err.message;
+    return;
+  }
+  document.body.classList.add("gl-active");
+  send({ type: "geometry_request" });
+};
+function handleGeometry(arrayBuffer) {
+  if (!glReady) return;
+  const header = ManimlGL.render(arrayBuffer);
+  glBtn.title = header.unsupported.length
+    ? "Not client-rendered (pixel stream only): " + header.unsupported.join(", ")
+    : "Client-rendered with WebGL2 — compare against the streamed frame";
+}
+
 // -- Checkpoint chips --
 function handleState(state) {
   if (state.type !== "state") return;
+  // Keep the experimental GL panel in sync with navigation
+  if (document.body.classList.contains("gl-active")) {
+    send({ type: "geometry_request" });
+  }
   chipsEl.replaceChildren();
   for (let i = 0; i < state.count; i++) {
     const chip = document.createElement("div");

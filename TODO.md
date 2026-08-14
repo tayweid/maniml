@@ -34,13 +34,31 @@ until `--web` earns trust in daily use):
 - Idle-loop updater scenes stream via a per-tick `has_updaters()` scan
   of top-level mobjects; nested-family-only updaters would be missed.
 
-**Stage 2 — the client learns to render (the portability payoff).**
-- Same client UI shell, same protocol shape; payload becomes the shader
-  data arrays instead of pixels, rendered client-side in WebGL2 first —
-  the GLSL 330 shaders port nearly verbatim to 300 es since the
-  pipeline is geometry-shader-free (verified: no .geom in maniml or
-  current manimgl; post-2023 vertex+fragment bezier pipeline). WebGPU
-  later only if it earns it.
+**Stage 2 — the client learns to render (the portability payoff).
+STARTED 2026-08-13; snapshot path shipped, streaming not yet.**
+- CORRECTION to the note below from 2026-08-12: the pipeline is NOT
+  geometry-shader-free — maniml and current 3b1b/manim both have
+  4 geometry shaders (quadratic_bezier fill/stroke/depth, true_dot),
+  and the stroke one carries the adaptive polyline + joints. The port
+  therefore re-expresses them as *instanced vertex shaders* (one
+  instance per bezier triple, gl_VertexID enumerating the emitted
+  strip) rather than transliterating.
+- Done: `web/geometry.py` (0x03 snapshot message: camera uniforms +
+  per-batch mobject uniforms + the raw 68-byte-stride vertex structs in
+  draw order); `web/static/glsl/` (fill winding pass, stroke, border,
+  composite, written in the common GLSL 330 / 300 es subset);
+  `web/static/gl.js` (WebGL2 renderer behind the client's "GL" toggle,
+  side-by-side with the pixel stream, re-snapshots on state change);
+  `web/reference_renderer.py` (SAME shaders compiled on desktop GL —
+  keep it in sync with gl.js) with `tests/test_gl_port.py` pixel-diffing
+  it against the native renderer: mean |diff| 4e-5/255, 0.0005% of
+  pixels off by >2 (AA edge pixels) on a fill+stroke+winding+Text scene.
+- Not yet: streaming geometry during play() (payload per frame instead
+  of on request; then delta encoding); 3D (depth pass, triangulated
+  fill), images/surfaces/dot clouds, clip planes — all serialized as
+  `unsupported`, client falls back to pixels; the baked-scene web
+  player (`--render --web`), which becomes "record the 0x03 stream".
+- WebGPU later only if it earns it.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub
