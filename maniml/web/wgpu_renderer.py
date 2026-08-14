@@ -32,7 +32,8 @@ from PIL import Image
 
 import wgpu
 
-WGSL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wgsl")
+WGSL_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "static", "wgsl")
 
 VERTEX_STRIDE = 68
 INSTANCE_STRIDE = 3 * VERTEX_STRIDE

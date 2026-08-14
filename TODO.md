@@ -131,10 +131,18 @@ native renderer, in priority order; checked = done):
   image/3D/surfaces differ on ~0.04% of pixels at silhouette edges
   (implementation-defined MSAA sample positions + texture-filtering
   precision, Metal vs GL — legitimate cross-API variance).
-  Not yet: batch/buffer caching for deltas, and the browser-side JS
-  (same WGSL, navigator.gpu driver mirroring wgpu_renderer.py's pass
-  structure — keep them in sync). Then: browser WebGPU beside WebGL2 →
-  migrate → retire the geometry-shader pipeline.
+  Batch caching + browser driver DONE 2026-08-14 (third pass): wgsl/
+  moved under static/ so the page can fetch it; `static/webgpu.js` is
+  the navigator.gpu mirror of wgpu_renderer.py (same specs/layouts/
+  uniform packing/pass structure — keep all three in sync), presenting
+  via a blit pass since the canvas swapchain format is
+  platform-preferred. The client now has TWO backend buttons, GL
+  (WebGL2) and WGPU, each cycling off → compare → solo, mutually
+  exclusive. webgpu.js is browser-unverified until dogfooding clicks
+  it (the Python wgpu renderer verifies the WGSL + pass structure).
+  Remaining: dogfood both backends → pick WebGPU as canonical → retire
+  gl.js/glsl, then the geometry-shader pipeline + pyglet. NEXT PHASE
+  after that decision: interface/UI (Stage 3 app-shell direction).
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub
