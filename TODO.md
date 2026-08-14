@@ -141,8 +141,20 @@ native renderer, in priority order; checked = done):
   exclusive. webgpu.js is browser-unverified until dogfooding clicks
   it (the Python wgpu renderer verifies the WGSL + pass structure).
   Remaining: dogfood both backends → pick WebGPU as canonical → retire
-  gl.js/glsl, then the geometry-shader pipeline + pyglet. NEXT PHASE
-  after that decision: interface/UI (Stage 3 app-shell direction).
+  gl.js/glsl, then the geometry-shader pipeline + pyglet.
+
+**Stage 3 — the app (started 2026-08-14).** `maniml app [dir]`
+(`web/app.py` + `static/app.html`): persistent local server, landing
+page listing scene files under the dir (AST scan for *Scene classes,
+no import) plus recents (~/.maniml_recents.json); opening a scene
+spawns `maniml file.py Scene --web` as its own subprocess (crash
+isolation; process reused for repeat opens; children terminated on app
+exit; stdout tail kept per process — the future console panel's feed).
+The viewer got a redesign: three-way renderer control (Pixel / WebGL2 /
+WebGPU) + split toggle replacing the cycling buttons, scene name in
+the bar/title, unified dark palette shared with the landing page.
+Later: console panel in the viewer (stdout is already captured),
+stop/restart controls on the landing page, multi-scene tabs.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

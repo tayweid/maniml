@@ -12,6 +12,12 @@ USAGE = """
 maniml - ManimCE-compatible API on an OpenGL backend
 
 Usage: maniml [file] [Scene] [mode]
+       maniml app [dir]
+
+App:
+  maniml app       Persistent local app: a landing page listing the
+                   scene files under [dir] (default: cwd); each scene
+                   opens in the browser viewer, one process per scene
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -43,6 +49,12 @@ def main():
     """Main entry point for maniml command."""
     flags = {a for a in sys.argv[1:] if a.startswith('-')}
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
+
+    if args and args[0] == 'app':
+        from maniml.web.app import run_app
+        run_app(root=args[1] if len(args) > 1 else '.',
+                open_browser='--no-browser' not in flags)
+        return
 
     if not args or '--help' in flags or '-h' in flags:
         print(USAGE)

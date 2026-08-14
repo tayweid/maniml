@@ -36,7 +36,14 @@ maniml script.py SceneName --render
 # Browser viewer: same interactive development (checkpoints, watcher,
 # click-to-inspect), viewed in a browser tab instead of the pyglet
 # window; combines with --present. --no-browser skips the auto-open.
+# The viewer bar has a three-way renderer control: Pixel (server
+# stream), WebGL2, WebGPU (client-rendered), plus a split toggle.
 maniml script.py SceneName --web
+
+# The app (Stage 3): persistent local server with a landing page
+# listing scene files under [dir] (default cwd); each scene opens as
+# its own --web subprocess (crash isolation), same viewer as above
+maniml app [dir]
 
 # Unit tests (stdlib unittest; test_web_viewer is a headless end-to-end
 # drive of --web over a real WebSocket)

@@ -355,6 +355,7 @@ class WebViewer:
         checkpoints = scene.animation_checkpoints
         return {
             "type": "state",
+            "scene": type(scene).__name__,
             "current": scene.current_animation_index,
             "count": len(checkpoints),
             "lines": [c.get("line_number") for c in checkpoints],
