@@ -5,9 +5,11 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 ## Features
 
 - **ManimCE API compatibility (growing)**: *targets the current ManimCE API; coverage is tracked by a conformance test (`tests/ce_conformance/`) and unsupported settings warn rather than fail silently*
-- **Live preview:** *real-time OpenGL rendering in a separate window*
-- **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing*
-- **Hot reloading:** *the preview window automatically plays edited animations*
+- **Live preview:** *real-time rendering in a native window (`maniml scene.py`) or the browser (`--web`)*
+- **The app:** *`maniml app` serves a local page listing your scene files; each opens in the browser viewer*
+- **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing; a clickable checkpoint timeline in the browser*
+- **Hot reloading:** *the preview automatically plays edited animations*
+- **Client-side rendering (experimental):** *the browser viewer can render scenes with its own GPU via WebGL2 or WebGPU, pixel-faithful to the native renderer*
 
 ## Installation
 
