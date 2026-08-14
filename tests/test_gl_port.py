@@ -55,7 +55,13 @@ def build_scene():
     ).scale(1.5).shift(UP * 2)
     text = Text("port fidelity", color=WHITE).shift(DOWN * 2.5)
     outline = Circle(color=GREEN, fill_opacity=0.0).scale(2)
-    scene.add(circle, square, star, text, outline)
+    # Overlapping translucent fills, adjacent in draw order: their
+    # blending is only native-faithful when they accumulate in ONE
+    # winding pass (native batching), not per-mobject composites
+    overlap_a = Circle(color=GREEN, fill_opacity=0.5).shift(RIGHT * 5 + UP * 2)
+    overlap_b = Circle(color=GREEN, fill_opacity=0.5).shift(
+        RIGHT * 5.8 + UP * 2)
+    scene.add(circle, square, star, text, outline, overlap_a, overlap_b)
     scene.update_frame(dt=0, force_draw=True)  # get_image reads the FBO
     return scene
 
@@ -93,7 +99,11 @@ class GLPortFidelity(unittest.TestCase):
         for batch in header["batches"]:
             self.assertEqual(batch["num_verts"] % 3, 0)
             self.assertIn("anti_alias_width", batch["uniforms"])
+            self.assertLessEqual(batch["stroke_verts"], 64)
         self.assertEqual(len(header["camera"]["view"]), 16)
+        # Native-style batching: the whole Text (12 glyphs) plus every
+        # same-state shape merges — far fewer batches than submobjects
+        self.assertLess(len(header["batches"]), 8)
 
     def test_reference_matches_native_dotcloud(self):
         from maniml.mobject.types.dot_cloud import DotCloud

@@ -171,6 +171,8 @@ class ReferenceRenderer:
         nbytes = batch["num_verts"] * VERTEX_STRIDE
         buffer = ctx.buffer(vertex_bytes[start:start + nbytes])
         instances = batch["num_verts"] // 3
+        # The batch's tightest strip; the shader clamps per curve anyway
+        stroke_verts = batch.get("stroke_verts", 64)
 
         uniforms = {**header["camera"], **batch["uniforms"]}
         _set_uniforms(self.fill_program, uniforms)
@@ -225,8 +227,8 @@ class ReferenceRenderer:
             ctx.blend_func = (moderngl.ONE, moderngl.ONE)
             ctx.blend_equation = moderngl.MAX
             self.stroke_program["border_mode"].value = 1.0
-            border_vao.render(moderngl.TRIANGLE_STRIP, vertices=64,
-                              instances=instances)
+            border_vao.render(moderngl.TRIANGLE_STRIP,
+                              vertices=stroke_verts, instances=instances)
             # Composite onto the output frame
             self.out_fbo.use()
             ctx.blend_func = (moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
@@ -244,8 +246,8 @@ class ReferenceRenderer:
             else:
                 ctx.disable(moderngl.DEPTH_TEST)
             self.stroke_program["border_mode"].value = 0.0
-            stroke_vao.render(moderngl.TRIANGLE_STRIP, vertices=64,
-                              instances=instances)
+            stroke_vao.render(moderngl.TRIANGLE_STRIP,
+                              vertices=stroke_verts, instances=instances)
 
         if batch["stroke_behind"]:
             draw_stroke()

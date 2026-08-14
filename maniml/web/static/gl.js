@@ -253,6 +253,8 @@ const ManimlGL = (() => {
   function renderVMobject(header, batch, vertexBytes, width, height) {
     const uniforms = { ...header.camera, ...batch.uniforms };
     const instances = batch.num_verts / 3;
+    // The batch's tightest strip; the shader clamps per curve anyway
+    const strokeVerts = batch.stroke_verts || 64;
     const slice = vertexBytes.subarray(
       batch.offset, batch.offset + batch.num_verts * VERTEX_STRIDE);
     const buffer = gl.createBuffer();
@@ -323,7 +325,7 @@ const ManimlGL = (() => {
       gl.blendFunc(gl.ONE, gl.ONE);
       gl.blendEquation(gl.MAX);
       gl.bindVertexArray(borderVao);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 64, instances);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, strokeVerts, instances);
       // Composite onto the scene target
       gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
       gl.viewport(0, 0, width, height);
@@ -353,7 +355,7 @@ const ManimlGL = (() => {
       setUniforms(strokeProgram, uniforms);
       gl.uniform1f(borderLoc, 0.0);
       gl.bindVertexArray(strokeVao);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 64, instances);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, strokeVerts, instances);
     };
 
     if (batch.stroke_behind) { drawStroke(); drawFill(); }

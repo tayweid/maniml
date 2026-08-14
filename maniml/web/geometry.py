@@ -14,10 +14,22 @@ camera uniforms from `Camera.refresh_uniforms()` verbatim plus
 per-batch mobject uniforms, so the consumer reproduces the native
 projection arithmetic rather than inventing its own.
 
-Scope (proof-of-concept): 2D VMobjects — fill (winding-number pass) and
-stroke. Batches this can't express (images, surfaces, dot clouds,
-depth-tested/triangulated fill) are listed in `unsupported` so the
-client can fall back to the pixel stream for those scenes.
+Batching mirrors the native renderer: consecutive submobjects with
+identical draw state (kind, uniforms, stroke_behind, depth_test,
+fill_mode) merge into one batch — one buffer, one pass sequence. This
+is not just a draw-call optimization: the winding-number fill blending
+is only native-faithful when a whole batch accumulates in the float
+texture before a single composite.
+
+Each vmobject batch also carries `stroke_verts`: the largest strip the
+batch's curves actually need (the same adaptive-subdivision formula the
+stroke shader applies, evaluated at the current frame_scale), so the
+client can draw that many vertices per instance instead of the
+worst-case 64.
+
+Not expressible here (client falls back to the pixel stream, declared
+in `unsupported`): images, surfaces, depth-tested winding fills, clip
+planes — see the parity ledger in TODO.md.
 """
 
 from __future__ import annotations
@@ -34,6 +46,16 @@ if TYPE_CHECKING:
 
 GEOMETRY_MESSAGE_TYPE = 0x03
 
+# Constants from quadratic_bezier/stroke/geom.glsl
+POLYLINE_FACTOR = 100.0
+MAX_STEPS = 32
+
+SURFACE_DTYPE = np.dtype([
+    ('point', np.float32, (3,)),
+    ('d_normal_point', np.float32, (3,)),
+    ('rgba', np.float32, (4,)),
+])
+
 
 def _jsonable(value):
     if isinstance(value, np.ndarray):
@@ -49,7 +71,7 @@ def _triangulated_fill_data(sm):
     """Depth-correct fill triangles, replicating the data build in
     VShaderWrapper.render_triangulated_fill: earclip vertices with a
     flat per-mobject fill color, normals implied by a +z offset point.
-    Returns (vertex_bytes, index_bytes, vertex_count, index_count)."""
+    Returns (vertex_struct_array, index_array) or None."""
     from maniml.rendering.shader_wrapper import VShaderWrapper
     from maniml.utils.color import color_to_rgb
 
@@ -57,56 +79,52 @@ def _triangulated_fill_data(sm):
     if triangulation is None:
         return None
     vertices, indices = triangulation
-    surface_dtype = np.dtype([
-        ('point', np.float32, (3,)),
-        ('d_normal_point', np.float32, (3,)),
-        ('rgba', np.float32, (4,)),
-    ])
-    data = np.zeros(len(vertices), dtype=surface_dtype)
+    data = np.zeros(len(vertices), dtype=SURFACE_DTYPE)
     data['point'][:] = vertices
     data['d_normal_point'][:] = vertices + np.array([0, 0, 0.001])
     rgb = color_to_rgb(sm.get_fill_color())
     data['rgba'][:] = np.array([*rgb, sm.get_fill_opacity()], dtype=np.float32)
-    index_bytes = np.ascontiguousarray(indices.astype('u4')).tobytes()
-    return data.tobytes(), index_bytes, len(data), len(indices)
+    return data, indices.astype('u4')
 
 
-def serialize_scene(scene: Scene) -> bytes:
-    """Snapshot the scene's current visual state as a geometry message."""
+def _stroke_verts(data, frame_scale) -> int:
+    """Largest strip any curve in `data` needs, per the adaptive
+    subdivision in the stroke shader: n_steps = min(2 + round(
+    100*sqrt(area)/frame_scale), 32), two vertices per step."""
+    p0 = data['point'][0::3]
+    p1 = data['point'][1::3]
+    p2 = data['point'][2::3]
+    areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+    counts = np.round(POLYLINE_FACTOR * np.sqrt(areas) / frame_scale)
+    max_steps = int(min(2 + counts.max(initial=0), MAX_STEPS))
+    return 2 * max(max_steps, 2)
+
+
+def _collect_records(scene, unsupported):
+    """One record per drawable submobject, in draw order, carrying the
+    numpy data and the draw state that decides merge compatibility."""
     from maniml.mobject.types.vectorized_mobject import VMobject
     from maniml.mobject.types.dot_cloud import DotCloud
     from maniml.camera.camera_frame import CameraFrame
 
-    camera = scene.camera
-    camera.refresh_uniforms()
-
-    batches = []
-    unsupported = []
-    blobs = []
-    offset = 0
-
+    records = []
     for group in scene.render_groups:
         for sm in group.family_members_with_points():
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
-            if not isinstance(sm, VMobject):
-                if isinstance(sm, DotCloud):
-                    data = sm.get_shader_data()
-                    if len(data) == 0:
-                        continue
-                    raw = np.ascontiguousarray(data).tobytes()
-                    batches.append({
-                        "kind": "dotcloud",
-                        "offset": offset,
-                        "num_verts": len(data),
-                        "stride": 32,
+            if isinstance(sm, DotCloud):
+                data = sm.get_shader_data()
+                if len(data):
+                    records.append({
+                        "kind": "dotcloud", "stride": 32, "data": data,
                         "uniforms": {k: _jsonable(v)
                                      for k, v in sm.uniforms.items()},
                         "depth_test": bool(sm.depth_test),
+                        "stroke_behind": False, "fill_mode": None,
+                        "tri": None,
                     })
-                    blobs.append(raw)
-                    offset += len(raw)
-                    continue
+                continue
+            if not isinstance(sm, VMobject):
                 name = type(sm).__name__
                 if name not in unsupported:
                     unsupported.append(name)
@@ -114,8 +132,8 @@ def serialize_scene(scene: Scene) -> bytes:
             triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
             has_fill = sm.get_fill_opacity() > 0
             if sm.depth_test and has_fill and not triangulated:
-                # Winding fill under depth test needs the depth pre-pass,
-                # which is not ported (parity ledger item 6). Rare:
+                # Winding fill under depth test needs the depth
+                # pre-pass, which is not ported (ledger item 6). Rare:
                 # ThreeDScene.add switches fills to triangulated.
                 name = f"{type(sm).__name__} (depth-tested winding fill)"
                 if name not in unsupported:
@@ -124,31 +142,85 @@ def serialize_scene(scene: Scene) -> bytes:
             data = sm.get_shader_data()
             if len(data) == 0:
                 continue
-            raw = np.ascontiguousarray(data).tobytes()
-            batch = {
-                "kind": "vmobject",
-                "offset": offset,
-                "num_verts": len(data),
-                "stride": 68,
+            records.append({
+                "kind": "vmobject", "stride": 68, "data": data,
                 "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
                 "stroke_behind": bool(sm.stroke_behind),
                 "depth_test": bool(sm.depth_test),
                 "fill_mode": "triangulated" if triangulated else "winding",
-            }
-            blobs.append(raw)
-            offset += len(raw)
-            if triangulated and has_fill:
-                tri = _triangulated_fill_data(sm)
-                if tri is not None:
-                    tri_bytes, index_bytes, vcount, icount = tri
-                    batch["tri"] = {
-                        "voffset": offset, "vcount": vcount,
-                        "ioffset": offset + len(tri_bytes), "icount": icount,
-                    }
-                    blobs.append(tri_bytes)
-                    blobs.append(index_bytes)
-                    offset += len(tri_bytes) + len(index_bytes)
-            batches.append(batch)
+                "tri": (_triangulated_fill_data(sm)
+                        if triangulated and has_fill else None),
+            })
+    return records
+
+
+_MERGE_KEYS = ("kind", "uniforms", "stroke_behind", "depth_test", "fill_mode")
+
+
+def _merge_records(records):
+    """Merge consecutive records with identical draw state — the
+    native renderer's batching (batch_by_property over shader-wrapper
+    id). Triangulated fill chunks concatenate with re-based indices."""
+    merged = []
+    for record in records:
+        prev = merged[-1] if merged else None
+        if prev is not None and all(
+                prev[k] == record[k] for k in _MERGE_KEYS):
+            prev["data"] = np.concatenate([prev["data"], record["data"]])
+            if record["tri"] is not None:
+                if prev["tri"] is None:
+                    prev["tri"] = record["tri"]
+                else:
+                    pv, pi = prev["tri"]
+                    rv, ri = record["tri"]
+                    prev["tri"] = (np.concatenate([pv, rv]),
+                                   np.concatenate([pi, ri + len(pv)]))
+        else:
+            merged.append(dict(record))
+    return merged
+
+
+def serialize_scene(scene: Scene) -> bytes:
+    """Snapshot the scene's current visual state as a geometry message."""
+    camera = scene.camera
+    camera.refresh_uniforms()
+    frame_scale = float(camera.uniforms["frame_scale"])
+
+    unsupported = []
+    batches = []
+    blobs = []
+    offset = 0
+
+    for record in _merge_records(_collect_records(scene, unsupported)):
+        data = record["data"]
+        raw = np.ascontiguousarray(data).tobytes()
+        batch = {
+            "kind": record["kind"],
+            "offset": offset,
+            "num_verts": len(data),
+            "stride": record["stride"],
+            "uniforms": record["uniforms"],
+            "depth_test": record["depth_test"],
+        }
+        blobs.append(raw)
+        offset += len(raw)
+        if record["kind"] == "vmobject":
+            batch["stroke_behind"] = record["stroke_behind"]
+            batch["fill_mode"] = record["fill_mode"]
+            batch["stroke_verts"] = _stroke_verts(data, frame_scale)
+            if record["tri"] is not None:
+                tri_data, tri_indices = record["tri"]
+                tri_bytes = tri_data.tobytes()
+                index_bytes = np.ascontiguousarray(tri_indices).tobytes()
+                batch["tri"] = {
+                    "voffset": offset, "vcount": len(tri_data),
+                    "ioffset": offset + len(tri_bytes),
+                    "icount": len(tri_indices),
+                }
+                blobs.append(tri_bytes)
+                blobs.append(index_bytes)
+                offset += len(tri_bytes) + len(index_bytes)
+        batches.append(batch)
 
     header = {
         "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
