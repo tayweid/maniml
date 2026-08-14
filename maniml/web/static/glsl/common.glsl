@@ -9,6 +9,17 @@
 uniform float is_fixed_in_frame;
 uniform mat4 view;
 uniform vec3 frame_rescale_factors;
+uniform vec4 clip_plane;
+
+// gl_ClipDistance has no WebGL2 equivalent: vertex shaders pass this
+// through a v_clip varying and fragment shaders discard where < 0
+// (equivalent to hardware plane clipping at pixel resolution)
+float compute_clip_distance(vec3 point){
+    if (clip_plane.xyz != vec3(0.0)){
+        return dot(vec4(point, 1.0), clip_plane);
+    }
+    return 1.0;
+}
 
 uniform vec3 light_position;
 uniform vec3 camera_position;

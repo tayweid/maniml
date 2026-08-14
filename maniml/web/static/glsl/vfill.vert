@@ -18,6 +18,7 @@ out float fill_all;
 out float orientation;
 // uv space is where the curve coincides with y = x^2
 out vec2 uv_coords;
+out float v_clip;
 
 void main(){
     // Curves are marked as ended when the handle after
@@ -60,5 +61,6 @@ void main(){
 
     uv_coords = SIMPLE_QUADRATIC[corner];
     color = finalize_color(colors[corner], points[corner], unit_normal);
+    v_clip = compute_clip_distance(points[corner]);
     gl_Position = emit_gl_Position(points[corner]);
 }

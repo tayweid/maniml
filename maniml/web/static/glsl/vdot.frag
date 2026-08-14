@@ -10,10 +10,12 @@ in vec3 to_cam;
 in vec3 center;
 in float radius;
 in vec2 uv_coords;
+in float v_clip;
 
 out vec4 frag_color;
 
 void main() {
+    if (v_clip < 0.0) discard;
     float r = length(uv_coords.xy);
     if (r > 1.0) discard;
 

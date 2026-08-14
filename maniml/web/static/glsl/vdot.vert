@@ -18,6 +18,7 @@ out vec3 to_cam;
 out vec3 center;
 out float radius;
 out vec2 uv_coords;
+out float v_clip;
 
 void main(){
     color = dot_rgba;
@@ -35,5 +36,6 @@ void main(){
 
     point = dot_point + fi * right + fj * up;
     uv_coords = vec2(fi, fj);
+    v_clip = compute_clip_distance(point);
     gl_Position = emit_gl_Position(point);
 }

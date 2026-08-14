@@ -23,12 +23,17 @@
   body.gl-active #stage { gap: 8px; }
   body.gl-active #view { max-width: 49%; }
   body.gl-active #glview { display: block; max-width: 49%; max-height: 100%; }
+  body.gl-solo #view { display: none; }
+  body.gl-solo #glview { max-width: 100%; }
   #glbtn {
     color: #777; border: 1px solid #333; border-radius: 4px;
     padding: 2px 8px; cursor: pointer; user-select: none; flex: none;
   }
   #glbtn:hover { border-color: #666; }
   body.gl-active #glbtn { color: #ddd; border-color: #7a7; }
+  body.gl-solo #glbtn { color: #fff; border-color: #4c4; background: #1d2a1d; }
+  #glwarn { display: none; color: #d90; white-space: nowrap; }
+  body.gl-solo #glwarn.on { display: block; }
   #bar {
     position: absolute; left: 0; right: 0; bottom: 0; height: 44px;
     display: flex; align-items: center; gap: 12px; padding: 0 14px;
@@ -56,7 +61,8 @@
 <div id="bar">
   <div id="conn">reconnecting&hellip;</div>
   <div id="chips"></div>
-  <div id="glbtn" title="Render a snapshot client-side with WebGL2, next to the streamed frame">GL</div>
+  <div id="glwarn"></div>
+  <div id="glbtn" title="Cycle: pixel stream / side-by-side compare / GL only">GL</div>
   <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
 </div>
 <script src="gl.js"></script>
@@ -74,10 +80,7 @@ function connect() {
   ws.onopen = () => {
     document.body.classList.remove("disconnected");
     canvas.focus();
-    if (document.body.classList.contains("gl-active")) {
-      send({ type: "mode", geometry: true });
-      send({ type: "geometry_request" });
-    }
+    if (glState !== "off") sendGlMode();
   };
   ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
   ws.onmessage = (e) => {
@@ -116,31 +119,45 @@ async function handleFrame(blob) {
   }
 }
 
-// -- Stage-2 experiment: client-side WebGL2 rendering --
+// -- Stage-2: client-side WebGL2 rendering.
+//    Three states: off -> compare (side-by-side) -> solo (GL is the
+//    viewer; the pixel stream stops entirely) -> off --
 const glBtn = document.getElementById("glbtn");
+const glWarn = document.getElementById("glwarn");
 let glReady = false;
+let glState = "off";  // "off" | "compare" | "solo"
+
+function sendGlMode() {
+  send({ type: "mode", geometry: glState !== "off",
+         pixels: glState !== "solo" });
+  if (glState !== "off") send({ type: "geometry_request" });
+}
+
 glBtn.onclick = async () => {
-  if (document.body.classList.contains("gl-active")) {
-    document.body.classList.remove("gl-active");
-    send({ type: "mode", geometry: false });
-    return;
-  }
-  try {
-    if (!glReady) {
-      await ManimlGL.init(document.getElementById("glview"));
-      // Evicted a batch the server still considers sent: ask for a
-      // full resend on the next payload
-      ManimlGL.onCacheMiss = () => send({ type: "geometry_reset" });
-      glReady = true;
+  if (glState === "off") {
+    try {
+      if (!glReady) {
+        await ManimlGL.init(document.getElementById("glview"));
+        // Evicted a batch the server still considers sent: ask for a
+        // full resend on the next payload
+        ManimlGL.onCacheMiss = () => send({ type: "geometry_reset" });
+        glReady = true;
+      }
+    } catch (err) {
+      glBtn.textContent = "GL ✗";
+      glBtn.title = "WebGL2 renderer unavailable: " + err.message;
+      return;
     }
-  } catch (err) {
-    glBtn.textContent = "GL ✗";
-    glBtn.title = "WebGL2 renderer unavailable: " + err.message;
-    return;
+    glState = "compare";
+  } else if (glState === "compare") {
+    glState = "solo";
+  } else {
+    glState = "off";
   }
-  document.body.classList.add("gl-active");
-  send({ type: "mode", geometry: true });
-  send({ type: "geometry_request" });
+  document.body.classList.toggle("gl-active", glState !== "off");
+  document.body.classList.toggle("gl-solo", glState === "solo");
+  glBtn.textContent = glState === "solo" ? "GL solo" : "GL";
+  sendGlMode();
 };
 let glQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
@@ -149,9 +166,11 @@ function handleGeometry(arrayBuffer) {
   // in arrival order
   glQueue = glQueue.then(async () => {
     const header = await ManimlGL.render(arrayBuffer);
-    glBtn.title = header.unsupported.length
-      ? "Not client-rendered (pixel stream only): " + header.unsupported.join(", ")
-      : "Client-rendered with WebGL2 — compare against the streamed frame";
+    // In solo mode, missing content has no pixel-stream safety net:
+    // surface it loudly in the bar
+    glWarn.textContent = header.unsupported.length
+      ? "not rendered: " + header.unsupported.join(", ") : "";
+    glWarn.classList.toggle("on", header.unsupported.length > 0);
   }).catch((err) => console.error("GL render failed:", err));
 }
 
