@@ -67,12 +67,13 @@ native renderer, in priority order; checked = done):
 2. [x] DotCloud (2026-08-13): point→billboard-quad geometry shader
    re-expressed as 4-vertex instanced strip (`vdot.*`); glow + sphere
    shading ported. Fidelity test: 0.0 diff (bit-perfect).
-3. [ ] ImageMobject: image program + shipping the texture over the WS
-   (PNG bytes in the payload, texture cache keyed by hash).
-4. [ ] Surface / ParametricSurface: surface program (ported for #1)
-   + CPU-side indices from `get_shader_vert_indices`; shading uniforms
-   already ported.
-5. [ ] TexturedSurface: #3's texture transport + day/night pair.
+3. [x] ImageMobject (2026-08-14): raw file bytes ship in the payload
+   by content hash (once — textures ride the delta system), browser
+   decodes natively. Bit-perfect vs native.
+4. [x] Surface (2026-08-14): already-CPU-expanded triangles, existing
+   surface program. Bit-perfect (Sphere with shading).
+5. [x] TexturedSurface (2026-08-14): day/night texture pair + the
+   textured-surface frag ported. Bit-perfect.
 6. [ ] Winding-fill depth pre-pass (depth-tested fill WITHOUT
    use_triangulated_fill — rare in maniml since ThreeDScene.add forces
    triangulated; needs R32F target + MIN blend + gl_FragDepth
