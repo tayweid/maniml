@@ -38,6 +38,24 @@ URL_PATTERN = re.compile(r"http://localhost:\d+/")
 DEFAULT_APP_PORT = 8685
 
 
+def missing_module_hint(log: str) -> str | None:
+    """When a scene dies on a missing import, say which Python maniml
+    runs on and the exact install command — scene imports resolve in
+    maniml's interpreter, which may not be the shell's default."""
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", log)  # strip ANSI colors
+    match = re.search(
+        r"ModuleNotFoundError: No module named '([^']+)'", plain)
+    if not match:
+        return None
+    module = match.group(1).split(".")[0]
+    pip = os.path.join(os.path.dirname(sys.executable), "pip")
+    if not os.path.exists(pip):
+        pip = f"{sys.executable} -m pip"
+    return (f"Scenes run on {sys.executable} — "
+            f"'{module}' is not installed there. "
+            f"Install it with:  {pip} install {module}")
+
+
 def find_scene_classes(path: str) -> list[str]:
     """Scene classes in a file via AST — no import, no side effects.
     Heuristic: a class whose base names end with 'Scene'."""
@@ -115,7 +133,8 @@ class SceneProcess:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.lines: deque[str] = deque(maxlen=200)
         self.url: str | None = None
-        threading.Thread(target=self._read, daemon=True).start()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
 
     def _read(self):
         for line in self.proc.stdout:
@@ -131,6 +150,9 @@ class SceneProcess:
             if self.url:
                 return self.url
             if self.proc.poll() is not None:
+                # Let the reader drain the pipe so error responses can
+                # include the full traceback
+                self._reader.join(timeout=2)
                 return None
             time.sleep(0.05)
         return None
@@ -212,7 +234,8 @@ class AppServer:
                     process = app.processes.get(key)
                     tail = "".join(process.lines) if process else ""
                     self._json({"error": "scene failed to start",
-                                "log": tail[-4000:]}, 500)
+                                "log": tail[-4000:],
+                                "hint": missing_module_hint(tail)}, 500)
                 else:
                     self._json({"url": url})
 
