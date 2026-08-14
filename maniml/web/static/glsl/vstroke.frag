@@ -7,10 +7,12 @@ uniform float border_mode;
 in float dist_to_aaw;
 in float half_width_to_aaw;
 in vec4 color;
+in float v_clip;
 
 out vec4 frag_color;
 
 void main() {
+    if (v_clip < 0.0) discard;
     frag_color = color;
     // sdf for the region around the curve we wish to color
     float signed_dist_to_region = abs(dist_to_aaw) - half_width_to_aaw;

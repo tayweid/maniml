@@ -187,6 +187,32 @@ class GLPortFidelity(unittest.TestCase):
             img.save(path)
         return path
 
+    def test_reference_matches_native_clip_plane(self):
+        scene = PortScene(window=None)
+        circle = Circle(color=BLUE, fill_opacity=0.8).scale(2)
+        circle.set_clip_plane(np.array([1.0, 0.5, 0.0]), 0.4)
+        square = Square(color=RED, fill_opacity=0.7).shift(RIGHT * 3)
+        scene.add(circle, square)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+        # The clip must actually remove something, or this test is vacuous
+        circle.deactivate_clip_plane()
+        scene.update_frame(dt=0, force_draw=True)
+        unclipped = np.asarray(scene.get_image().convert("RGB"),
+                               dtype=np.float64)
+        self.assertGreater(np.abs(native - unclipped).mean(), 1.0)
+        circle.set_clip_plane(np.array([1.0, 0.5, 0.0]), 0.4)
+        scene.update_frame(dt=0, force_draw=True)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(header["unsupported"], [])
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5,
+                        f"clip mean |diff| {diff.mean():.3f}")
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
+
     def test_reference_matches_native_image(self):
         from maniml.mobject.types.image_mobject import ImageMobject
         scene = PortScene(window=None)

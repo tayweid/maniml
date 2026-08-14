@@ -32,6 +32,7 @@ in vec3 unit_normal1;   // base_normal of vertex 1 (odd index: unit normal)
 out vec4 color;
 out float dist_to_aaw;
 out float half_width_to_aaw;
+out float v_clip;
 
 // Codes for joint types
 const int NO_JOINT = 0;
@@ -184,6 +185,7 @@ void main() {
     vec3 offset_point = point + dist_to_curve * step_dir;
     // Small offset towards camera to prevent z-fighting with fill
     offset_point += unit_normal * 0.0001;
+    v_clip = compute_clip_distance(offset_point);
     gl_Position = emit_gl_Position(offset_point);
     half_width_to_aaw = 0.5 * stroke_width / aaw;
     dist_to_aaw = dist_to_curve / aaw;

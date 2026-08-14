@@ -80,6 +80,7 @@ class WebViewer:
         self._last_send_lossy = False
         self._last_state = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
+        self._pixel_mode = True  # off in solo-GL: geometry is the only stream
         from maniml.web.geometry import GeometryCache
         self._geometry_cache = GeometryCache()  # delta-encoding state
         log.info(f"maniml web viewer: {self.server.url}")
@@ -151,18 +152,20 @@ class WebViewer:
         if kind is None:
             return
 
-        camera = self.scene.camera
-        raw = camera.get_raw_fbo_data()
-        w, h = camera.draw_fbo.size
-        channels = len(raw) // (w * h)
-        image = Image.frombytes("RGBA" if channels == 4 else "RGB", (w, h), raw)
-        buf = io.BytesIO()
-        if kind == "jpeg":
-            image.convert("RGB").save(buf, "JPEG", quality=JPEG_QUALITY)
-            self.server.broadcast(b"\x01" + buf.getvalue(), droppable=True)
-        else:
-            image.convert("RGB").save(buf, "PNG")
-            self.server.broadcast(b"\x02" + buf.getvalue())
+        if self._pixel_mode:
+            camera = self.scene.camera
+            raw = camera.get_raw_fbo_data()
+            w, h = camera.draw_fbo.size
+            channels = len(raw) // (w * h)
+            image = Image.frombytes(
+                "RGBA" if channels == 4 else "RGB", (w, h), raw)
+            buf = io.BytesIO()
+            if kind == "jpeg":
+                image.convert("RGB").save(buf, "JPEG", quality=JPEG_QUALITY)
+                self.server.broadcast(b"\x01" + buf.getvalue(), droppable=True)
+            else:
+                image.convert("RGB").save(buf, "PNG")
+                self.server.broadcast(b"\x02" + buf.getvalue())
         self._last_send_time = now
         self._last_send_lossy = (kind == "jpeg")
         self._dirty = False
@@ -262,11 +265,16 @@ class WebViewer:
 
         elif kind == "mode":
             # Stage-2 streaming opt-in: while on, every pixel frame is
-            # mirrored with a geometry payload. Reset deltas on enable
+            # mirrored with a geometry payload; with pixels off (solo-GL)
+            # the geometry stream is the only one and the per-frame
+            # readback+encode is skipped entirely. Reset deltas on enable
             # so a rejoining toggle always starts from a full payload.
             self._geometry_mode = bool(event.get("geometry"))
+            self._pixel_mode = bool(event.get("pixels", True))
             if self._geometry_mode:
                 self._geometry_cache.reset()
+            # Leaving solo: the canvas needs a fresh pixel frame
+            self._needs_refresh = self._pixel_mode
             self._dirty = False
 
     def _jump_to_checkpoint(self, index: int):

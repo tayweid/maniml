@@ -200,6 +200,20 @@ class WebViewerE2E(unittest.TestCase):
                 f"(and {len(jpeg_frames)} JPEGs)")
             self.assertGreater(len(jpeg_frames), 3,
                                "pixel stream should continue alongside")
+
+            # Solo-GL: geometry only, the pixel stream stops entirely
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": False}))
+            self._collect(ws, 1)  # drain the mode-change transition
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowLeft"}))
+            frames, _ = self._collect(ws, 4)
+            solo_geometry = [f for f in frames if f[0] == 0x03]
+            solo_pixels = [f for f in frames if f[0] in (0x01, 0x02)]
+            self.assertGreater(len(solo_geometry), 3,
+                               "solo mode should stream geometry")
+            self.assertEqual(len(solo_pixels), 0,
+                             "solo mode must not stream pixels")
             ws.send(json.dumps({"type": "mode", "geometry": False}))
 
     def test_future_chips(self):

@@ -5,10 +5,12 @@ in vec4 color;
 in float fill_all;
 in float orientation;
 in vec2 uv_coords;
+in float v_clip;
 
 out vec4 frag_color;
 
 void main() {
+    if (v_clip < 0.0) discard;
     if (color.a == 0.0) discard;
     frag_color = color;
     // Winding-number-via-blending trick: negatively oriented triangles

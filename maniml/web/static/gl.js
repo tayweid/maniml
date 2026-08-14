@@ -45,6 +45,7 @@ const ManimlGL = (() => {
   const UNIFORM_SETTERS = {
     glow_factor: (gl, loc, v) => gl.uniform1f(loc, v),
     num_textures: (gl, loc, v) => gl.uniform1f(loc, v),
+    clip_plane: (gl, loc, v) => gl.uniform4fv(loc, v),
     view: (gl, loc, v) => gl.uniformMatrix4fv(loc, false, v),
     frame_rescale_factors: (gl, loc, v) => gl.uniform3fv(loc, v),
     camera_position: (gl, loc, v) => gl.uniform3fv(loc, v),

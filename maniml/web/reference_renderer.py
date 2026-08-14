@@ -54,7 +54,7 @@ _UNIFORM_KEYS = [
     "view", "frame_rescale_factors", "frame_scale", "pixel_size",
     "camera_position", "light_position", "shading", "is_fixed_in_frame",
     "anti_alias_width", "joint_type", "flat_stroke",
-    "scale_stroke_with_zoom", "glow_factor", "num_textures",
+    "scale_stroke_with_zoom", "glow_factor", "num_textures", "clip_plane",
 ]
 
 # Plain (non-instanced) TRIANGLES batch kinds: (format, attributes)

@@ -9,12 +9,14 @@ in vec3 v_point;
 in vec3 v_unit_normal;
 in vec2 v_im_coords;
 in float v_opacity;
+in float v_clip;
 
 out vec4 frag_color;
 
 const float dark_shift = 0.2;
 
 void main() {
+    if (v_clip < 0.0) discard;
     vec4 color = texture(LightTexture, v_im_coords);
     if (num_textures == 2.0){
         vec4 dark_color = texture(DarkTexture, v_im_coords);

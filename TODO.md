@@ -74,12 +74,14 @@ native renderer, in priority order; checked = done):
    surface program. Bit-perfect (Sphere with shading).
 5. [x] TexturedSurface (2026-08-14): day/night texture pair + the
    textured-surface frag ported. Bit-perfect.
-6. [ ] Winding-fill depth pre-pass (depth-tested fill WITHOUT
-   use_triangulated_fill — rare in maniml since ThreeDScene.add forces
-   triangulated; needs R32F target + MIN blend + gl_FragDepth
-   composite, EXT_float_blend in WebGL2).
-7. [ ] Clip planes: gl_ClipDistance has no WebGL2 equivalent; emulate
-   with a varying + discard in every frag.
+6. [x] Winding-fill depth pre-pass: FALLBACK BY DESIGN (2026-08-14).
+   Unreachable through the public API — ThreeDScene.add /
+   apply_depth_test always switch fills to triangulated; hitting this
+   path requires manually unsetting use_triangulated_fill. Declared
+   `unsupported`; revisit only if dogfooding ever surfaces it.
+7. [x] Clip planes (2026-08-14): v_clip varying + fragment discard in
+   every program (pixel-resolution equivalent of gl_ClipDistance).
+   Fidelity test with set_clip_plane passes.
 8. [ ] `set_color_by_code` (arbitrary GLSL injection) and the fractal
    shaders: niche; likely permanent pixel-stream fallbacks.
 9. [x] Delta encoding (2026-08-14): batches carry a blake2b content
@@ -91,8 +93,12 @@ native renderer, in priority order; checked = done):
    on connect and on mode-on. Remaining serialize CPU per frame is the
    numpy get_shader_data walk — optimize via _data_has_changed only if
    profiling ever demands.
-10. [ ] Solo-GL view: once parity holds, let the GL panel BE the
-   viewer (pixel stream off) — the actual Stage 2 end state; then the
+10. [x] Solo-GL view (2026-08-14): the GL button cycles off →
+   side-by-side compare → solo. In solo the pixel stream stops
+   entirely (no per-frame readback/encode server-side) and the GL
+   canvas is the viewer, fully interactive; unsupported content is
+   surfaced loudly in the bar since there is no pixel safety net.
+   THE STAGE-2 BURN-IN STATE — dogfood real course scenes here; the
    baked player = record the 0x03 stream to a file.
 - Anything unsupported stays honestly declared in the payload's
   `unsupported` list; the pixel stream remains the fallback throughout.
