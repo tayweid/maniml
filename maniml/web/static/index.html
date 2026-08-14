@@ -4,53 +4,83 @@
 <meta charset="utf-8">
 <title>maniml</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #101014; --panel: #17171c; --line: #26262e;
+    --text: #d6d6dc; --dim: #74747e; --accent: #58C4DD;
+  }
   html, body {
     margin: 0; height: 100%;
-    background: #111; color: #bbb;
+    background: var(--bg); color: var(--text);
     font: 13px/1.4 -apple-system, system-ui, sans-serif;
     overflow: hidden;
   }
   #stage {
-    position: absolute; inset: 0 0 44px 0;
+    position: absolute; inset: 0 0 48px 0;
     display: flex; align-items: center; justify-content: center;
+    gap: 8px; padding: 10px; box-sizing: border-box;
   }
+  #stage canvas { border-radius: 6px; }
   #view {
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
   .altview { display: none; cursor: crosshair; }
-  body.gl-active #stage { gap: 8px; }
-  body.gl-active #view { max-width: 49%; }
-  body.gl-active .altview.current { display: block; max-width: 49%; max-height: 100%; }
-  body.gl-solo #view { display: none; }
-  body.gl-solo .altview.current { max-width: 100%; }
-  .rbtn {
-    color: #777; border: 1px solid #333; border-radius: 4px;
-    padding: 2px 8px; cursor: pointer; user-select: none; flex: none;
-  }
-  .rbtn:hover { border-color: #666; }
-  .rbtn.active { color: #ddd; border-color: #7a7; }
-  .rbtn.solo { color: #fff; border-color: #4c4; background: #1d2a1d; }
-  #glwarn { display: none; color: #d90; white-space: nowrap; }
-  body.gl-solo #glwarn.on { display: block; }
+  body.alt #view { display: none; }
+  body.alt .altview.current { display: block; max-width: 100%; max-height: 100%; }
+  body.alt.compare #view { display: block; max-width: 49.5%; }
+  body.alt.compare .altview.current { max-width: 49.5%; }
+
   #bar {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 44px;
-    display: flex; align-items: center; gap: 12px; padding: 0 14px;
-    box-sizing: border-box; background: #181818; border-top: 1px solid #262626;
+    position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
+    display: flex; align-items: center; gap: 14px; padding: 0 16px;
+    box-sizing: border-box; background: var(--panel);
+    border-top: 1px solid var(--line);
   }
-  #conn { display: none; color: #d33; flex: none; white-space: nowrap; }
+  #scene-name { font-weight: 600; white-space: nowrap; }
+  #conn { display: none; color: #e07070; white-space: nowrap; }
   body.disconnected #conn { display: block; }
-  #chips { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
-  .chip {
-    width: 11px; height: 11px; border-radius: 50%; flex: none;
-    background: #333; border: 1px solid #555; cursor: pointer;
+  #chips {
+    display: flex; align-items: center; gap: 7px;
+    overflow-x: auto; padding: 4px 0;
   }
-  .chip:hover { border-color: #999; }
-  .chip.current { background: #e8e8e8; border-color: #e8e8e8; }
-  .chip.future { background: none; border-style: dashed; border-color: #444; }
-  .chip.future:hover { border-color: #999; }
-  #hint { margin-left: auto; color: #555; white-space: nowrap; }
+  .chip {
+    width: 12px; height: 12px; border-radius: 50%; flex: none;
+    background: var(--line); border: 1px solid #3a3a44; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip.current { background: var(--accent); border-color: var(--accent); }
+  .chip.future { background: none; border-style: dashed; border-color: #3a3a44; }
+  .chip.future:hover { border-color: var(--accent); }
+  #glwarn { display: none; color: #d9a050; font-size: 12px; white-space: nowrap; }
+  #glwarn.on { display: block; }
+
+  #controls { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  #split {
+    display: none; color: var(--dim); cursor: pointer;
+    user-select: none; font-size: 12px;
+  }
+  body.alt #split { display: block; }
+  #split:hover { color: var(--text); }
+  #split.on { color: var(--accent); }
+  #renderers {
+    display: flex; border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden;
+  }
+  #renderers .seg {
+    padding: 4px 12px; cursor: pointer; color: var(--dim);
+    border-left: 1px solid var(--line); user-select: none; font-size: 12px;
+  }
+  #renderers .seg:first-child { border-left: none; }
+  #renderers .seg:hover { color: var(--text); }
+  #renderers .seg.selected { background: #20242c; color: var(--accent); }
+  #renderers .seg.failed { opacity: 0.4; pointer-events: none; }
+  #help {
+    color: var(--dim); cursor: default; flex: none;
+    border: 1px solid var(--line); border-radius: 50%;
+    width: 18px; height: 18px; display: flex;
+    align-items: center; justify-content: center; font-size: 11px;
+  }
 </style>
 </head>
 <body>
@@ -60,12 +90,19 @@
   <canvas id="gpuview" class="altview" title="WebGPU client render"></canvas>
 </div>
 <div id="bar">
+  <div id="scene-name"></div>
   <div id="conn">reconnecting&hellip;</div>
   <div id="chips"></div>
   <div id="glwarn"></div>
-  <div id="glbtn" class="rbtn" title="WebGL2 backend — cycle: off / side-by-side compare / solo">GL</div>
-  <div id="gpubtn" class="rbtn" title="WebGPU backend — cycle: off / side-by-side compare / solo">WGPU</div>
-  <div id="hint">&larr; &rarr; run &nbsp; &uarr; &darr; jump &nbsp; click to inspect &amp; drag</div>
+  <div id="controls">
+    <div id="split" title="Show the pixel stream beside the client render">split</div>
+    <div id="renderers">
+      <div class="seg selected" data-renderer="pixel" title="Server-rendered pixel stream">Pixel</div>
+      <div class="seg" data-renderer="gl" title="Rendered in the browser with WebGL2">WebGL2</div>
+      <div class="seg" data-renderer="gpu" title="Rendered in the browser with WebGPU">WebGPU</div>
+    </div>
+    <div id="help" title="&rarr; run next &nbsp;&larr; reverse &nbsp;&uarr;&darr; jump &nbsp;&middot;&nbsp; click a dot to jump, dashed dots run forward &nbsp;&middot;&nbsp; click a mobject to inspect, drag to move &nbsp;&middot;&nbsp; scroll to zoom, hold f + drag to pan">?</div>
+  </div>
 </div>
 <script src="gl.js"></script>
 <script src="webgpu.js"></script>
@@ -83,7 +120,7 @@ function connect() {
   ws.onopen = () => {
     document.body.classList.remove("disconnected");
     canvas.focus();
-    if (activeBackend) sendGlMode();
+    if (renderer !== "pixel") sendRendererMode();
   };
   ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
   ws.onmessage = (e) => {
@@ -98,7 +135,7 @@ function send(obj) {
 }
 
 // -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up.
-//    0x03 is a Stage-2 geometry snapshot, routed to the WebGL2 renderer) --
+//    0x03 is a geometry payload, routed to the selected client renderer) --
 let drawing = false, pendingBlob = null;
 async function handleFrame(blob) {
   const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
@@ -122,88 +159,82 @@ async function handleFrame(blob) {
   }
 }
 
-// -- Stage-2: client-side rendering, two backends (WebGL2 and WebGPU).
-//    Each button cycles: off -> compare (side-by-side) -> solo (the
-//    client render is the viewer; the pixel stream stops entirely).
-//    Backends are mutually exclusive. --
+// -- Client renderers: Pixel is the server stream; WebGL2 and WebGPU
+//    render geometry payloads in the browser. "split" shows the pixel
+//    stream beside the client render for comparison. --
 const glWarn = document.getElementById("glwarn");
+const splitEl = document.getElementById("split");
+const backends = {
+  gl: { module: ManimlGL, canvas: document.getElementById("glview"),
+        ready: false },
+  gpu: { module: ManimlWGPU, canvas: document.getElementById("gpuview"),
+         ready: false },
+};
+let renderer = "pixel";
+let split = false;
 
-function makeBackend(buttonId, canvasId, module, label) {
-  return {
-    button: document.getElementById(buttonId),
-    canvas: document.getElementById(canvasId),
-    module, label, ready: false, state: "off",
-  };
-}
-const backends = [
-  makeBackend("glbtn", "glview", ManimlGL, "GL"),
-  makeBackend("gpubtn", "gpuview", ManimlWGPU, "WGPU"),
-];
-let activeBackend = null;
-
-function refreshBackendUI() {
-  const state = activeBackend ? activeBackend.state : "off";
-  document.body.classList.toggle("gl-active", state !== "off");
-  document.body.classList.toggle("gl-solo", state === "solo");
-  for (const backend of backends) {
-    const on = backend === activeBackend && backend.state !== "off";
-    backend.canvas.classList.toggle("current", on);
-    backend.button.classList.toggle("active", on);
-    backend.button.classList.toggle(
-      "solo", on && backend.state === "solo");
-    backend.button.textContent = on && backend.state === "solo"
-      ? backend.label + " solo" : backend.label;
+function applyRendererUI() {
+  document.body.classList.toggle("alt", renderer !== "pixel");
+  document.body.classList.toggle("compare", renderer !== "pixel" && split);
+  splitEl.classList.toggle("on", split);
+  for (const seg of document.querySelectorAll("#renderers .seg")) {
+    seg.classList.toggle("selected", seg.dataset.renderer === renderer);
   }
+  for (const [name, backend] of Object.entries(backends)) {
+    backend.canvas.classList.toggle("current", renderer === name);
+  }
+  if (renderer === "pixel") glWarn.classList.remove("on");
 }
 
-function sendGlMode() {
-  const state = activeBackend ? activeBackend.state : "off";
-  send({ type: "mode", geometry: state !== "off",
-         pixels: state !== "solo" });
-  if (state !== "off") send({ type: "geometry_request" });
+function sendRendererMode() {
+  send({ type: "mode", geometry: renderer !== "pixel",
+         pixels: renderer === "pixel" || split });
+  if (renderer !== "pixel") send({ type: "geometry_request" });
 }
 
-for (const backend of backends) {
-  backend.button.onclick = async () => {
-    if (activeBackend && activeBackend !== backend) {
-      activeBackend.state = "off";  // backends are mutually exclusive
-    }
-    if (backend.state === "off") {
-      try {
-        if (!backend.ready) {
-          await backend.module.init(backend.canvas);
-          // Evicted a batch the server still considers sent: ask for
-          // a full resend on the next payload
-          backend.module.onCacheMiss =
-            () => send({ type: "geometry_reset" });
-          backend.ready = true;
-        }
-      } catch (err) {
-        backend.button.textContent = backend.label + " ✗";
-        backend.button.title = "renderer unavailable: " + err.message;
-        return;
+async function selectRenderer(name, seg) {
+  if (name !== "pixel") {
+    const backend = backends[name];
+    try {
+      if (!backend.ready) {
+        await backend.module.init(backend.canvas);
+        // Evicted a batch the server still considers sent: ask for a
+        // full resend on the next payload
+        backend.module.onCacheMiss = () => send({ type: "geometry_reset" });
+        backend.ready = true;
       }
-      backend.state = "compare";
-    } else if (backend.state === "compare") {
-      backend.state = "solo";
-    } else {
-      backend.state = "off";
+    } catch (err) {
+      if (seg) {
+        seg.classList.add("failed");
+        seg.title = "unavailable: " + err.message;
+      }
+      return;
     }
-    activeBackend = backend.state === "off" ? null : backend;
-    refreshBackendUI();
-    sendGlMode();
-  };
+  }
+  renderer = name;
+  applyRendererUI();
+  sendRendererMode();
 }
+
+for (const seg of document.querySelectorAll("#renderers .seg")) {
+  seg.onclick = () => selectRenderer(seg.dataset.renderer, seg);
+}
+splitEl.onclick = () => {
+  split = !split;
+  applyRendererUI();
+  sendRendererMode();
+};
+
 let glQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
-  const backend = activeBackend;
+  const backend = backends[renderer];
   if (!backend || !backend.ready) return;
   // Chain renders: texture decodes are async, and messages must apply
   // in arrival order
   glQueue = glQueue.then(async () => {
     const header = await backend.module.render(arrayBuffer);
-    // In solo mode, missing content has no pixel-stream safety net:
-    // surface it loudly in the bar
+    // Missing content has no pixel-stream safety net outside split
+    // mode: surface it in the bar
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";
     glWarn.classList.toggle("on", header.unsupported.length > 0);
@@ -213,6 +244,10 @@ function handleGeometry(arrayBuffer) {
 // -- Checkpoint chips --
 function handleState(state) {
   if (state.type !== "state") return;
+  if (state.scene) {
+    document.getElementById("scene-name").textContent = state.scene;
+    document.title = state.scene + " — maniml";
+  }
   chipsEl.replaceChildren();
   for (let i = 0; i < state.count; i++) {
     const chip = document.createElement("div");
@@ -245,8 +280,8 @@ document.addEventListener("keyup", (e) => {
 });
 
 // -- Pointer: coordinates normalized to the frame, [0,1], y-up.
-//    Attached to both canvases (pixel stream and GL panel) — the
-//    normalization makes them interchangeable input surfaces --
+//    Attached to every canvas — the normalization makes them
+//    interchangeable input surfaces --
 function norm(e) {
   const r = e.currentTarget.getBoundingClientRect();
   return {

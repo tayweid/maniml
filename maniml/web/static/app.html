@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>maniml</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #101014; --panel: #17171c; --line: #26262e;
+    --text: #d6d6dc; --dim: #74747e; --accent: #58C4DD;
+  }
+  html, body { margin: 0; min-height: 100%; background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 56px 24px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  #root { color: var(--dim); font-size: 12px; margin-bottom: 28px; }
+  h2 { font-size: 12px; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 10px; }
+  .file { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .file .name { font-weight: 500; margin-bottom: 8px; }
+  .scenes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .scene { border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 10px; cursor: pointer; color: var(--text);
+    background: none; font: inherit; font-size: 13px; }
+  .scene:hover { border-color: var(--accent); color: var(--accent); }
+  .scene.busy { opacity: 0.5; pointer-events: none; }
+  #pathrow { display: flex; gap: 8px; margin-top: 8px; }
+  #path { flex: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 10px; color: var(--text);
+    font: inherit; outline: none; }
+  #path:focus { border-color: var(--accent); }
+  #openbtn { border: 1px solid var(--line); border-radius: 6px;
+    background: none; color: var(--text); padding: 7px 14px;
+    font: inherit; cursor: pointer; }
+  #openbtn:hover { border-color: var(--accent); color: var(--accent); }
+  #error { color: #e07070; font-size: 13px; margin-top: 10px;
+    white-space: pre-wrap; display: none; }
+  #empty { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>maniml</h1>
+  <div id="root"></div>
+  <div id="files"><div id="empty">scanning&hellip;</div></div>
+  <div id="recents-section" style="display:none">
+    <h2>recent</h2>
+    <div id="recents"></div>
+  </div>
+  <h2>open a file</h2>
+  <div id="pathrow">
+    <input id="path" placeholder="/path/to/scene.py" spellcheck="false">
+    <button id="openbtn">Open</button>
+  </div>
+  <div id="error"></div>
+</main>
+<script>
+"use strict";
+const errorEl = document.getElementById("error");
+
+async function openScene(path, scene, button) {
+  errorEl.style.display = "none";
+  if (button) button.classList.add("busy");
+  try {
+    const resp = await fetch("/api/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, scene }),
+    });
+    const data = await resp.json();
+    if (data.url) { window.location = data.url; return; }
+    errorEl.textContent = (data.error || "failed to open")
+      + (data.log ? "\n\n" + data.log : "");
+    errorEl.style.display = "block";
+  } catch (err) {
+    errorEl.textContent = String(err);
+    errorEl.style.display = "block";
+  } finally {
+    if (button) button.classList.remove("busy");
+  }
+}
+
+function fileCard(file) {
+  const card = document.createElement("div");
+  card.className = "file";
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = file.rel;
+  card.appendChild(name);
+  const scenes = document.createElement("div");
+  scenes.className = "scenes";
+  for (const scene of file.scenes) {
+    const chip = document.createElement("button");
+    chip.className = "scene";
+    chip.textContent = scene;
+    chip.onclick = () => openScene(file.path, scene, chip);
+    scenes.appendChild(chip);
+  }
+  card.appendChild(scenes);
+  return card;
+}
+
+async function refresh() {
+  const data = await (await fetch("/api/files")).json();
+  document.getElementById("root").textContent = data.root;
+  const filesEl = document.getElementById("files");
+  filesEl.replaceChildren();
+  if (!data.files.length) {
+    const empty = document.createElement("div");
+    empty.id = "empty";
+    empty.textContent = "no scene files found under this directory";
+    filesEl.appendChild(empty);
+  }
+  for (const file of data.files) filesEl.appendChild(fileCard(file));
+  const recentsEl = document.getElementById("recents");
+  recentsEl.replaceChildren();
+  document.getElementById("recents-section").style.display =
+    data.recents.length ? "block" : "none";
+  for (const file of data.recents) recentsEl.appendChild(fileCard(file));
+}
+refresh();
+
+document.getElementById("openbtn").onclick = () =>
+  openScene(document.getElementById("path").value.trim(), null, null);
+document.getElementById("path").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("openbtn").click();
+});
+</script>
+</body>
+</html>
