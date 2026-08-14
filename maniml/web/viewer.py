@@ -80,6 +80,8 @@ class WebViewer:
         self._last_send_lossy = False
         self._last_state = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
+        from maniml.web.geometry import GeometryCache
+        self._geometry_cache = GeometryCache()  # delta-encoding state
         log.info(f"maniml web viewer: {self.server.url}")
         print(f"maniml web viewer: {self.server.url}")
         if open_browser:
@@ -172,7 +174,8 @@ class WebViewer:
             # Not droppable: it would always collide with the pixel send
             # queued a moment earlier, and the payload is small anyway.
             from maniml.web.geometry import serialize_scene
-            self.server.broadcast(serialize_scene(self.scene))
+            self.server.broadcast(
+                serialize_scene(self.scene, self._geometry_cache))
         self._broadcast_state()
 
     # -- Inbound events --
@@ -189,6 +192,7 @@ class WebViewer:
         if kind == "_connect":
             self._needs_refresh = True
             self._last_state = None
+            self._geometry_cache.reset()  # new client holds no batches
             return
 
         self._dirty = True
@@ -246,13 +250,23 @@ class WebViewer:
         elif kind == "geometry_request":
             # One-shot snapshot (sent on toggle-on, before any frame flows)
             from maniml.web.geometry import serialize_scene
-            self.server.broadcast(serialize_scene(self.scene))
+            self.server.broadcast(
+                serialize_scene(self.scene, self._geometry_cache))
             self._dirty = False  # the request itself needs no pixel frame
+
+        elif kind == "geometry_reset":
+            # A client hit a cache miss (e.g. evicted a batch we still
+            # reference): resend everything on the next payload
+            self._geometry_cache.reset()
+            self._dirty = True
 
         elif kind == "mode":
             # Stage-2 streaming opt-in: while on, every pixel frame is
-            # mirrored with a geometry payload
+            # mirrored with a geometry payload. Reset deltas on enable
+            # so a rejoining toggle always starts from a full payload.
             self._geometry_mode = bool(event.get("geometry"))
+            if self._geometry_mode:
+                self._geometry_cache.reset()
             self._dirty = False
 
     def _jump_to_checkpoint(self, index: int):

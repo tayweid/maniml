@@ -130,6 +130,49 @@ class GLPortFidelity(unittest.TestCase):
         self.assertLess(diff.mean(), 1.5, f"dots mean |diff| {diff.mean():.3f}")
         self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
 
+    def test_delta_encoding(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.mobject.types.dot_cloud import DotCloud
+        scene = PortScene(window=None)
+        circle = Circle(color=BLUE, fill_opacity=0.6).shift(LEFT * 3)
+        dots = DotCloud(
+            points=np.array([[2.0, 0.0, 0.0], [3.0, 1.0, 0.0]]),
+            color=YELLOW, radius=0.2)
+        scene.add(circle, dots)
+        scene.update_frame(dt=0, force_draw=True)
+
+        cache = GeometryCache()
+
+        # Serialize all three messages (and capture the native image)
+        # BEFORE creating the reference GL context: two standalone GL
+        # contexts can't interleave raw-GL work in one process
+        h1, b1 = parse_geometry_message(serialize_scene(scene, cache))
+        self.assertTrue(all("offset" in b for b in h1["batches"]))
+
+        # Unchanged scene: every batch is a cached reference, zero bytes
+        h2, b2 = parse_geometry_message(serialize_scene(scene, cache))
+        self.assertTrue(all(b.get("cached") for b in h2["batches"]))
+        self.assertEqual(len(b2), 0)
+
+        # Move the circle: only its batch re-ships, dots stay cached
+        circle.shift(RIGHT * 2)
+        scene.update_frame(dt=0, force_draw=True)
+        native3 = np.asarray(scene.get_image().convert("RGB"), float)
+        h3, b3 = parse_geometry_message(serialize_scene(scene, cache))
+        self.assertEqual(
+            [b["kind"] for b in h3["batches"] if "offset" in b],
+            ["vmobject"])
+        self.assertEqual(
+            [b["kind"] for b in h3["batches"] if b.get("cached")],
+            ["dotcloud"])
+
+        renderer = ReferenceRenderer()
+        img1 = np.asarray(renderer.render(h1, b1).convert("RGB"), float)
+        img2 = np.asarray(renderer.render(h2, b2).convert("RGB"), float)
+        self.assertTrue((img1 == img2).all())
+        img3 = np.asarray(renderer.render(h3, b3).convert("RGB"), float)
+        self.assertLess(np.abs(native3 - img3).mean(), 1.5)
+
     def test_reference_matches_native_3d(self):
         scene = Port3DScene(window=None)
         scene.set_camera_orientation(phi=70 * np.pi / 180,

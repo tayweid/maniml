@@ -179,10 +179,10 @@ class WebViewerE2E(unittest.TestCase):
             self.assertGreater(len(header["batches"]), 0)
             self.assertEqual(header["unsupported"], [])
             total = sum(
-                b["num_verts"] * 68
+                b["num_verts"] * b.get("stride", 68)
                 + (b["tri"]["vcount"] * 40 + b["tri"]["icount"] * 4
                    if "tri" in b else 0)
-                for b in header["batches"])
+                for b in header["batches"] if not b.get("cached"))
             self.assertEqual(total, len(vertex_bytes))
 
             # Streaming: with geometry mode on, an animation (LEFT-arrow
