@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 keywords = ["animation", "mathematics", "manim", "visualization", "education"]
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.19.0",
     "moderngl>=5.6.0",
@@ -53,9 +53,17 @@ dependencies = [
     "tqdm>=4.0.0",
     "pyglet>=2.0.0",
     "websockets>=12.0",
+    "rich>=13.0.0",
+    "fonttools>=4.0.0",
+    "typing-extensions>=4.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+# The wgpu-py reference renderer (tests / future native backend);
+# the browser's WebGPU needs nothing installed
+webgpu = [
+    "wgpu>=0.32",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -80,18 +88,16 @@ Changelog = "https://github.com/tayweid/maniml/blob/master/CHANGELOG.md"
 [project.scripts]
 maniml = "maniml.__main__:main"
 
-[tool.setuptools]
-packages = {find = {}}  # Auto-discover all packages
+[tool.setuptools.packages.find]
+include = ["maniml*"]  # never ship tests/ or example_scenes/
 
 [tool.setuptools.package-data]
-manim = [
-    "*.yml",
-    "*.yaml",
-    "rendering/shaders/**/*.glsl",
-    "default_config.yml",
-]
 maniml = [
-    "web/static/*",
+    "*.yml",
+    "rendering/shaders/*.glsl",
+    "rendering/shaders/**/*.glsl",
+    "web/static/*.html",
+    "web/static/*.js",
     "web/static/glsl/*",
     "web/static/wgsl/*",
 ]
