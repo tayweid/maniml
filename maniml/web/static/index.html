@@ -19,7 +19,7 @@
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
-  #glview { display: none; }
+  #glview { display: none; cursor: crosshair; }
   body.gl-active #stage { gap: 8px; }
   body.gl-active #view { max-width: 49%; }
   body.gl-active #glview { display: block; max-width: 49%; max-height: 100%; }
@@ -71,7 +71,14 @@ let ws = null;
 function connect() {
   ws = new WebSocket(wsUrl);
   ws.binaryType = "blob";
-  ws.onopen = () => { document.body.classList.remove("disconnected"); canvas.focus(); };
+  ws.onopen = () => {
+    document.body.classList.remove("disconnected");
+    canvas.focus();
+    if (document.body.classList.contains("gl-active")) {
+      send({ type: "mode", geometry: true });
+      send({ type: "geometry_request" });
+    }
+  };
   ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
   ws.onmessage = (e) => {
     if (typeof e.data === "string") { handleState(JSON.parse(e.data)); }
@@ -115,6 +122,7 @@ let glReady = false;
 glBtn.onclick = async () => {
   if (document.body.classList.contains("gl-active")) {
     document.body.classList.remove("gl-active");
+    send({ type: "mode", geometry: false });
     return;
   }
   try {
@@ -128,6 +136,7 @@ glBtn.onclick = async () => {
     return;
   }
   document.body.classList.add("gl-active");
+  send({ type: "mode", geometry: true });
   send({ type: "geometry_request" });
 };
 function handleGeometry(arrayBuffer) {
@@ -141,10 +150,6 @@ function handleGeometry(arrayBuffer) {
 // -- Checkpoint chips --
 function handleState(state) {
   if (state.type !== "state") return;
-  // Keep the experimental GL panel in sync with navigation
-  if (document.body.classList.contains("gl-active")) {
-    send({ type: "geometry_request" });
-  }
   chipsEl.replaceChildren();
   for (let i = 0; i < state.count; i++) {
     const chip = document.createElement("div");
@@ -176,9 +181,11 @@ document.addEventListener("keyup", (e) => {
   send({ type: "key", action: "up", key: e.key, ...mods(e) });
 });
 
-// -- Pointer: coordinates normalized to the frame, [0,1], y-up --
+// -- Pointer: coordinates normalized to the frame, [0,1], y-up.
+//    Attached to both canvases (pixel stream and GL panel) — the
+//    normalization makes them interchangeable input surfaces --
 function norm(e) {
-  const r = canvas.getBoundingClientRect();
+  const r = e.currentTarget.getBoundingClientRect();
   return {
     x: (e.clientX - r.left) / r.width,
     y: 1 - (e.clientY - r.top) / r.height,
@@ -187,30 +194,34 @@ function norm(e) {
   };
 }
 let moveQueued = null;
-canvas.addEventListener("pointermove", (e) => {
-  const p = norm(e);
-  if (moveQueued) {  // coalesce moves to one per frame, accumulating deltas
-    moveQueued.x = p.x; moveQueued.y = p.y;
-    moveQueued.dx += p.dx; moveQueued.dy += p.dy;
-    return;
-  }
-  moveQueued = { type: "pointer", action: "move", buttons: e.buttons, ...mods(e), ...p };
-  requestAnimationFrame(() => { send(moveQueued); moveQueued = null; });
-});
-canvas.addEventListener("pointerdown", (e) => {
-  canvas.setPointerCapture(e.pointerId);
-  canvas.focus();
-  send({ type: "pointer", action: "down", button: e.button, ...mods(e), ...norm(e) });
-});
-canvas.addEventListener("pointerup", (e) => {
-  send({ type: "pointer", action: "up", button: e.button, ...mods(e), ...norm(e) });
-});
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  send({ type: "pointer", action: "wheel", wx: e.deltaX / 30, wy: -e.deltaY / 30,
-         ...mods(e), ...norm(e) });
-}, { passive: false });
-canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+function attachPointer(el) {
+  el.addEventListener("pointermove", (e) => {
+    const p = norm(e);
+    if (moveQueued) {  // coalesce moves to one per frame, accumulating deltas
+      moveQueued.x = p.x; moveQueued.y = p.y;
+      moveQueued.dx += p.dx; moveQueued.dy += p.dy;
+      return;
+    }
+    moveQueued = { type: "pointer", action: "move", buttons: e.buttons, ...mods(e), ...p };
+    requestAnimationFrame(() => { send(moveQueued); moveQueued = null; });
+  });
+  el.addEventListener("pointerdown", (e) => {
+    el.setPointerCapture(e.pointerId);
+    canvas.focus();
+    send({ type: "pointer", action: "down", button: e.button, ...mods(e), ...norm(e) });
+  });
+  el.addEventListener("pointerup", (e) => {
+    send({ type: "pointer", action: "up", button: e.button, ...mods(e), ...norm(e) });
+  });
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    send({ type: "pointer", action: "wheel", wx: e.deltaX / 30, wy: -e.deltaY / 30,
+           ...mods(e), ...norm(e) });
+  }, { passive: false });
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+attachPointer(canvas);
+attachPointer(document.getElementById("glview"));
 </script>
 </body>
 </html>

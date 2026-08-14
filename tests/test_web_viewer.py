@@ -181,6 +181,23 @@ class WebViewerE2E(unittest.TestCase):
             total = sum(b["num_verts"] * 68 for b in header["batches"])
             self.assertEqual(total, len(vertex_bytes))
 
+            # Streaming: with geometry mode on, an animation (LEFT-arrow
+            # reverse works even on a fully-run scene) mirrors every
+            # pixel frame with a geometry payload
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowLeft"}))
+            frames, _ = self._collect(ws, 4)
+            geometry_frames = [f for f in frames if f[0] == 0x03]
+            jpeg_frames = [f for f in frames if f[0] == 0x01]
+            self.assertGreater(
+                len(geometry_frames), 3,
+                f"expected streamed geometry, got {len(geometry_frames)} "
+                f"(and {len(jpeg_frames)} JPEGs)")
+            self.assertGreater(len(jpeg_frames), 3,
+                               "pixel stream should continue alongside")
+            ws.send(json.dumps({"type": "mode", "geometry": False}))
+
     def test_future_chips(self):
         with ws_connect(self.ws_url, max_size=2**24) as ws:
             frames, states = self._collect(ws, 3)

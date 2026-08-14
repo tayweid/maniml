@@ -79,6 +79,7 @@ class WebViewer:
         self._last_send_time = 0.0
         self._last_send_lossy = False
         self._last_state = None
+        self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
         log.info(f"maniml web viewer: {self.server.url}")
         print(f"maniml web viewer: {self.server.url}")
         if open_browser:
@@ -165,6 +166,13 @@ class WebViewer:
         self._dirty = False
         self._needs_refresh = False
         self._has_undrawn_event = False
+        if self._geometry_mode:
+            # Mirror every pixel frame with a geometry payload so the
+            # client's GL panel animates in lockstep with the stream.
+            # Not droppable: it would always collide with the pixel send
+            # queued a moment earlier, and the payload is small anyway.
+            from maniml.web.geometry import serialize_scene
+            self.server.broadcast(serialize_scene(self.scene))
         self._broadcast_state()
 
     # -- Inbound events --
@@ -236,12 +244,16 @@ class WebViewer:
             self._advance_to_unit(int(event.get("unit", 0)))
 
         elif kind == "geometry_request":
-            # Stage-2 experiment: one geometry snapshot of the current
-            # state, rendered client-side; pixel streaming continues
-            # unchanged alongside
+            # One-shot snapshot (sent on toggle-on, before any frame flows)
             from maniml.web.geometry import serialize_scene
             self.server.broadcast(serialize_scene(self.scene))
             self._dirty = False  # the request itself needs no pixel frame
+
+        elif kind == "mode":
+            # Stage-2 streaming opt-in: while on, every pixel frame is
+            # mirrored with a geometry payload
+            self._geometry_mode = bool(event.get("geometry"))
+            self._dirty = False
 
     def _jump_to_checkpoint(self, index: int):
         """Timeline-chip click: same behavior as UP/DOWN checkpoint jumps."""
