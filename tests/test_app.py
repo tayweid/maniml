@@ -78,9 +78,8 @@ class AppShellE2E(unittest.TestCase):
 
         files = json.loads(urllib.request.urlopen(
             self.url + "api/files", timeout=5).read())
-        self.assertEqual(len(files["files"]), 1)
-        entry = files["files"][0]
-        self.assertEqual(entry["rel"], "app_scene.py")
+        entry = next(f for f in files["files"]
+                     if f["rel"] == "app_scene.py")
         self.assertEqual(entry["scenes"], ["AppDemo"])
 
         request = urllib.request.Request(
@@ -112,6 +111,28 @@ class AppShellE2E(unittest.TestCase):
         reopened = json.loads(
             urllib.request.urlopen(request, timeout=40).read())
         self.assertEqual(reopened["url"], opened["url"])
+
+    def test_missing_module_hint(self):
+        broken = os.path.join(self.tmpdir.name, "broken_scene.py")
+        with open(broken, "w") as f:
+            f.write("import not_a_real_module_xyz\n"
+                    "from manim import *\n"
+                    "class Broken(Scene):\n"
+                    "    def construct(self): pass\n")
+        request = urllib.request.Request(
+            self.url + "api/open",
+            data=json.dumps({"path": broken, "scene": "Broken"}).encode(),
+            headers={"Content-Type": "application/json"})
+        try:
+            body = urllib.request.urlopen(request, timeout=40).read()
+        except urllib.error.HTTPError as err:
+            body = err.read()
+        data = json.loads(body)
+        self.assertIn("error", data)
+        hint = data.get("hint") or ""
+        self.assertIn("not_a_real_module_xyz", hint,
+                      f"hint missing; log tail: {data.get('log', '')[-500:]}")
+        self.assertIn(sys.executable, hint)
 
 
 if __name__ == "__main__":

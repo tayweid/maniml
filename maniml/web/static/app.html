@@ -72,6 +72,7 @@ async function openScene(path, scene, button) {
     const data = await resp.json();
     if (data.url) { window.location = data.url; return; }
     errorEl.textContent = (data.error || "failed to open")
+      + (data.hint ? "\n\n" + data.hint : "")
       + (data.log ? "\n\n" + data.log : "");
     errorEl.style.display = "block";
   } catch (err) {
