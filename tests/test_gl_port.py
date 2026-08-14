@@ -41,6 +41,80 @@ def payload_size(header):
     return total
 
 
+def test_image_path():
+    import tempfile
+    from PIL import Image as PILImage
+    path = os.path.join(tempfile.gettempdir(), "maniml_gl_port_tex.png")
+    if not os.path.exists(path):
+        img = PILImage.new("RGB", (64, 64))
+        for x in range(64):
+            for y in range(64):
+                img.putpixel((x, y), (4 * x, 4 * y, 255 - 2 * x))
+        img.save(path)
+    return path
+
+
+def build_3d_scene():
+    scene = Port3DScene(window=None)
+    scene.set_camera_orientation(phi=70 * np.pi / 180,
+                                 theta=30 * np.pi / 180)
+    s1 = Square(color=BLUE, fill_opacity=1.0).scale(1.5)
+    s2 = Square(color=RED, fill_opacity=1.0).scale(1.5).rotate(
+        np.pi / 2, axis=np.array([1.0, 0.0, 0.0]))
+    s3 = Circle(color=YELLOW, fill_opacity=0.9).scale(1.2).shift(UP)
+    scene.add(s1, s2, s3)  # ThreeDScene.add applies depth test
+    scene.update_frame(dt=0, force_draw=True)
+    return scene
+
+
+def build_dot_scene():
+    from maniml.mobject.types.dot_cloud import DotCloud
+    scene = PortScene(window=None)
+    xs, ys = np.meshgrid(np.linspace(-4, 4, 9), np.linspace(-2, 2, 5))
+    grid_points = np.column_stack(
+        [xs.ravel(), ys.ravel(), np.zeros(xs.size)])
+    grid = DotCloud(points=grid_points, color=BLUE, radius=0.08)
+    glow = DotCloud(points=np.array([[0.0, 2.8, 0.0]]), color=YELLOW,
+                    radius=0.6, glow_factor=2.0)
+    scene.add(grid, glow)
+    scene.update_frame(dt=0, force_draw=True)
+    return scene
+
+
+def build_image_scene():
+    from maniml.mobject.types.image_mobject import ImageMobject
+    scene = PortScene(window=None)
+    image = ImageMobject(test_image_path(), height=3.0)
+    circle = Circle(color=BLUE, fill_opacity=0.5).shift(RIGHT * 4)
+    scene.add(image, circle)
+    scene.update_frame(dt=0, force_draw=True)
+    return scene
+
+
+def build_surfaces_scene():
+    from maniml.mobject.three_dimensions import Sphere
+    from maniml.mobject.types.surface import TexturedSurface
+    scene = Port3DScene(window=None)
+    scene.set_camera_orientation(phi=60 * np.pi / 180,
+                                 theta=20 * np.pi / 180)
+    sphere = Sphere(radius=1.4).shift(LEFT * 2.2)
+    textured = TexturedSurface(
+        Sphere(radius=1.4), test_image_path()).shift(RIGHT * 2.2)
+    scene.add(sphere, textured)
+    scene.update_frame(dt=0, force_draw=True)
+    return scene
+
+
+def build_clip_scene():
+    scene = PortScene(window=None)
+    circle = Circle(color=BLUE, fill_opacity=0.8).scale(2)
+    circle.set_clip_plane(np.array([1.0, 0.5, 0.0]), 0.4)
+    square = Square(color=RED, fill_opacity=0.7).shift(RIGHT * 3)
+    scene.add(circle, square)
+    scene.update_frame(dt=0, force_draw=True)
+    return scene
+
+
 def build_scene():
     scene = PortScene(window=None)
     circle = Circle(color=BLUE, fill_opacity=0.6).shift(LEFT * 3)
