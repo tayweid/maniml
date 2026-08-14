@@ -34,7 +34,7 @@ class Port3DScene(ThreeDScene):
 def payload_size(header):
     total = 0
     for batch in header["batches"]:
-        total += batch["num_verts"] * 68
+        total += batch["num_verts"] * batch.get("stride", 68)
         if "tri" in batch:
             total += batch["tri"]["vcount"] * 40 + batch["tri"]["icount"] * 4
     return total
@@ -94,6 +94,31 @@ class GLPortFidelity(unittest.TestCase):
             self.assertEqual(batch["num_verts"] % 3, 0)
             self.assertIn("anti_alias_width", batch["uniforms"])
         self.assertEqual(len(header["camera"]["view"]), 16)
+
+    def test_reference_matches_native_dotcloud(self):
+        from maniml.mobject.types.dot_cloud import DotCloud
+        scene = PortScene(window=None)
+        xs, ys = np.meshgrid(np.linspace(-4, 4, 9), np.linspace(-2, 2, 5))
+        grid_points = np.column_stack(
+            [xs.ravel(), ys.ravel(), np.zeros(xs.size)])
+        grid = DotCloud(points=grid_points, color=BLUE, radius=0.08)
+        glow = DotCloud(points=np.array([[0.0, 2.8, 0.0]]), color=YELLOW,
+                        radius=0.6, glow_factor=2.0)
+        scene.add(grid, glow)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(header["unsupported"], [])
+        self.assertTrue(
+            any(b["kind"] == "dotcloud" for b in header["batches"]))
+        self.assertEqual(payload_size(header), len(vertex_bytes))
+
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5, f"dots mean |diff| {diff.mean():.3f}")
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
 
     def test_reference_matches_native_3d(self):
         scene = Port3DScene(window=None)

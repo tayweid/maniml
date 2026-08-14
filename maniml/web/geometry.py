@@ -74,6 +74,7 @@ def _triangulated_fill_data(sm):
 def serialize_scene(scene: Scene) -> bytes:
     """Snapshot the scene's current visual state as a geometry message."""
     from maniml.mobject.types.vectorized_mobject import VMobject
+    from maniml.mobject.types.dot_cloud import DotCloud
     from maniml.camera.camera_frame import CameraFrame
 
     camera = scene.camera
@@ -89,6 +90,23 @@ def serialize_scene(scene: Scene) -> bytes:
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
             if not isinstance(sm, VMobject):
+                if isinstance(sm, DotCloud):
+                    data = sm.get_shader_data()
+                    if len(data) == 0:
+                        continue
+                    raw = np.ascontiguousarray(data).tobytes()
+                    batches.append({
+                        "kind": "dotcloud",
+                        "offset": offset,
+                        "num_verts": len(data),
+                        "stride": 32,
+                        "uniforms": {k: _jsonable(v)
+                                     for k, v in sm.uniforms.items()},
+                        "depth_test": bool(sm.depth_test),
+                    })
+                    blobs.append(raw)
+                    offset += len(raw)
+                    continue
                 name = type(sm).__name__
                 if name not in unsupported:
                     unsupported.append(name)
@@ -111,6 +129,7 @@ def serialize_scene(scene: Scene) -> bytes:
                 "kind": "vmobject",
                 "offset": offset,
                 "num_verts": len(data),
+                "stride": 68,
                 "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
                 "stroke_behind": bool(sm.stroke_behind),
                 "depth_test": bool(sm.depth_test),

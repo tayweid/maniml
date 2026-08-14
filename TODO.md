@@ -64,8 +64,9 @@ native renderer, in priority order; checked = done):
    stroke/fill, MSAA via multisampled renderbuffer + resolve blit,
    samples in the header. 3D fidelity test: mean |diff| 0.003/255.
    Still excluded: depth-tested winding fill (item 6).
-2. [ ] DotCloud (`true_dot`): 4th geometry shader, point→billboard
-   quad; same instancing treatment as stroke/fill.
+2. [x] DotCloud (2026-08-13): point→billboard-quad geometry shader
+   re-expressed as 4-vertex instanced strip (`vdot.*`); glow + sphere
+   shading ported. Fidelity test: 0.0 diff (bit-perfect).
 3. [ ] ImageMobject: image program + shipping the texture over the WS
    (PNG bytes in the payload, texture cache keyed by hash).
 4. [ ] Surface / ParametricSurface: surface program (ported for #1)

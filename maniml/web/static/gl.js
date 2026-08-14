@@ -26,7 +26,11 @@ const ManimlGL = (() => {
     ["p2", 3, 136], ["ja2", 1, 168], ["rgba2", 4, 172], ["width2", 1, 200],
   ];
 
+  const DOT_ATTRS = [["dot_point", 3, 0], ["dot_radius", 1, 12],
+                     ["dot_rgba", 4, 16]];
+
   const UNIFORM_SETTERS = {
+    glow_factor: (gl, loc, v) => gl.uniform1f(loc, v),
     view: (gl, loc, v) => gl.uniformMatrix4fv(loc, false, v),
     frame_rescale_factors: (gl, loc, v) => gl.uniform3fv(loc, v),
     camera_position: (gl, loc, v) => gl.uniform3fv(loc, v),
@@ -42,7 +46,7 @@ const ManimlGL = (() => {
   };
 
   let canvas = null, gl = null;
-  let fillProgram, strokeProgram, compositeProgram, surfaceProgram;
+  let fillProgram, strokeProgram, compositeProgram, surfaceProgram, dotProgram;
   let quadBuffer, fillTexture, fillFbo;
   let renderFbo, colorRb, depthRb;  // scene target: depth + optional MSAA
   let targetSize = null;
@@ -98,10 +102,15 @@ const ManimlGL = (() => {
         fetchSource("common.glsl", "vsurface.vert"),
         fetchSource("vsurface.frag"),
       ]);
+    const [dotVert, dotFrag] = await Promise.all([
+      fetchSource("common.glsl", "vdot.vert"),
+      fetchSource("common.glsl", "vdot.frag"),
+    ]);
     fillProgram = compile(fillVert, fillFrag);
     strokeProgram = compile(strokeVert, strokeFrag);
     compositeProgram = compile(compVert, compFrag);
     surfaceProgram = compile(surfVert, surfFrag);
+    dotProgram = compile(dotVert, dotFrag);
 
     quadBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
@@ -196,8 +205,11 @@ const ManimlGL = (() => {
     gl.disable(gl.DEPTH_TEST);
 
     for (const batch of header.batches) {
-      if (batch.kind !== "vmobject") continue;
-      renderVMobject(header, batch, vertexBytes, width, height);
+      if (batch.kind === "vmobject") {
+        renderVMobject(header, batch, vertexBytes, width, height);
+      } else if (batch.kind === "dotcloud") {
+        renderDotCloud(header, batch, vertexBytes, width, height);
+      }
     }
     gl.disable(gl.DEPTH_TEST);
 
@@ -208,6 +220,34 @@ const ManimlGL = (() => {
       gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return header;
+  }
+
+  function renderDotCloud(header, batch, vertexBytes, width, height) {
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+      batch.offset, batch.offset + batch.num_verts * 32), gl.STREAM_DRAW);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    for (const [name, size, off] of DOT_ATTRS) {
+      const loc = gl.getAttribLocation(dotProgram, name);
+      if (loc < 0) continue;
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, off);
+      gl.vertexAttribDivisor(loc, 1);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
+    gl.viewport(0, 0, width, height);
+    gl.useProgram(dotProgram);
+    setUniforms(dotProgram, { ...header.camera, ...batch.uniforms });
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendEquation(gl.FUNC_ADD);
+    if (batch.depth_test) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, batch.num_verts);
+    gl.bindVertexArray(null);
+    gl.deleteVertexArray(vao);
+    gl.deleteBuffer(buffer);
   }
 
   function renderVMobject(header, batch, vertexBytes, width, height) {

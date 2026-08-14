@@ -46,12 +46,15 @@ BORDER_FORMAT = "3f 20x 1f 4f 12x 1f 3f 24x 4f 3f 4x 3f 20x 1f 4f 12x 1f/i"
 BORDER_ATTRS = ["p0", "ja0", "rgba0", "width0", "p1", "rgba1",
                 "unit_normal1", "p2", "ja2", "rgba2", "width2"]
 
+DOT_FORMAT = "3f 1f 4f/i"
+DOT_ATTRS = ["dot_point", "dot_radius", "dot_rgba"]
+
 # Uniform names each program understands (camera + mobject, merged)
 _UNIFORM_KEYS = [
     "view", "frame_rescale_factors", "frame_scale", "pixel_size",
     "camera_position", "light_position", "shading", "is_fixed_in_frame",
     "anti_alias_width", "joint_type", "flat_stroke",
-    "scale_stroke_with_zoom",
+    "scale_stroke_with_zoom", "glow_factor",
 ]
 
 
@@ -93,6 +96,10 @@ class ReferenceRenderer:
             vertex_shader=load_source("common.glsl", "vsurface.vert"),
             fragment_shader=load_source("vsurface.frag"),
         )
+        self.dot_program = self.ctx.program(
+            vertex_shader=load_source("common.glsl", "vdot.vert"),
+            fragment_shader=load_source("common.glsl", "vdot.frag"),
+        )
         quad = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype="f4")
         self.composite_vao = self.ctx.simple_vertex_array(
             self.composite_program, self.ctx.buffer(quad.tobytes()),
@@ -123,9 +130,10 @@ class ReferenceRenderer:
         self.out_fbo.clear(*header["background"], depth=1.0)
 
         for batch in header["batches"]:
-            if batch["kind"] != "vmobject":
-                continue
-            self._render_vmobject(header, batch, vertex_bytes)
+            if batch["kind"] == "vmobject":
+                self._render_vmobject(header, batch, vertex_bytes)
+            elif batch["kind"] == "dotcloud":
+                self._render_dotcloud(header, batch, vertex_bytes)
         self.ctx.disable(moderngl.DEPTH_TEST)
 
         read_fbo = self.out_fbo
@@ -135,6 +143,27 @@ class ReferenceRenderer:
         raw = read_fbo.read(components=4)
         image = Image.frombytes("RGBA", size, raw)
         return image.transpose(Image.FLIP_TOP_BOTTOM)
+
+    def _render_dotcloud(self, header, batch, vertex_bytes):
+        ctx = self.ctx
+        start = batch["offset"]
+        buffer = ctx.buffer(
+            vertex_bytes[start:start + batch["num_verts"] * 32])
+        _set_uniforms(self.dot_program,
+                      {**header["camera"], **batch["uniforms"]})
+        vao = ctx.vertex_array(
+            self.dot_program, [(buffer, DOT_FORMAT, *DOT_ATTRS)])
+        self.out_fbo.use()
+        ctx.blend_func = moderngl.DEFAULT_BLENDING
+        ctx.blend_equation = moderngl.FUNC_ADD
+        if batch.get("depth_test"):
+            ctx.enable(moderngl.DEPTH_TEST)
+        else:
+            ctx.disable(moderngl.DEPTH_TEST)
+        vao.render(moderngl.TRIANGLE_STRIP, vertices=4,
+                   instances=batch["num_verts"])
+        vao.release()
+        buffer.release()
 
     def _render_vmobject(self, header, batch, vertex_bytes):
         ctx = self.ctx
