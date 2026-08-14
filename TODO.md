@@ -115,6 +115,16 @@ native renderer, in priority order; checked = done):
   restores GPU-side adaptive tessellation via compute shaders (the
   elegant replacement for the fixed-strip instancing compromise).
   Chrome is the app; browser support is a non-issue.
+  STARTED 2026-08-14: `web/wgsl/` (common/fill/stroke/composite in
+  WGSL) + `web/wgpu_renderer.py` (wgpu-py) render the 2D VMobject path
+  from the same payload — fidelity vs native: max diff 1/255, zero
+  pixels off by >2 (tests/test_wgpu_port.py). WebGPU-specific handling:
+  clip-space depth remap in emit_gl_position (GL [-w,w] → WebGPU
+  [0,w]), per-pipeline blend state, one packed 176-byte uniform struct
+  (keep UNIFORM_FIELDS and struct Uniforms in sync), top-down readback.
+  Not yet: 3D/depth/MSAA, dots, textures/surfaces, batch caching, and
+  the browser-side JS. Then: browser WebGPU renderer beside WebGL2 →
+  migrate → retire.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub
