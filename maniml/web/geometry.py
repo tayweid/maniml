@@ -113,29 +113,70 @@ def _stroke_verts(data, frame_scale) -> int:
     return 2 * max(max_steps, 2)
 
 
+def _texture_refs(sm):
+    """Sampler-name -> texture content hash for a textured mobject,
+    reading each file once (module-level cache)."""
+    refs = {}
+    for name, path in sm.texture_paths.items():
+        refs[name] = _texture_file(path)[0]
+    return refs
+
+
+_TEXTURE_FILES: dict[str, tuple[str, bytes]] = {}  # path -> (hash, bytes)
+_TEXTURE_BY_HASH: dict[str, bytes] = {}
+
+
+def _texture_file(path: str) -> tuple[str, bytes]:
+    import hashlib
+    cached = _TEXTURE_FILES.get(path)
+    if cached is None:
+        with open(path, "rb") as f:
+            raw = f.read()
+        cached = (hashlib.blake2b(raw, digest_size=8).hexdigest(), raw)
+        _TEXTURE_FILES[path] = cached
+        _TEXTURE_BY_HASH[cached[0]] = raw
+    return cached
+
+
 def _collect_records(scene, unsupported):
     """One record per drawable submobject, in draw order, carrying the
     numpy data and the draw state that decides merge compatibility."""
     from maniml.mobject.types.vectorized_mobject import VMobject
     from maniml.mobject.types.dot_cloud import DotCloud
+    from maniml.mobject.types.image_mobject import ImageMobject
+    from maniml.mobject.types.surface import Surface, TexturedSurface
     from maniml.camera.camera_frame import CameraFrame
+
+    def plain_record(sm, kind, stride, textures=None):
+        data = sm.get_shader_data()
+        if len(data) == 0:
+            return None
+        return {
+            "kind": kind, "stride": stride, "data": data,
+            "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
+            "depth_test": bool(sm.depth_test),
+            "stroke_behind": False, "fill_mode": None,
+            "tri": None, "textures": textures,
+        }
 
     records = []
     for group in scene.render_groups:
         for sm in group.family_members_with_points():
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
-            if isinstance(sm, DotCloud):
-                data = sm.get_shader_data()
-                if len(data):
-                    records.append({
-                        "kind": "dotcloud", "stride": 32, "data": data,
-                        "uniforms": {k: _jsonable(v)
-                                     for k, v in sm.uniforms.items()},
-                        "depth_test": bool(sm.depth_test),
-                        "stroke_behind": False, "fill_mode": None,
-                        "tri": None,
-                    })
+            if isinstance(sm, (DotCloud, ImageMobject, Surface)):
+                if isinstance(sm, DotCloud):
+                    record = plain_record(sm, "dotcloud", 32)
+                elif isinstance(sm, ImageMobject):
+                    record = plain_record(sm, "image", 24,
+                                          textures=_texture_refs(sm))
+                elif isinstance(sm, TexturedSurface):
+                    record = plain_record(sm, "texsurface", 36,
+                                          textures=_texture_refs(sm))
+                else:
+                    record = plain_record(sm, "surface", 40)
+                if record is not None:
+                    records.append(record)
                 continue
             if not isinstance(sm, VMobject):
                 name = type(sm).__name__
@@ -163,11 +204,13 @@ def _collect_records(scene, unsupported):
                 "fill_mode": "triangulated" if triangulated else "winding",
                 "tri": (_triangulated_fill_data(sm)
                         if triangulated and has_fill else None),
+                "textures": None,
             })
     return records
 
 
-_MERGE_KEYS = ("kind", "uniforms", "stroke_behind", "depth_test", "fill_mode")
+_MERGE_KEYS = ("kind", "uniforms", "stroke_behind", "depth_test",
+               "fill_mode", "textures")
 
 
 def _merge_records(records):
@@ -210,6 +253,7 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
     batches = []
     blobs = []
     offset = 0
+    needed_textures: dict[str, bytes] = {}
 
     for record in _merge_records(_collect_records(scene, unsupported)):
         data = record["data"]
@@ -234,6 +278,11 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
             batch["stroke_behind"] = record["stroke_behind"]
             batch["fill_mode"] = record["fill_mode"]
             batch["stroke_verts"] = _stroke_verts(data, frame_scale)
+        if record["textures"]:
+            batch["textures"] = record["textures"]
+            for tex_hash in record["textures"].values():
+                if cache is None or f"tex:{tex_hash}" not in cache.sent:
+                    needed_textures[tex_hash] = _TEXTURE_BY_HASH[tex_hash]
 
         if cache is not None and content_hash in cache.sent:
             batch["cached"] = True
@@ -254,6 +303,14 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
                 cache.sent.add(content_hash)
         batches.append(batch)
 
+    texture_data = {}
+    for tex_hash, raw_tex in needed_textures.items():
+        texture_data[tex_hash] = {"offset": offset, "nbytes": len(raw_tex)}
+        blobs.append(raw_tex)
+        offset += len(raw_tex)
+        if cache is not None:
+            cache.sent.add(f"tex:{tex_hash}")
+
     header = {
         "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
         "background": _jsonable(list(camera.background_rgba)),
@@ -261,6 +318,7 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
         "samples": int(getattr(camera, "samples", 0)),
         "vertex_stride": 68,
         "batches": batches,
+        "texture_data": texture_data,
         "unsupported": unsupported,
     }
     header_bytes = json.dumps(header).encode()

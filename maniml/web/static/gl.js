@@ -29,8 +29,22 @@ const ManimlGL = (() => {
   const DOT_ATTRS = [["dot_point", 3, 0], ["dot_radius", 1, 12],
                      ["dot_rgba", 4, 16]];
 
+  // Plain (non-instanced) TRIANGLES kinds: attributes + stride
+  const PLAIN_ATTRS = {
+    image: { stride: 24, attrs: [["point", 3, 0], ["im_coords", 2, 12],
+                                 ["opacity", 1, 20]] },
+    surface: { stride: 40, attrs: [["point", 3, 0],
+                                   ["d_normal_point", 3, 12],
+                                   ["rgba", 4, 24]] },
+    texsurface: { stride: 36, attrs: [["point", 3, 0],
+                                      ["d_normal_point", 3, 12],
+                                      ["im_coords", 2, 24],
+                                      ["opacity", 1, 32]] },
+  };
+
   const UNIFORM_SETTERS = {
     glow_factor: (gl, loc, v) => gl.uniform1f(loc, v),
+    num_textures: (gl, loc, v) => gl.uniform1f(loc, v),
     view: (gl, loc, v) => gl.uniformMatrix4fv(loc, false, v),
     frame_rescale_factors: (gl, loc, v) => gl.uniform3fv(loc, v),
     camera_position: (gl, loc, v) => gl.uniform3fv(loc, v),
@@ -47,6 +61,8 @@ const ManimlGL = (() => {
 
   let canvas = null, gl = null;
   let fillProgram, strokeProgram, compositeProgram, surfaceProgram, dotProgram;
+  let plainPrograms = {};  // image / surface / texsurface
+  const textureCache = new Map();  // texture content hash -> WebGLTexture
   let quadBuffer, fillTexture, fillFbo;
   let renderFbo, colorRb, depthRb;  // scene target: depth + optional MSAA
   let targetSize = null;
@@ -102,15 +118,25 @@ const ManimlGL = (() => {
         fetchSource("common.glsl", "vsurface.vert"),
         fetchSource("vsurface.frag"),
       ]);
-    const [dotVert, dotFrag] = await Promise.all([
-      fetchSource("common.glsl", "vdot.vert"),
-      fetchSource("common.glsl", "vdot.frag"),
-    ]);
+    const [dotVert, dotFrag, imgVert, imgFrag, tsVert, tsFrag] =
+      await Promise.all([
+        fetchSource("common.glsl", "vdot.vert"),
+        fetchSource("common.glsl", "vdot.frag"),
+        fetchSource("common.glsl", "vimage.vert"),
+        fetchSource("vimage.frag"),
+        fetchSource("common.glsl", "vtexsurface.vert"),
+        fetchSource("common.glsl", "vtexsurface.frag"),
+      ]);
     fillProgram = compile(fillVert, fillFrag);
     strokeProgram = compile(strokeVert, strokeFrag);
     compositeProgram = compile(compVert, compFrag);
     surfaceProgram = compile(surfVert, surfFrag);
     dotProgram = compile(dotVert, dotFrag);
+    plainPrograms = {
+      image: compile(imgVert, imgFrag),
+      surface: surfaceProgram,
+      texsurface: compile(tsVert, tsFrag),
+    };
 
     quadBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
@@ -223,11 +249,30 @@ const ManimlGL = (() => {
     return res;
   }
 
-  function render(arrayBuffer) {
+  async function render(arrayBuffer) {
     const { header, vertexBytes } = parseMessage(arrayBuffer);
     const [width, height] = header.resolution;
     ensureTargets(width, height, header.samples || 0);
     cacheMissed = false;
+
+    // Decode any texture bytes shipped with this message (raw file
+    // bytes — the browser's own decoder handles PNG/JPEG)
+    for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
+      if (textureCache.has(texHash)) continue;
+      const blob = new Blob([vertexBytes.subarray(
+        ref.offset, ref.offset + ref.nbytes)]);
+      const bitmap = await createImageBitmap(blob);
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,
+        gl.UNSIGNED_BYTE, bitmap);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      bitmap.close();
+      textureCache.set(texHash, texture);
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
     gl.viewport(0, 0, width, height);
@@ -241,6 +286,8 @@ const ManimlGL = (() => {
         renderVMobject(header, batch, vertexBytes, width, height);
       } else if (batch.kind === "dotcloud") {
         renderDotCloud(header, batch, vertexBytes, width, height);
+      } else if (batch.kind in PLAIN_ATTRS) {
+        renderPlain(header, batch, vertexBytes, width, height);
       }
     }
     gl.disable(gl.DEPTH_TEST);
@@ -253,6 +300,54 @@ const ManimlGL = (() => {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     if (cacheMissed && ManimlGL.onCacheMiss) ManimlGL.onCacheMiss();
     return header;
+  }
+
+  function renderPlain(header, batch, vertexBytes, width, height) {
+    // image / surface / texsurface: plain TRIANGLES over an
+    // already-expanded vertex stream, optionally textured
+    const program = plainPrograms[batch.kind];
+    const { stride, attrs } = PLAIN_ATTRS[batch.kind];
+    const res = getResources(batch, () => {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+        batch.offset, batch.offset + batch.num_verts * stride),
+        gl.STATIC_DRAW);
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      for (const [name, size, off] of attrs) {
+        const loc = gl.getAttribLocation(program, name);
+        if (loc < 0) continue;
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, off);
+      }
+      gl.bindVertexArray(null);
+      return { buffers: [buffer], vaos: [vao], vao };
+    });
+    if (!res) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
+    gl.viewport(0, 0, width, height);
+    gl.useProgram(program);
+    setUniforms(program, { ...header.camera, ...batch.uniforms });
+    // Bind textures by sampler name, units in declaration order
+    let unit = 0;
+    for (const [name, texHash] of Object.entries(batch.textures || {})) {
+      const texture = textureCache.get(texHash);
+      if (!texture) { cacheMissed = true; return; }
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      const loc = gl.getUniformLocation(program, name);
+      if (loc !== null) gl.uniform1i(loc, unit);
+      unit += 1;
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendEquation(gl.FUNC_ADD);
+    if (batch.depth_test) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(res.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, batch.num_verts);
+    gl.bindVertexArray(null);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   function renderDotCloud(header, batch, vertexBytes, width, height) {

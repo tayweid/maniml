@@ -142,12 +142,17 @@ glBtn.onclick = async () => {
   send({ type: "mode", geometry: true });
   send({ type: "geometry_request" });
 };
+let glQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
   if (!glReady) return;
-  const header = ManimlGL.render(arrayBuffer);
-  glBtn.title = header.unsupported.length
-    ? "Not client-rendered (pixel stream only): " + header.unsupported.join(", ")
-    : "Client-rendered with WebGL2 — compare against the streamed frame";
+  // Chain renders: texture decodes are async, and messages must apply
+  // in arrival order
+  glQueue = glQueue.then(async () => {
+    const header = await ManimlGL.render(arrayBuffer);
+    glBtn.title = header.unsupported.length
+      ? "Not client-rendered (pixel stream only): " + header.unsupported.join(", ")
+      : "Client-rendered with WebGL2 — compare against the streamed frame";
+  }).catch((err) => console.error("GL render failed:", err));
 }
 
 // -- Checkpoint chips --

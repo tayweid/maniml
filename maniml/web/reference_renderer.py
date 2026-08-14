@@ -54,8 +54,16 @@ _UNIFORM_KEYS = [
     "view", "frame_rescale_factors", "frame_scale", "pixel_size",
     "camera_position", "light_position", "shading", "is_fixed_in_frame",
     "anti_alias_width", "joint_type", "flat_stroke",
-    "scale_stroke_with_zoom", "glow_factor",
+    "scale_stroke_with_zoom", "glow_factor", "num_textures",
 ]
+
+# Plain (non-instanced) TRIANGLES batch kinds: (format, attributes)
+PLAIN_KINDS = {
+    "image": ("3f 2f 1f", ["point", "im_coords", "opacity"]),
+    "surface": ("3f 3f 4f", ["point", "d_normal_point", "rgba"]),
+    "texsurface": ("3f 3f 2f 1f",
+                   ["point", "d_normal_point", "im_coords", "opacity"]),
+}
 
 
 def load_source(*names: str, version: str = "#version 330") -> str:
@@ -100,6 +108,17 @@ class ReferenceRenderer:
             vertex_shader=load_source("common.glsl", "vdot.vert"),
             fragment_shader=load_source("common.glsl", "vdot.frag"),
         )
+        self.plain_programs = {
+            "image": self.ctx.program(
+                vertex_shader=load_source("common.glsl", "vimage.vert"),
+                fragment_shader=load_source("vimage.frag")),
+            "surface": self.surface_program,
+            "texsurface": self.ctx.program(
+                vertex_shader=load_source("common.glsl", "vtexsurface.vert"),
+                fragment_shader=load_source("common.glsl",
+                                            "vtexsurface.frag")),
+        }
+        self.texture_cache: dict[str, moderngl.Texture] = {}
         quad = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype="f4")
         self.composite_vao = self.ctx.simple_vertex_array(
             self.composite_program, self.ctx.buffer(quad.tobytes()),
@@ -143,11 +162,24 @@ class ReferenceRenderer:
         self.out_fbo.use()
         self.out_fbo.clear(*header["background"], depth=1.0)
 
+        # Decode any texture bytes shipped with this message (same
+        # loader as native image_path_to_texture, from payload bytes)
+        import io
+        for tex_hash, ref in header.get("texture_data", {}).items():
+            if tex_hash in self.texture_cache:
+                continue
+            image = Image.open(io.BytesIO(vertex_bytes[
+                ref["offset"]:ref["offset"] + ref["nbytes"]])).convert("RGBA")
+            self.texture_cache[tex_hash] = self.ctx.texture(
+                size=image.size, components=4, data=image.tobytes())
+
         for batch in header["batches"]:
             if batch["kind"] == "vmobject":
                 self._render_vmobject(header, batch, vertex_bytes)
             elif batch["kind"] == "dotcloud":
                 self._render_dotcloud(header, batch, vertex_bytes)
+            elif batch["kind"] in PLAIN_KINDS:
+                self._render_plain(header, batch, vertex_bytes)
         self.ctx.disable(moderngl.DEPTH_TEST)
 
         read_fbo = self.out_fbo
@@ -181,6 +213,39 @@ class ReferenceRenderer:
             ctx.disable(moderngl.DEPTH_TEST)
         resources["vao"].render(moderngl.TRIANGLE_STRIP, vertices=4,
                                 instances=batch["num_verts"])
+
+    def _render_plain(self, header, batch, vertex_bytes):
+        """image / surface / texsurface: plain TRIANGLES over an
+        already-expanded vertex stream, optionally textured."""
+        ctx = self.ctx
+        program = self.plain_programs[batch["kind"]]
+        fmt, attrs = PLAIN_KINDS[batch["kind"]]
+
+        def build():
+            start = batch["offset"]
+            nbytes = batch["num_verts"] * batch["stride"]
+            buffer = ctx.buffer(vertex_bytes[start:start + nbytes])
+            vao = ctx.vertex_array(program, [(buffer, fmt, *attrs)])
+            return {"buffer": buffer, "vao": vao}
+
+        resources = self._resources(batch, build)
+        _set_uniforms(program, {**header["camera"], **batch["uniforms"]})
+        # Bind textures by sampler name, units in declaration order
+        # (mirrors ShaderWrapper.texture_names_to_ids)
+        for unit, (name, tex_hash) in enumerate(
+                batch.get("textures", {}).items()):
+            self.texture_cache[tex_hash].use(unit)
+            if name in program:
+                program[name].value = unit
+        self.out_fbo.use()
+        ctx.blend_func = moderngl.DEFAULT_BLENDING
+        ctx.blend_equation = moderngl.FUNC_ADD
+        if batch.get("depth_test"):
+            ctx.enable(moderngl.DEPTH_TEST)
+        else:
+            ctx.disable(moderngl.DEPTH_TEST)
+        resources["vao"].render(moderngl.TRIANGLES,
+                                vertices=batch["num_verts"])
 
     def _render_vmobject(self, header, batch, vertex_bytes):
         ctx = self.ctx

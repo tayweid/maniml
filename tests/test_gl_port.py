@@ -7,6 +7,7 @@ web/geometry.py payload — the same shader sources the WebGL2 client
 compiles). Asserts the images match within a small tolerance.
 """
 
+import os
 import unittest
 
 import numpy as np
@@ -172,6 +173,66 @@ class GLPortFidelity(unittest.TestCase):
         self.assertTrue((img1 == img2).all())
         img3 = np.asarray(renderer.render(h3, b3).convert("RGB"), float)
         self.assertLess(np.abs(native3 - img3).mean(), 1.5)
+
+    @staticmethod
+    def _test_image_path():
+        import tempfile
+        from PIL import Image as PILImage
+        path = os.path.join(tempfile.gettempdir(), "maniml_gl_port_tex.png")
+        if not os.path.exists(path):
+            img = PILImage.new("RGB", (64, 64))
+            for x in range(64):
+                for y in range(64):
+                    img.putpixel((x, y), (4 * x, 4 * y, 255 - 2 * x))
+            img.save(path)
+        return path
+
+    def test_reference_matches_native_image(self):
+        from maniml.mobject.types.image_mobject import ImageMobject
+        scene = PortScene(window=None)
+        image = ImageMobject(self._test_image_path(), height=3.0)
+        circle = Circle(color=BLUE, fill_opacity=0.5).shift(RIGHT * 4)
+        scene.add(image, circle)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(header["unsupported"], [])
+        self.assertTrue(any(b["kind"] == "image" for b in header["batches"]))
+        self.assertTrue(header["texture_data"])
+
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5,
+                        f"image mean |diff| {diff.mean():.3f}")
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
+
+    def test_reference_matches_native_surfaces(self):
+        from maniml.mobject.three_dimensions import Sphere
+        from maniml.mobject.types.surface import TexturedSurface
+        scene = Port3DScene(window=None)
+        scene.set_camera_orientation(phi=60 * np.pi / 180,
+                                     theta=20 * np.pi / 180)
+        sphere = Sphere(radius=1.4).shift(LEFT * 2.2)
+        textured = TexturedSurface(
+            Sphere(radius=1.4), self._test_image_path()).shift(RIGHT * 2.2)
+        scene.add(sphere, textured)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(header["unsupported"], [])
+        kinds = {b["kind"] for b in header["batches"]}
+        self.assertIn("surface", kinds)
+        self.assertIn("texsurface", kinds)
+
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 2.0,
+                        f"surfaces mean |diff| {diff.mean():.3f}")
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.01)
 
     def test_reference_matches_native_3d(self):
         scene = Port3DScene(window=None)
