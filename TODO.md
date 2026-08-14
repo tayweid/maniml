@@ -53,11 +53,41 @@ STARTED 2026-08-13; snapshot path shipped, streaming not yet.**
   keep it in sync with gl.js) with `tests/test_gl_port.py` pixel-diffing
   it against the native renderer: mean |diff| 4e-5/255, 0.0005% of
   pixels off by >2 (AA edge pixels) on a fill+stroke+winding+Text scene.
-- Not yet: streaming geometry during play() (payload per frame instead
-  of on request; then delta encoding); 3D (depth pass, triangulated
-  fill), images/surfaces/dot clouds, clip planes — all serialized as
-  `unsupported`, client falls back to pixels; the baked-scene web
-  player (`--render --web`), which becomes "record the 0x03 stream".
+- Done 2026-08-13 (second pass): geometry streams during play() —
+  every pixel frame is mirrored with a payload while the GL toggle is
+  on — and the GL panel accepts pointer input.
+
+**Stage 2 parity ledger** (gaps between the GL client render and the
+native renderer, in priority order; checked = done):
+1. [x] 3D VMobjects (2026-08-13): triangulated fill serialized as
+   vertices+indices+flat color (`tri` in the batch), depth test on
+   stroke/fill, MSAA via multisampled renderbuffer + resolve blit,
+   samples in the header. 3D fidelity test: mean |diff| 0.003/255.
+   Still excluded: depth-tested winding fill (item 6).
+2. [ ] DotCloud (`true_dot`): 4th geometry shader, point→billboard
+   quad; same instancing treatment as stroke/fill.
+3. [ ] ImageMobject: image program + shipping the texture over the WS
+   (PNG bytes in the payload, texture cache keyed by hash).
+4. [ ] Surface / ParametricSurface: surface program (ported for #1)
+   + CPU-side indices from `get_shader_vert_indices`; shading uniforms
+   already ported.
+5. [ ] TexturedSurface: #3's texture transport + day/night pair.
+6. [ ] Winding-fill depth pre-pass (depth-tested fill WITHOUT
+   use_triangulated_fill — rare in maniml since ThreeDScene.add forces
+   triangulated; needs R32F target + MIN blend + gl_FragDepth
+   composite, EXT_float_blend in WebGL2).
+7. [ ] Clip planes: gl_ClipDistance has no WebGL2 equivalent; emulate
+   with a varying + discard in every frag.
+8. [ ] `set_color_by_code` (arbitrary GLSL injection) and the fractal
+   shaders: niche; likely permanent pixel-stream fallbacks.
+9. [ ] Delta encoding: full geometry is resent every frame (fine on
+   localhost, wrong for the baked player) — resend only changed
+   mobjects, keyed per batch.
+10. [ ] Solo-GL view: once parity holds, let the GL panel BE the
+   viewer (pixel stream off) — the actual Stage 2 end state; then the
+   baked player = record the 0x03 stream to a file.
+- Anything unsupported stays honestly declared in the payload's
+  `unsupported` list; the pixel stream remains the fallback throughout.
 - WebGPU later only if it earns it.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`

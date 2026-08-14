@@ -45,6 +45,32 @@ def _jsonable(value):
     return value
 
 
+def _triangulated_fill_data(sm):
+    """Depth-correct fill triangles, replicating the data build in
+    VShaderWrapper.render_triangulated_fill: earclip vertices with a
+    flat per-mobject fill color, normals implied by a +z offset point.
+    Returns (vertex_bytes, index_bytes, vertex_count, index_count)."""
+    from maniml.rendering.shader_wrapper import VShaderWrapper
+    from maniml.utils.color import color_to_rgb
+
+    triangulation = VShaderWrapper._get_triangulation(sm)
+    if triangulation is None:
+        return None
+    vertices, indices = triangulation
+    surface_dtype = np.dtype([
+        ('point', np.float32, (3,)),
+        ('d_normal_point', np.float32, (3,)),
+        ('rgba', np.float32, (4,)),
+    ])
+    data = np.zeros(len(vertices), dtype=surface_dtype)
+    data['point'][:] = vertices
+    data['d_normal_point'][:] = vertices + np.array([0, 0, 0.001])
+    rgb = color_to_rgb(sm.get_fill_color())
+    data['rgba'][:] = np.array([*rgb, sm.get_fill_opacity()], dtype=np.float32)
+    index_bytes = np.ascontiguousarray(indices.astype('u4')).tobytes()
+    return data.tobytes(), index_bytes, len(data), len(indices)
+
+
 def serialize_scene(scene: Scene) -> bytes:
     """Snapshot the scene's current visual state as a geometry message."""
     from maniml.mobject.types.vectorized_mobject import VMobject
@@ -67,8 +93,13 @@ def serialize_scene(scene: Scene) -> bytes:
                 if name not in unsupported:
                     unsupported.append(name)
                 continue
-            if sm.depth_test or getattr(sm, 'use_triangulated_fill', False):
-                name = f"{type(sm).__name__} (depth/triangulated fill)"
+            triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
+            has_fill = sm.get_fill_opacity() > 0
+            if sm.depth_test and has_fill and not triangulated:
+                # Winding fill under depth test needs the depth pre-pass,
+                # which is not ported (parity ledger item 6). Rare:
+                # ThreeDScene.add switches fills to triangulated.
+                name = f"{type(sm).__name__} (depth-tested winding fill)"
                 if name not in unsupported:
                     unsupported.append(name)
                 continue
@@ -76,20 +107,35 @@ def serialize_scene(scene: Scene) -> bytes:
             if len(data) == 0:
                 continue
             raw = np.ascontiguousarray(data).tobytes()
-            batches.append({
+            batch = {
                 "kind": "vmobject",
                 "offset": offset,
                 "num_verts": len(data),
                 "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
                 "stroke_behind": bool(sm.stroke_behind),
-            })
+                "depth_test": bool(sm.depth_test),
+                "fill_mode": "triangulated" if triangulated else "winding",
+            }
             blobs.append(raw)
             offset += len(raw)
+            if triangulated and has_fill:
+                tri = _triangulated_fill_data(sm)
+                if tri is not None:
+                    tri_bytes, index_bytes, vcount, icount = tri
+                    batch["tri"] = {
+                        "voffset": offset, "vcount": vcount,
+                        "ioffset": offset + len(tri_bytes), "icount": icount,
+                    }
+                    blobs.append(tri_bytes)
+                    blobs.append(index_bytes)
+                    offset += len(tri_bytes) + len(index_bytes)
+            batches.append(batch)
 
     header = {
         "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
         "background": _jsonable(list(camera.background_rgba)),
         "resolution": list(camera.draw_fbo.size),
+        "samples": int(getattr(camera, "samples", 0)),
         "vertex_stride": 68,
         "batches": batches,
         "unsupported": unsupported,

@@ -178,7 +178,11 @@ class WebViewerE2E(unittest.TestCase):
             header, vertex_bytes = parse_geometry_message(message)
             self.assertGreater(len(header["batches"]), 0)
             self.assertEqual(header["unsupported"], [])
-            total = sum(b["num_verts"] * 68 for b in header["batches"])
+            total = sum(
+                b["num_verts"] * 68
+                + (b["tri"]["vcount"] * 40 + b["tri"]["icount"] * 4
+                   if "tri" in b else 0)
+                for b in header["batches"])
             self.assertEqual(total, len(vertex_bytes))
 
             # Streaming: with geometry mode on, an animation (LEFT-arrow

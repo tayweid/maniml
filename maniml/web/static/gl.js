@@ -42,8 +42,9 @@ const ManimlGL = (() => {
   };
 
   let canvas = null, gl = null;
-  let fillProgram, strokeProgram, compositeProgram;
+  let fillProgram, strokeProgram, compositeProgram, surfaceProgram;
   let quadBuffer, fillTexture, fillFbo;
+  let renderFbo, colorRb, depthRb;  // scene target: depth + optional MSAA
   let targetSize = null;
 
   async function fetchSource(...names) {
@@ -87,16 +88,20 @@ const ManimlGL = (() => {
     }
     gl.enable(gl.BLEND);
 
-    const [fillVert, fillFrag, strokeVert, strokeFrag, compVert, compFrag] =
+    const [fillVert, fillFrag, strokeVert, strokeFrag, compVert, compFrag,
+           surfVert, surfFrag] =
       await Promise.all([
         fetchSource("common.glsl", "vfill.vert"), fetchSource("vfill.frag"),
         fetchSource("common.glsl", "vstroke.vert"),
         fetchSource("vstroke.frag"),
         fetchSource("composite.vert"), fetchSource("composite.frag"),
+        fetchSource("common.glsl", "vsurface.vert"),
+        fetchSource("vsurface.frag"),
       ]);
     fillProgram = compile(fillVert, fillFrag);
     strokeProgram = compile(strokeVert, strokeFrag);
     compositeProgram = compile(compVert, compFrag);
+    surfaceProgram = compile(surfVert, surfFrag);
 
     quadBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
@@ -104,14 +109,15 @@ const ManimlGL = (() => {
       new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
   }
 
-  function ensureTargets(width, height) {
-    const key = width + "x" + height;
+  function ensureTargets(width, height, samples) {
+    const key = width + "x" + height + "@" + samples;
     if (targetSize === key) return;
     targetSize = key;
     canvas.width = width;
     canvas.height = height;
-    if (fillTexture) { gl.deleteTexture(fillTexture); }
-    if (fillFbo) { gl.deleteFramebuffer(fillFbo); }
+    for (const rb of [colorRb, depthRb]) if (rb) gl.deleteRenderbuffer(rb);
+    for (const fb of [fillFbo, renderFbo]) if (fb) gl.deleteFramebuffer(fb);
+    if (fillTexture) gl.deleteTexture(fillTexture);
     fillTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, fillTexture);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, 2 * width, 2 * height);
@@ -121,6 +127,27 @@ const ManimlGL = (() => {
     gl.bindFramebuffer(gl.FRAMEBUFFER, fillFbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
       gl.TEXTURE_2D, fillTexture, 0);
+    // Scene target: depth always present; multisampled when the native
+    // camera is (ThreeDCamera: samples=4). Blitted to the canvas at end.
+    const storage = (rb, format) => {
+      gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+      if (samples > 0) {
+        gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, format,
+          width, height);
+      } else {
+        gl.renderbufferStorage(gl.RENDERBUFFER, format, width, height);
+      }
+    };
+    colorRb = gl.createRenderbuffer();
+    storage(colorRb, gl.RGBA8);
+    depthRb = gl.createRenderbuffer();
+    storage(depthRb, gl.DEPTH_COMPONENT24);
+    renderFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+      gl.RENDERBUFFER, colorRb);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
+      gl.RENDERBUFFER, depthRb);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -159,17 +186,27 @@ const ManimlGL = (() => {
   function render(arrayBuffer) {
     const { header, vertexBytes } = parseMessage(arrayBuffer);
     const [width, height] = header.resolution;
-    ensureTargets(width, height);
+    ensureTargets(width, height, header.samples || 0);
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
     gl.viewport(0, 0, width, height);
     gl.clearColor(...header.background);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearDepth(1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.DEPTH_TEST);
 
     for (const batch of header.batches) {
       if (batch.kind !== "vmobject") continue;
       renderVMobject(header, batch, vertexBytes, width, height);
     }
+    gl.disable(gl.DEPTH_TEST);
+
+    // Resolve/copy the scene target onto the canvas
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, renderFbo);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height,
+      gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return header;
   }
 
@@ -187,8 +224,48 @@ const ManimlGL = (() => {
     const borderVao = makeVao(strokeProgram, buffer, BORDER_ATTRS);
     const borderLoc = gl.getUniformLocation(strokeProgram, "border_mode");
 
+    const drawTriangulatedFill = () => {
+      // Port of render_triangulated_fill: real triangles with real z,
+      // depth test forced on (as in the native path)
+      const tri = batch.tri;
+      if (!tri) return;
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      const vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+        tri.voffset, tri.voffset + tri.vcount * 40), gl.STREAM_DRAW);
+      const surfAttrs = [["point", 3, 0], ["d_normal_point", 3, 12],
+                         ["rgba", 4, 24]];
+      for (const [name, size, off] of surfAttrs) {
+        const loc = gl.getAttribLocation(surfaceProgram, name);
+        if (loc < 0) continue;
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 40, off);
+      }
+      const ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, vertexBytes.subarray(
+        tri.ioffset, tri.ioffset + tri.icount * 4), gl.STREAM_DRAW);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
+      gl.viewport(0, 0, width, height);
+      gl.useProgram(surfaceProgram);
+      setUniforms(surfaceProgram, uniforms);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.enable(gl.DEPTH_TEST);
+      gl.drawElements(gl.TRIANGLES, tri.icount, gl.UNSIGNED_INT, 0);
+      gl.bindVertexArray(null);
+      gl.deleteVertexArray(vao);
+      gl.deleteBuffer(vbo);
+      gl.deleteBuffer(ibo);
+    };
+
     const drawFill = () => {
-      // Pass sequence from VShaderWrapper.render_fill (2D branch)
+      if (batch.fill_mode === "triangulated") { drawTriangulatedFill(); return; }
+      // Pass sequence from VShaderWrapper.render_fill (2D branch);
+      // the winding passes never depth-test
+      gl.disable(gl.DEPTH_TEST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, fillFbo);
       gl.viewport(0, 0, 2 * width, 2 * height);
       gl.clearColor(0, 0, 0, 0);
@@ -207,8 +284,8 @@ const ManimlGL = (() => {
       gl.blendEquation(gl.MAX);
       gl.bindVertexArray(borderVao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 64, instances);
-      // Composite onto the canvas
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      // Composite onto the scene target
+      gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
       gl.viewport(0, 0, width, height);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.blendEquation(gl.FUNC_ADD);
@@ -226,10 +303,12 @@ const ManimlGL = (() => {
     };
 
     const drawStroke = () => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
       gl.viewport(0, 0, width, height);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.blendEquation(gl.FUNC_ADD);
+      if (batch.depth_test) gl.enable(gl.DEPTH_TEST);
+      else gl.disable(gl.DEPTH_TEST);
       gl.useProgram(strokeProgram);
       setUniforms(strokeProgram, uniforms);
       gl.uniform1f(borderLoc, 0.0);

@@ -89,35 +89,50 @@ class ReferenceRenderer:
             vertex_shader=load_source("composite.vert"),
             fragment_shader=load_source("composite.frag"),
         )
+        self.surface_program = self.ctx.program(
+            vertex_shader=load_source("common.glsl", "vsurface.vert"),
+            fragment_shader=load_source("vsurface.frag"),
+        )
         quad = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype="f4")
         self.composite_vao = self.ctx.simple_vertex_array(
             self.composite_program, self.ctx.buffer(quad.tobytes()),
             "texcoord", mode=moderngl.TRIANGLE_STRIP)
         self._size = None
 
-    def _ensure_targets(self, size):
-        if self._size == size:
+    def _ensure_targets(self, size, samples):
+        if self._size == (size, samples):
             return
-        self._size = size
+        self._size = (size, samples)
         double = (2 * size[0], 2 * size[1])
         # Float texture so winding-trick alphas can go negative unclipped
         self.fill_texture = self.ctx.texture(double, components=4, dtype="f2")
         self.fill_fbo = self.ctx.framebuffer(self.fill_texture)
+        # Depth attachment always present (2D batches simply don't test);
+        # multisampled when the native camera is (ThreeDCamera: samples=4)
         self.out_fbo = self.ctx.framebuffer(
-            self.ctx.renderbuffer(size, components=4))
+            self.ctx.renderbuffer(size, components=4, samples=samples),
+            self.ctx.depth_renderbuffer(size, samples=samples))
+        self.resolve_fbo = (
+            self.ctx.framebuffer(self.ctx.renderbuffer(size, components=4))
+            if samples else None)
 
     def render(self, header: dict, vertex_bytes: bytes) -> Image.Image:
         size = tuple(header["resolution"])
-        self._ensure_targets(size)
+        self._ensure_targets(size, int(header.get("samples", 0)))
         self.out_fbo.use()
-        self.out_fbo.clear(*header["background"])
+        self.out_fbo.clear(*header["background"], depth=1.0)
 
         for batch in header["batches"]:
             if batch["kind"] != "vmobject":
                 continue
             self._render_vmobject(header, batch, vertex_bytes)
+        self.ctx.disable(moderngl.DEPTH_TEST)
 
-        raw = self.out_fbo.read(components=4)
+        read_fbo = self.out_fbo
+        if self.resolve_fbo is not None:
+            self.ctx.copy_framebuffer(self.resolve_fbo, self.out_fbo)
+            read_fbo = self.resolve_fbo
+        raw = read_fbo.read(components=4)
         image = Image.frombytes("RGBA", size, raw)
         return image.transpose(Image.FLIP_TOP_BOTTOM)
 
@@ -139,8 +154,37 @@ class ReferenceRenderer:
         border_vao = ctx.vertex_array(
             self.stroke_program, [(buffer, BORDER_FORMAT, *BORDER_ATTRS)])
 
+        def draw_triangulated_fill():
+            # Port of render_triangulated_fill: real triangles with real
+            # z, depth test forced on (as in the native path)
+            tri = batch.get("tri")
+            if tri is None:
+                return
+            vbo = ctx.buffer(vertex_bytes[
+                tri["voffset"]:tri["voffset"] + tri["vcount"] * 40])
+            ibo = ctx.buffer(vertex_bytes[
+                tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4])
+            _set_uniforms(self.surface_program, uniforms)
+            vao = ctx.vertex_array(
+                self.surface_program,
+                [(vbo, "3f 3f 4f", "point", "d_normal_point", "rgba")],
+                index_buffer=ibo, index_element_size=4)
+            self.out_fbo.use()
+            ctx.blend_func = moderngl.DEFAULT_BLENDING
+            ctx.blend_equation = moderngl.FUNC_ADD
+            ctx.enable(moderngl.DEPTH_TEST)
+            vao.render(moderngl.TRIANGLES)
+            vao.release()
+            vbo.release()
+            ibo.release()
+
         def draw_fill():
-            # Pass sequence from VShaderWrapper.render_fill (2D branch)
+            if batch.get("fill_mode") == "triangulated":
+                draw_triangulated_fill()
+                return
+            # Pass sequence from VShaderWrapper.render_fill (2D branch);
+            # the winding passes never depth-test
+            ctx.disable(moderngl.DEPTH_TEST)
             self.fill_fbo.use()
             self.fill_fbo.clear(0.0, 0.0, 0.0, 0.0)
             ctx.blend_func = (
@@ -166,6 +210,10 @@ class ReferenceRenderer:
             self.out_fbo.use()
             ctx.blend_func = moderngl.DEFAULT_BLENDING
             ctx.blend_equation = moderngl.FUNC_ADD
+            if batch.get("depth_test"):
+                ctx.enable(moderngl.DEPTH_TEST)
+            else:
+                ctx.disable(moderngl.DEPTH_TEST)
             self.stroke_program["border_mode"].value = 0.0
             stroke_vao.render(moderngl.TRIANGLE_STRIP, vertices=64,
                               instances=instances)
