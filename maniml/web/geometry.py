@@ -46,6 +46,19 @@ if TYPE_CHECKING:
 
 GEOMETRY_MESSAGE_TYPE = 0x03
 
+
+class GeometryCache:
+    """Delta-encoding state: the batch content hashes every connected
+    client is known to hold. Owned by the viewer; reset whenever a
+    client connects (or asks for a reset), so the next message ships
+    every batch in full."""
+
+    def __init__(self):
+        self.sent: set[str] = set()
+
+    def reset(self):
+        self.sent.clear()
+
 # Constants from quadratic_bezier/stroke/geom.glsl
 POLYLINE_FACTOR = 100.0
 MAX_STEPS = 32
@@ -180,8 +193,15 @@ def _merge_records(records):
     return merged
 
 
-def serialize_scene(scene: Scene) -> bytes:
-    """Snapshot the scene's current visual state as a geometry message."""
+def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
+    """Snapshot the scene's current visual state as a geometry message.
+
+    With a GeometryCache, batches whose content the clients already
+    hold ship as `"cached": true` + hash only — metadata (uniforms,
+    stroke_verts) is still sent fresh, since it can change (e.g. with
+    zoom) without the vertex bytes changing."""
+    import hashlib
+
     camera = scene.camera
     camera.refresh_uniforms()
     frame_scale = float(camera.uniforms["frame_scale"])
@@ -194,32 +214,44 @@ def serialize_scene(scene: Scene) -> bytes:
     for record in _merge_records(_collect_records(scene, unsupported)):
         data = record["data"]
         raw = np.ascontiguousarray(data).tobytes()
+        tri_bytes = index_bytes = b""
+        if record["kind"] == "vmobject" and record["tri"] is not None:
+            tri_data, tri_indices = record["tri"]
+            tri_bytes = tri_data.tobytes()
+            index_bytes = np.ascontiguousarray(tri_indices).tobytes()
+
+        content_hash = hashlib.blake2b(
+            raw + tri_bytes, digest_size=8).hexdigest()
         batch = {
             "kind": record["kind"],
-            "offset": offset,
+            "hash": content_hash,
             "num_verts": len(data),
             "stride": record["stride"],
             "uniforms": record["uniforms"],
             "depth_test": record["depth_test"],
         }
-        blobs.append(raw)
-        offset += len(raw)
         if record["kind"] == "vmobject":
             batch["stroke_behind"] = record["stroke_behind"]
             batch["fill_mode"] = record["fill_mode"]
             batch["stroke_verts"] = _stroke_verts(data, frame_scale)
-            if record["tri"] is not None:
-                tri_data, tri_indices = record["tri"]
-                tri_bytes = tri_data.tobytes()
-                index_bytes = np.ascontiguousarray(tri_indices).tobytes()
+
+        if cache is not None and content_hash in cache.sent:
+            batch["cached"] = True
+        else:
+            batch["offset"] = offset
+            blobs.append(raw)
+            offset += len(raw)
+            if tri_bytes:
                 batch["tri"] = {
-                    "voffset": offset, "vcount": len(tri_data),
+                    "voffset": offset, "vcount": len(tri_bytes) // 40,
                     "ioffset": offset + len(tri_bytes),
-                    "icount": len(tri_indices),
+                    "icount": len(index_bytes) // 4,
                 }
                 blobs.append(tri_bytes)
                 blobs.append(index_bytes)
                 offset += len(tri_bytes) + len(index_bytes)
+            if cache is not None:
+                cache.sent.add(content_hash)
         batches.append(batch)
 
     header = {

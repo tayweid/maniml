@@ -81,15 +81,33 @@ native renderer, in priority order; checked = done):
    with a varying + discard in every frag.
 8. [ ] `set_color_by_code` (arbitrary GLSL injection) and the fractal
    shaders: niche; likely permanent pixel-stream fallbacks.
-9. [ ] Delta encoding: full geometry is resent every frame (fine on
-   localhost, wrong for the baked player) — resend only changed
-   mobjects, keyed per batch.
+9. [x] Delta encoding (2026-08-14): batches carry a blake2b content
+   hash; unchanged batches ship as `"cached": true` references (zero
+   bytes) while metadata (uniforms, stroke_verts) stays fresh so zoom
+   changes need no re-upload. Client + reference renderer cache GPU
+   buffers/VAOs by hash (LRU 512); a client cache miss requests
+   `geometry_reset` for a full resend; the server-side sent-set resets
+   on connect and on mode-on. Remaining serialize CPU per frame is the
+   numpy get_shader_data walk — optimize via _data_has_changed only if
+   profiling ever demands.
 10. [ ] Solo-GL view: once parity holds, let the GL panel BE the
    viewer (pixel stream off) — the actual Stage 2 end state; then the
    baked player = record the 0x03 stream to a file.
 - Anything unsupported stays honestly declared in the payload's
   `unsupported` list; the pixel stream remains the fallback throughout.
-- WebGPU later only if it earns it.
+- **The endgame (decided 2026-08-14): WebGPU as the one canonical
+  renderer.** Sequencing: finish parity on WebGL2 first (ledger items
+  below — the payload format, protocol, serializer, and fidelity
+  harness are backend-agnostic and survive), THEN stand up a WebGPU
+  backend beside WebGL2 against the same payload and tests, migrate,
+  and make it canonical. wgpu runs the same code in-browser and
+  natively (wgpu-py), so at that point the reference renderer and the
+  browser renderer become literally the same code, `--render` moves
+  onto it, and the geometry-shader pipeline (and eventually pyglet)
+  retires: one renderer everywhere, no dual maintenance. WebGPU also
+  restores GPU-side adaptive tessellation via compute shaders (the
+  elegant replacement for the fixed-strip instancing compromise).
+  Chrome is the app; browser support is a non-issue.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

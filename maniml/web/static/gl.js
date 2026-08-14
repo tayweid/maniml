@@ -192,10 +192,42 @@ const ManimlGL = (() => {
     return { header, vertexBytes: bytes.subarray(5 + headerLen) };
   }
 
+  // Delta-encoding cache: batch content hash -> GPU resources.
+  // LRU-capped; a "cached" batch we no longer hold triggers onCacheMiss
+  // (index.html wires it to a geometry_reset request) and is skipped
+  // for one frame.
+  const batchCache = new Map();
+  const CACHE_MAX = 512;
+  let cacheMissed = false;
+
+  function freeResources(res) {
+    for (const b of res.buffers) gl.deleteBuffer(b);
+    for (const v of res.vaos) gl.deleteVertexArray(v);
+  }
+
+  function getResources(batch, builder) {
+    let res = batchCache.get(batch.hash);
+    if (res) {  // refresh recency
+      batchCache.delete(batch.hash);
+      batchCache.set(batch.hash, res);
+      return res;
+    }
+    if (batch.cached) { cacheMissed = true; return null; }
+    res = builder();
+    batchCache.set(batch.hash, res);
+    while (batchCache.size > CACHE_MAX) {
+      const [oldHash, old] = batchCache.entries().next().value;
+      batchCache.delete(oldHash);
+      freeResources(old);
+    }
+    return res;
+  }
+
   function render(arrayBuffer) {
     const { header, vertexBytes } = parseMessage(arrayBuffer);
     const [width, height] = header.resolution;
     ensureTargets(width, height, header.samples || 0);
+    cacheMissed = false;
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
     gl.viewport(0, 0, width, height);
@@ -219,23 +251,29 @@ const ManimlGL = (() => {
     gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height,
       gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (cacheMissed && ManimlGL.onCacheMiss) ManimlGL.onCacheMiss();
     return header;
   }
 
   function renderDotCloud(header, batch, vertexBytes, width, height) {
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
-      batch.offset, batch.offset + batch.num_verts * 32), gl.STREAM_DRAW);
-    const vao = gl.createVertexArray();
-    gl.bindVertexArray(vao);
-    for (const [name, size, off] of DOT_ATTRS) {
-      const loc = gl.getAttribLocation(dotProgram, name);
-      if (loc < 0) continue;
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, off);
-      gl.vertexAttribDivisor(loc, 1);
-    }
+    const res = getResources(batch, () => {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+        batch.offset, batch.offset + batch.num_verts * 32), gl.STATIC_DRAW);
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      for (const [name, size, off] of DOT_ATTRS) {
+        const loc = gl.getAttribLocation(dotProgram, name);
+        if (loc < 0) continue;
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, off);
+        gl.vertexAttribDivisor(loc, 1);
+      }
+      gl.bindVertexArray(null);
+      return { buffers: [buffer], vaos: [vao], vao };
+    });
+    if (!res) return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
     gl.viewport(0, 0, width, height);
     gl.useProgram(dotProgram);
@@ -244,10 +282,9 @@ const ManimlGL = (() => {
     gl.blendEquation(gl.FUNC_ADD);
     if (batch.depth_test) gl.enable(gl.DEPTH_TEST);
     else gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(res.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, batch.num_verts);
     gl.bindVertexArray(null);
-    gl.deleteVertexArray(vao);
-    gl.deleteBuffer(buffer);
   }
 
   function renderVMobject(header, batch, vertexBytes, width, height) {
@@ -255,40 +292,56 @@ const ManimlGL = (() => {
     const instances = batch.num_verts / 3;
     // The batch's tightest strip; the shader clamps per curve anyway
     const strokeVerts = batch.stroke_verts || 64;
-    const slice = vertexBytes.subarray(
-      batch.offset, batch.offset + batch.num_verts * VERTEX_STRIDE);
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, slice, gl.STREAM_DRAW);
-
-    const fillVao = makeVao(fillProgram, buffer, FILL_ATTRS);
-    const strokeVao = makeVao(strokeProgram, buffer, STROKE_ATTRS);
-    const borderVao = makeVao(strokeProgram, buffer, BORDER_ATTRS);
+    const res = getResources(batch, () => {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+        batch.offset, batch.offset + batch.num_verts * VERTEX_STRIDE),
+        gl.STATIC_DRAW);
+      const out = {
+        buffers: [buffer],
+        vaos: [],
+        fillVao: makeVao(fillProgram, buffer, FILL_ATTRS),
+        strokeVao: makeVao(strokeProgram, buffer, STROKE_ATTRS),
+        borderVao: makeVao(strokeProgram, buffer, BORDER_ATTRS),
+        triVao: null, triCount: 0,
+      };
+      out.vaos.push(out.fillVao, out.strokeVao, out.borderVao);
+      const tri = batch.tri;
+      if (tri) {
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        const vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
+          tri.voffset, tri.voffset + tri.vcount * 40), gl.STATIC_DRAW);
+        const surfAttrs = [["point", 3, 0], ["d_normal_point", 3, 12],
+                           ["rgba", 4, 24]];
+        for (const [name, size, off] of surfAttrs) {
+          const loc = gl.getAttribLocation(surfaceProgram, name);
+          if (loc < 0) continue;
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 40, off);
+        }
+        const ibo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, vertexBytes.subarray(
+          tri.ioffset, tri.ioffset + tri.icount * 4), gl.STATIC_DRAW);
+        gl.bindVertexArray(null);
+        out.buffers.push(vbo, ibo);
+        out.vaos.push(vao);
+        out.triVao = vao;
+        out.triCount = tri.icount;
+      }
+      return out;
+    });
+    if (!res) return;
     const borderLoc = gl.getUniformLocation(strokeProgram, "border_mode");
 
     const drawTriangulatedFill = () => {
       // Port of render_triangulated_fill: real triangles with real z,
       // depth test forced on (as in the native path)
-      const tri = batch.tri;
-      if (!tri) return;
-      const vao = gl.createVertexArray();
-      gl.bindVertexArray(vao);
-      const vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, vertexBytes.subarray(
-        tri.voffset, tri.voffset + tri.vcount * 40), gl.STREAM_DRAW);
-      const surfAttrs = [["point", 3, 0], ["d_normal_point", 3, 12],
-                         ["rgba", 4, 24]];
-      for (const [name, size, off] of surfAttrs) {
-        const loc = gl.getAttribLocation(surfaceProgram, name);
-        if (loc < 0) continue;
-        gl.enableVertexAttribArray(loc);
-        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 40, off);
-      }
-      const ibo = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, vertexBytes.subarray(
-        tri.ioffset, tri.ioffset + tri.icount * 4), gl.STREAM_DRAW);
+      if (!res.triVao) return;
       gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
       gl.viewport(0, 0, width, height);
       gl.useProgram(surfaceProgram);
@@ -296,11 +349,9 @@ const ManimlGL = (() => {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.blendEquation(gl.FUNC_ADD);
       gl.enable(gl.DEPTH_TEST);
-      gl.drawElements(gl.TRIANGLES, tri.icount, gl.UNSIGNED_INT, 0);
+      gl.bindVertexArray(res.triVao);
+      gl.drawElements(gl.TRIANGLES, res.triCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
-      gl.deleteVertexArray(vao);
-      gl.deleteBuffer(vbo);
-      gl.deleteBuffer(ibo);
     };
 
     const drawFill = () => {
@@ -316,7 +367,7 @@ const ManimlGL = (() => {
       setUniforms(fillProgram, uniforms);
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
         gl.ONE_MINUS_DST_ALPHA, gl.ONE);
-      gl.bindVertexArray(fillVao);
+      gl.bindVertexArray(res.fillVao);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instances);
       // Fill border (stroke program over fill color/border width)
       gl.useProgram(strokeProgram);
@@ -324,7 +375,7 @@ const ManimlGL = (() => {
       gl.uniform1f(borderLoc, 1.0);
       gl.blendFunc(gl.ONE, gl.ONE);
       gl.blendEquation(gl.MAX);
-      gl.bindVertexArray(borderVao);
+      gl.bindVertexArray(res.borderVao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, strokeVerts, instances);
       // Composite onto the scene target
       gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo);
@@ -354,7 +405,7 @@ const ManimlGL = (() => {
       gl.useProgram(strokeProgram);
       setUniforms(strokeProgram, uniforms);
       gl.uniform1f(borderLoc, 0.0);
-      gl.bindVertexArray(strokeVao);
+      gl.bindVertexArray(res.strokeVao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, strokeVerts, instances);
     };
 
@@ -362,11 +413,7 @@ const ManimlGL = (() => {
     else { drawFill(); drawStroke(); }
 
     gl.bindVertexArray(null);
-    gl.deleteVertexArray(fillVao);
-    gl.deleteVertexArray(strokeVao);
-    gl.deleteVertexArray(borderVao);
-    gl.deleteBuffer(buffer);
   }
 
-  return { init, render };
+  return { init, render, onCacheMiss: null };
 })();

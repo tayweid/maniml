@@ -128,6 +128,9 @@ glBtn.onclick = async () => {
   try {
     if (!glReady) {
       await ManimlGL.init(document.getElementById("glview"));
+      // Evicted a batch the server still considers sent: ask for a
+      // full resend on the next payload
+      ManimlGL.onCacheMiss = () => send({ type: "geometry_reset" });
       glReady = true;
     }
   } catch (err) {

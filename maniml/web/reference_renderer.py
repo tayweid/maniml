@@ -105,6 +105,20 @@ class ReferenceRenderer:
             self.composite_program, self.ctx.buffer(quad.tobytes()),
             "texcoord", mode=moderngl.TRIANGLE_STRIP)
         self._size = None
+        # Delta-encoding cache: batch content hash -> GPU resources.
+        # A batch marked "cached" whose hash is absent is a protocol
+        # error here (the JS client requests a reset instead).
+        self.batch_cache: dict[str, dict] = {}
+
+    def _resources(self, batch, builder):
+        resources = self.batch_cache.get(batch["hash"])
+        if resources is None:
+            if batch.get("cached"):
+                raise KeyError(
+                    f"geometry cache miss for batch {batch['hash']}")
+            resources = builder()
+            self.batch_cache[batch["hash"]] = resources
+        return resources
 
     def _ensure_targets(self, size, samples):
         if self._size == (size, samples):
@@ -146,13 +160,18 @@ class ReferenceRenderer:
 
     def _render_dotcloud(self, header, batch, vertex_bytes):
         ctx = self.ctx
-        start = batch["offset"]
-        buffer = ctx.buffer(
-            vertex_bytes[start:start + batch["num_verts"] * 32])
+
+        def build():
+            start = batch["offset"]
+            buffer = ctx.buffer(
+                vertex_bytes[start:start + batch["num_verts"] * 32])
+            vao = ctx.vertex_array(
+                self.dot_program, [(buffer, DOT_FORMAT, *DOT_ATTRS)])
+            return {"buffer": buffer, "vao": vao}
+
+        resources = self._resources(batch, build)
         _set_uniforms(self.dot_program,
                       {**header["camera"], **batch["uniforms"]})
-        vao = ctx.vertex_array(
-            self.dot_program, [(buffer, DOT_FORMAT, *DOT_ATTRS)])
         self.out_fbo.use()
         ctx.blend_func = moderngl.DEFAULT_BLENDING
         ctx.blend_equation = moderngl.FUNC_ADD
@@ -160,16 +179,11 @@ class ReferenceRenderer:
             ctx.enable(moderngl.DEPTH_TEST)
         else:
             ctx.disable(moderngl.DEPTH_TEST)
-        vao.render(moderngl.TRIANGLE_STRIP, vertices=4,
-                   instances=batch["num_verts"])
-        vao.release()
-        buffer.release()
+        resources["vao"].render(moderngl.TRIANGLE_STRIP, vertices=4,
+                                instances=batch["num_verts"])
 
     def _render_vmobject(self, header, batch, vertex_bytes):
         ctx = self.ctx
-        start = batch["offset"]
-        nbytes = batch["num_verts"] * VERTEX_STRIDE
-        buffer = ctx.buffer(vertex_bytes[start:start + nbytes])
         instances = batch["num_verts"] // 3
         # The batch's tightest strip; the shader clamps per curve anyway
         stroke_verts = batch.get("stroke_verts", 64)
@@ -178,36 +192,49 @@ class ReferenceRenderer:
         _set_uniforms(self.fill_program, uniforms)
         _set_uniforms(self.stroke_program, uniforms)
 
-        fill_vao = ctx.vertex_array(
-            self.fill_program, [(buffer, FILL_FORMAT, *FILL_ATTRS)])
-        stroke_vao = ctx.vertex_array(
-            self.stroke_program, [(buffer, STROKE_FORMAT, *STROKE_ATTRS)])
-        border_vao = ctx.vertex_array(
-            self.stroke_program, [(buffer, BORDER_FORMAT, *BORDER_ATTRS)])
+        def build():
+            start = batch["offset"]
+            nbytes = batch["num_verts"] * VERTEX_STRIDE
+            buffer = ctx.buffer(vertex_bytes[start:start + nbytes])
+            resources = {
+                "buffer": buffer,
+                "fill_vao": ctx.vertex_array(
+                    self.fill_program, [(buffer, FILL_FORMAT, *FILL_ATTRS)]),
+                "stroke_vao": ctx.vertex_array(
+                    self.stroke_program,
+                    [(buffer, STROKE_FORMAT, *STROKE_ATTRS)]),
+                "border_vao": ctx.vertex_array(
+                    self.stroke_program,
+                    [(buffer, BORDER_FORMAT, *BORDER_ATTRS)]),
+                "tri_vao": None,
+            }
+            tri = batch.get("tri")
+            if tri is not None:
+                vbo = ctx.buffer(vertex_bytes[
+                    tri["voffset"]:tri["voffset"] + tri["vcount"] * 40])
+                ibo = ctx.buffer(vertex_bytes[
+                    tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4])
+                resources["tri_vbo"] = vbo
+                resources["tri_ibo"] = ibo
+                resources["tri_vao"] = ctx.vertex_array(
+                    self.surface_program,
+                    [(vbo, "3f 3f 4f", "point", "d_normal_point", "rgba")],
+                    index_buffer=ibo, index_element_size=4)
+            return resources
+
+        resources = self._resources(batch, build)
 
         def draw_triangulated_fill():
             # Port of render_triangulated_fill: real triangles with real
             # z, depth test forced on (as in the native path)
-            tri = batch.get("tri")
-            if tri is None:
+            if resources["tri_vao"] is None:
                 return
-            vbo = ctx.buffer(vertex_bytes[
-                tri["voffset"]:tri["voffset"] + tri["vcount"] * 40])
-            ibo = ctx.buffer(vertex_bytes[
-                tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4])
             _set_uniforms(self.surface_program, uniforms)
-            vao = ctx.vertex_array(
-                self.surface_program,
-                [(vbo, "3f 3f 4f", "point", "d_normal_point", "rgba")],
-                index_buffer=ibo, index_element_size=4)
             self.out_fbo.use()
             ctx.blend_func = moderngl.DEFAULT_BLENDING
             ctx.blend_equation = moderngl.FUNC_ADD
             ctx.enable(moderngl.DEPTH_TEST)
-            vao.render(moderngl.TRIANGLES)
-            vao.release()
-            vbo.release()
-            ibo.release()
+            resources["tri_vao"].render(moderngl.TRIANGLES)
 
         def draw_fill():
             if batch.get("fill_mode") == "triangulated":
@@ -221,14 +248,15 @@ class ReferenceRenderer:
             ctx.blend_func = (
                 moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA,
                 moderngl.ONE_MINUS_DST_ALPHA, moderngl.ONE)
-            fill_vao.render(moderngl.TRIANGLES, vertices=6,
-                            instances=instances)
+            resources["fill_vao"].render(moderngl.TRIANGLES, vertices=6,
+                                         instances=instances)
             # Fill border (stroke program over fill color/border width)
             ctx.blend_func = (moderngl.ONE, moderngl.ONE)
             ctx.blend_equation = moderngl.MAX
             self.stroke_program["border_mode"].value = 1.0
-            border_vao.render(moderngl.TRIANGLE_STRIP,
-                              vertices=stroke_verts, instances=instances)
+            resources["border_vao"].render(
+                moderngl.TRIANGLE_STRIP, vertices=stroke_verts,
+                instances=instances)
             # Composite onto the output frame
             self.out_fbo.use()
             ctx.blend_func = (moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
@@ -246,8 +274,9 @@ class ReferenceRenderer:
             else:
                 ctx.disable(moderngl.DEPTH_TEST)
             self.stroke_program["border_mode"].value = 0.0
-            stroke_vao.render(moderngl.TRIANGLE_STRIP,
-                              vertices=stroke_verts, instances=instances)
+            resources["stroke_vao"].render(
+                moderngl.TRIANGLE_STRIP, vertices=stroke_verts,
+                instances=instances)
 
         if batch["stroke_behind"]:
             draw_stroke()
@@ -255,7 +284,3 @@ class ReferenceRenderer:
         else:
             draw_fill()
             draw_stroke()
-
-        for vao in (fill_vao, stroke_vao, border_vao):
-            vao.release()
-        buffer.release()
