@@ -36,6 +36,10 @@ RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
 URL_PATTERN = re.compile(r"http://localhost:\d+/")
 DEFAULT_APP_PORT = 8685
+# Fixed control-channel port, Knuth-style: the hosted frontend
+# (tayweid.github.io) connects to ws://127.0.0.1:CONTROL_WS_PORT —
+# WebSockets bypass CORS, so the local server needs no special headers
+CONTROL_WS_PORT = 8686
 
 
 def missing_module_hint(log: str) -> str | None:
@@ -187,31 +191,28 @@ class AppServer:
                 self.wfile.write(body)
 
             def do_GET(self):
-                if self.path in ("/", "/index.html"):
-                    with open(os.path.join(STATIC_DIR, "app.html"),
-                              "rb") as f:
-                        body = f.read()
-                    self.send_response(200)
-                    self.send_header("Content-Type",
-                                     "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                elif self.path == "/api/files":
-                    files = find_scene_files(app.root)
-                    listed = {f["path"] for f in files}
-                    recents = []
-                    for path in load_recents():
-                        if path in listed or not os.path.exists(path):
-                            continue
-                        recents.append({
-                            "path": path, "rel": path,
-                            "scenes": find_scene_classes(path),
-                        })
-                    self._json({"root": app.root, "files": files,
-                                "recents": recents})
-                else:
+                if self.path == "/api/files":
+                    self._json(app.files_payload())
+                    return
+                # Serve the whole static dir (landing, viewer, renderer
+                # assets) so the local flow matches the hosted one
+                path = "app.html" if self.path in ("/", "/index.html") \
+                    else self.path.lstrip("/").split("?")[0]
+                full = os.path.realpath(os.path.join(STATIC_DIR, path))
+                if not full.startswith(os.path.realpath(STATIC_DIR)) \
+                        or not os.path.isfile(full):
                     self._json({"error": "not found"}, 404)
+                    return
+                import mimetypes
+                ctype = mimetypes.guess_type(full)[0] \
+                    or "application/octet-stream"
+                with open(full, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
 
             def do_POST(self):
                 if self.path != "/api/open":
@@ -220,24 +221,11 @@ class AppServer:
                 length = int(self.headers.get("Content-Length", 0))
                 try:
                     request = json.loads(self.rfile.read(length))
-                    path = os.path.abspath(request["path"])
-                except (ValueError, KeyError):
+                except ValueError:
                     self._json({"error": "bad request"}, 400)
                     return
-                if not os.path.exists(path):
-                    self._json({"error": f"no such file: {path}"}, 404)
-                    return
-                scene = request.get("scene") or None
-                url = app.open_scene(path, scene)
-                if url is None:
-                    key = (path, scene or "")
-                    process = app.processes.get(key)
-                    tail = "".join(process.lines) if process else ""
-                    self._json({"error": "scene failed to start",
-                                "log": tail[-4000:],
-                                "hint": missing_module_hint(tail)}, 500)
-                else:
-                    self._json({"url": url})
+                response = app.open_payload(request)
+                self._json(response, 200 if "url" in response else 500)
 
         try:
             self.httpd = ThreadingHTTPServer(
@@ -246,6 +234,7 @@ class AppServer:
             self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.httpd.server_address[1]
         self.url = f"http://localhost:{self.port}/"
+        self._start_control_ws()
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
         key = (path, scene or "")
@@ -258,6 +247,77 @@ class AppServer:
         if url:
             remember_recent(path)
         return url
+
+    def files_payload(self) -> dict:
+        files = find_scene_files(self.root)
+        listed = {f["path"] for f in files}
+        recents = []
+        for path in load_recents():
+            if path in listed or not os.path.exists(path):
+                continue
+            recents.append({"path": path, "rel": path,
+                            "scenes": find_scene_classes(path)})
+        return {"root": self.root, "files": files, "recents": recents}
+
+    def open_payload(self, request: dict) -> dict:
+        try:
+            path = os.path.abspath(request["path"])
+        except (KeyError, TypeError):
+            return {"error": "bad request"}
+        if not os.path.exists(path):
+            return {"error": f"no such file: {path}"}
+        scene = request.get("scene") or None
+        url = self.open_scene(path, scene)
+        if url is None:
+            process = self.processes.get((path, scene or ""))
+            tail = "".join(process.lines) if process else ""
+            return {"error": "scene failed to start", "log": tail[-4000:],
+                    "hint": missing_module_hint(tail)}
+        # ws_port lets a hosted frontend connect its own viewer page
+        ws_port = int(url.rstrip("/").rsplit(":", 1)[1]) + 1
+        return {"url": url, "ws_port": ws_port}
+
+    def _start_control_ws(self):
+        """Fixed-port WebSocket control channel for the hosted frontend
+        (the local landing page uses it too — one code path)."""
+        import asyncio
+        import websockets.asyncio.server as ws_server
+
+        async def handler(ws):
+            async for message in ws:
+                try:
+                    request = json.loads(message)
+                except ValueError:
+                    continue
+                op = request.get("op")
+                if op == "files":
+                    response = self.files_payload()
+                elif op == "open":
+                    response = await asyncio.to_thread(
+                        self.open_payload, request)
+                else:
+                    response = {"error": f"unknown op {op}"}
+                response["id"] = request.get("id")
+                await ws.send(json.dumps(response))
+
+        async def main():
+            async with ws_server.serve(handler, "127.0.0.1",
+                                       CONTROL_WS_PORT):
+                self._control_ready.set()
+                await asyncio.Future()
+
+        def run():
+            try:
+                asyncio.run(main())
+            except OSError:
+                print(f"warning: control port {CONTROL_WS_PORT} is taken — "
+                      "the hosted app page will not find this server")
+                self._control_ready.set()
+
+        self._control_ready = threading.Event()
+        threading.Thread(target=run, name="maniml-app-control",
+                         daemon=True).start()
+        self._control_ready.wait(timeout=5)
 
     def serve_forever(self):
         self.httpd.serve_forever()

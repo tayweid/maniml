@@ -33,6 +33,11 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self.path = "/viewer.html"  # a scene process serves the viewer
+        super().do_GET()
+
     def log_message(self, format, *args):
         pass
 

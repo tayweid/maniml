@@ -112,6 +112,28 @@ class AppShellE2E(unittest.TestCase):
             urllib.request.urlopen(request, timeout=40).read())
         self.assertEqual(reopened["url"], opened["url"])
 
+    def test_control_websocket(self):
+        # The fixed-port control channel the hosted PWA uses
+        with ws_connect("ws://127.0.0.1:8686/") as ws:
+            ws.send(json.dumps({"op": "files", "id": 1}))
+            data = json.loads(ws.recv(timeout=10))
+            self.assertEqual(data["id"], 1)
+            entry = next(f for f in data["files"]
+                         if f["rel"] == "app_scene.py")
+            ws.send(json.dumps({"op": "open", "id": 2,
+                                "path": entry["path"], "scene": "AppDemo"}))
+            opened = json.loads(ws.recv(timeout=60))
+            self.assertEqual(opened["id"], 2)
+            self.assertIn("ws_port", opened, opened.get("error"))
+        # The app server serves the viewer page for the hosted-style
+        # navigation (viewer.html?ws=PORT)
+        page = urllib.request.urlopen(
+            self.url + "viewer.html", timeout=5).read().decode()
+        self.assertIn("<canvas", page)
+        manifest = urllib.request.urlopen(
+            self.url + "manifest.webmanifest", timeout=5).read().decode()
+        self.assertIn("maniml", manifest)
+
     def test_missing_module_hint(self):
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")
         with open(broken, "w") as f:

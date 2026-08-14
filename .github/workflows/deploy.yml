@@ -1,0 +1,39 @@
+name: Deploy app to GitHub Pages
+
+# The frontend (landing + viewer + client renderers) is plain static
+# files — no build step. Push to main -> the hosted app at
+# tayweid.github.io/maniml updates; the installed PWA picks it up on
+# next load. The local `maniml app` process is the compute side.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          # Create/enable the Pages site from the workflow itself — the
+          # Settings->Pages UI state has been unreliable (same as knuth)
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: maniml/web/static
+      - uses: actions/deploy-pages@v4
+        id: deployment
