@@ -122,9 +122,19 @@ native renderer, in priority order; checked = done):
   clip-space depth remap in emit_gl_position (GL [-w,w] → WebGPU
   [0,w]), per-pipeline blend state, one packed 176-byte uniform struct
   (keep UNIFORM_FIELDS and struct Uniforms in sync), top-down readback.
-  Not yet: 3D/depth/MSAA, dots, textures/surfaces, batch caching, and
-  the browser-side JS. Then: browser WebGPU renderer beside WebGL2 →
-  migrate → retire.
+  FULL SCOPE 2026-08-14 (second pass): the wgpu backend now covers the
+  entire parity ledger — 3D/depth/MSAA (per-pipeline depth state,
+  multisampled target + resolve), triangulated fill (indexed draw),
+  dots, images, surfaces, textured surfaces, clip planes — via a lazy
+  pipeline cache keyed (name, sample_count). tests/test_wgpu_port.py
+  runs all six fidelity scenes: 2D/clip/dots bit-perfect (max 1/255);
+  image/3D/surfaces differ on ~0.04% of pixels at silhouette edges
+  (implementation-defined MSAA sample positions + texture-filtering
+  precision, Metal vs GL — legitimate cross-API variance).
+  Not yet: batch/buffer caching for deltas, and the browser-side JS
+  (same WGSL, navigator.gpu driver mirroring wgpu_renderer.py's pass
+  structure — keep them in sync). Then: browser WebGPU beside WebGL2 →
+  migrate → retire the geometry-shader pipeline.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub
