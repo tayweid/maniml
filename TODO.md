@@ -98,8 +98,17 @@ native renderer, in priority order; checked = done):
    entirely (no per-frame readback/encode server-side) and the GL
    canvas is the viewer, fully interactive; unsupported content is
    surfaced loudly in the bar since there is no pixel safety net.
-   THE STAGE-2 BURN-IN STATE — dogfood real course scenes here; the
-   baked player = record the 0x03 stream to a file.
+   THE STAGE-2 BURN-IN STATE — dogfood real course scenes here.
+   → The baked player SHIPPED 2026-08-14: `--export` records the
+   geometry stream headlessly (web/export.py, the same _web_viewer
+   hooks, unpaced) into ./media/SceneName_web/ — a self-contained
+   static folder (player page + both renderers + gzipped stream, ~7x
+   compression; the dogfood Demo bakes to 1.7MB) for GitHub Pages
+   sharing: scrub/play per animation segment, no Python anywhere.
+   Known cost: delta granularity is per merged batch, so an animating
+   batch re-ships whole frames — fine for hold-heavy lectures, ~video-
+   sized for animation-dense scenes; per-submobject deltas if it ever
+   matters.
 - Anything unsupported stays honestly declared in the payload's
   `unsupported` list; the pixel stream remains the fallback throughout.
 - **The endgame (decided 2026-08-14): WebGPU as the one canonical

@@ -28,6 +28,10 @@ Modes:
                    watcher, then starts at the first checkpoint
   --render         No window: write the scene to a video file and
                    each checkpoint to a PNG, under ./media/
+  --export         Bake the scene into a self-contained web player
+                   (./media/SceneName_web/) — a static folder anyone
+                   can open in a browser with no Python; host it on
+                   GitHub Pages to share
   --help, -h       Show this help message
 
 Interactive controls (in the preview window):
@@ -60,7 +64,8 @@ def main():
         print(USAGE)
         sys.exit(0)
 
-    unknown = flags - {'--present', '--render', '--web', '--no-browser'}
+    unknown = flags - {'--present', '--render', '--web', '--no-browser',
+                       '--export'}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -79,6 +84,7 @@ def main():
         present='--present' in flags,
         render='--render' in flags,
         web='--web' in flags,
+        export='--export' in flags,
         open_browser='--no-browser' not in flags,
     )
 
@@ -151,7 +157,7 @@ def load_scene_module(script_file):
 
 
 def run_scene(script_file, scene_name, present=False, render=False,
-              web=False, open_browser=True):
+              web=False, export=False, open_browser=True):
     module = load_scene_module(script_file)
 
     if scene_name is None:
@@ -173,6 +179,19 @@ def run_scene(script_file, scene_name, present=False, render=False,
     if scene_class is None or not callable(scene_class):
         print(f"Error: Scene '{scene_name}' not found in {script_file}")
         sys.exit(1)
+
+    if export:
+        from maniml.web.export import export_scene
+        media_dir = os.path.join(
+            os.path.dirname(os.path.abspath(script_file)), 'media')
+        scene = scene_class(window=None)
+        scene._scene_filepath = os.path.abspath(script_file)
+        out_dir = export_scene(
+            scene, os.path.join(media_dir, f'{scene_name}_web'))
+        print(f'Exported web player: {out_dir}')
+        print('Serve it with any static host, e.g. '
+              f'cd {out_dir} && python3 -m http.server')
+        return
 
     if render:
         media_dir = os.path.join(
