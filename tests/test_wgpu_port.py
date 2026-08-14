@@ -75,5 +75,36 @@ class WgpuPortFidelity(unittest.TestCase):
                     f"(mean {mean_diff:.3f})")
 
 
+@unittest.skipUnless(HAVE_WGPU, "wgpu not installed")
+class WgpuDeltaEncoding(unittest.TestCase):
+    def test_cached_batches_render_identically(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.test_gl_port import PortScene
+        from maniml.mobject.geometry import Circle
+        from maniml.constants import BLUE, LEFT, RIGHT
+
+        scene = PortScene(window=None)
+        circle = Circle(color=BLUE, fill_opacity=0.6).shift(LEFT * 3)
+        scene.add(circle)
+        scene.update_frame(dt=0, force_draw=True)
+
+        cache = GeometryCache()
+        h1, b1 = parse_geometry_message(serialize_scene(scene, cache))
+        h2, b2 = parse_geometry_message(serialize_scene(scene, cache))
+        self.assertTrue(all(b.get("cached") for b in h2["batches"]))
+        circle.shift(RIGHT * 2)
+        scene.update_frame(dt=0, force_draw=True)
+        native3 = np.asarray(scene.get_image().convert("RGB"), float)
+        h3, b3 = parse_geometry_message(serialize_scene(scene, cache))
+
+        renderer = WgpuRenderer()
+        img1 = np.asarray(renderer.render(h1, b1).convert("RGB"), float)
+        img2 = np.asarray(renderer.render(h2, b2).convert("RGB"), float)
+        self.assertTrue((img1 == img2).all())
+        img3 = np.asarray(renderer.render(h3, b3).convert("RGB"), float)
+        self.assertLess(np.abs(native3 - img3).mean(), 1.5)
+
+
 if __name__ == "__main__":
     unittest.main()

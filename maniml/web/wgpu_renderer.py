@@ -222,7 +222,21 @@ class WgpuRenderer:
             mag_filter="linear", min_filter="linear",
             address_mode_u="repeat", address_mode_v="repeat")
         self.texture_cache: dict[str, wgpu.GPUTexture] = {}
+        # Delta-encoding cache: batch content hash -> GPU buffers. A
+        # batch marked "cached" whose hash is absent is a protocol
+        # error here (the browser driver requests a reset instead).
+        self.batch_cache: dict[str, dict] = {}
         self._size = None
+
+    def _resources(self, batch, builder):
+        resources = self.batch_cache.get(batch["hash"])
+        if resources is None:
+            if batch.get("cached"):
+                raise KeyError(
+                    f"geometry cache miss for batch {batch['hash']}")
+            resources = builder()
+            self.batch_cache[batch["hash"]] = resources
+        return resources
 
     def _pipeline(self, name, samples):
         key = (name, samples)
@@ -379,11 +393,15 @@ class WgpuRenderer:
         name = self._batch_pipeline_name(batch)
         pipeline = self._pipeline(name, samples)
         uniforms = {**header["camera"], **batch["uniforms"]}
-        start = batch["offset"]
-        buffer = self.device.create_buffer_with_data(
-            data=vertex_bytes[start:start + batch["num_verts"]
-                              * batch["stride"]],
-            usage=wgpu.BufferUsage.VERTEX)
+
+        def build():
+            start = batch["offset"]
+            return {"buffer": self.device.create_buffer_with_data(
+                data=vertex_bytes[start:start + batch["num_verts"]
+                                  * batch["stride"]],
+                usage=wgpu.BufferUsage.VERTEX)}
+
+        buffer = self._resources(batch, build)["buffer"]
         render_pass = self._out_pass(encoder)
         render_pass.set_pipeline(pipeline)
         render_pass.set_bind_group(
@@ -404,11 +422,28 @@ class WgpuRenderer:
         instances = batch["num_verts"] // 3
         stroke_verts = batch.get("stroke_verts", 64)
         depth = bool(batch.get("depth_test"))
-        start = batch["offset"]
-        buffer = device.create_buffer_with_data(
-            data=vertex_bytes[start:start + batch["num_verts"]
-                              * VERTEX_STRIDE],
-            usage=wgpu.BufferUsage.VERTEX)
+
+        def build():
+            start = batch["offset"]
+            resources = {"buffer": device.create_buffer_with_data(
+                data=vertex_bytes[start:start + batch["num_verts"]
+                                  * VERTEX_STRIDE],
+                usage=wgpu.BufferUsage.VERTEX)}
+            tri = batch.get("tri")
+            if tri is not None:
+                resources["tri_vbo"] = device.create_buffer_with_data(
+                    data=vertex_bytes[
+                        tri["voffset"]:tri["voffset"] + tri["vcount"] * 40],
+                    usage=wgpu.BufferUsage.VERTEX)
+                resources["tri_ibo"] = device.create_buffer_with_data(
+                    data=vertex_bytes[
+                        tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4],
+                    usage=wgpu.BufferUsage.INDEX)
+                resources["tri_icount"] = tri["icount"]
+            return resources
+
+        resources = self._resources(batch, build)
+        buffer = resources["buffer"]
 
         def draw_winding_fill():
             # Pass A: accumulate winding fill + border into fill_texture
@@ -445,26 +480,17 @@ class WgpuRenderer:
             out_pass.end()
 
         def draw_triangulated_fill():
-            tri = batch.get("tri")
-            if tri is None:
+            if "tri_vbo" not in resources:
                 return
             # Depth forced on, as in the native path
             pipeline = self._pipeline("surface_depth", samples)
-            vbo = device.create_buffer_with_data(
-                data=vertex_bytes[
-                    tri["voffset"]:tri["voffset"] + tri["vcount"] * 40],
-                usage=wgpu.BufferUsage.VERTEX)
-            ibo = device.create_buffer_with_data(
-                data=vertex_bytes[
-                    tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4],
-                usage=wgpu.BufferUsage.INDEX)
             out_pass = self._out_pass(encoder)
             out_pass.set_pipeline(pipeline)
             out_pass.set_bind_group(
                 0, self._uniform_bind_group(pipeline, uniforms))
-            out_pass.set_vertex_buffer(0, vbo)
-            out_pass.set_index_buffer(ibo, "uint32")
-            out_pass.draw_indexed(tri["icount"])
+            out_pass.set_vertex_buffer(0, resources["tri_vbo"])
+            out_pass.set_index_buffer(resources["tri_ibo"], "uint32")
+            out_pass.draw_indexed(resources["tri_icount"])
             out_pass.end()
 
         def draw_fill():
