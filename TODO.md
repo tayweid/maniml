@@ -152,6 +152,22 @@ native renderer, in priority order; checked = done):
   Remaining: dogfood both backends → pick WebGPU as canonical → retire
   gl.js/glsl, then the geometry-shader pipeline + pyglet.
 
+**Stage 3b — the hosted PWA (2026-08-14, Knuth's architecture).**
+The frontend deploys to GitHub Pages on push (.github/workflows/
+deploy.yml uploads web/static verbatim — no build step; enablement:
+true like knuth's) and installs from Chrome via manifest.webmanifest.
+The hosted landing (app.html) talks to the local `maniml app` process
+over a fixed-port control WebSocket (ws://127.0.0.1:8686 — WebSockets
+bypass CORS, the Knuth trick; 5197 is knuth's) and opens scenes at
+viewer.html?ws=<port>, which connects straight to the scene process's
+socket. If the local app isn't running the page shows the one-time
+setup (pip install git+…, `maniml app`) and reconnects automatically.
+Push to main → the installed app updates everywhere on next load — no
+wheel roundtrip; pip update only needed when the local/protocol side
+changes. Enable after pushing: the workflow creates the Pages site
+itself. The viewer file is now viewer.html (index.html redirects to
+the landing; scene processes serve viewer.html at their root).
+
 **Stage 3 — the app (started 2026-08-14).** `maniml app [dir]`
 (`web/app.py` + `static/app.html`): persistent local server, landing
 page listing scene files under the dir (AST scan for *Scene classes,
