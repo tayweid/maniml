@@ -11,7 +11,7 @@ import unittest
 
 import numpy as np
 
-from maniml.scene.scene import Scene
+from maniml.scene.scene import Scene, ThreeDScene
 from maniml.mobject.geometry import Circle, Square, Polygon
 from maniml.mobject.svg.text_mobject import Text
 from maniml.constants import LEFT, RIGHT, UP, DOWN
@@ -24,6 +24,20 @@ from maniml.web.reference_renderer import ReferenceRenderer
 class PortScene(Scene):
     def construct(self):
         pass
+
+
+class Port3DScene(ThreeDScene):
+    def construct(self):
+        pass
+
+
+def payload_size(header):
+    total = 0
+    for batch in header["batches"]:
+        total += batch["num_verts"] * 68
+        if "tri" in batch:
+            total += batch["tri"]["vcount"] * 40 + batch["tri"]["icount"] * 4
+    return total
 
 
 def build_scene():
@@ -75,12 +89,42 @@ class GLPortFidelity(unittest.TestCase):
     def test_payload_wellformed(self):
         scene = build_scene()
         header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
-        total = sum(b["num_verts"] * 68 for b in header["batches"])
-        self.assertEqual(total, len(vertex_bytes))
+        self.assertEqual(payload_size(header), len(vertex_bytes))
         for batch in header["batches"]:
             self.assertEqual(batch["num_verts"] % 3, 0)
             self.assertIn("anti_alias_width", batch["uniforms"])
         self.assertEqual(len(header["camera"]["view"]), 16)
+
+    def test_reference_matches_native_3d(self):
+        scene = Port3DScene(window=None)
+        scene.set_camera_orientation(phi=70 * np.pi / 180,
+                                     theta=30 * np.pi / 180)
+        s1 = Square(color=BLUE, fill_opacity=1.0).scale(1.5)
+        s2 = Square(color=RED, fill_opacity=1.0).scale(1.5).rotate(
+            np.pi / 2, axis=np.array([1.0, 0.0, 0.0]))
+        s3 = Circle(color=YELLOW, fill_opacity=0.9).scale(1.2).shift(UP)
+        scene.add(s1, s2, s3)  # ThreeDScene.add applies depth test
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(header["unsupported"], [])
+        self.assertEqual(header["samples"], 4)
+        self.assertTrue(any("tri" in b for b in header["batches"]))
+        self.assertEqual(payload_size(header), len(vertex_bytes))
+
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+
+        diff = np.abs(native - ported)
+        mean_diff = diff.mean()
+        frac_off = (diff.max(axis=2) > 24).mean()
+        self.assertLess(mean_diff, 2.0,
+                        f"3D mean |diff| {mean_diff:.3f} too high; "
+                        f"{frac_off * 100:.2f}% pixels off by >24")
+        self.assertLess(frac_off, 0.01,
+                        f"3D: {frac_off * 100:.2f}% pixels off by >24 "
+                        f"(mean {mean_diff:.3f})")
 
 
 if __name__ == "__main__":
