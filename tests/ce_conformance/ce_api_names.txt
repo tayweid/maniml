@@ -1,5 +1,6 @@
 # ManimCE public API names, harvested from per-module
-# __all__ declarations. Regenerate with extract_ce_names.py.
+# __all__ declarations by extract_ce_names.py.
+# Source commit: 443f32cf37576b950ceac2d021faed6270c1428e
 AbstractImageMobject
 Add
 AddTextLetterByLetter
@@ -140,6 +141,20 @@ FadeTransform
 FadeTransformPieces
 Flash
 FlatBezierPoints
+FloatHSL
+FloatHSLLike
+FloatHSV
+FloatHSVA
+FloatHSVALike
+FloatHSVLike
+FloatRGB
+FloatRGBA
+FloatRGBALike
+FloatRGBALike_Array
+FloatRGBA_Array
+FloatRGBLike
+FloatRGBLike_Array
+FloatRGB_Array
 FocusOn
 FullScreenQuad
 FullScreenRectangle
@@ -154,13 +169,7 @@ GrowFromEdge
 GrowFromPoint
 HEALTH_CHECKS
 HEAVY
-HSL_Array_Float
-HSL_Tuple_Float
 HSV
-HSVA_Array_Float
-HSVA_Tuple_Float
-HSV_Array_Float
-HSV_Tuple_Float
 Homotopy
 IN
 INVALID_NUMBER_MESSAGE
@@ -170,6 +179,10 @@ ImageMobject
 ImageMobjectFromCamera
 ImplicitFunction
 Indicate
+IntRGB
+IntRGBA
+IntRGBALike
+IntRGBLike
 Integer
 IntegerMatrix
 IntegerTable
@@ -207,11 +220,13 @@ ManimFloat
 ManimFrame
 ManimInt
 ManimMagic
+ManimTextLabel
 MappingCamera
 MappingFunction
 MarkupText
 MathTable
 MathTex
+MathTypst
 Matrix
 MatrixMN
 Mesh
@@ -322,15 +337,7 @@ R3_to_complex
 RESAMPLING_ALGORITHMS
 RGBA
 RGBAPixelArray
-RGBA_Array_Float
-RGBA_Array_Int
-RGBA_Tuple_Float
-RGBA_Tuple_Int
 RGBPixelArray
-RGB_Array_Float
-RGB_Array_Int
-RGB_Tuple_Float
-RGB_Tuple_Int
 RIGHT
 RandomColorGenerator
 Rectangle
@@ -393,6 +400,7 @@ TAU
 THIN
 Table
 TangentLine
+TangentialArc
 Tetrahedron
 Tex
 TexFontTemplates
@@ -415,6 +423,7 @@ TransformMatchingTex
 Triangle
 TrueDot
 TypeWithCursor
+Typst
 UL
 ULTRABOLD
 ULTRAHEAVY
@@ -437,11 +446,17 @@ ValueTracker
 Variable
 Vector
 Vector2D
+Vector2DLike
+Vector2DLike_Array
 Vector2D_Array
 Vector3D
+Vector3DLike
+Vector3DLike_Array
 Vector3D_Array
 VectorField
 VectorND
+VectorNDLike
+VectorNDLike_Array
 VectorND_Array
 VectorScene
 VectorizedPoint
@@ -492,7 +507,6 @@ complex_to_R3
 concatenate_lists
 config
 config_file_paths
-configure_pygui
 console
 counterclockwise_path
 cross2d
@@ -647,6 +661,7 @@ translation_matrix
 triggers_refreshed_triangulation
 tuplify
 turn_animation_into_updater
+typst_to_svg_file
 update_cfg
 update_dict_recursively
 value_from_string

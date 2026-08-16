@@ -1,18 +1,8 @@
-query-filters:
-    - exclude:
-          id: py/init-calls-subclass
-    - exclude:
-          id: py/unexpected-raise-in-special-method
-    - exclude:
-          id: py/modification-of-locals
-    - exclude:
-          id: py/multiple-calls-to-init
-    - exclude:
-          id: py/missing-call-to-init
-    - exclude:
-        id: py/method-first-arg-is-not-self
+name: maniml-codeql
+
 paths:
-    - manim
+  - maniml
+
 paths-ignore:
-    - tests/
-    - example_scenes/
+  - tests
+  - example_scenes
