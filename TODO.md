@@ -157,11 +157,13 @@ The frontend deploys to GitHub Pages on push (.github/workflows/
 deploy.yml uploads web/static verbatim — no build step; enablement:
 true like knuth's) and installs from Chrome via manifest.webmanifest.
 The hosted landing (app.html) talks to the local `maniml app` process
-over a fixed-port control WebSocket (ws://127.0.0.1:8686 — WebSockets
-bypass CORS, the Knuth trick; 5197 is knuth's) and opens scenes at
-viewer.html?ws=<port>, which connects straight to the scene process's
-socket. If the local app isn't running the page shows the one-time
-setup (pip install git+…, `maniml app`) and reconnects automatically.
+over a fixed-port control WebSocket (ws://127.0.0.1:8686). The CLI
+pairs each daemon session through a URL-fragment capability; the socket
+also requires an exact Origin match. It opens scenes at
+viewer.html?ws=<port>, which uses a separate viewer capability to connect
+straight to the scene process's socket. If the local app isn't running
+or the PWA has not been paired, the page shows the one-time setup
+(pip install git+…, `maniml app --hosted`).
 Push to main → the installed app updates everywhere on next load — no
 wheel roundtrip; pip update only needed when the local/protocol side
 changes. Enable after pushing: the workflow creates the Pages site
@@ -180,6 +182,14 @@ WebGPU) + split toggle replacing the cycling buttons, scene name in
 the bar/title, unified dark palette shared with the landing page.
 Later: console panel in the viewer (stdout is already captured),
 stop/restart controls on the landing page, multi-scene tabs.
+
+Security baseline (2026-08-16): the app control socket and each viewer
+socket now require independent process-local capability tokens plus exact
+browser Origin checks before accepting commands or returning data. Tokens
+travel in launch URL fragments and remain tab-session scoped. Scene paths are
+confined to the selected app root by default; `--allow-outside-root` is the
+explicit compatibility escape hatch, and `--hosted` pairs a fresh daemon
+session with the hosted PWA. See `SECURITY.md` and `web/security.py`.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

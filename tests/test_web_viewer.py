@@ -18,6 +18,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
@@ -64,12 +65,18 @@ class WebViewerE2E(unittest.TestCase):
         def find_url():
             import re
             for line in cls.stdout_lines:
-                match = re.search(r"http://localhost:\d+/", line)
+                match = re.search(
+                    r"http://localhost:\d+/#token=[A-Za-z0-9_-]+", line)
                 if match:
                     return match.group(0)
-        cls.url = cls._wait_for(find_url, STARTUP_TIMEOUT, "server URL in stdout")
+        cls.capability_url = cls._wait_for(
+            find_url, STARTUP_TIMEOUT, "server URL in stdout")
+        parsed = urlsplit(cls.capability_url)
+        cls.url = f"{parsed.scheme}://{parsed.netloc}/"
+        cls.token = parsed.fragment.removeprefix("token=")
+        cls.origin = f"http://localhost:{parsed.port}"
         cls.ws_url = "ws://localhost:%d/" % (
-            int(cls.url.rstrip("/").rsplit(":", 1)[1]) + 1)
+            parsed.port + 1)
 
     @classmethod
     def tearDownClass(cls):
@@ -115,12 +122,20 @@ class WebViewerE2E(unittest.TestCase):
                 states.append(json.loads(msg))
         return frames, states
 
+    def _connect(self):
+        ws = ws_connect(
+            self.ws_url, max_size=2**24, origin=self.origin)
+        ws.send(json.dumps({"type": "authenticate", "token": self.token}))
+        response = json.loads(ws.recv(timeout=5))
+        self.assertEqual(response["type"], "authenticated")
+        return ws
+
     def test_full_loop(self):
         # The client page is served
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
         self.assertIn("<canvas", page)
 
-        with ws_connect(self.ws_url, max_size=2**24) as ws:
+        with self._connect() as ws:
             # On connect: a lossless PNG snapshot plus checkpoint state
             frames, states = self._collect(ws, 3)
             self.assertTrue(frames, "no frame after connect")
@@ -162,7 +177,7 @@ class WebViewerE2E(unittest.TestCase):
 
     def test_geometry_snapshot(self):
         from maniml.web.geometry import parse_geometry_message
-        with ws_connect(self.ws_url, max_size=2**24) as ws:
+        with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
             ws.send(json.dumps({"type": "geometry_request"}))
             deadline = time.time() + 8
@@ -217,7 +232,7 @@ class WebViewerE2E(unittest.TestCase):
             ws.send(json.dumps({"type": "mode", "geometry": False}))
 
     def test_future_chips(self):
-        with ws_connect(self.ws_url, max_size=2**24) as ws:
+        with self._connect() as ws:
             frames, states = self._collect(ws, 3)
             self.assertTrue(states, "no state after connect")
             state = states[-1]
@@ -234,6 +249,21 @@ class WebViewerE2E(unittest.TestCase):
             self.assertTrue(states, "no state after future-chip click")
             self.assertGreater(states[-1]["count"], state["count"])
             self.assertEqual(states[-1]["future"], [])
+
+    def test_untrusted_origin_is_rejected(self):
+        with self.assertRaises(Exception):
+            with ws_connect(
+                    self.ws_url, origin="https://attacker.invalid",
+                    open_timeout=3):
+                pass
+
+    def test_wrong_viewer_token_is_rejected(self):
+        with ws_connect(
+                self.ws_url, origin=self.origin, open_timeout=3) as ws:
+            ws.send(json.dumps(
+                {"type": "authenticate", "token": "wrong"}))
+            with self.assertRaises(Exception):
+                ws.recv(timeout=3)
 
 
 if __name__ == "__main__":

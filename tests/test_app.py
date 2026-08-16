@@ -16,6 +16,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
@@ -35,6 +36,7 @@ class AppShellE2E(unittest.TestCase):
     def setUpClass(cls):
         import tempfile
         cls.tmpdir = tempfile.TemporaryDirectory()
+        cls.outside_tmpdir = tempfile.TemporaryDirectory()
         with open(os.path.join(cls.tmpdir.name, "app_scene.py"), "w") as f:
             f.write(SCENE_SOURCE)
 
@@ -42,7 +44,9 @@ class AppShellE2E(unittest.TestCase):
             [sys.executable, "-m", "maniml", "app", cls.tmpdir.name,
              "--no-browser"],
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
-                 "PYTHONUNBUFFERED": "1"},
+                 "PYTHONUNBUFFERED": "1",
+                 "MANIML_RECENTS_PATH": os.path.join(
+                     cls.tmpdir.name, "recents.json")},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         cls.lines = []
         threading.Thread(
@@ -51,14 +55,18 @@ class AppShellE2E(unittest.TestCase):
 
         deadline = time.time() + 15
         cls.url = None
+        cls.token = None
         while time.time() < deadline and cls.url is None:
             if cls.proc.poll() is not None:
                 raise AssertionError(
                     "app died:\n" + "".join(cls.lines))
             for line in cls.lines:
-                match = re.search(r"http://localhost:\d+/", line)
+                match = re.search(
+                    r"(http://localhost:\d+/)#token=([A-Za-z0-9_-]+)",
+                    line)
                 if match:
-                    cls.url = match.group(0)
+                    cls.url = match.group(1)
+                    cls.token = match.group(2)
                     break
             time.sleep(0.05)
         assert cls.url, "no app URL:\n" + "".join(cls.lines)
@@ -71,22 +79,33 @@ class AppShellE2E(unittest.TestCase):
         except subprocess.TimeoutExpired:
             cls.proc.kill()
         cls.tmpdir.cleanup()
+        cls.outside_tmpdir.cleanup()
+
+    @classmethod
+    def _request(cls, path, data=None, headers=None):
+        request_headers = {"Authorization": f"Bearer {cls.token}"}
+        request_headers.update(headers or {})
+        return urllib.request.Request(
+            cls.url + path, data=data, headers=request_headers)
+
+    @classmethod
+    def _open_request(cls, path, scene):
+        return cls._request(
+            "api/open",
+            data=json.dumps({"path": path, "scene": scene}).encode(),
+            headers={"Content-Type": "application/json"})
 
     def test_open_scene_from_landing(self):
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
         self.assertIn("maniml", page)
 
         files = json.loads(urllib.request.urlopen(
-            self.url + "api/files", timeout=5).read())
+            self._request("api/files"), timeout=5).read())
         entry = next(f for f in files["files"]
                      if f["rel"] == "app_scene.py")
         self.assertEqual(entry["scenes"], ["AppDemo"])
 
-        request = urllib.request.Request(
-            self.url + "api/open",
-            data=json.dumps(
-                {"path": entry["path"], "scene": "AppDemo"}).encode(),
-            headers={"Content-Type": "application/json"})
+        request = self._open_request(entry["path"], "AppDemo")
         opened = json.loads(
             urllib.request.urlopen(request, timeout=40).read())
         self.assertIn("url", opened, opened.get("error"))
@@ -95,8 +114,16 @@ class AppShellE2E(unittest.TestCase):
         viewer = urllib.request.urlopen(
             opened["url"], timeout=5).read().decode()
         self.assertIn("<canvas", viewer)
-        ws_port = int(opened["url"].rstrip("/").rsplit(":", 1)[1]) + 1
-        with ws_connect(f"ws://localhost:{ws_port}/", max_size=2**24) as ws:
+        parsed = urlsplit(opened["url"])
+        ws_port = parsed.port + 1
+        viewer_token = parsed.fragment.removeprefix("token=")
+        with ws_connect(
+                f"ws://localhost:{ws_port}/", max_size=2**24,
+                origin=f"http://localhost:{parsed.port}") as ws:
+            ws.send(json.dumps(
+                {"type": "authenticate", "token": viewer_token}))
+            self.assertEqual(
+                json.loads(ws.recv(timeout=5))["type"], "authenticated")
             deadline = time.time() + 10
             got_frame = False
             while time.time() < deadline and not got_frame:
@@ -114,7 +141,12 @@ class AppShellE2E(unittest.TestCase):
 
     def test_control_websocket(self):
         # The fixed-port control channel the hosted PWA uses
-        with ws_connect("ws://127.0.0.1:8686/") as ws:
+        with ws_connect(
+                "ws://127.0.0.1:8686/", origin=self.url.rstrip("/")) as ws:
+            ws.send(json.dumps(
+                {"type": "authenticate", "token": self.token}))
+            self.assertEqual(
+                json.loads(ws.recv(timeout=5))["type"], "authenticated")
             ws.send(json.dumps({"op": "files", "id": 1}))
             data = json.loads(ws.recv(timeout=10))
             self.assertEqual(data["id"], 1)
@@ -141,10 +173,7 @@ class AppShellE2E(unittest.TestCase):
                     "from manim import *\n"
                     "class Broken(Scene):\n"
                     "    def construct(self): pass\n")
-        request = urllib.request.Request(
-            self.url + "api/open",
-            data=json.dumps({"path": broken, "scene": "Broken"}).encode(),
-            headers={"Content-Type": "application/json"})
+        request = self._open_request(broken, "Broken")
         try:
             body = urllib.request.urlopen(request, timeout=40).read()
         except urllib.error.HTTPError as err:
@@ -155,6 +184,66 @@ class AppShellE2E(unittest.TestCase):
         self.assertIn("not_a_real_module_xyz", hint,
                       f"hint missing; log tail: {data.get('log', '')[-500:]}")
         self.assertIn(sys.executable, hint)
+
+    def test_unauthorized_requests_cannot_start_scenes(self):
+        marker = os.path.join(self.tmpdir.name, "unauthorized-marker")
+        scene_path = os.path.join(self.tmpdir.name, "unauthorized_scene.py")
+        with open(scene_path, "w") as f:
+            f.write(
+                f"from pathlib import Path\nPath({marker!r}).touch()\n"
+                "from manim import *\nclass Unauthorized(Scene): pass\n")
+        request = urllib.request.Request(
+            self.url + "api/open",
+            data=json.dumps(
+                {"path": scene_path, "scene": "Unauthorized"}).encode(),
+            headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request, timeout=5)
+        self.assertEqual(raised.exception.code, 401)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_outside_root_and_unknown_scene_are_rejected_before_import(self):
+        outside_marker = os.path.join(
+            self.outside_tmpdir.name, "outside-marker")
+        outside_scene = os.path.join(
+            self.outside_tmpdir.name, "outside_scene.py")
+        with open(outside_scene, "w") as f:
+            f.write(
+                f"from pathlib import Path\nPath({outside_marker!r}).touch()\n"
+                "from manim import *\nclass Outside(Scene): pass\n")
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(
+                self._open_request(outside_scene, "Outside"), timeout=5)
+        self.assertEqual(raised.exception.code, 400)
+        self.assertFalse(os.path.exists(outside_marker))
+
+        inside_marker = os.path.join(self.tmpdir.name, "unknown-marker")
+        inside_scene = os.path.join(self.tmpdir.name, "unknown_scene.py")
+        with open(inside_scene, "w") as f:
+            f.write(
+                f"from pathlib import Path\nPath({inside_marker!r}).touch()\n"
+                "from manim import *\nclass Known(Scene): pass\n")
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(
+                self._open_request(inside_scene, "NotDiscovered"), timeout=5)
+        self.assertEqual(raised.exception.code, 400)
+        self.assertFalse(os.path.exists(inside_marker))
+
+    def test_control_websocket_rejects_untrusted_origin(self):
+        with self.assertRaises(Exception):
+            with ws_connect(
+                    "ws://127.0.0.1:8686/",
+                    origin="https://attacker.invalid", open_timeout=3):
+                pass
+
+    def test_control_websocket_rejects_wrong_token(self):
+        with ws_connect(
+                "ws://127.0.0.1:8686/", origin=self.url.rstrip("/"),
+                open_timeout=3) as ws:
+            ws.send(json.dumps(
+                {"type": "authenticate", "token": "wrong"}))
+            with self.assertRaises(Exception):
+                ws.recv(timeout=3)
 
 
 if __name__ == "__main__":

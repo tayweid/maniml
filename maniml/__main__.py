@@ -18,6 +18,11 @@ App:
   maniml app       Persistent local app: a landing page listing the
                    scene files under [dir] (default: cwd); each scene
                    opens in the browser viewer, one process per scene
+  --allow-outside-root
+                   Allow the app to open explicitly entered scene paths
+                   outside [dir] (off by default)
+  --hosted         Pair and open the hosted PWA instead of the locally
+                   served app page
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -57,7 +62,9 @@ def main():
     if args and args[0] == 'app':
         from maniml.web.app import run_app
         run_app(root=args[1] if len(args) > 1 else '.',
-                open_browser='--no-browser' not in flags)
+                open_browser='--no-browser' not in flags,
+                allow_outside_root='--allow-outside-root' in flags,
+                hosted='--hosted' in flags)
         return
 
     if not args or '--help' in flags or '-h' in flags:
