@@ -5,6 +5,7 @@ import platform
 import shutil
 import subprocess as sp
 import sys
+import tempfile
 
 import numpy as np
 try:
@@ -79,6 +80,7 @@ class SceneFileWriter(object):
         self.writing_process: sp.Popen | None = None
         self.progress_display: ProgressDisplay | None = None
         self.ended_with_interrupt: bool = False
+        self._movie_staging_dir: Path | None = None
 
         self.init_output_directories()
         self.init_audio()
@@ -212,9 +214,21 @@ class SceneFileWriter(object):
             self.open_file()
 
     def open_movie_pipe(self, file_path: str) -> None:
-        stem, ext = os.path.splitext(file_path)
-        self.final_file_path = file_path
-        self.temp_file_path = stem + "_temp" + ext
+        if self.writing_process is not None:
+            raise FFmpegError("ffmpeg movie pipe is already open")
+
+        final_path = Path(file_path)
+        self.final_file_path = final_path
+        try:
+            self._movie_staging_dir = Path(tempfile.mkdtemp(
+                prefix=f".{final_path.stem}-",
+                dir=final_path.parent,
+            ))
+        except OSError as exc:
+            raise FFmpegError(
+                f"Could not create movie staging data beside {final_path}: {exc}"
+            ) from exc
+        self.temp_file_path = self._movie_staging_dir / final_path.name
 
         fps = self.scene.camera.fps
         width, height = self.scene.camera.get_pixel_shape()
@@ -242,18 +256,23 @@ class SceneFileWriter(object):
         try:
             self.writing_process = sp.Popen(command, stdin=sp.PIPE)
         except OSError as exc:
+            self._cleanup_movie_staging()
             raise FFmpegError(
                 f"Could not start ffmpeg executable {self.ffmpeg_bin!r}: {exc}"
             ) from exc
 
-        if not self.quiet:
-            self.progress_display = ProgressDisplay(
-                range(self.total_frames),
-                leave=False,
-                ascii=True if platform.system() == 'Windows' else None,
-                dynamic_ncols=True,
-            )
-            self.set_progress_display_description()
+        try:
+            if not self.quiet:
+                self.progress_display = ProgressDisplay(
+                    range(self.total_frames),
+                    leave=False,
+                    ascii=True if platform.system() == 'Windows' else None,
+                    dynamic_ncols=True,
+                )
+                self.set_progress_display_description()
+        except BaseException:
+            self.abort()
+            raise
 
     def use_fast_encoding(self):
         self.video_codec = "libx264rgb"
@@ -277,8 +296,10 @@ class SceneFileWriter(object):
         self.open_movie_pipe(self.inserted_file_path)
 
     def end_insert(self):
-        self.close_movie_pipe()
-        self.write_to_movie = False
+        try:
+            self.close_movie_pipe()
+        finally:
+            self.write_to_movie = False
         self.print_file_ready_message(self.inserted_file_path)
 
     def has_progress_display(self):
@@ -336,42 +357,106 @@ class SceneFileWriter(object):
                 self.progress_display = None
 
         if returncode != 0:
+            self._cleanup_movie_staging()
             raise FFmpegError(f"ffmpeg exited with status {returncode}")
 
-        if not self.ended_with_interrupt:
-            shutil.move(self.temp_file_path, self.final_file_path)
+        if self.ended_with_interrupt:
+            destination = self._reserve_interrupted_path()
         else:
-            self.movie_file_path = self.temp_file_path
+            destination = self.final_file_path
+
+        try:
+            os.replace(self.temp_file_path, destination)
+        except OSError:
+            if self.ended_with_interrupt:
+                Path(destination).unlink(missing_ok=True)
+            raise
+        else:
+            self._cleanup_movie_staging()
+
+        if self.ended_with_interrupt:
+            self.movie_file_path = Path(destination)
+
+    def abort(self) -> None:
+        """Stop an in-progress encode and discard only generated staging data."""
+        process = self.writing_process
+        self.writing_process = None
+        try:
+            if process is not None:
+                if process.poll() is None:
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass
+                if process.stdin is not None:
+                    try:
+                        process.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass
+                try:
+                    process.wait(timeout=3)
+                except sp.TimeoutExpired:
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                    try:
+                        process.wait(timeout=2)
+                    except sp.TimeoutExpired:
+                        pass
+        finally:
+            if self.progress_display is not None:
+                self.progress_display.close()
+                self.progress_display = None
+            self._cleanup_movie_staging()
+
+    def _cleanup_movie_staging(self) -> None:
+        staging_dir = self._movie_staging_dir
+        self._movie_staging_dir = None
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    def _reserve_interrupted_path(self) -> Path:
+        final_path = Path(self.final_file_path)
+        descriptor, path = tempfile.mkstemp(
+            prefix=f"{final_path.stem}_interrupted_",
+            suffix=final_path.suffix,
+            dir=final_path.parent,
+        )
+        os.close(descriptor)
+        return Path(path)
 
     def add_sound_to_video(self) -> None:
-        movie_file_path = self.get_movie_file_path()
-        stem, ext = os.path.splitext(movie_file_path)
-        sound_file_path = stem + ".wav"
-        # Makes sure sound file length will match video file
-        self.add_audio_segment(AudioSegment.silent(0))
-        self.audio_segment.export(
-            sound_file_path,
-            bitrate='312k',
-        )
-        temp_file_path = stem + "_temp" + ext
-        commands = [
-            self.ffmpeg_bin,
-            "-i", movie_file_path,
-            "-i", sound_file_path,
-            '-y',  # overwrite output file if it exists
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "320k",
-            # select video stream from first file
-            "-map", "0:v:0",
-            # select audio stream from second file
-            "-map", "1:a:0",
-            '-loglevel', 'error',
-            # "-shortest",
-            temp_file_path,
-        ]
-        succeeded = False
-        try:
+        movie_file_path = Path(self.get_movie_file_path())
+        with tempfile.TemporaryDirectory(
+            prefix=f".{movie_file_path.stem}-audio-",
+            dir=movie_file_path.parent,
+        ) as staging_dir:
+            sound_file_path = Path(staging_dir, "audio.wav")
+            muxed_file_path = Path(staging_dir, movie_file_path.name)
+
+            # Makes sure sound file length will match video file
+            self.add_audio_segment(AudioSegment.silent(0))
+            self.audio_segment.export(
+                sound_file_path,
+                bitrate='312k',
+            )
+            commands = [
+                self.ffmpeg_bin,
+                "-i", movie_file_path,
+                "-i", sound_file_path,
+                '-y',  # overwrite the generated staging file if needed
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "320k",
+                # select video stream from first file
+                "-map", "0:v:0",
+                # select audio stream from second file
+                "-map", "1:a:0",
+                '-loglevel', 'error',
+                # "-shortest",
+                muxed_file_path,
+            ]
             try:
                 process = sp.run(commands)
             except OSError as exc:
@@ -382,16 +467,17 @@ class SceneFileWriter(object):
                 raise FFmpegError(
                     f"ffmpeg audio mux failed with status {process.returncode}"
                 )
-            shutil.move(temp_file_path, movie_file_path)
-            succeeded = True
-        finally:
-            Path(sound_file_path).unlink(missing_ok=True)
-            if not succeeded:
-                Path(temp_file_path).unlink(missing_ok=True)
+            os.replace(muxed_file_path, movie_file_path)
 
     def save_final_image(self, image: Image) -> None:
-        file_path = self.get_image_file_path()
-        image.save(file_path)
+        file_path = Path(self.get_image_file_path())
+        with tempfile.TemporaryDirectory(
+            prefix=f".{file_path.stem}-image-",
+            dir=file_path.parent,
+        ) as staging_dir:
+            staging_path = Path(staging_dir, file_path.name)
+            image.save(staging_path)
+            os.replace(staging_path, file_path)
         self.print_file_ready_message(file_path)
 
     def print_file_ready_message(self, file_path: str) -> None:

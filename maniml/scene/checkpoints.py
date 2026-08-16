@@ -388,12 +388,18 @@ class CheckpointMixin:
     def run_next_animation(self):
         """Run the next animation unit, re-executed from the scene source."""
         if not getattr(self, '_scene_filepath', None):
-            print("No scene file path stored")
+            message = "No scene file path stored"
+            if self._strict_animation_errors():
+                raise RuntimeError(message)
+            print(message)
             return
 
         units = self._get_source_units()
         if units is None:
-            print("Cannot parse scene file; fix the error and save again")
+            message = "Cannot parse scene file; fix the error and save again"
+            if self._strict_animation_errors():
+                raise RuntimeError(message)
+            print(message)
             return
 
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
@@ -437,13 +443,15 @@ class CheckpointMixin:
             exec(code, namespace)
         except Exception as e:
             print(f"Error running animation: {e}")
-            traceback.print_exc()
             # Restore the last successfully saved checkpoint so the scene
             # isn't left in a half-executed state
             checkpoint = self.animation_checkpoints[self.current_animation_index]
             self.clear()
             self.restore_state(checkpoint['state'])
             self.update_frame(dt=0, force_draw=True)
+            if self._strict_animation_errors():
+                raise
+            traceback.print_exc()
             return
 
         if not unit.has_play:
@@ -456,6 +464,13 @@ class CheckpointMixin:
         self._live_namespace = namespace
 
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
+
+    def _strict_animation_errors(self) -> bool:
+        return any((
+            getattr(self, '_render_mode', False),
+            getattr(self, '_present_mode', False),
+            getattr(self, '_propagate_animation_errors', False),
+        ))
 
 
 

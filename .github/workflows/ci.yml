@@ -54,7 +54,8 @@ jobs:
             tests.test_safe_text_cache \
             tests.test_headless_import \
             tests.test_app_protocol \
-            tests.test_external_processes
+            tests.test_external_processes \
+            tests.test_scene_lifecycle
 
       - name: Audit locked dependencies
         if: matrix.os == 'ubuntu-22.04' && matrix.python == '3.14'

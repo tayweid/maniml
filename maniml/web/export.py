@@ -61,14 +61,25 @@ def record_scene(scene) -> GeometryRecorder:
     scene._web_viewer = recorder
     scene.virtual_animation_start_time = 0
     scene.real_animation_start_time = time.time()
-    scene.file_writer.begin()
-    scene.setup()
-    scene._create_checkpoint_zero()
-    # Initial still frame (segment -1)
-    scene.update_frame(dt=0, force_draw=True)
-    scene._run_all_units()
-    scene.stop_skipping()
-    scene.file_writer.finish()
+    previous_error_mode = getattr(scene, "_propagate_animation_errors", False)
+    scene._propagate_animation_errors = True
+    try:
+        scene.file_writer.begin()
+        scene.setup()
+        scene._create_checkpoint_zero()
+        # Initial still frame (segment -1)
+        scene.update_frame(dt=0, force_draw=True)
+        scene._run_all_units()
+        scene.stop_skipping()
+        scene.file_writer.finish()
+    except BaseException as error:
+        try:
+            scene.file_writer.abort()
+        except BaseException as cleanup_error:
+            error.add_note(f"Also failed while aborting export output: {cleanup_error}")
+        raise
+    finally:
+        scene._propagate_animation_errors = previous_error_mode
     return recorder
 
 

@@ -28,6 +28,12 @@ interfaces may still change before the first public release.
 - Added bounded TeX tool execution, actionable converter failures, explicit
   ffmpeg status checks, and subprocess-pipe cleanup. Failed encodes are no
   longer promoted as completed movies.
+- Made scene teardown failure-safe across file writers, watchers, and viewers.
+  Movie, audio-mux, and final-image work now uses collision-resistant staging
+  and atomically replaces final paths only after successful completion;
+  interrupted movies are preserved separately. Render, present, and export
+  modes now fail visibly on scene execution or source-parsing errors instead
+  of silently publishing partial output.
 
 ### Packaging and release engineering
 

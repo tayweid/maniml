@@ -156,6 +156,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # Run modes (set by __main__)
         self._present_mode = False  # Pre-built checkpoints, watcher off, timeline scrubber
         self._render_mode = False   # Headless: write video + checkpoint PNGs
+        self._propagate_animation_errors = False  # Strict non-interactive runs
 
         # Presentation timeline overlay
         self._timeline_group = None
@@ -181,10 +182,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def run(self) -> None:
         self.virtual_animation_start_time: float = 0
         self.real_animation_start_time: float = time.time()
-        self.file_writer.begin()
-
-        self.setup()
         try:
+            self.file_writer.begin()
+            self.setup()
             # Create checkpoint 0 right before construct
             self._create_checkpoint_zero()
             if self._render_mode:
@@ -202,6 +202,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             # Get rid keyboard interupt symbols
             print("", end="\r")
             self.file_writer.ended_with_interrupt = True
+        except BaseException:
+            try:
+                self._tear_down_resources(abort=True)
+            except BaseException:
+                log.exception("Scene cleanup failed while handling an earlier error")
+            raise
         self.tear_down()
 
     def setup(self) -> None:
@@ -218,14 +224,40 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         pass
 
     def tear_down(self) -> None:
-        self.stop_skipping()
-        self.file_writer.finish()
-        if self._file_watcher:
-            self._file_watcher.stop()
-            self._file_watcher = None
-        if self.window:
-            self.window.destroy()
-            self.window = None
+        self._tear_down_resources(abort=False)
+
+    def _tear_down_resources(self, *, abort: bool) -> None:
+        """Release every owned resource while preserving the first failure."""
+        errors: list[tuple[str, BaseException]] = []
+
+        def attempt(label, operation):
+            try:
+                operation()
+            except BaseException as exc:
+                errors.append((label, exc))
+
+        attempt("stopping skip mode", self.stop_skipping)
+        if abort:
+            attempt("aborting file output", self.file_writer.abort)
+        else:
+            attempt("finishing file output", self.file_writer.finish)
+
+        watcher = self._file_watcher
+        self._file_watcher = None
+        if watcher is not None:
+            attempt("stopping the file watcher", watcher.stop)
+
+        window = self.window
+        self.window = None
+        if window is not None:
+            attempt("destroying the viewer", window.destroy)
+
+        if errors:
+            first_label, first_error = errors[0]
+            for label, error in errors[1:]:
+                first_error.add_note(f"Also failed while {label}: {error}")
+            first_error.add_note(f"Scene teardown failed while {first_label}")
+            raise first_error
 
     def interact(self) -> None:
         """
@@ -789,11 +821,22 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def temp_record(self):
         if self.camera.window is not None:
             self.camera.use_window_fbo(False)
-        self.file_writer.begin_insert()
         try:
-            yield
+            try:
+                self.file_writer.begin_insert()
+                yield
+            except BaseException as error:
+                try:
+                    self.file_writer.abort()
+                except BaseException as cleanup_error:
+                    error.add_note(
+                        f"Also failed while aborting insert output: {cleanup_error}"
+                    )
+                self.file_writer.write_to_movie = False
+                raise
+            else:
+                self.file_writer.end_insert()
         finally:
-            self.file_writer.end_insert()
             if self.camera.window is not None:
                 self.camera.use_window_fbo(True)
 
