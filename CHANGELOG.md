@@ -16,6 +16,8 @@ interfaces may still change before the first public release.
 - Made the app accept viewer capabilities only from the child process's exact
   launch-handshake line, preventing terminal log wrapping from truncating the
   token.
+- Removed shell-based Windows sound playback and keep filenames out of
+  PowerShell source.
 
 ### Compatibility and reliability
 
@@ -23,6 +25,9 @@ interfaces may still change before the first public release.
   display while preserving the existing native Pyglet window backend.
 - Decoupled shared scene and browser input handling from Pyglet imports, with
   regression checks that its key and mouse values remain native-compatible.
+- Added bounded TeX tool execution, actionable converter failures, explicit
+  ffmpeg status checks, and subprocess-pipe cleanup. Failed encodes are no
+  longer promoted as completed movies.
 
 ### Packaging and release engineering
 

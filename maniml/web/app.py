@@ -165,7 +165,8 @@ class SceneProcess:
             command, cwd=os.path.dirname(path) or None,
             env={**os.environ, "PYTHONUNBUFFERED": "1",
                  "MANIML_APP_ORIGIN": app_origin},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            encoding="utf-8", errors="replace")
         self.lines: deque[str] = deque(maxlen=200)
         self.url: str | None = None
         self._reader = threading.Thread(target=self._read, daemon=True)
@@ -201,6 +202,9 @@ class SceneProcess:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait(timeout=2)
+        self._reader.join(timeout=2)
+        if self.proc.stdout is not None:
+            self.proc.stdout.close()
 
 
 class AppServer:

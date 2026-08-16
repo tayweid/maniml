@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import subprocess
-import threading
+import os
 import platform
+import subprocess
 
 from maniml.utils.directories import get_sound_dir
 from maniml.utils.file_ops import find_file
@@ -22,11 +22,22 @@ def play_sound(sound_file):
     system = platform.system()
 
     if system == "Windows":
-        # Windows
+        # Pass the path as data in the child environment.  Interpolating it
+        # into PowerShell source would let quotes in a filename become code.
+        env = {**os.environ, "MANIML_SOUND_FILE": os.fspath(full_path)}
         subprocess.Popen(
-            ["powershell", "-c", f"(New-Object Media.SoundPlayer '{full_path}').PlaySync()"],
-            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(New-Object Media.SoundPlayer "
+                "$env:MANIML_SOUND_FILE).PlaySync()",
+            ],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     elif system == "Darwin":
         # macOS
         subprocess.Popen(

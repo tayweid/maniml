@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from maniml.scene.scene import Scene
 
 
+class FFmpegError(RuntimeError):
+    """Raised when ffmpeg cannot produce a valid output file."""
+
+
 class SceneFileWriter(object):
     def __init__(
         self,
@@ -235,7 +239,12 @@ class SceneFileWriter(object):
         if self.pixel_format:
             command += ['-pix_fmt', self.pixel_format]
         command += [self.temp_file_path]
-        self.writing_process = sp.Popen(command, stdin=sp.PIPE)
+        try:
+            self.writing_process = sp.Popen(command, stdin=sp.PIPE)
+        except OSError as exc:
+            raise FFmpegError(
+                f"Could not start ffmpeg executable {self.ffmpeg_bin!r}: {exc}"
+            ) from exc
 
         if not self.quiet:
             self.progress_display = ProgressDisplay(
@@ -292,16 +301,42 @@ class SceneFileWriter(object):
     def write_frame(self, camera: Camera) -> None:
         if self.write_to_movie:
             raw_bytes = camera.get_raw_fbo_data()
-            self.writing_process.stdin.write(raw_bytes)
+            process = self.writing_process
+            if process is None or process.stdin is None:
+                raise FFmpegError("ffmpeg movie pipe is not open")
+            if process.poll() is not None:
+                raise FFmpegError(
+                    f"ffmpeg exited early with status {process.returncode}"
+                )
+            try:
+                process.stdin.write(raw_bytes)
+            except BrokenPipeError as exc:
+                process.wait()
+                raise FFmpegError(
+                    f"ffmpeg exited early with status {process.returncode}"
+                ) from exc
             if self.progress_display is not None:
                 self.progress_display.update()
 
     def close_movie_pipe(self) -> None:
-        self.writing_process.stdin.close()
-        self.writing_process.wait()
-        self.writing_process.terminate()
-        if self.progress_display is not None:
-            self.progress_display.close()
+        process = self.writing_process
+        if process is None or process.stdin is None:
+            raise FFmpegError("ffmpeg movie pipe is not open")
+        try:
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                # wait() below supplies the stable, actionable failure.
+                pass
+            returncode = process.wait()
+        finally:
+            self.writing_process = None
+            if self.progress_display is not None:
+                self.progress_display.close()
+                self.progress_display = None
+
+        if returncode != 0:
+            raise FFmpegError(f"ffmpeg exited with status {returncode}")
 
         if not self.ended_with_interrupt:
             shutil.move(self.temp_file_path, self.final_file_path)
@@ -335,9 +370,24 @@ class SceneFileWriter(object):
             # "-shortest",
             temp_file_path,
         ]
-        sp.call(commands)
-        shutil.move(temp_file_path, movie_file_path)
-        os.remove(sound_file_path)
+        succeeded = False
+        try:
+            try:
+                process = sp.run(commands)
+            except OSError as exc:
+                raise FFmpegError(
+                    f"Could not start ffmpeg executable {self.ffmpeg_bin!r}: {exc}"
+                ) from exc
+            if process.returncode != 0:
+                raise FFmpegError(
+                    f"ffmpeg audio mux failed with status {process.returncode}"
+                )
+            shutil.move(temp_file_path, movie_file_path)
+            succeeded = True
+        finally:
+            Path(sound_file_path).unlink(missing_ok=True)
+            if not succeeded:
+                Path(temp_file_path).unlink(missing_ok=True)
 
     def save_final_image(self, image: Image) -> None:
         file_path = self.get_image_file_path()

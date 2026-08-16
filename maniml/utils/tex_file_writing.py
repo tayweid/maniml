@@ -2,18 +2,53 @@ from __future__ import annotations
 
 import os
 import re
-import yaml
 import subprocess
-from functools import lru_cache
-
-from pathlib import Path
 import tempfile
+from functools import lru_cache
+from pathlib import Path
+
+import yaml
 
 from maniml.utils.cache import cache_on_disk
 from maniml.config import manim_config
 from maniml.config import get_manim_dir
 from maniml.logger import log
-from maniml.utils.simple_functions import hash_string
+
+
+TEX_COMPILATION_TIMEOUT = 120
+DVISVGM_TIMEOUT = 60
+
+
+def _run_tex_tool(
+    command: list[str | os.PathLike[str]],
+    *,
+    tool: str,
+    timeout: float,
+) -> subprocess.CompletedProcess[str]:
+    """Run one bounded TeX tool and turn launch failures into user errors."""
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except FileNotFoundError as exc:
+        raise LatexError(
+            f"{tool} executable was not found; install it and ensure it is on PATH"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise LatexError(f"{tool} timed out after {timeout:g} seconds") from exc
+    except OSError as exc:
+        raise LatexError(f"Could not run {tool}: {exc}") from exc
+
+
+def _error_output(process: subprocess.CompletedProcess[str]) -> str:
+    """Return a bounded diagnostic without flooding a terminal or web response."""
+    output = (process.stderr or process.stdout or "").strip()
+    return output[-4000:]
 
 
 def get_tex_template_config(template_name: str) -> dict[str, str]:
@@ -99,10 +134,10 @@ def full_tex_to_svg(full_tex: str, compiler: str = "latex", message: str = ""):
         dvi_path = tex_path.with_suffix(dvi_ext)
 
         # Write tex file
-        tex_path.write_text(full_tex)
+        tex_path.write_text(full_tex, encoding="utf-8")
 
         # Run latex compiler
-        process = subprocess.run(
+        process = _run_tex_tool(
             [
                 compiler,
                 *(['-no-pdf'] if compiler == "xelatex" else []),
@@ -111,8 +146,8 @@ def full_tex_to_svg(full_tex: str, compiler: str = "latex", message: str = ""):
                 f"-output-directory={temp_dir}",
                 tex_path
             ],
-            capture_output=True,
-            text=True
+            tool=compiler,
+            timeout=TEX_COMPILATION_TIMEOUT,
         )
 
         if process.returncode != 0:
@@ -120,14 +155,18 @@ def full_tex_to_svg(full_tex: str, compiler: str = "latex", message: str = ""):
             error_str = ""
             log_path = tex_path.with_suffix(".log")
             if log_path.exists():
-                content = log_path.read_text()
+                content = log_path.read_text(encoding="utf-8", errors="replace")
                 error_match = re.search(r"(?<=\n! ).*\n.*\n", content)
                 if error_match:
                     error_str = error_match.group()
-            raise LatexError(error_str or "LaTeX compilation failed")
+            diagnostic = error_str.strip() or _error_output(process)
+            message_text = f"{compiler} compilation failed"
+            if diagnostic:
+                message_text += f":\n{diagnostic}"
+            raise LatexError(message_text)
 
         # Run dvisvgm and capture output directly
-        process = subprocess.run(
+        process = _run_tex_tool(
             [
                 "dvisvgm",
                 dvi_path,
@@ -135,11 +174,20 @@ def full_tex_to_svg(full_tex: str, compiler: str = "latex", message: str = ""):
                 "-v", "0",  # quiet
                 "--stdout",  # output to stdout instead of file
             ],
-            capture_output=True
+            tool="dvisvgm",
+            timeout=DVISVGM_TIMEOUT,
         )
 
-        # Return SVG string
-        result = process.stdout.decode('utf-8')
+        if process.returncode != 0:
+            diagnostic = _error_output(process)
+            message_text = "dvisvgm conversion failed"
+            if diagnostic:
+                message_text += f":\n{diagnostic}"
+            raise LatexError(message_text)
+
+        result = process.stdout
+        if not result.strip():
+            raise LatexError("dvisvgm produced no SVG output")
 
     if message:
         print(" " * len(message), end="\r")
