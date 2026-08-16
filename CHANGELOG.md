@@ -18,6 +18,9 @@ interfaces may still change before the first public release.
   token.
 - Removed shell-based Windows sound playback and keep filenames out of
   PowerShell source.
+- Restricted URL-backed assets to bounded HTTP(S) downloads with socket and
+  overall deadlines, sanitized failures, and atomic cache promotion. Complete
+  cache entries are now reused; failed or truncated transfers leave no artifact.
 
 ### Compatibility and reliability
 

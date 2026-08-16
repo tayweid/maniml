@@ -55,6 +55,7 @@ jobs:
             tests.test_headless_import \
             tests.test_app_protocol \
             tests.test_external_processes \
+            tests.test_remote_assets \
             tests.test_scene_lifecycle
 
       - name: Audit locked dependencies

@@ -17,7 +17,15 @@ uv sync --locked
 Run display-independent checks with:
 
 ```console
-uv run python -m unittest tests.test_ce_extractor tests.test_web_security tests.test_safe_text_cache
+uv run --locked python -m unittest \
+  tests.test_ce_extractor \
+  tests.test_web_security \
+  tests.test_safe_text_cache \
+  tests.test_headless_import \
+  tests.test_app_protocol \
+  tests.test_external_processes \
+  tests.test_remote_assets \
+  tests.test_scene_lifecycle
 ```
 
 The OpenGL and interactive suites require a working display. CI runs the

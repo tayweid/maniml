@@ -30,6 +30,13 @@ sandbox. Only open scene files you would be willing to run with Python directly.
 outside that root by default, including symlinks that resolve outside it. The
 `--allow-outside-root` option is an explicit compatibility escape hatch.
 
+Scene files may refer to images, vectors, and sounds by HTTP(S) URL. Those
+downloads have a 15-second socket timeout, a 60-second transfer deadline, and a
+256 MiB per-asset limit. Completed downloads are cached by URL and promoted
+atomically; failed or truncated responses are discarded. ManimLive does not
+authenticate remote asset publishers or promise that a URL's content is safe,
+so scene authors remain responsible for the URLs they use.
+
 ### Browser clients start untrusted
 
 Binding a service to loopback prevents remote network access, but websites
