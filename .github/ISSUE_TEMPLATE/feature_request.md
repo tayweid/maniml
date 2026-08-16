@@ -1,19 +1,21 @@
 ---
 name: Feature request
-about: Request a new feature for Manim
+about: Propose a focused feature or ManimCE compatibility improvement
 title: ""
-labels: new feature
-assignees: ''
-
+labels: enhancement
+assignees: ""
 ---
 
-## Description of proposed feature
-<!-- Add a clear and concise description of the new feature, including a motivation: why do you think this will be useful? -->
+## Problem and proposed behavior
 
+<!-- Describe the user problem before the implementation idea. -->
 
-## How can the new feature be used?
-<!-- If possible, illustrate how this new feature could be used. -->
+## Example scene or API
 
+```py
+# Show how the feature would be used, if applicable.
+```
 
-## Additional comments
-<!-- Add further context that you think might be relevant. -->
+## Compatibility and maintenance impact
+
+<!-- Note current ManimCE behavior and any native/web/render/export implications. -->

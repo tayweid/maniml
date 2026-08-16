@@ -211,17 +211,13 @@ authoring. Watch: typography drift vs CE is already noted in Quality
 tier; Typst-rendered math will drift differently — keep the conformance
 eye on it.
 
-- **CI workflow (after the GitHub migration).** One GitHub Actions file,
-  three jobs: (1) pure-logic tests (`test_source_map`,
-  `test_ce_conformance`) on Ubuntu + macOS, Python 3.10–3.12 — trivial;
-  (2) GL headless tests (`test_checkpoint_reload`, `test_modes`) on
-  Ubuntu via Mesa software rendering (`apt install libegl1 xvfb`, run
-  under `xvfb-run`, may need `MESA_GL_VERSION_OVERRIDE`), plus a macOS
-  job as the trustworthy-GL hedge; (3) stretch: the windowed
-  `tests/test_interactive` suite under xvfb — the harness drives the real
-  pyglet window programmatically, so a virtual display suffices. Needs
-  ffmpeg on runners; keep Tex out of CI fixtures to avoid texlive.
-  Prerequisite: maniml pushed to github.com/tayweid/maniml.
+- **CI and release safety. SHIPPED 2026-08-16.** Locked syntax/package jobs
+  cover Ubuntu, macOS, and Windows on Python 3.11 and 3.14. Mesa/Xvfb runs the
+  logic, compatibility, checkpoint, mode, export, app, and browser-viewer
+  integration suites on Ubuntu. CodeQL scans `maniml/`; a weekly AST-only job
+  detects ManimCE public-API drift; the release workflow can build and inspect
+  a candidate but cannot publish it. The full windowed interactive suite on
+  macOS remains a manual public-release gate.
 
 
 - **Presentation timeline: window the scrubber for large scenes.** The bar

@@ -1,57 +1,29 @@
 ---
 name: Installation issue
-about: Report issues with the installation process of Manim
+about: Report a ManimLive installation or startup problem
 title: ""
 labels: bug, installation
-assignees: ''
-
+assignees: ""
 ---
 
-#### Preliminaries
+## Preliminaries
 
-- [ ] I have followed the latest version of the
-      [installation instructions](https://docs.manim.community/en/stable/installation.html).
-- [ ] I have checked the [installation FAQ](https://docs.manim.community/en/stable/faq/installation.html) and my problem is either not mentioned there,
-      or the solution given there does not help.
+- [ ] I used a supported Python version listed in `pyproject.toml`.
+- [ ] I installed ManimLive in a fresh virtual environment.
+- [ ] I am reporting a ManimLive issue, not a ManimCE installation issue.
 
-## Description of error
-<!-- Add a clear and concise description of the problem you encountered. -->
+## Installation command and error
 
-
-## Installation logs
-<!-- Please paste the **full** terminal output; we can only help to identify the issue
-     when we receive all required information. -->
-
-<details><summary>Terminal output</summary>
-
-```
-PASTE HERE OR PROVIDE LINK TO https://pastebin.com/ OR SIMILAR
+```console
+# Paste the command and complete error here.
 ```
 
-<!-- Insert screenshots here (only when absolutely necessary, we prefer copy/pasted output!) -->
+## Environment
 
-</details>
+- OS and version:
+- CPU architecture:
+- Python version:
+- Installer and version (`pip --version` or `uv --version`):
+- Installation source (PyPI, Git commit, local checkout):
 
-
-## System specifications
-
-<details><summary>System Details</summary>
-
-- OS (with version, e.g., Windows 10 v2004 or macOS 10.15 (Catalina)):
-- RAM:
-- Python version (`python/py/python3 --version`):
-- Installed modules (provide output from `pip list`):
-```
-PASTE HERE
-```
-</details>
-
-<details><summary>LaTeX details</summary>
-
-+ LaTeX distribution (e.g. TeX Live 2020):
-+ Installed LaTeX packages:
-<!-- output of `tlmgr list --only-installed` for TeX Live or a screenshot of the Packages page for MikTeX -->
-</details>
-
-## Additional comments
-<!-- Add further context that you think might be relevant for this issue here. -->
+<!-- Redact tokens, usernames, and private filesystem paths from logs. -->

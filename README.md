@@ -13,6 +13,9 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 
 ## Installation
 
+ManimLive supports Python 3.11 through 3.14, matching current ManimCE's
+supported range.
+
 ```bash
 pip install git+https://github.com/tayweid/maniml.git
 ```
@@ -95,3 +98,13 @@ Only run scenes you trust. The local browser app uses process-local capability
 tokens and Origin checks; by default, `maniml app DIR` launches scenes only
 from `DIR`. See [SECURITY.md](SECURITY.md) for the trust model and vulnerability
 reporting guidance.
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup and ManimCE compatibility process.
+
+## Project lineage
+
+ManimLive is an independent project built from 3Blue1Brown's ManimGL lineage
+and code adapted from ManimCommunity's Manim. It is not an official
+ManimCommunity project. Both upstream MIT notices are retained in `LICENSE` and
+`LICENSE.community` and are included in release artifacts.

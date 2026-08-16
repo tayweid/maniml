@@ -15,7 +15,7 @@ def get_directories() -> dict[str, str]:
 
 
 def get_cache_dir() -> str:
-    return get_directories()["cache"] or appdirs.user_cache_dir("manim")
+    return get_directories()["cache"] or appdirs.user_cache_dir("maniml")
 
 
 def get_temp_dir() -> str:

@@ -4,6 +4,12 @@ ManimLive is currently alpha software preparing for a wider public release.
 Security-sensitive interfaces and defaults are expected to remain conservative
 even when compatibility escape hatches are available.
 
+## Supported versions
+
+Before the first public release, security fixes are made on `main`; development
+snapshots are not supported as stable releases. The supported release line will
+be documented here when the first version is published.
+
 ## Reporting a vulnerability
 
 Please use GitHub's private vulnerability-reporting feature for this
