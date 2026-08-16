@@ -11,9 +11,9 @@ import textwrap
 import unittest
 
 import numpy as np
-from pyglet.window import key as PygletWindowKeys
 
 from maniml.__main__ import load_scene_module
+from maniml.event_constants import WindowKeys as PygletWindowKeys
 
 BASE = textwrap.dedent('''\
     from maniml import *

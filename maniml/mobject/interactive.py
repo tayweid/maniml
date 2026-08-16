@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-from pyglet.window import key as PygletWindowKeys
 
 from maniml.constants import FRAME_HEIGHT, FRAME_WIDTH
 from maniml.constants import DOWN, LEFT, ORIGIN, RIGHT, UP
 from maniml.constants import MED_LARGE_BUFF, MED_SMALL_BUFF, SMALL_BUFF
 from maniml.constants import BLACK, BLUE, GREEN, GREY_A, GREY_C, RED, WHITE, DEFAULT_MOBJECT_COLOR
+from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.mobject.mobject import Group
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.geometry import Circle

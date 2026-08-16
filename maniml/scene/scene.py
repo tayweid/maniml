@@ -13,7 +13,6 @@ from contextlib import ExitStack
 
 import numpy as np
 from tqdm.auto import tqdm as ProgressDisplay
-from pyglet.window import key as PygletWindowKeys
 
 from maniml.animation.animation import prepare_animation
 from maniml.camera.camera import Camera
@@ -980,5 +979,3 @@ class ThreeDScene(Scene):
 
 import copy
 from maniml.mobject.mobject import Mobject
-
-

@@ -6,11 +6,10 @@ and drag-to-move, and the window mouse/keyboard callbacks.
 """
 from __future__ import annotations
 
-from pyglet.window import key as PygletWindowKeys
-from pyglet.window import mouse as PygletMouseButtons
-
 from maniml.camera.camera_frame import CameraFrame
 from maniml.config import manim_config
+from maniml.event_constants import MouseButtons as PygletMouseButtons
+from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.event_handler import EVENT_DISPATCHER
 from maniml.event_handler.event_type import EventType
 from maniml.logger import log
@@ -387,4 +386,3 @@ class InteractionMixin:
         if not self.window:
             return
         self.window.focus()
-

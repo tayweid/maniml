@@ -49,8 +49,10 @@ RECENTS_PATH = os.environ.get(
     "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json"))
 RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
-URL_PATTERN = re.compile(
-    r"http://localhost:\d+/#token=[A-Za-z0-9_-]+")
+VIEWER_LAUNCH_PATTERN = re.compile(
+    r"^maniml web viewer: "
+    r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
+)
 DEFAULT_APP_PORT = 8685
 # Fixed control-channel port, Knuth-style.  The hosted frontend connects to
 # loopback after the CLI pairs it with a process-local capability.  Both that
@@ -74,6 +76,18 @@ def missing_module_hint(log: str) -> str | None:
     return (f"Scenes run on {sys.executable} — "
             f"'{module}' is not installed there. "
             f"Install it with:  {pip} install {module}")
+
+
+def parse_viewer_launch_line(line: str) -> str | None:
+    """Read only the viewer's dedicated, machine-readable launch line.
+
+    Rich may line-wrap the human-readable log entry containing the same URL.
+    Treating any URL-shaped substring as the handshake can therefore capture
+    a truncated capability token. The plain ``print`` emitted by WebViewer is
+    deliberately stable and is the only accepted child-process handshake.
+    """
+    match = VIEWER_LAUNCH_PATTERN.fullmatch(line)
+    return match.group("url") if match else None
 
 
 def find_scene_classes(path: str) -> list[str]:
@@ -161,9 +175,7 @@ class SceneProcess:
         for line in self.proc.stdout:
             self.lines.append(line)
             if self.url is None:
-                match = URL_PATTERN.search(line)
-                if match:
-                    self.url = match.group(0)
+                self.url = parse_viewer_launch_line(line)
 
     def wait_for_url(self, timeout: float = 25.0) -> str | None:
         deadline = time.time() + timeout

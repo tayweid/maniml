@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 
+# Importing pyglet.window normally creates a hidden OpenGL context. That
+# makes even ``import maniml`` require a display. The real Window below
+# creates its own context when instantiated, so the shadow context is both
+# unnecessary and unsuitable for headless/library use. This option must be set
+# before importing moderngl-window's Pyglet backend.
+import pyglet
+pyglet.options["shadow_window"] = False
+
 import moderngl_window as mglw
 from moderngl_window.context.pyglet.window import Window as PygletWindow
 from moderngl_window.timers.clock import Timer

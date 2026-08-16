@@ -13,6 +13,16 @@ interfaces may still change before the first public release.
   protection against symlink escapes.
 - Added bounded, strict JSON parsing for localhost control protocols.
 - Replaced the generated-SVG pickle cache with a bounded, atomic text cache.
+- Made the app accept viewer capabilities only from the child process's exact
+  launch-handshake line, preventing terminal log wrapping from truncating the
+  token.
+
+### Compatibility and reliability
+
+- Made package imports, star imports, and CLI help safe without a desktop
+  display while preserving the existing native Pyglet window backend.
+- Decoupled shared scene and browser input handling from Pyglet imports, with
+  regression checks that its key and mouse values remain native-compatible.
 
 ### Packaging and release engineering
 

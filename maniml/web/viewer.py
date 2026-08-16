@@ -28,10 +28,10 @@ import webbrowser
 
 import numpy as np
 from PIL import Image
-from pyglet.window import key as PygletWindowKeys
-from pyglet.window import mouse as PygletMouseButtons
 
 from maniml.constants import FRAME_SHAPE
+from maniml.event_constants import MouseButtons as PygletMouseButtons
+from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
 from maniml.web.server import WebServer
 

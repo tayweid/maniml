@@ -46,8 +46,14 @@ jobs:
       - name: Compile Python sources
         run: uv run --locked python -m compileall -q maniml tests
 
-      - name: Run display-independent security tests
-        run: uv run --locked python -m unittest tests.test_ce_extractor tests.test_web_security tests.test_safe_text_cache
+      - name: Run display-independent hardening tests
+        run: |
+          uv run --locked python -m unittest \
+            tests.test_ce_extractor \
+            tests.test_web_security \
+            tests.test_safe_text_cache \
+            tests.test_headless_import \
+            tests.test_app_protocol
 
       - name: Audit locked dependencies
         if: matrix.os == 'ubuntu-22.04' && matrix.python == '3.14'

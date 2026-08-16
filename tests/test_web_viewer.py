@@ -63,12 +63,11 @@ class WebViewerE2E(unittest.TestCase):
         cls._reader.start()
 
         def find_url():
-            import re
+            from maniml.web.app import parse_viewer_launch_line
             for line in cls.stdout_lines:
-                match = re.search(
-                    r"http://localhost:\d+/#token=[A-Za-z0-9_-]+", line)
-                if match:
-                    return match.group(0)
+                url = parse_viewer_launch_line(line)
+                if url:
+                    return url
         cls.capability_url = cls._wait_for(
             find_url, STARTUP_TIMEOUT, "server URL in stdout")
         parsed = urlsplit(cls.capability_url)
