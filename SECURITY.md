@@ -58,15 +58,30 @@ all projects on the GitHub Pages account share one web origin. Viewer tokens
 are separate from the app-control token and expire with their respective
 processes.
 
-The hosted PWA must be paired with each new local daemon session. Start it with
-`maniml app DIR --hosted`; opening an old installed PWA by itself grants no
-authority over a newly started daemon. Its onboarding page may copy an install
-or startup command to the clipboard, but it cannot execute that command.
+The hosted PWA must be paired with each new local daemon session. The desktop
+launcher starts a freshly paired session when the user opens a file; the
+`maniml app DIR --hosted` command remains an explicit fallback. Opening an old
+installed PWA by itself grants no authority over a newly started daemon. Its
+onboarding page may copy a one-time installation command to the clipboard, but
+it cannot execute that command.
 
-The dedicated `https://maniml.tayweid.io` origin and the legacy GitHub Pages
-origin are explicitly allowed during the domain transition. No wildcard web
-origin is trusted. The hosted client and local daemon also exchange an integer
-protocol version after authentication and refuse an incompatible pairing.
+The toolbar's native picker is reachable only over the authenticated control
+channel. A file selected in the OS dialog grants the daemon access to that
+single canonical `.py` file for the life of the process; it does not disable
+root confinement for sibling paths. Cancellation grants nothing. Desktop-open
+sessions use an OS-assigned control port carried in the fragment alongside the
+fresh capability so concurrent sessions do not share authorization.
+
+When no engine is paired, the Open button may invoke the registered
+`maniml://open` desktop URL. That URL accepts no file path or command; it can
+only display the OS picker. This prevents an arbitrary website from turning a
+custom-protocol navigation into unattended scene execution.
+
+The dedicated `https://maniml.tayweid.io` origin is the launch target. It and
+the legacy GitHub Pages origin are explicitly allowed during the transition.
+No wildcard web origin is trusted. The hosted client and local daemon also
+exchange an integer protocol version after authentication and refuse an
+incompatible pairing.
 
 ### Exported scenes are public artifacts
 

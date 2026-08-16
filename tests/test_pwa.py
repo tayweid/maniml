@@ -9,7 +9,6 @@ from pathlib import Path
 
 from maniml.web.security import WEB_PROTOCOL_VERSION
 
-
 STATIC = Path(__file__).resolve().parent.parent / "maniml" / "web" / "static"
 
 
@@ -31,9 +30,15 @@ class PWAAssetsTests(unittest.TestCase):
         self.assertIn("beforeinstallprompt", page)
         self.assertIn("navigator.clipboard.writeText", page)
         self.assertIn('data-copy="install-command"', page)
-        self.assertIn('data-copy="start-command"', page)
         self.assertIn("python -m pip install", page)
-        self.assertIn("maniml app . --hosted", page)
+        self.assertIn("maniml install-desktop", page)
+        self.assertIn("clientPlatform", page)
+        self.assertIn("Windows and Linux packaging is still in progress", page)
+        self.assertIn('id="openbtn"', page)
+        self.assertIn('request("choose")', page)
+        self.assertIn('window.location.href = "maniml://open"', page)
+        self.assertNotIn('placeholder="/path/to/scene.py"', page)
+        self.assertIn("DEFAULT_CONTROL_PORT", page)
         self.assertIn('serviceWorker.register("./sw.js")', page)
         self.assertIn(
             f"const WEB_PROTOCOL_VERSION = {WEB_PROTOCOL_VERSION};",
@@ -47,18 +52,23 @@ class PWAAssetsTests(unittest.TestCase):
             viewer,
         )
         self.assertIn("engine update required", viewer)
+        self.assertIn('id="open-file"', viewer)
+        self.assertIn('window.location.href = "maniml://open"', viewer)
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()
-        self.assertIn('url.origin !== self.location.origin', worker)
+        self.assertIn("url.origin !== self.location.origin", worker)
         self.assertIn('event.request.method !== "GET"', worker)
-        self.assertLess(worker.index("fetch(event.request)"),
-                        worker.index("caches.match(event.request)"))
+        self.assertLess(
+            worker.index("fetch(event.request)"),
+            worker.index("caches.match(event.request)"),
+        )
         self.assertNotIn("127.0.0.1", worker)
         self.assertNotIn("Authorization", worker)
 
         shell_match = re.search(
-            r"const APP_SHELL = \[(.*?)\];", worker, flags=re.DOTALL)
+            r"const APP_SHELL = \[(.*?)\];", worker, flags=re.DOTALL
+        )
         self.assertIsNotNone(shell_match)
         entries = re.findall(r'"(\./[^\"]*|\./)"', shell_match.group(1))
         for entry in entries:

@@ -60,6 +60,11 @@
   #glwarn.on { display: block; }
 
   #controls { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  #open-file {
+    border: 1px solid var(--line); border-radius: 6px; background: none;
+    color: var(--dim); padding: 4px 10px; cursor: pointer; font: inherit;
+  }
+  #open-file:hover { border-color: var(--accent); color: var(--accent); }
   #split {
     display: none; color: var(--dim); cursor: pointer;
     user-select: none; font-size: 12px;
@@ -99,6 +104,7 @@
   <div id="chips"></div>
   <div id="glwarn"></div>
   <div id="controls">
+    <button id="open-file">Open&hellip;</button>
     <div id="split" title="Show the pixel stream beside the client render">split</div>
     <div id="renderers">
       <div class="seg selected" data-renderer="pixel" title="Server-rendered pixel stream">Pixel</div>
@@ -116,7 +122,7 @@ const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const chipsEl = document.getElementById("chips");
 // Keep in sync with WEB_PROTOCOL_VERSION in maniml/web/security.py.
-const WEB_PROTOCOL_VERSION = 1;
+const WEB_PROTOCOL_VERSION = 2;
 // A hosted PWA passes the scene's WebSocket
 // port as ?ws=; served locally by a scene process, it is port+1
 const wsParam = new URLSearchParams(location.search).get("ws");
@@ -126,6 +132,9 @@ const wsUrl = wsParam
 const viewerTokenKey = "maniml-viewer-token:" + wsUrl;
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const isHostedApp = !loopbackHosts.has(location.hostname);
+document.getElementById("open-file").onclick = () => {
+  window.location.href = "maniml://open";
+};
 const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
 if (fragmentToken && !isHostedApp) {
   sessionStorage.setItem(viewerTokenKey, fragmentToken);

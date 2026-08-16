@@ -157,22 +157,46 @@ The frontend deploys to GitHub Pages on push (.github/workflows/
 deploy.yml uploads web/static verbatim — no build step; enablement:
 true like knuth's) and installs from Chrome via manifest.webmanifest.
 The installable shell now has a network-first service worker, an explicit
-browser-install prompt, and copyable local-engine install/start steps. The
+browser-install prompt, and a copyable one-time engine/desktop install step. The
 wire handshake is versioned so a newer hosted UI fails with an actionable
 engine-update message instead of speaking an incompatible protocol.
-The hosted landing (app.html) talks to the local `maniml app` process
-over a fixed-port control WebSocket (ws://127.0.0.1:8686). The CLI
-pairs each daemon session through a URL-fragment capability; the socket
-also requires an exact Origin match. It opens scenes at
+The hosted landing (app.html) talks to the local `maniml app` process over a
+loopback control WebSocket (fixed port 8686 for the CLI fallback, OS-assigned
+for desktop-open sessions). The launcher pairs each daemon session through a
+URL-fragment capability and optional port; the socket also requires an exact
+Origin match. It opens scenes at
 viewer.html?ws=<port>, which uses a separate viewer capability to connect
 straight to the scene process's socket. If the local app isn't running
 or the PWA has not been paired, the page shows the one-time setup
-(pip install git+…, `maniml app --hosted`).
+(pip install git+…, `maniml install-desktop`).
 Push to main → the installed app updates everywhere on next load — no
 wheel roundtrip; pip update only needed when the local/protocol side
 changes. Enable after pushing: the workflow creates the Pages site
 itself. The viewer file is now viewer.html (index.html redirects to
 the landing; scene processes serve viewer.html at their root).
+
+**Desktop launch bridge (macOS developer preview, 2026-08-16).** Daily use no
+longer needs a terminal after the one-time engine install. `maniml
+install-desktop` generates `~/Applications/ManimLive.app`, bound to the exact
+Python environment used for installation, and registers `.py` as an alternate
+Finder document type. Opening the app presents a native picker; Finder's Open
+With starts `maniml open FILE`, which launches an isolated hosted session on a
+dynamic authenticated control port. The landing toolbar's Open button also
+invokes the bridge through the path-free `maniml://open` URL when cold, then
+uses a native dialog; its explicit selection grants only that canonical file
+outside the configured root. The existing `maniml app` flow is unchanged as a
+fallback.
+
+Public-release gates for this bridge:
+- Replace the locally generated AppleScript bundle with a signed/notarized
+  macOS artifact and installer; retain `install-desktop` for source checkouts.
+- Add equivalent Windows file association/installer and Linux `.desktop` +
+  MIME packaging. The picker protocol already has platform implementations.
+- Add lifecycle management (reuse or retire idle launch daemons) and an app UI
+  for choosing the Python interpreter when a project-specific `.venv` should
+  override the environment captured at installation.
+- Give the desktop launcher branded `.icns`/Windows icon assets and exercise
+  the packaged artifacts on clean machines.
 
 **Stage 3 — the app (started 2026-08-14).** `maniml app [dir]`
 (`web/app.py` + `static/app.html`): persistent local server, landing
@@ -194,8 +218,8 @@ travel in launch URL fragments and remain tab-session scoped. Scene paths are
 confined to the selected app root by default; `--allow-outside-root` is the
 explicit compatibility escape hatch, and `--hosted` pairs a fresh daemon
 session with the hosted PWA. See `SECURITY.md` and `web/security.py`.
-The dedicated `maniml.tayweid.io` origin is allowed alongside the legacy Pages
-origin; switching Pages DNS/settings remains an external deployment step.
+The live `maniml.tayweid.io` origin is the launch target and remains allowed
+alongside the legacy Pages origin during migration.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

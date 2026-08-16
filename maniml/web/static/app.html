@@ -36,6 +36,9 @@
     border-color: var(--accent); color: var(--accent);
   }
   #install-app[hidden] { display: none; }
+  #openbtn:disabled { cursor: default; opacity: 0.45;
+    border-color: var(--line); color: var(--text); }
+  .header-actions { display: flex; gap: 8px; }
   #status { display: flex; align-items: center; gap: 7px; color: var(--dim);
     font-size: 12px; margin-bottom: 18px; }
   #status-dot { width: 7px; height: 7px; border-radius: 50%;
@@ -87,11 +90,6 @@
     background: none; font: inherit; font-size: 13px; }
   .scene:hover { border-color: var(--accent); color: var(--accent); }
   .scene.busy { opacity: 0.5; pointer-events: none; }
-  #pathrow { display: flex; gap: 8px; margin-top: 8px; }
-  #path { flex: 1; min-width: 0; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
-    color: var(--text); outline: none; }
-  #path:focus { border-color: var(--accent); }
   #error { color: var(--bad); font-size: 13px; margin-top: 10px;
     white-space: pre-wrap; display: none; }
   #empty { color: var(--dim); }
@@ -113,7 +111,10 @@
       <h1>ManimLive</h1>
       <p class="tagline">Live Manim development in the browser.</p>
     </div>
-    <button id="install-app" hidden>Install app</button>
+    <div class="header-actions">
+      <button id="openbtn">Open&hellip;</button>
+      <button id="install-app" hidden>Install app</button>
+    </div>
   </header>
 
   <div id="status" role="status" aria-live="polite">
@@ -137,24 +138,21 @@
     <div class="step">
       <span class="step-number">2</span>
       <div>
-        <h3>Install the local engine</h3>
-        <p>In a terminal, activate the Python environment you use for Manim, then run:</p>
+        <h3>Install the local engine and app</h3>
+        <p>Once, in a terminal, activate the Python environment you use for Manim, then run:</p>
         <div class="command">
-          <code id="install-command">python -m pip install "git+https://github.com/tayweid/maniml.git"</code>
+          <code id="install-command">python -m pip install "git+https://github.com/tayweid/maniml.git" &amp;&amp; maniml install-desktop</code>
           <button class="copy" data-copy="install-command">Copy</button>
         </div>
+        <p id="desktop-note" class="small" style="margin-top:10px">After this one-time macOS setup, open a scene from Finder or the app&mdash;no terminal needed.</p>
       </div>
     </div>
     <div class="step">
       <span class="step-number">3</span>
       <div>
-        <h3>Open a project</h3>
-        <p>From the folder containing your scene files, run:</p>
-        <div class="command">
-          <code id="start-command">maniml app . --hosted</code>
-          <button class="copy" data-copy="start-command">Copy</button>
-        </div>
-        <p class="small" style="margin-top:10px">The command opens a freshly paired app session. The web page never executes terminal commands itself.</p>
+        <h3>Open a scene</h3>
+        <p>Open <strong>ManimLive</strong> from Applications, choose <strong>Open With &rarr; ManimLive</strong> on a Python file, or use <strong>Open&hellip;</strong> above while the local app is connected.</p>
+        <p class="small">The desktop launcher performs the explicit local action that a website is not allowed to perform.</p>
       </div>
     </div>
   </section>
@@ -166,10 +164,9 @@
       <h2 class="section-title">Recent</h2>
       <div id="recents"></div>
     </div>
-    <h2 id="pathhead" class="section-title">Open a file</h2>
-    <div id="pathrow">
-      <input id="path" placeholder="/path/to/scene.py" spellcheck="false">
-      <button id="openbtn">Open</button>
+    <div id="picked-section" hidden>
+      <h2 class="section-title">Selected file</h2>
+      <div id="picked"></div>
     </div>
     <div id="error"></div>
   </section>
@@ -179,10 +176,15 @@
 
 // Increment alongside WEB_PROTOCOL_VERSION in maniml/web/security.py whenever
 // a hosted frontend is no longer wire-compatible with an installed engine.
-const WEB_PROTOCOL_VERSION = 1;
-const CONTROL_URL = "ws://127.0.0.1:8686/";
-const INSTALL_COMMAND = 'python -m pip install "git+https://github.com/tayweid/maniml.git"';
-const START_COMMAND = "maniml app . --hosted";
+const WEB_PROTOCOL_VERSION = 2;
+const DEFAULT_CONTROL_PORT = 8686;
+const ENGINE_INSTALL_COMMAND = 'python -m pip install "git+https://github.com/tayweid/maniml.git"';
+const clientPlatform = navigator.userAgentData?.platform
+  || navigator.platform || "";
+const isMacOS = /mac/i.test(clientPlatform);
+const INSTALL_COMMAND = isMacOS
+  ? ENGINE_INSTALL_COMMAND + " && maniml install-desktop"
+  : ENGINE_INSTALL_COMMAND;
 
 const errorEl = document.getElementById("error");
 const statusText = document.getElementById("status-text");
@@ -191,7 +193,10 @@ const installButton = document.getElementById("install-app");
 const installDescription = document.getElementById("install-description");
 const installedLabel = document.getElementById("installed-label");
 document.getElementById("install-command").textContent = INSTALL_COMMAND;
-document.getElementById("start-command").textContent = START_COMMAND;
+if (!isMacOS) {
+  document.getElementById("desktop-note").textContent =
+    "The no-terminal desktop bridge currently supports macOS. Windows and Linux packaging is still in progress; use maniml app . --hosted as the fallback.";
+}
 
 function setConnectionState(state, message, detail) {
   document.body.dataset.connection = state;
@@ -204,7 +209,13 @@ function setConnectionState(state, message, detail) {
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const isHostedApp = !loopbackHosts.has(location.hostname);
 const controlTokenKey = "maniml-control-token";
-const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
+const fragment = new URLSearchParams(location.hash.slice(1));
+const fragmentToken = fragment.get("token");
+const requestedControlPort = Number(fragment.get("control"));
+const controlPort = Number.isInteger(requestedControlPort)
+  && requestedControlPort >= 1024 && requestedControlPort <= 65535
+  ? requestedControlPort : DEFAULT_CONTROL_PORT;
+const CONTROL_URL = `ws://127.0.0.1:${controlPort}/`;
 if (fragmentToken && !isHostedApp) {
   sessionStorage.setItem(controlTokenKey, fragmentToken);
 }
@@ -435,11 +446,45 @@ async function refresh() {
   }
 }
 
-document.getElementById("openbtn").onclick = () =>
-  openScene(document.getElementById("path").value.trim(), null, null);
-document.getElementById("path").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") document.getElementById("openbtn").click();
-});
+document.getElementById("openbtn").onclick = async () => {
+  const button = document.getElementById("openbtn");
+  errorEl.style.display = "none";
+  if (document.body.dataset.connection !== "connected") {
+    if (!isMacOS) {
+      errorEl.textContent =
+        "The desktop bridge currently supports macOS. Start the fallback with: maniml app . --hosted";
+      errorEl.style.display = "block";
+      return;
+    }
+    setConnectionState(
+      "connecting",
+      "Opening desktop bridge…",
+      "Choose a scene in the native dialog. If nothing opens, install the local app below."
+    );
+    window.location.href = "maniml://open";
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await request("choose");
+    if (data.cancelled) return;
+    if (data.error) throw new Error(data.error);
+    const file = data.file;
+    if (file.scenes.length === 1) {
+      await openScene(file.path, file.scenes[0], null);
+      return;
+    }
+    document.getElementById("picked").replaceChildren(fileCard(file));
+    document.getElementById("picked-section").hidden = false;
+  } catch (error) {
+    errorEl.textContent = String(error);
+    errorEl.style.display = "block";
+  } finally {
+    if (document.body.dataset.connection === "connected") {
+      button.disabled = false;
+    }
+  }
+};
 </script>
 </body>
 </html>

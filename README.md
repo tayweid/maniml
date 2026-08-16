@@ -52,22 +52,37 @@ command, `from manim import *` resolves to maniml (the alias is local
 to the maniml process, so a real ManimCE install on the same machine
 is unaffected).
 
-## Installable browser app
+## Installable app
 
 The hosted ManimLive interface is an installable PWA. Scene files and Python
 execution remain local: the web app connects to a capability-authenticated
 daemon bound to loopback.
 
-From the folder containing your scenes, start and pair the hosted app with:
+On macOS, install the local engine and Finder integration once from the Python
+environment that contains your scene dependencies:
+
+```bash
+python -m pip install "git+https://github.com/tayweid/maniml.git"
+maniml install-desktop
+```
+
+After setup, open **ManimLive** from Applications to choose a scene, or
+right-click a Python file and choose **Open With → ManimLive**. The app starts
+the matching local Python engine automatically. Its **Open…** toolbar button
+invokes the installed desktop bridge when the engine is not running, then uses
+a native file picker. A file selected outside the current project grants
+access to that file only.
+
+The existing command remains available as a development and recovery path:
 
 ```bash
 maniml app . --hosted
 ```
 
-The hosted landing page also provides copyable first-time installation and
-startup commands. Installing the PWA never installs or executes the Python
-engine; running the displayed command in a terminal remains an explicit user
-action. Each daemon restart creates a fresh pairing capability.
+The hosted page cannot install or execute local software by itself. The copied
+setup command is the one-time explicit boundary crossing; daily use does not
+require a terminal. The desktop launcher currently targets macOS. Signed
+macOS packaging plus Windows and Linux launchers remain public-release work.
 
 ## Interactive controls
 

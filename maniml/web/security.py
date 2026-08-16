@@ -18,7 +18,7 @@ from typing import Any
 AUTH_MESSAGE_TYPE = "authenticate"
 MAX_CONTROL_MESSAGE = 64 * 1024
 AUTH_TIMEOUT = 5.0
-WEB_PROTOCOL_VERSION = 1
+WEB_PROTOCOL_VERSION = 2
 
 # Keep the old Pages origin accepted while the dedicated custom domain rolls
 # out.  The custom domain is the preferred public origin: unlike github.io it
@@ -31,9 +31,10 @@ HOSTED_APP_ORIGINS = frozenset({
     HOSTED_APP_ORIGIN,
     CUSTOM_HOSTED_APP_ORIGIN,
 })
-# Keep opening the working Pages URL until its repository setting and DNS are
-# switched. GitHub Pages will redirect this URL after the custom domain lands.
-HOSTED_APP_URL = f"{HOSTED_APP_ORIGIN}/maniml/"
+# The dedicated domain is now live.  Keep the GitHub Pages origin in the
+# allowlist during the transition, but all locally launched sessions should
+# open the dedicated origin.
+HOSTED_APP_URL = f"{CUSTOM_HOSTED_APP_ORIGIN}/"
 
 
 def new_capability_token() -> str:

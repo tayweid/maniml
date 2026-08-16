@@ -5,6 +5,16 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### Desktop workflow
+
+- Added a macOS desktop-launcher preview: one-time `maniml install-desktop`
+  setup registers Finder **Open With**, preserves the selected Python
+  environment, and starts hosted scenes without a terminal.
+- Replaced the landing page's typed absolute-path field with an authenticated
+  native file picker that grants only the selected file outside the app root.
+- Switched locally launched hosted sessions to `maniml.tayweid.io` and added
+  dynamic control ports for concurrent desktop-open sessions.
+
 ### Security
 
 - Added independent process-local capabilities and browser Origin checks for

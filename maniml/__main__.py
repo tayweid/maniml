@@ -7,12 +7,13 @@ import importlib.abc
 import importlib.machinery
 import importlib.util
 
-
 USAGE = """
 maniml - ManimCE-compatible API on an OpenGL backend
 
 Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
+       maniml open [file]
+       maniml install-desktop
 
 App:
   maniml app       Persistent local app: a landing page listing the
@@ -23,6 +24,9 @@ App:
                    outside [dir] (off by default)
   --hosted         Pair and open the hosted PWA instead of the locally
                    served app page
+  maniml open FILE Start the hosted app for FILE (used by desktop launchers)
+  maniml install-desktop
+                   Install the macOS app / Finder "Open With" integration
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -56,23 +60,59 @@ Examples:
 
 def main():
     """Main entry point for maniml command."""
-    flags = {a for a in sys.argv[1:] if a.startswith('-')}
-    args = [a for a in sys.argv[1:] if not a.startswith('-')]
+    flags = {a for a in sys.argv[1:] if a.startswith("-")}
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
 
-    if args and args[0] == 'app':
-        from maniml.web.app import run_app
-        run_app(root=args[1] if len(args) > 1 else '.',
-                open_browser='--no-browser' not in flags,
-                allow_outside_root='--allow-outside-root' in flags,
-                hosted='--hosted' in flags)
+    if args and args[0] == "install-desktop":
+        from maniml.desktop import install_desktop_launcher
+
+        try:
+            path = install_desktop_launcher(replace="--replace" in flags)
+        except (FileExistsError, RuntimeError, ValueError) as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+        print(f"Installed ManimLive desktop launcher: {path}")
         return
 
-    if not args or '--help' in flags or '-h' in flags:
+    if args and args[0] == "open":
+        if len(args) != 2:
+            print("Error: maniml open requires one Python scene file")
+            sys.exit(1)
+        from pathlib import Path
+        from maniml.web.app import run_app
+
+        try:
+            scene_file = Path(args[1]).expanduser().resolve(strict=True)
+        except OSError:
+            print(f"Error: File '{args[1]}' not found")
+            sys.exit(1)
+        if not scene_file.is_file() or scene_file.suffix.lower() != ".py":
+            print("Error: maniml open requires a regular .py file")
+            sys.exit(1)
+        run_app(
+            root=str(scene_file.parent),
+            hosted=True,
+            initial_file=str(scene_file),
+            control_port=0,
+        )
+        return
+
+    if args and args[0] == "app":
+        from maniml.web.app import run_app
+
+        run_app(
+            root=args[1] if len(args) > 1 else ".",
+            open_browser="--no-browser" not in flags,
+            allow_outside_root="--allow-outside-root" in flags,
+            hosted="--hosted" in flags,
+        )
+        return
+
+    if not args or "--help" in flags or "-h" in flags:
         print(USAGE)
         sys.exit(0)
 
-    unknown = flags - {'--present', '--render', '--web', '--no-browser',
-                       '--export'}
+    unknown = flags - {"--present", "--render", "--web", "--no-browser", "--export"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -88,11 +128,11 @@ def main():
     run_scene(
         script_file,
         scene_name,
-        present='--present' in flags,
-        render='--render' in flags,
-        web='--web' in flags,
-        export='--export' in flags,
-        open_browser='--no-browser' not in flags,
+        present="--present" in flags,
+        render="--render" in flags,
+        web="--web" in flags,
+        export="--export" in flags,
+        open_browser="--no-browser" not in flags,
     )
 
 
@@ -120,17 +160,17 @@ class _CEAliasFinder(importlib.abc.MetaPathFinder):
     """
 
     def find_spec(self, fullname, path=None, target=None):
-        if fullname != 'manim' and not fullname.startswith('manim.'):
+        if fullname != "manim" and not fullname.startswith("manim."):
             return None
-        real_module = importlib.import_module('maniml' + fullname[5:])
-        return importlib.machinery.ModuleSpec(
-            fullname, _CEAliasLoader(real_module))
+        real_module = importlib.import_module("maniml" + fullname[5:])
+        return importlib.machinery.ModuleSpec(fullname, _CEAliasLoader(real_module))
 
 
 def install_ce_import_alias():
     import maniml
-    if sys.modules.get('manim') is not maniml:
-        sys.modules['manim'] = maniml
+
+    if sys.modules.get("manim") is not maniml:
+        sys.modules["manim"] = maniml
         sys.meta_path.insert(0, _CEAliasFinder())
 
 
@@ -150,7 +190,10 @@ def load_scene_module(script_file):
     # Pre-populate with maniml's public names so plain scene files work
     # even without an import line.
     import maniml
-    module.__dict__.update({k: v for k, v in maniml.__dict__.items() if not k.startswith('_')})
+
+    module.__dict__.update(
+        {k: v for k, v in maniml.__dict__.items() if not k.startswith("_")}
+    )
 
     sys.modules[module_name] = module
     # Compile the source directly instead of spec.loader.exec_module():
@@ -159,27 +202,42 @@ def load_scene_module(script_file):
     # constant) can silently reload stale bytecode during auto-reload.
     with open(script_file) as f:
         source = f.read()
-    exec(compile(source, script_file, 'exec'), module.__dict__)
+    exec(compile(source, script_file, "exec"), module.__dict__)
     return module
 
 
-def run_scene(script_file, scene_name, present=False, render=False,
-              web=False, export=False, open_browser=True):
+def run_scene(
+    script_file,
+    scene_name,
+    present=False,
+    render=False,
+    web=False,
+    export=False,
+    open_browser=True,
+):
     module = load_scene_module(script_file)
 
     if scene_name is None:
         from maniml.scene.scene import Scene
+
         scenes = [
-            name for name, obj in vars(module).items()
-            if isinstance(obj, type) and issubclass(obj, Scene)
+            name
+            for name, obj in vars(module).items()
+            if isinstance(obj, type)
+            and issubclass(obj, Scene)
             and obj.__module__ == module.__name__
         ]
         if len(scenes) == 1:
             scene_name = scenes[0]
         else:
-            print("Error: Specify a scene name. " +
-                  (f"Available scenes: {', '.join(scenes)}" if scenes
-                   else f"No scenes found in {script_file}"))
+            print(
+                "Error: Specify a scene name. "
+                + (
+                    f"Available scenes: {', '.join(scenes)}"
+                    if scenes
+                    else f"No scenes found in {script_file}"
+                )
+            )
             sys.exit(1)
 
     scene_class = getattr(module, scene_name, None)
@@ -189,20 +247,20 @@ def run_scene(script_file, scene_name, present=False, render=False,
 
     if export:
         from maniml.web.export import export_scene
-        media_dir = os.path.join(
-            os.path.dirname(os.path.abspath(script_file)), 'media')
+
+        media_dir = os.path.join(os.path.dirname(os.path.abspath(script_file)), "media")
         scene = scene_class(window=None)
         scene._scene_filepath = os.path.abspath(script_file)
-        out_dir = export_scene(
-            scene, os.path.join(media_dir, f'{scene_name}_web'))
-        print(f'Exported web player: {out_dir}')
-        print('Serve it with any static host, e.g. '
-              f'cd {out_dir} && python3 -m http.server')
+        out_dir = export_scene(scene, os.path.join(media_dir, f"{scene_name}_web"))
+        print(f"Exported web player: {out_dir}")
+        print(
+            "Serve it with any static host, e.g. "
+            f"cd {out_dir} && python3 -m http.server"
+        )
         return
 
     if render:
-        media_dir = os.path.join(
-            os.path.dirname(os.path.abspath(script_file)), 'media')
+        media_dir = os.path.join(os.path.dirname(os.path.abspath(script_file)), "media")
         scene = scene_class(
             window=None,
             file_writer_config=dict(
@@ -214,11 +272,13 @@ def run_scene(script_file, scene_name, present=False, render=False,
         scene._render_mode = True
     elif web:
         from maniml.web import WebViewer
+
         viewer = WebViewer(open_browser=open_browser)
         scene = scene_class(window=viewer)
         scene._present_mode = present
     else:
         from maniml.rendering.window import Window
+
         window = Window()
         scene = scene_class(window=window)
         scene._present_mode = present
@@ -227,5 +287,5 @@ def run_scene(script_file, scene_name, present=False, render=False,
     scene.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

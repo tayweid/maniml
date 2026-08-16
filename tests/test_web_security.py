@@ -6,7 +6,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SECURITY_PATH = REPO_ROOT / "maniml" / "web" / "security.py"
 SPEC = importlib.util.spec_from_file_location("maniml_web_security", SECURITY_PATH)
@@ -25,44 +24,54 @@ class WebSecurityTests(unittest.TestCase):
         self.assertFalse(security.token_matches(None, first))
 
     def test_hosted_origins_are_exact_and_custom_domain_ready(self):
-        self.assertEqual(security.WEB_PROTOCOL_VERSION, 1)
+        self.assertEqual(security.WEB_PROTOCOL_VERSION, 2)
         self.assertEqual(
             security.HOSTED_APP_ORIGINS,
-            frozenset({
-                "https://tayweid.github.io",
-                "https://maniml.tayweid.io",
-            }),
+            frozenset(
+                {
+                    "https://tayweid.github.io",
+                    "https://maniml.tayweid.io",
+                }
+            ),
         )
         self.assertNotIn("*", security.HOSTED_APP_ORIGINS)
+        self.assertEqual(
+            security.HOSTED_APP_URL,
+            "https://maniml.tayweid.io/",
+        )
 
     def test_auth_message_and_strict_json(self):
         token = security.new_capability_token()
-        self.assertTrue(security.is_auth_message(
-            f'{{"type":"authenticate","token":"{token}"}}', token))
-        self.assertFalse(security.is_auth_message(
-            '{"type":"authenticate","token":"wrong"}', token))
+        self.assertTrue(
+            security.is_auth_message(
+                f'{{"type":"authenticate","token":"{token}"}}', token
+            )
+        )
+        self.assertFalse(
+            security.is_auth_message('{"type":"authenticate","token":"wrong"}', token)
+        )
         self.assertIsNone(security.parse_json_object('{"x":NaN}'))
-        self.assertIsNone(security.parse_json_object('[]'))
-        self.assertIsNone(security.parse_json_object(
-            "[" * 1100 + "0" + "]" * 1100))
-        self.assertIsNone(security.parse_json_object(
-            " " * (security.MAX_CONTROL_MESSAGE + 1)))
+        self.assertIsNone(security.parse_json_object("[]"))
+        self.assertIsNone(security.parse_json_object("[" * 1100 + "0" + "]" * 1100))
+        self.assertIsNone(
+            security.parse_json_object(" " * (security.MAX_CONTROL_MESSAGE + 1))
+        )
 
     def test_path_resolution_confines_symlinks_to_root(self):
-        with tempfile.TemporaryDirectory() as root_dir, \
-                tempfile.TemporaryDirectory() as outside_dir:
+        with (
+            tempfile.TemporaryDirectory() as root_dir,
+            tempfile.TemporaryDirectory() as outside_dir,
+        ):
             root = Path(root_dir)
             inside = root / "scene.py"
             inside.write_text("class Demo: pass\n")
-            resolved = security.resolve_authorized_file(
-                root, str(inside), suffix=".py")
+            resolved = security.resolve_authorized_file(root, str(inside), suffix=".py")
             self.assertEqual(resolved, inside.resolve())
 
             outside = Path(outside_dir) / "outside.py"
             outside.write_text("class Outside: pass\n")
             with self.assertRaisesRegex(ValueError, "outside the app root"):
-                security.resolve_authorized_file(
-                    root, str(outside), suffix=".py")
+                security.resolve_authorized_file(root, str(outside), suffix=".py")
 
             link = root / "linked.py"
             try:
@@ -70,13 +79,12 @@ class WebSecurityTests(unittest.TestCase):
             except (OSError, NotImplementedError):
                 return
             with self.assertRaisesRegex(ValueError, "outside the app root"):
-                security.resolve_authorized_file(
-                    root, str(link), suffix=".py")
+                security.resolve_authorized_file(root, str(link), suffix=".py")
 
             self.assertEqual(
                 security.resolve_authorized_file(
-                    root, str(outside), suffix=".py",
-                    allow_outside_root=True),
+                    root, str(outside), suffix=".py", allow_outside_root=True
+                ),
                 outside.resolve(),
             )
 
@@ -86,11 +94,9 @@ class WebSecurityTests(unittest.TestCase):
             text = root / "scene.txt"
             text.write_text("not Python\n")
             with self.assertRaisesRegex(ValueError, r"\.py suffix"):
-                security.resolve_authorized_file(
-                    root, str(text), suffix=".py")
+                security.resolve_authorized_file(root, str(text), suffix=".py")
             with self.assertRaisesRegex(ValueError, "regular file"):
-                security.resolve_authorized_file(
-                    root, str(root), suffix=".py")
+                security.resolve_authorized_file(root, str(root), suffix=".py")
 
 
 if __name__ == "__main__":

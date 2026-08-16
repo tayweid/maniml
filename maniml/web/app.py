@@ -37,6 +37,7 @@ from maniml.utils.processes import (
     process_group_popen_kwargs,
     terminate_process_tree,
 )
+from maniml.desktop import choose_python_file
 from maniml.web.security import (
     AUTH_TIMEOUT,
     HOSTED_APP_ORIGINS,
@@ -52,12 +53,12 @@ from maniml.web.security import (
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 RECENTS_PATH = os.environ.get(
-    "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json"))
+    "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
+)
 RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
 VIEWER_LAUNCH_PATTERN = re.compile(
-    r"^maniml web viewer: "
-    r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
+    r"^maniml web viewer: " r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
 )
 DEFAULT_APP_PORT = 8685
 # Fixed control-channel port, Knuth-style.  The hosted frontend connects to
@@ -71,17 +72,18 @@ def missing_module_hint(log: str) -> str | None:
     runs on and the exact install command — scene imports resolve in
     maniml's interpreter, which may not be the shell's default."""
     plain = re.sub(r"\x1b\[[0-9;]*m", "", log)  # strip ANSI colors
-    match = re.search(
-        r"ModuleNotFoundError: No module named '([^']+)'", plain)
+    match = re.search(r"ModuleNotFoundError: No module named '([^']+)'", plain)
     if not match:
         return None
     module = match.group(1).split(".")[0]
     pip = os.path.join(os.path.dirname(sys.executable), "pip")
     if not os.path.exists(pip):
         pip = f"{sys.executable} -m pip"
-    return (f"Scenes run on {sys.executable} — "
-            f"'{module}' is not installed there. "
-            f"Install it with:  {pip} install {module}")
+    return (
+        f"Scenes run on {sys.executable} — "
+        f"'{module}' is not installed there. "
+        f"Install it with:  {pip} install {module}"
+    )
 
 
 def parse_viewer_launch_line(line: str) -> str | None:
@@ -121,20 +123,24 @@ def find_scene_files(root: str, max_depth: int = 2) -> list[dict]:
     root = os.path.abspath(root)
     for dirpath, dirnames, filenames in os.walk(root):
         depth = os.path.relpath(dirpath, root).count(os.sep)
-        dirnames[:] = [d for d in dirnames
-                       if d not in SKIP_DIRS and not d.startswith(".")
-                       and depth < max_depth]
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in SKIP_DIRS and not d.startswith(".") and depth < max_depth
+        ]
         for filename in sorted(filenames):
             if not filename.endswith(".py"):
                 continue
             path = os.path.join(dirpath, filename)
             scenes = find_scene_classes(path)
             if scenes:
-                results.append({
-                    "path": path,
-                    "rel": os.path.relpath(path, root),
-                    "scenes": scenes,
-                })
+                results.append(
+                    {
+                        "path": path,
+                        "rel": os.path.relpath(path, root),
+                        "scenes": scenes,
+                    }
+                )
     return results
 
 
@@ -168,12 +174,20 @@ class SceneProcess:
             command.append(scene)
         command += ["--web", "--no-browser"]
         self.proc = subprocess.Popen(
-            command, cwd=os.path.dirname(path) or None,
-            env={**os.environ, "PYTHONUNBUFFERED": "1",
-                 "MANIML_APP_ORIGIN": app_origin},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            encoding="utf-8", errors="replace",
-            **process_group_popen_kwargs())
+            command,
+            cwd=os.path.dirname(path) or None,
+            env={
+                **os.environ,
+                "PYTHONUNBUFFERED": "1",
+                "MANIML_APP_ORIGIN": app_origin,
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **process_group_popen_kwargs(),
+        )
         self.lines: deque[str] = deque(maxlen=200)
         self.url: str | None = None
         self._stop_lock = threading.Lock()
@@ -220,8 +234,13 @@ class SceneProcess:
 
 
 class AppServer:
-    def __init__(self, root: str, port: int | None = None,
-                 allow_outside_root: bool = False):
+    def __init__(
+        self,
+        root: str,
+        port: int | None = None,
+        allow_outside_root: bool = False,
+        control_port: int = CONTROL_WS_PORT,
+    ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
         if not self._root_path.is_dir():
@@ -229,6 +248,7 @@ class AppServer:
         self.allow_outside_root = allow_outside_root
         self.token = new_capability_token()
         self.processes: dict[tuple, SceneProcess] = {}
+        self._granted_files: set[str] = set()
         self._lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
@@ -255,7 +275,8 @@ class AppServer:
                 prefix = "Bearer "
                 header = self.headers.get("Authorization", "")
                 if not header.startswith(prefix) or not token_matches(
-                        header[len(prefix):], app.token):
+                    header[len(prefix) :], app.token
+                ):
                     self._json({"error": "authorization required"}, 401)
                     return False
                 origin = self.headers.get("Origin")
@@ -276,16 +297,19 @@ class AppServer:
                 # Serve the whole static dir (landing, viewer, renderer
                 # assets) so the local flow matches the hosted one
                 request_path = urlsplit(self.path).path
-                path = "app.html" if request_path in ("/", "/index.html") \
+                path = (
+                    "app.html"
+                    if request_path in ("/", "/index.html")
                     else request_path.lstrip("/")
+                )
                 static_root = Path(STATIC_DIR).resolve()
                 full = (static_root / path).resolve()
                 if not full.is_relative_to(static_root) or not full.is_file():
                     self._json({"error": "not found"}, 404)
                     return
                 import mimetypes
-                ctype = mimetypes.guess_type(full)[0] \
-                    or "application/octet-stream"
+
+                ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
                 with open(full, "rb") as f:
                     body = f.read()
                 self.send_response(200)
@@ -302,8 +326,10 @@ class AppServer:
                     return
                 if not self._authorized():
                     return
-                if self.headers.get("Content-Type", "").split(";", 1)[0].lower() \
-                        != "application/json":
+                if (
+                    self.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                    != "application/json"
+                ):
                     self._json({"error": "application/json required"}, 415)
                     return
                 try:
@@ -323,7 +349,8 @@ class AppServer:
 
         try:
             self.httpd = ThreadingHTTPServer(
-                ("127.0.0.1", port or DEFAULT_APP_PORT), Handler)
+                ("127.0.0.1", port or DEFAULT_APP_PORT), Handler
+            )
         except OSError:  # port taken: let the OS pick
             self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.httpd.server_address[1]
@@ -331,7 +358,8 @@ class AppServer:
         self.url = f"{self.origin}/"
         self.launch_url = f"{self.url}#token={self.token}"
         self.allowed_origins = {self.origin, *HOSTED_APP_ORIGINS}
-        self._start_control_ws()
+        self.control_port = control_port
+        self._start_control_ws(control_port)
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
         key = (path, scene or "")
@@ -359,23 +387,45 @@ class AppServer:
                 recent = Path(path).resolve(strict=True)
             except OSError:
                 continue
-            if (path in listed or not recent.is_file()
-                    or recent.suffix.lower() != ".py"
-                    or (not self.allow_outside_root
-                        and not recent.is_relative_to(self._root_path))):
+            if (
+                path in listed
+                or not recent.is_file()
+                or recent.suffix.lower() != ".py"
+                or (
+                    not self.allow_outside_root
+                    and str(recent) not in self._granted_files
+                    and not recent.is_relative_to(self._root_path)
+                )
+            ):
                 continue
             recent_str = str(recent)
-            recents.append({"path": recent_str, "rel": recent_str,
-                            "scenes": find_scene_classes(recent_str)})
+            recents.append(
+                {
+                    "path": recent_str,
+                    "rel": recent_str,
+                    "scenes": find_scene_classes(recent_str),
+                }
+            )
         return {"root": self.root, "files": files, "recents": recents}
 
     def open_payload(self, request: dict) -> dict:
+        raw_path = request.get("path")
+        try:
+            resolved_path = (
+                str(Path(raw_path).expanduser().resolve(strict=True))
+                if isinstance(raw_path, str)
+                else ""
+            )
+        except OSError:
+            resolved_path = ""
         try:
             candidate = resolve_authorized_file(
                 self._root_path,
-                request.get("path"),
+                raw_path,
                 suffix=".py",
-                allow_outside_root=self.allow_outside_root,
+                allow_outside_root=(
+                    self.allow_outside_root or resolved_path in self._granted_files
+                ),
             )
         except ValueError as exc:
             return {"error": str(exc)}
@@ -386,26 +436,67 @@ class AppServer:
             if len(scenes) != 1:
                 return {"error": "specify exactly one discovered scene"}
             scene = scenes[0]
-        if (not isinstance(scene, str) or not scene.isidentifier()
-                or scene not in scenes):
+        if (
+            not isinstance(scene, str)
+            or not scene.isidentifier()
+            or scene not in scenes
+        ):
             return {"error": "scene was not discovered in this file"}
         url = self.open_scene(path, scene)
         if url is None:
             process = self.processes.get((path, scene or ""))
             tail = "".join(process.lines) if process else ""
-            return {"error": "scene failed to start", "log": tail[-4000:],
-                    "hint": missing_module_hint(tail)}
+            return {
+                "error": "scene failed to start",
+                "log": tail[-4000:],
+                "hint": missing_module_hint(tail),
+            }
         # ws_port lets a hosted frontend connect its own viewer page
         parsed = urlsplit(url)
+        if parsed.port is None:
+            return {"error": "scene returned an invalid viewer URL"}
         ws_port = parsed.port + 1
         viewer_token = parsed.fragment.removeprefix("token=")
         viewer_url = f"viewer.html?ws={ws_port}#token={viewer_token}"
-        return {"url": url, "ws_port": ws_port,
-                "viewer_url": viewer_url}
+        return {"url": url, "ws_port": ws_port, "viewer_url": viewer_url}
 
-    def _start_control_ws(self):
-        """Fixed-port WebSocket control channel for the hosted frontend
-        (the local landing page uses it too — one code path)."""
+    def choose_payload(self) -> dict:
+        """Choose one file through an OS dialog and grant only that file.
+
+        The dialog is initiated by an authenticated app request.  Selecting a
+        file is an explicit native user action, so it can safely grant that
+        canonical file without weakening the configured-root boundary for any
+        other path.
+        """
+        try:
+            selected = choose_python_file(self.root)
+        except RuntimeError as exc:
+            return {"error": str(exc)}
+        if selected is None:
+            return {"cancelled": True}
+        try:
+            candidate = resolve_authorized_file(
+                self._root_path,
+                selected,
+                suffix=".py",
+                allow_outside_root=True,
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+        path = str(candidate)
+        scenes = find_scene_classes(path)
+        if not scenes:
+            return {"error": "no Manim scene classes were discovered in this file"}
+        self._granted_files.add(path)
+        return {"file": {"path": path, "rel": candidate.name, "scenes": scenes}}
+
+    def _start_control_ws(self, control_port: int):
+        """Loopback control channel for the hosted and local frontends.
+
+        Normal app sessions use the stable default port; desktop-open sessions
+        request an OS-assigned port so independently opened files cannot
+        collide.
+        """
         import asyncio
         import websockets.asyncio.server as ws_server
 
@@ -417,10 +508,14 @@ class AppServer:
             if not is_auth_message(first, self.token):
                 await ws.close(code=1008, reason="authentication required")
                 return
-            await ws.send(json.dumps({
-                "type": "authenticated",
-                "protocol": WEB_PROTOCOL_VERSION,
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "authenticated",
+                        "protocol": WEB_PROTOCOL_VERSION,
+                    }
+                )
+            )
             async for message in ws:
                 request = parse_json_object(message)
                 if request is None:
@@ -428,21 +523,26 @@ class AppServer:
                 op = request.get("op")
                 if op == "files":
                     response = self.files_payload()
+                elif op == "choose":
+                    response = await asyncio.to_thread(self.choose_payload)
                 elif op == "open":
-                    response = await asyncio.to_thread(
-                        self.open_payload, request)
+                    response = await asyncio.to_thread(self.open_payload, request)
                 else:
                     response = {"error": f"unknown op {op}"}
                 response["id"] = request.get("id")
                 await ws.send(json.dumps(response))
 
         async def main():
-            async with ws_server.serve(handler, "127.0.0.1",
-                                       CONTROL_WS_PORT,
-                                       origins=sorted(self.allowed_origins),
-                                       max_size=MAX_CONTROL_MESSAGE,
-                                       max_queue=16,
-                                       compression=None):
+            async with ws_server.serve(
+                handler,
+                "127.0.0.1",
+                control_port,
+                origins=sorted(self.allowed_origins),
+                max_size=MAX_CONTROL_MESSAGE,
+                max_queue=16,
+                compression=None,
+            ) as server:
+                self.control_port = server.sockets[0].getsockname()[1]
                 self._control_ready.set()
                 await asyncio.Future()
 
@@ -450,13 +550,14 @@ class AppServer:
             try:
                 asyncio.run(main())
             except OSError:
-                print(f"warning: control port {CONTROL_WS_PORT} is taken — "
-                      "the hosted app page will not find this server")
+                print(
+                    f"warning: control port {control_port} is taken — "
+                    "the hosted app page will not find this server"
+                )
                 self._control_ready.set()
 
         self._control_ready = threading.Event()
-        threading.Thread(target=run, name="maniml-app-control",
-                         daemon=True).start()
+        threading.Thread(target=run, name="maniml-app-control", daemon=True).start()
         self._control_ready.wait(timeout=5)
 
     def serve_forever(self):
@@ -473,10 +574,17 @@ class AppServer:
                 process.stop()
 
 
-def run_app(root: str = ".", open_browser: bool = True,
-            allow_outside_root: bool = False,
-            hosted: bool = False) -> None:
-    server = AppServer(root, allow_outside_root=allow_outside_root)
+def run_app(
+    root: str = ".",
+    open_browser: bool = True,
+    allow_outside_root: bool = False,
+    hosted: bool = False,
+    initial_file: str | None = None,
+    control_port: int = CONTROL_WS_PORT,
+) -> None:
+    server = AppServer(
+        root, allow_outside_root=allow_outside_root, control_port=control_port
+    )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
         previous_sigterm = signal.getsignal(signal.SIGTERM)
@@ -485,8 +593,14 @@ def run_app(root: str = ".", open_browser: bool = True,
             raise SystemExit(128 + signum)
 
         signal.signal(signal.SIGTERM, exit_on_sigterm)
-    launch_url = (f"{HOSTED_APP_URL}#token={server.token}"
-                  if hosted else server.launch_url)
+    control_fragment = f"token={server.token}"
+    if server.control_port != CONTROL_WS_PORT:
+        control_fragment += f"&control={server.control_port}"
+    launch_url = f"{HOSTED_APP_URL}#{control_fragment}" if hosted else server.launch_url
+    if initial_file is not None:
+        opened = server.open_payload({"path": initial_file})
+        if hosted and opened.get("viewer_url"):
+            launch_url = HOSTED_APP_URL + opened["viewer_url"]
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
     if open_browser:
         webbrowser.open(launch_url)
