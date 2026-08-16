@@ -22,6 +22,7 @@ import atexit
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -32,6 +33,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from maniml.utils.processes import (
+    process_group_popen_kwargs,
+    terminate_process_tree,
+)
 from maniml.web.security import (
     AUTH_TIMEOUT,
     HOSTED_APP_ORIGIN,
@@ -166,9 +171,12 @@ class SceneProcess:
             env={**os.environ, "PYTHONUNBUFFERED": "1",
                  "MANIML_APP_ORIGIN": app_origin},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            encoding="utf-8", errors="replace")
+            encoding="utf-8", errors="replace",
+            **process_group_popen_kwargs())
         self.lines: deque[str] = deque(maxlen=200)
         self.url: str | None = None
+        self._stop_lock = threading.Lock()
+        self._stopped = False
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
 
@@ -195,16 +203,19 @@ class SceneProcess:
         return self.proc.poll() is None
 
     def stop(self):
-        if self.alive():
-            self.proc.terminate()
+        with self._stop_lock:
+            if self._stopped:
+                return
             try:
-                self.proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=2)
-        self._reader.join(timeout=2)
-        if self.proc.stdout is not None:
-            self.proc.stdout.close()
+                terminate_process_tree(self.proc)
+            finally:
+                self._reader.join(timeout=2)
+                if self.proc.stdout is not None:
+                    try:
+                        self.proc.stdout.close()
+                    except OSError:
+                        pass
+                self._stopped = True
 
 
 class AppServer:
@@ -218,6 +229,8 @@ class AppServer:
         self.token = new_capability_token()
         self.processes: dict[tuple, SceneProcess] = {}
         self._lock = threading.Lock()
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_complete = False
         atexit.register(self.shutdown)
 
         app = self
@@ -322,8 +335,13 @@ class AppServer:
     def open_scene(self, path: str, scene: str | None) -> str | None:
         key = (path, scene or "")
         with self._lock:
+            if self._shutdown_complete:
+                return None
             process = self.processes.get(key)
-            if process is None or not process.alive():
+            if process is not None and not process.alive():
+                process.stop()
+                process = None
+            if process is None:
                 process = SceneProcess(path, scene, self.origin)
                 self.processes[key] = process
         url = process.wait_for_url()
@@ -441,14 +459,28 @@ class AppServer:
         self.httpd.serve_forever()
 
     def shutdown(self):
-        for process in self.processes.values():
-            process.stop()
+        with self._shutdown_lock:
+            if self._shutdown_complete:
+                return
+            self._shutdown_complete = True
+            with self._lock:
+                processes = list(self.processes.values())
+            for process in processes:
+                process.stop()
 
 
 def run_app(root: str = ".", open_browser: bool = True,
             allow_outside_root: bool = False,
             hosted: bool = False) -> None:
     server = AppServer(root, allow_outside_root=allow_outside_root)
+    previous_sigterm = None
+    if threading.current_thread() is threading.main_thread():
+        previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+        def exit_on_sigterm(signum, frame):
+            raise SystemExit(128 + signum)
+
+        signal.signal(signal.SIGTERM, exit_on_sigterm)
     launch_url = (f"{HOSTED_APP_URL}#token={server.token}"
                   if hosted else server.launch_url)
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
@@ -460,3 +492,5 @@ def run_app(root: str = ".", open_browser: bool = True,
         print("")
     finally:
         server.shutdown()
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)

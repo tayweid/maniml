@@ -21,6 +21,9 @@ interfaces may still change before the first public release.
 - Restricted URL-backed assets to bounded HTTP(S) downloads with socket and
   overall deadlines, sanitized failures, and atomic cache promotion. Complete
   cache entries are now reused; failed or truncated transfers leave no artifact.
+- Isolated app-launched scenes in dedicated process groups and terminate their
+  descendant processes on normal exit, Ctrl-C, or SIGTERM, with bounded
+  escalation when graceful shutdown stalls.
 
 ### Compatibility and reliability
 
@@ -37,6 +40,9 @@ interfaces may still change before the first public release.
   interrupted movies are preserved separately. Render, present, and export
   modes now fail visibly on scene execution or source-parsing errors instead
   of silently publishing partial output.
+- Made web exports transactional. Player assets and scene data are assembled in
+  collision-resistant sibling staging, existing unrelated deployment files are
+  preserved, and publication failures restore the last complete export.
 
 ### Packaging and release engineering
 

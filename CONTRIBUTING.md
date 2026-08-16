@@ -23,6 +23,7 @@ uv run --locked python -m unittest \
   tests.test_safe_text_cache \
   tests.test_headless_import \
   tests.test_app_protocol \
+  tests.test_export_publication \
   tests.test_external_processes \
   tests.test_remote_assets \
   tests.test_scene_lifecycle

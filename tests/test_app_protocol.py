@@ -1,10 +1,18 @@
 """Display-independent tests for the app/scene subprocess handshake."""
 
+import os
+import signal
 import subprocess
+import sys
+import tempfile
+import threading
+import time
 import unittest
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
-from maniml.web.app import SceneProcess, parse_viewer_launch_line
+import maniml.utils.processes as process_utils
+from maniml.web.app import AppServer, SceneProcess, parse_viewer_launch_line, run_app
 
 TOKEN = "NEoPxsQMRSQbR0OjdaE2QBzm6cKFpSNNOV_aYF8KiHU"
 URL = f"http://localhost:8689/#token={TOKEN}"
@@ -19,9 +27,7 @@ class ViewerLaunchProtocolTests(unittest.TestCase):
 
     def test_rejects_rich_log_line_and_wrapped_token(self):
         wrapped_url = (
-            "                    http://localhost:8689/#token="
-            + TOKEN[:22]
-            + "\n"
+            "                    http://localhost:8689/#token=" + TOKEN[:22] + "\n"
         )
         self.assertIsNone(
             parse_viewer_launch_line(
@@ -39,23 +45,271 @@ class ViewerLaunchProtocolTests(unittest.TestCase):
 
 
 class SceneProcessLifecycleTests(unittest.TestCase):
-    def test_stop_escalates_and_reaps_process_then_closes_pipe(self):
+    def test_process_group_options_are_cross_platform(self):
+        self.assertEqual(
+            process_utils.process_group_popen_kwargs("posix"),
+            {"start_new_session": True},
+        )
+        self.assertEqual(
+            process_utils.process_group_popen_kwargs("nt"),
+            {
+                "creationflags": getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200
+                )
+            },
+        )
+
+    @patch("maniml.web.app.terminate_process_tree")
+    def test_stop_terminates_tree_once_then_closes_pipe(self, terminate_tree):
         scene_process = SceneProcess.__new__(SceneProcess)
         scene_process.proc = MagicMock()
-        scene_process.proc.poll.return_value = None
-        scene_process.proc.wait.side_effect = [
-            subprocess.TimeoutExpired("maniml", 3),
-            0,
-        ]
+        scene_process._stop_lock = threading.Lock()
+        scene_process._stopped = False
         scene_process._reader = MagicMock()
 
         scene_process.stop()
+        scene_process.stop()
 
-        scene_process.proc.terminate.assert_called_once_with()
-        scene_process.proc.kill.assert_called_once_with()
-        self.assertEqual(scene_process.proc.wait.call_count, 2)
+        terminate_tree.assert_called_once_with(scene_process.proc)
         scene_process._reader.join.assert_called_once_with(timeout=2)
         scene_process.proc.stdout.close.assert_called_once_with()
+
+    @patch("maniml.utils.processes._process_group_exists", side_effect=[True, False])
+    @patch("maniml.utils.processes.os.killpg")
+    def test_posix_tree_escalates_from_term_to_kill(self, killpg, group_exists):
+        process = MagicMock(pid=4321)
+
+        process_utils.terminate_process_tree(
+            process,
+            platform="posix",
+            terminate_timeout=0,
+            kill_timeout=0,
+        )
+
+        self.assertEqual(
+            killpg.call_args_list,
+            [call(4321, signal.SIGTERM), call(4321, signal.SIGKILL)],
+        )
+        self.assertEqual(group_exists.call_count, 2)
+        process.wait.assert_called_once_with(timeout=0)
+
+    @patch("maniml.utils.processes._run_taskkill", side_effect=[True, True])
+    def test_windows_tree_escalates_to_forced_taskkill(self, taskkill):
+        process = MagicMock(pid=4321)
+        process.poll.side_effect = [None, None]
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired("maniml", 3),
+            0,
+        ]
+
+        process_utils.terminate_process_tree(
+            process,
+            platform="nt",
+            terminate_timeout=3,
+            kill_timeout=2,
+        )
+
+        self.assertEqual(
+            taskkill.call_args_list,
+            [
+                call(4321, force=False, timeout=3),
+                call(4321, force=True, timeout=2),
+            ],
+        )
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
+    @patch("maniml.utils.processes.subprocess.run")
+    def test_windows_taskkill_uses_an_argument_vector(self, run):
+        run.return_value = subprocess.CompletedProcess([], 0)
+
+        result = process_utils._run_taskkill(4321, force=True, timeout=2)
+
+        self.assertTrue(result)
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4321", "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+
+    @unittest.skipUnless(os.name == "posix", "POSIX process groups only")
+    def test_posix_tree_termination_reaches_a_descendant(self):
+        child_source = """
+import signal
+import sys
+import time
+from pathlib import Path
+
+ready = Path(sys.argv[1])
+stopped = Path(sys.argv[2])
+
+def stop(signum, frame):
+    stopped.write_text("stopped")
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, stop)
+ready.write_text("ready")
+while True:
+    time.sleep(0.1)
+"""
+        parent_source = """
+import subprocess
+import sys
+import time
+
+child = subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2], sys.argv[3]]
+)
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.1)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            ready = Path(directory, "ready")
+            stopped = Path(directory, "stopped")
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    parent_source,
+                    child_source,
+                    os.fspath(ready),
+                    os.fspath(stopped),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+                **process_utils.process_group_popen_kwargs(),
+            )
+            try:
+                self.assertIsNotNone(process.stdout)
+                child_pid = int(process.stdout.readline())
+                self.assertGreater(child_pid, 0)
+                deadline = time.monotonic() + 5
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(ready.exists(), "descendant did not start")
+
+                process_utils.terminate_process_tree(
+                    process,
+                    terminate_timeout=1,
+                    kill_timeout=1,
+                )
+
+                self.assertTrue(stopped.exists(), "descendant missed SIGTERM")
+                self.assertIsNotNone(process.poll())
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if process.stdout is not None:
+                    process.stdout.close()
+
+    @unittest.skipUnless(os.name == "nt", "Windows process trees only")
+    def test_windows_tree_termination_stops_a_descendant(self):
+        child_source = """
+import sys
+import time
+from pathlib import Path
+
+heartbeat = Path(sys.argv[1])
+while True:
+    heartbeat.write_text(str(time.monotonic_ns()))
+    time.sleep(0.05)
+"""
+        parent_source = """
+import subprocess
+import sys
+import time
+
+child = subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[2]])
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.1)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            heartbeat = Path(directory, "heartbeat")
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    parent_source,
+                    child_source,
+                    os.fspath(heartbeat),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+                **process_utils.process_group_popen_kwargs(),
+            )
+            try:
+                self.assertIsNotNone(process.stdout)
+                child_pid = int(process.stdout.readline())
+                self.assertGreater(child_pid, 0)
+                deadline = time.monotonic() + 5
+                while not heartbeat.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(heartbeat.exists(), "descendant did not start")
+
+                process_utils.terminate_process_tree(
+                    process,
+                    terminate_timeout=3,
+                    kill_timeout=2,
+                )
+
+                time.sleep(0.15)
+                stopped_value = heartbeat.read_text()
+                time.sleep(0.2)
+                self.assertEqual(heartbeat.read_text(), stopped_value)
+                self.assertIsNotNone(process.poll())
+            finally:
+                process_utils._run_taskkill(process.pid, force=True, timeout=2)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if process.stdout is not None:
+                    process.stdout.close()
+
+
+class AppShutdownTests(unittest.TestCase):
+    def test_shutdown_is_idempotent(self):
+        server = AppServer.__new__(AppServer)
+        server._shutdown_lock = threading.Lock()
+        server._shutdown_complete = False
+        server._lock = threading.Lock()
+        process = MagicMock()
+        server.processes = {("scene.py", "Demo"): process}
+
+        server.shutdown()
+        server.shutdown()
+
+        process.stop.assert_called_once_with()
+
+    @patch("maniml.web.app.AppServer")
+    def test_sigterm_runs_app_cleanup_and_restores_handler(self, app_server):
+        server = app_server.return_value
+        server.token = "token"
+        server.launch_url = "http://localhost/#token=token"
+        server.root = "/scenes"
+        previous_handler = signal.getsignal(signal.SIGTERM)
+
+        def send_sigterm():
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+        server.serve_forever.side_effect = send_sigterm
+
+        with self.assertRaises(SystemExit) as raised:
+            run_app("/scenes", open_browser=False)
+
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+        server.shutdown.assert_called_once_with()
+        self.assertEqual(signal.getsignal(signal.SIGTERM), previous_handler)
 
 
 if __name__ == "__main__":

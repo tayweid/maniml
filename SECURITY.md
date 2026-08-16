@@ -26,6 +26,11 @@ code, and running it may invoke Python packages and external tools such as TeX
 and ffmpeg. Scene subprocesses isolate crashes; they are not an operating-system
 sandbox. Only open scene files you would be willing to run with Python directly.
 
+Scenes opened through `maniml app` run in a dedicated process group. Normal app
+exit, Ctrl-C, and SIGTERM terminate the scene and its descendant processes with
+bounded escalation. This cleanup prevents accidentally orphaned tools; it does
+not constrain a malicious scene or turn the process group into a sandbox.
+
 `maniml app DIR` treats `DIR` as the authorized scene root. It rejects files
 outside that root by default, including symlinks that resolve outside it. The
 `--allow-outside-root` option is an explicit compatibility escape hatch.

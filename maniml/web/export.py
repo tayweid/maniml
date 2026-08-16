@@ -15,10 +15,13 @@ as fast as the scene computes.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
+import tempfile
 import time
+from pathlib import Path
 
 from maniml.web.geometry import GeometryCache, serialize_scene
 
@@ -84,36 +87,111 @@ def record_scene(scene) -> GeometryRecorder:
 
 
 def export_scene(scene, out_dir: str) -> str:
-    """Record `scene` and write the self-contained player folder."""
+    """Record ``scene`` and atomically publish its player folder.
+
+    The previous export remains untouched until a complete replacement is
+    ready. Existing unrelated files are carried forward for compatibility
+    with users who keep deployment metadata alongside the player assets.
+    """
+    destination = Path(out_dir).absolute()
+    _validate_export_destination(destination)
+
     recorder = record_scene(scene)
     if not recorder.frames:
         raise RuntimeError("nothing recorded — scene has no content?")
 
-    os.makedirs(out_dir, exist_ok=True)
-    for name in PLAYER_ASSETS:
-        target = "index.html" if name == "player.html" else name
-        shutil.copy(os.path.join(STATIC_DIR, name),
-                    os.path.join(out_dir, target))
-    for dirname in PLAYER_ASSET_DIRS:
-        target = os.path.join(out_dir, dirname)
-        shutil.rmtree(target, ignore_errors=True)
-        shutil.copytree(os.path.join(STATIC_DIR, dirname), target)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    transaction = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}-export-",
+            dir=destination.parent,
+        )
+    )
+    staging = transaction / "new"
+    backup = transaction / "previous"
+    try:
+        if destination.exists():
+            shutil.copytree(destination, staging, symlinks=True)
+        else:
+            staging.mkdir(mode=0o755)
+        _write_export(scene, recorder, staging)
+        _publish_export(staging, destination, backup)
+    finally:
+        shutil.rmtree(transaction, ignore_errors=True)
+    return out_dir
 
-    import gzip
-    with gzip.open(os.path.join(out_dir, "scene.bin.gz"), "wb",
-                   compresslevel=6) as f:
+
+def _validate_export_destination(destination: Path) -> None:
+    if not destination.name:
+        raise ValueError("export destination cannot be a filesystem root")
+    if os.path.lexists(destination):
+        if destination.is_symlink():
+            raise ValueError(
+                "export destination cannot be a symlink; pass its resolved "
+                "directory instead"
+            )
+        if not destination.is_dir():
+            raise NotADirectoryError(
+                f"export destination is not a directory: {destination}"
+            )
+
+
+def _remove_staged_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        path.unlink()
+
+
+def _write_export(scene, recorder: GeometryRecorder, staging: Path) -> None:
+    for name in PLAYER_ASSETS:
+        target_name = "index.html" if name == "player.html" else name
+        target_path = staging / target_name
+        _remove_staged_path(target_path)
+        shutil.copy(Path(STATIC_DIR, name), target_path)
+    for dirname in PLAYER_ASSET_DIRS:
+        target_directory = staging / dirname
+        _remove_staged_path(target_directory)
+        shutil.copytree(Path(STATIC_DIR, dirname), target_directory)
+
+    scene_data = staging / "scene.bin.gz"
+    _remove_staged_path(scene_data)
+    with gzip.open(scene_data, "wb", compresslevel=6) as file:
         for message, _ in recorder.frames:
-            f.write(message)
+            file.write(message)
 
     checkpoints = scene.animation_checkpoints
     meta = {
         "scene": type(scene).__name__,
         "fps": int(scene.camera.fps),
-        "frames": [{"len": len(message), "segment": segment}
-                   for message, segment in recorder.frames],
+        "frames": [
+            {"len": len(message), "segment": segment}
+            for message, segment in recorder.frames
+        ],
         "segments": recorder._counter + 1,
         "lines": [c.get("line_number") for c in checkpoints[1:]],
     }
-    with open(os.path.join(out_dir, "scene.json"), "w") as f:
-        json.dump(meta, f)
-    return out_dir
+    scene_metadata = staging / "scene.json"
+    _remove_staged_path(scene_metadata)
+    with scene_metadata.open("w", encoding="utf-8") as file:
+        json.dump(meta, file)
+
+
+def _publish_export(staging: Path, destination: Path, backup: Path) -> None:
+    had_previous = destination.exists()
+    if had_previous:
+        os.replace(destination, backup)
+    try:
+        os.replace(staging, destination)
+    except BaseException as error:
+        if had_previous:
+            try:
+                os.replace(backup, destination)
+            except BaseException as rollback_error:
+                error.add_note(
+                    "Also failed to restore the previous export from "
+                    f"{backup}: {rollback_error}"
+                )
+        raise
