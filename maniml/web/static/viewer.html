@@ -117,19 +117,50 @@ const wsParam = new URLSearchParams(location.search).get("ws");
 const wsUrl = wsParam
   ? "ws://127.0.0.1:" + wsParam + "/"
   : "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
+const viewerTokenKey = "maniml-viewer-token:" + wsUrl;
+const isHostedApp = location.origin === "https://tayweid.github.io";
+const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
+if (fragmentToken && !isHostedApp) {
+  sessionStorage.setItem(viewerTokenKey, fragmentToken);
+}
+if (fragmentToken) {
+  history.replaceState(null, "", location.pathname + location.search);
+}
+const viewerToken = fragmentToken
+  || (!isHostedApp && sessionStorage.getItem(viewerTokenKey));
 let ws = null;
 
 function connect() {
+  if (!viewerToken) {
+    document.body.classList.add("disconnected");
+    document.getElementById("conn").textContent = "viewer authorization missing";
+    return;
+  }
   ws = new WebSocket(wsUrl);
   ws.binaryType = "blob";
   ws.onopen = () => {
-    document.body.classList.remove("disconnected");
-    canvas.focus();
-    if (renderer !== "pixel") sendRendererMode();
+    ws.send(JSON.stringify({ type: "authenticate", token: viewerToken }));
   };
-  ws.onclose = () => { document.body.classList.add("disconnected"); setTimeout(connect, 1000); };
+  ws.onclose = (event) => {
+    document.body.classList.add("disconnected");
+    if (event.code === 1008) {
+      if (!isHostedApp) sessionStorage.removeItem(viewerTokenKey);
+      document.getElementById("conn").textContent = "viewer authorization expired";
+      return;
+    }
+    setTimeout(connect, 1000);
+  };
   ws.onmessage = (e) => {
-    if (typeof e.data === "string") { handleState(JSON.parse(e.data)); }
+    if (typeof e.data === "string") {
+      const data = JSON.parse(e.data);
+      if (data.type === "authenticated") {
+        document.body.classList.remove("disconnected");
+        canvas.focus();
+        if (renderer !== "pixel") sendRendererMode();
+      } else {
+        handleState(data);
+      }
+    }
     else { handleFrame(e.data); }
   };
 }

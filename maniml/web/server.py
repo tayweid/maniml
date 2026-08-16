@@ -5,7 +5,7 @@ thread stays the process's main thread:
 
 - an HTTP server (stdlib) serving the static client page
 - a WebSocket server (`websockets`) that broadcasts frames/state to
-  every connected client and queues inbound input events
+  every authenticated client and queues inbound input events
 
 Threading contract: the scene thread talks to this module only through
 `broadcast()` (thread-safe, hands off to the asyncio loop) and
@@ -24,9 +24,18 @@ import threading
 from collections import deque
 
 from maniml.logger import log
+from maniml.web.security import (
+    AUTH_TIMEOUT,
+    HOSTED_APP_ORIGIN,
+    MAX_CONTROL_MESSAGE,
+    is_auth_message,
+    new_capability_token,
+    parse_json_object,
+)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DEFAULT_HTTP_PORT = 8687  # ws port is always http port + 1
+MAX_EVENT_QUEUE = 1024
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -61,7 +70,16 @@ class WebServer:
     def __init__(self, http_port: int | None = None):
         self.http_port = _find_port_pair(http_port or DEFAULT_HTTP_PORT)
         self.ws_port = self.http_port + 1
-        self.url = f"http://localhost:{self.http_port}/"
+        self.token = new_capability_token()
+        self.base_url = f"http://localhost:{self.http_port}/"
+        self.url = f"{self.base_url}#token={self.token}"
+        self.allowed_origins = {
+            f"http://localhost:{self.http_port}",
+            HOSTED_APP_ORIGIN,
+        }
+        parent_origin = os.environ.get("MANIML_APP_ORIGIN")
+        if parent_origin:
+            self.allowed_origins.add(parent_origin)
 
         self._events: deque[dict] = deque()
         self._clients: set = set()
@@ -89,7 +107,9 @@ class WebServer:
             self._loop = asyncio.get_running_loop()
             async with ws_server.serve(
                     self._handle_client, "127.0.0.1", self.ws_port,
-                    max_size=2**20, compression=None):
+                    origins=sorted(self.allowed_origins),
+                    max_size=MAX_CONTROL_MESSAGE, max_queue=32,
+                    compression=None):
                 self._started.set()
                 await asyncio.Future()  # run until process exit
 
@@ -99,16 +119,22 @@ class WebServer:
             log.error(f"web viewer WebSocket server died: {e}")
 
     async def _handle_client(self, ws):
-        self._clients.add(ws)
-        self._events.append({"type": "_connect"})
         try:
+            first = await asyncio.wait_for(ws.recv(), timeout=AUTH_TIMEOUT)
+            if not is_auth_message(first, self.token):
+                await ws.close(code=1008, reason="authentication required")
+                return
+            self._clients.add(ws)
+            self._events.append({"type": "_connect"})
+            await ws.send(json.dumps({"type": "authenticated"}))
             async for message in ws:
-                try:
-                    event = json.loads(message)
-                except (ValueError, TypeError):
+                event = parse_json_object(message)
+                if event is None:
                     continue
-                if isinstance(event, dict):
-                    self._events.append(event)
+                if len(self._events) >= MAX_EVENT_QUEUE:
+                    await ws.close(code=1013, reason="event queue full")
+                    return
+                self._events.append(event)
         except Exception:
             pass
         finally:

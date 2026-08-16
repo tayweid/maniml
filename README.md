@@ -87,3 +87,11 @@ Work in progress but tested: the checkpoint system, the CE
 compatibility surface (tracked by `tests/ce_conformance/`), and the
 interactive loop (windowed tests in `tests/interactive/`) all have
 regression suites.
+
+## Security
+
+Scene files are Python programs and run with your user account's privileges.
+Only run scenes you trust. The local browser app uses process-local capability
+tokens and Origin checks; by default, `maniml app DIR` launches scenes only
+from `DIR`. See [SECURITY.md](SECURITY.md) for the trust model and vulnerability
+reporting guidance.

@@ -78,10 +78,20 @@
 "use strict";
 const errorEl = document.getElementById("error");
 
-// Control channel: fixed-port WebSocket to the local maniml app
-// (Knuth-style — works identically for the hosted PWA and the locally
-// served page, and WebSockets need no CORS)
+// Control channel: fixed-port WebSocket to the local maniml app. The CLI
+// pairs either this local page or the hosted PWA with a per-process token.
 const CONTROL_URL = "ws://127.0.0.1:8686/";
+const controlTokenKey = "maniml-control-token";
+const isHostedApp = location.origin === "https://tayweid.github.io";
+const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
+if (fragmentToken && !isHostedApp) {
+  sessionStorage.setItem(controlTokenKey, fragmentToken);
+}
+if (fragmentToken) {
+  history.replaceState(null, "", location.pathname + location.search);
+}
+const controlToken = fragmentToken
+  || (!isHostedApp && sessionStorage.getItem(controlTokenKey));
 let control = null;
 let nextId = 1;
 const pending = new Map();
@@ -99,18 +109,30 @@ function request(op, extra) {
 }
 
 function connectControl() {
+  if (!controlToken) {
+    document.body.classList.add("offline");
+    return;
+  }
   control = new WebSocket(CONTROL_URL);
   control.onopen = () => {
-    document.body.classList.remove("offline");
-    refresh();
+    control.send(JSON.stringify({ type: "authenticate", token: controlToken }));
   };
   control.onmessage = (e) => {
     const data = JSON.parse(e.data);
+    if (data.type === "authenticated") {
+      document.body.classList.remove("offline");
+      refresh();
+      return;
+    }
     const resolve = pending.get(data.id);
     if (resolve) { pending.delete(data.id); resolve(data); }
   };
-  control.onclose = () => {
+  control.onclose = (event) => {
     document.body.classList.add("offline");
+    if (event.code === 1008) {
+      if (!isHostedApp) sessionStorage.removeItem(controlTokenKey);
+      return;
+    }
     setTimeout(connectControl, 1500);
   };
 }
@@ -121,8 +143,8 @@ async function openScene(path, scene, button) {
   if (button) button.classList.add("busy");
   try {
     const data = await request("open", { path, scene });
-    if (data.ws_port) {
-      window.location = "viewer.html?ws=" + data.ws_port;
+    if (data.viewer_url) {
+      window.location = data.viewer_url;
       return;
     }
     errorEl.textContent = (data.error || "failed to open")
