@@ -24,6 +24,17 @@ class WebSecurityTests(unittest.TestCase):
         self.assertFalse(security.token_matches(second, first))
         self.assertFalse(security.token_matches(None, first))
 
+    def test_hosted_origins_are_exact_and_custom_domain_ready(self):
+        self.assertEqual(security.WEB_PROTOCOL_VERSION, 1)
+        self.assertEqual(
+            security.HOSTED_APP_ORIGINS,
+            frozenset({
+                "https://tayweid.github.io",
+                "https://maniml.tayweid.io",
+            }),
+        )
+        self.assertNotIn("*", security.HOSTED_APP_ORIGINS)
+
     def test_auth_message_and_strict_json(self):
         token = security.new_capability_token()
         self.assertTrue(security.is_auth_message(

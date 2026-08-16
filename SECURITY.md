@@ -60,7 +60,13 @@ processes.
 
 The hosted PWA must be paired with each new local daemon session. Start it with
 `maniml app DIR --hosted`; opening an old installed PWA by itself grants no
-authority over a newly started daemon.
+authority over a newly started daemon. Its onboarding page may copy an install
+or startup command to the clipboard, but it cannot execute that command.
+
+The dedicated `https://maniml.tayweid.io` origin and the legacy GitHub Pages
+origin are explicitly allowed during the domain transition. No wildcard web
+origin is trusted. The hosted client and local daemon also exchange an integer
+protocol version after authentication and refuse an incompatible pairing.
 
 ### Exported scenes are public artifacts
 

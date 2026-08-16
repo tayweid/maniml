@@ -1,7 +1,8 @@
 {
-  "name": "maniml",
-  "short_name": "maniml",
+  "name": "ManimLive",
+  "short_name": "ManimLive",
   "description": "Live manim in the browser: checkpoints, hot reload, GPU client rendering",
+  "id": "./",
   "start_url": "./app.html",
   "scope": "./",
   "display": "standalone",

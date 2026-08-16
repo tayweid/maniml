@@ -22,6 +22,8 @@ from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
+from maniml.web.security import WEB_PROTOCOL_VERSION
+
 SCENE_SOURCE = """
 from manim import *
 
@@ -127,6 +129,7 @@ class WebViewerE2E(unittest.TestCase):
         ws.send(json.dumps({"type": "authenticate", "token": self.token}))
         response = json.loads(ws.recv(timeout=5))
         self.assertEqual(response["type"], "authenticated")
+        self.assertEqual(response["protocol"], WEB_PROTOCOL_VERSION)
         return ws
 
     def test_full_loop(self):

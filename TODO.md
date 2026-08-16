@@ -156,6 +156,10 @@ native renderer, in priority order; checked = done):
 The frontend deploys to GitHub Pages on push (.github/workflows/
 deploy.yml uploads web/static verbatim — no build step; enablement:
 true like knuth's) and installs from Chrome via manifest.webmanifest.
+The installable shell now has a network-first service worker, an explicit
+browser-install prompt, and copyable local-engine install/start steps. The
+wire handshake is versioned so a newer hosted UI fails with an actionable
+engine-update message instead of speaking an incompatible protocol.
 The hosted landing (app.html) talks to the local `maniml app` process
 over a fixed-port control WebSocket (ws://127.0.0.1:8686). The CLI
 pairs each daemon session through a URL-fragment capability; the socket
@@ -190,6 +194,8 @@ travel in launch URL fragments and remain tab-session scoped. Scene paths are
 confined to the selected app root by default; `--allow-outside-root` is the
 explicit compatibility escape hatch, and `--hosted` pairs a fresh daemon
 session with the hosted PWA. See `SECURITY.md` and `web/security.py`.
+The dedicated `maniml.tayweid.io` origin is allowed alongside the legacy Pages
+origin; switching Pages DNS/settings remains an external deployment step.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

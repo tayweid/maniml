@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>maniml</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/maniml-192.png">
+<meta name="theme-color" content="#101014">
 <style>
   :root {
     color-scheme: dark;
@@ -111,14 +115,17 @@
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const chipsEl = document.getElementById("chips");
-// A hosted page (the PWA on github.io) passes the scene's WebSocket
+// Keep in sync with WEB_PROTOCOL_VERSION in maniml/web/security.py.
+const WEB_PROTOCOL_VERSION = 1;
+// A hosted PWA passes the scene's WebSocket
 // port as ?ws=; served locally by a scene process, it is port+1
 const wsParam = new URLSearchParams(location.search).get("ws");
 const wsUrl = wsParam
   ? "ws://127.0.0.1:" + wsParam + "/"
   : "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
 const viewerTokenKey = "maniml-viewer-token:" + wsUrl;
-const isHostedApp = location.origin === "https://tayweid.github.io";
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const isHostedApp = !loopbackHosts.has(location.hostname);
 const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
 if (fragmentToken && !isHostedApp) {
   sessionStorage.setItem(viewerTokenKey, fragmentToken);
@@ -129,6 +136,7 @@ if (fragmentToken) {
 const viewerToken = fragmentToken
   || (!isHostedApp && sessionStorage.getItem(viewerTokenKey));
 let ws = null;
+let protocolMismatch = false;
 
 function connect() {
   if (!viewerToken) {
@@ -143,6 +151,7 @@ function connect() {
   };
   ws.onclose = (event) => {
     document.body.classList.add("disconnected");
+    if (protocolMismatch) return;
     if (event.code === 1008) {
       if (!isHostedApp) sessionStorage.removeItem(viewerTokenKey);
       document.getElementById("conn").textContent = "viewer authorization expired";
@@ -154,6 +163,14 @@ function connect() {
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
       if (data.type === "authenticated") {
+        if (data.protocol !== WEB_PROTOCOL_VERSION) {
+          protocolMismatch = true;
+          document.body.classList.add("disconnected");
+          document.getElementById("conn").textContent =
+            "engine update required";
+          ws.close(1000, "protocol mismatch");
+          return;
+        }
         document.body.classList.remove("disconnected");
         canvas.focus();
         if (renderer !== "pixel") sendRendererMode();

@@ -26,8 +26,9 @@ from collections import deque
 from maniml.logger import log
 from maniml.web.security import (
     AUTH_TIMEOUT,
-    HOSTED_APP_ORIGIN,
+    HOSTED_APP_ORIGINS,
     MAX_CONTROL_MESSAGE,
+    WEB_PROTOCOL_VERSION,
     is_auth_message,
     new_capability_token,
     parse_json_object,
@@ -75,7 +76,7 @@ class WebServer:
         self.url = f"{self.base_url}#token={self.token}"
         self.allowed_origins = {
             f"http://localhost:{self.http_port}",
-            HOSTED_APP_ORIGIN,
+            *HOSTED_APP_ORIGINS,
         }
         parent_origin = os.environ.get("MANIML_APP_ORIGIN")
         if parent_origin:
@@ -126,7 +127,10 @@ class WebServer:
                 return
             self._clients.add(ws)
             self._events.append({"type": "_connect"})
-            await ws.send(json.dumps({"type": "authenticated"}))
+            await ws.send(json.dumps({
+                "type": "authenticated",
+                "protocol": WEB_PROTOCOL_VERSION,
+            }))
             async for message in ws:
                 event = parse_json_object(message)
                 if event is None:

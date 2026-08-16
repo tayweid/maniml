@@ -52,6 +52,23 @@ command, `from manim import *` resolves to maniml (the alias is local
 to the maniml process, so a real ManimCE install on the same machine
 is unaffected).
 
+## Installable browser app
+
+The hosted ManimLive interface is an installable PWA. Scene files and Python
+execution remain local: the web app connects to a capability-authenticated
+daemon bound to loopback.
+
+From the folder containing your scenes, start and pair the hosted app with:
+
+```bash
+maniml app . --hosted
+```
+
+The hosted landing page also provides copyable first-time installation and
+startup commands. Installing the PWA never installs or executes the Python
+engine; running the displayed command in a terminal remains an explicit user
+action. Each daemon restart creates a fresh pairing capability.
+
 ## Interactive controls
 
 In the preview window:

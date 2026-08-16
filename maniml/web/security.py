@@ -18,11 +18,21 @@ from typing import Any
 AUTH_MESSAGE_TYPE = "authenticate"
 MAX_CONTROL_MESSAGE = 64 * 1024
 AUTH_TIMEOUT = 5.0
+WEB_PROTOCOL_VERSION = 1
 
-# GitHub Pages uses one origin for all project pages under this account.  The
-# capability token remains the primary authorization check; this allowlist is
-# an independent browser-side CSWSH defense.
+# Keep the old Pages origin accepted while the dedicated custom domain rolls
+# out.  The custom domain is the preferred public origin: unlike github.io it
+# is not shared with every project page owned by the same account.  Capability
+# tokens remain the primary authorization check; this exact allowlist is an
+# independent browser-side CSWSH defense.
 HOSTED_APP_ORIGIN = "https://tayweid.github.io"
+CUSTOM_HOSTED_APP_ORIGIN = "https://maniml.tayweid.io"
+HOSTED_APP_ORIGINS = frozenset({
+    HOSTED_APP_ORIGIN,
+    CUSTOM_HOSTED_APP_ORIGIN,
+})
+# Keep opening the working Pages URL until its repository setting and DNS are
+# switched. GitHub Pages will redirect this URL after the custom domain lands.
 HOSTED_APP_URL = f"{HOSTED_APP_ORIGIN}/maniml/"
 
 

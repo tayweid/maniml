@@ -39,9 +39,10 @@ from maniml.utils.processes import (
 )
 from maniml.web.security import (
     AUTH_TIMEOUT,
-    HOSTED_APP_ORIGIN,
+    HOSTED_APP_ORIGINS,
     HOSTED_APP_URL,
     MAX_CONTROL_MESSAGE,
+    WEB_PROTOCOL_VERSION,
     is_auth_message,
     new_capability_token,
     parse_json_object,
@@ -329,7 +330,7 @@ class AppServer:
         self.origin = f"http://localhost:{self.port}"
         self.url = f"{self.origin}/"
         self.launch_url = f"{self.url}#token={self.token}"
-        self.allowed_origins = {self.origin, HOSTED_APP_ORIGIN}
+        self.allowed_origins = {self.origin, *HOSTED_APP_ORIGINS}
         self._start_control_ws()
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
@@ -416,7 +417,10 @@ class AppServer:
             if not is_auth_message(first, self.token):
                 await ws.close(code=1008, reason="authentication required")
                 return
-            await ws.send(json.dumps({"type": "authenticated"}))
+            await ws.send(json.dumps({
+                "type": "authenticated",
+                "protocol": WEB_PROTOCOL_VERSION,
+            }))
             async for message in ws:
                 request = parse_json_object(message)
                 if request is None:

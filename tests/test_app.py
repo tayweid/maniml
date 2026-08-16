@@ -20,6 +20,8 @@ from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
+from maniml.web.security import WEB_PROTOCOL_VERSION
+
 SCENE_SOURCE = """
 from manim import *
 
@@ -122,8 +124,9 @@ class AppShellE2E(unittest.TestCase):
                 origin=f"http://localhost:{parsed.port}") as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": viewer_token}))
-            self.assertEqual(
-                json.loads(ws.recv(timeout=5))["type"], "authenticated")
+            authenticated = json.loads(ws.recv(timeout=5))
+            self.assertEqual(authenticated["type"], "authenticated")
+            self.assertEqual(authenticated["protocol"], WEB_PROTOCOL_VERSION)
             deadline = time.time() + 10
             got_frame = False
             while time.time() < deadline and not got_frame:
@@ -145,8 +148,9 @@ class AppShellE2E(unittest.TestCase):
                 "ws://127.0.0.1:8686/", origin=self.url.rstrip("/")) as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": self.token}))
-            self.assertEqual(
-                json.loads(ws.recv(timeout=5))["type"], "authenticated")
+            authenticated = json.loads(ws.recv(timeout=5))
+            self.assertEqual(authenticated["type"], "authenticated")
+            self.assertEqual(authenticated["protocol"], WEB_PROTOCOL_VERSION)
             ws.send(json.dumps({"op": "files", "id": 1}))
             data = json.loads(ws.recv(timeout=10))
             self.assertEqual(data["id"], 1)
@@ -164,7 +168,7 @@ class AppShellE2E(unittest.TestCase):
         self.assertIn("<canvas", page)
         manifest = urllib.request.urlopen(
             self.url + "manifest.webmanifest", timeout=5).read().decode()
-        self.assertIn("maniml", manifest)
+        self.assertIn("ManimLive", manifest)
 
     def test_missing_module_hint(self):
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")
