@@ -10,7 +10,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from maniml.desktop import _register_desktop_launcher, install_desktop_launcher
+from maniml.desktop import (
+    _register_desktop_launcher,
+    _set_default_url_handler,
+    install_desktop_launcher,
+)
 from maniml.web.app import AppServer, _is_maniml_chrome_pwa, open_hosted_url
 
 SCENE_SOURCE = """\
@@ -77,6 +81,42 @@ class FilePickerTests(unittest.TestCase):
 
 
 class LaunchServicesTests(unittest.TestCase):
+    @mock.patch("maniml.desktop.ctypes.CDLL")
+    def test_default_url_handler_is_assigned_and_verified(self, load_library):
+        core_foundation = mock.MagicMock()
+        core_services = mock.MagicMock()
+        load_library.side_effect = [core_foundation, core_services]
+        core_foundation.CFStringCreateWithCString.side_effect = [101, 102]
+        core_services.LSSetDefaultHandlerForURLScheme.return_value = 0
+        core_services.LSCopyDefaultHandlerForURLScheme.return_value = 103
+        core_foundation.CFStringCompare.return_value = 0
+
+        _set_default_url_handler()
+
+        core_services.LSSetDefaultHandlerForURLScheme.assert_called_once_with(
+            101, 102
+        )
+        core_services.LSCopyDefaultHandlerForURLScheme.assert_called_once_with(101)
+        self.assertEqual(
+            [call.args[0] for call in core_foundation.CFRelease.call_args_list],
+            [103, 102, 101],
+        )
+
+    @mock.patch("maniml.desktop.ctypes.CDLL")
+    def test_default_url_handler_verification_failure_is_reported(
+        self, load_library
+    ):
+        core_foundation = mock.MagicMock()
+        core_services = mock.MagicMock()
+        load_library.side_effect = [core_foundation, core_services]
+        core_foundation.CFStringCreateWithCString.side_effect = [101, 102]
+        core_services.LSSetDefaultHandlerForURLScheme.return_value = 0
+        core_services.LSCopyDefaultHandlerForURLScheme.return_value = 103
+        core_foundation.CFStringCompare.return_value = 1
+
+        with self.assertRaisesRegex(RuntimeError, "did not retain"):
+            _set_default_url_handler()
+
     @mock.patch("maniml.desktop.time.sleep")
     @mock.patch("maniml.desktop.subprocess.run")
     def test_registration_retries_the_permanent_path(self, run, sleep):

@@ -14,6 +14,7 @@ packaging work; none of this changes the existing CLI path.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import plistlib
 import shutil
@@ -30,6 +31,13 @@ LAUNCH_SERVICES_REGISTRAR = Path(
     "LaunchServices.framework/Support/lsregister"
 )
 LAUNCH_SERVICES_ATTEMPTS = 3
+CORE_FOUNDATION = Path(
+    "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+)
+CORE_SERVICES = Path(
+    "/System/Library/Frameworks/CoreServices.framework/CoreServices"
+)
+CF_STRING_ENCODING_UTF8 = 0x08000100
 
 
 def _applescript_string(value: str) -> str:
@@ -110,6 +118,73 @@ def _register_desktop_launcher(
         if attempt + 1 < attempts:
             time.sleep(0.2)
     raise RuntimeError(f"could not register desktop launcher: {last_detail}")
+
+
+def _set_default_url_handler(
+    scheme: str = "maniml",
+    bundle_identifier: str = BUNDLE_IDENTIFIER,
+) -> None:
+    """Assign and verify the native handler for the launch URL scheme.
+
+    ``lsregister`` makes Launch Services aware of an application, but it does
+    not guarantee that a default handler was assigned.  Chrome can only hand
+    ``maniml://`` links to the launcher when this mapping exists, so use the
+    public Launch Services API and fail installation if macOS does not retain
+    it.  ctypes keeps this developer installer dependency-free.
+    """
+    try:
+        core_foundation = ctypes.CDLL(str(CORE_FOUNDATION))
+        core_services = ctypes.CDLL(str(CORE_SERVICES))
+    except OSError as error:
+        raise RuntimeError("macOS Launch Services APIs were not found") from error
+
+    create_string = core_foundation.CFStringCreateWithCString
+    create_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    create_string.restype = ctypes.c_void_p
+    release = core_foundation.CFRelease
+    release.argtypes = [ctypes.c_void_p]
+    release.restype = None
+    compare = core_foundation.CFStringCompare
+    compare.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+    compare.restype = ctypes.c_long
+
+    set_handler = core_services.LSSetDefaultHandlerForURLScheme
+    set_handler.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    set_handler.restype = ctypes.c_int32
+    copy_handler = core_services.LSCopyDefaultHandlerForURLScheme
+    copy_handler.argtypes = [ctypes.c_void_p]
+    copy_handler.restype = ctypes.c_void_p
+
+    scheme_ref = create_string(
+        None, scheme.encode("utf-8"), CF_STRING_ENCODING_UTF8
+    )
+    bundle_ref = create_string(
+        None, bundle_identifier.encode("utf-8"), CF_STRING_ENCODING_UTF8
+    )
+    if not scheme_ref or not bundle_ref:
+        for reference in (scheme_ref, bundle_ref):
+            if reference:
+                release(reference)
+        raise RuntimeError("could not create the macOS URL handler values")
+
+    actual_ref = None
+    try:
+        status = set_handler(scheme_ref, bundle_ref)
+        if status != 0:
+            raise RuntimeError(
+                f"could not assign the {scheme}: URL handler (OSStatus {status})"
+            )
+        actual_ref = copy_handler(scheme_ref)
+        if not actual_ref or compare(actual_ref, bundle_ref, 0) != 0:
+            raise RuntimeError(
+                f"macOS did not retain {bundle_identifier} as the {scheme}: "
+                "URL handler"
+            )
+    finally:
+        if actual_ref:
+            release(actual_ref)
+        release(bundle_ref)
+        release(scheme_ref)
 
 
 def install_desktop_launcher(
@@ -256,6 +331,7 @@ def install_desktop_launcher(
     # installation succeeded when the OS rejected it.
     if register:
         _register_desktop_launcher(destination_path, registrar=registrar)
+        _set_default_url_handler()
     return destination_path
 
 
