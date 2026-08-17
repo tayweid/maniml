@@ -21,7 +21,6 @@ from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
-from maniml.web.security import WEB_PROTOCOL_VERSION
 
 SCENE_SOURCE = """
 from manim import *
@@ -136,7 +135,6 @@ class AppShellE2E(unittest.TestCase):
                 {"type": "authenticate", "token": viewer_token}))
             authenticated = json.loads(ws.recv(timeout=5))
             self.assertEqual(authenticated["type"], "authenticated")
-            self.assertEqual(authenticated["protocol"], WEB_PROTOCOL_VERSION)
             deadline = time.time() + 10
             got_frame = False
             while time.time() < deadline and not got_frame:
@@ -153,14 +151,13 @@ class AppShellE2E(unittest.TestCase):
         self.assertEqual(reopened["url"], opened["url"])
 
     def test_control_websocket(self):
-        # The fixed-port control channel the hosted PWA uses
+        # The control channel the served page connects back to
         with ws_connect(
                 self._control_url(), origin=self.url.rstrip("/")) as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": self.token}))
             authenticated = json.loads(ws.recv(timeout=5))
             self.assertEqual(authenticated["type"], "authenticated")
-            self.assertEqual(authenticated["protocol"], WEB_PROTOCOL_VERSION)
             ws.send(json.dumps({"op": "files", "id": 1}))
             data = json.loads(ws.recv(timeout=10))
             self.assertEqual(data["id"], 1)
@@ -171,14 +168,11 @@ class AppShellE2E(unittest.TestCase):
             opened = json.loads(ws.recv(timeout=60))
             self.assertEqual(opened["id"], 2)
             self.assertIn("ws_port", opened, opened.get("error"))
-        # The app server serves the viewer page for the hosted-style
-        # navigation (viewer.html?ws=PORT)
+        # The app server also serves the viewer page it navigates to
+        # (viewer.html?ws=PORT), from the same origin.
         page = urllib.request.urlopen(
             self.url + "viewer.html", timeout=5).read().decode()
         self.assertIn("<canvas", page)
-        manifest = urllib.request.urlopen(
-            self.url + "manifest.webmanifest", timeout=5).read().decode()
-        self.assertIn("ManimLive", manifest)
 
     def test_missing_module_hint(self):
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")

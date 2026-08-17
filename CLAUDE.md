@@ -10,9 +10,9 @@ The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE 
 
 ### Names, and the install trap
 
-Three names for one project, and they do not move together: **ManimLive** is the product (page titles, the PWA, `ManimLive Desktop.app`) and the name of the local checkout directory; **maniml** is the Python package (`import maniml`) and the GitHub repo (`tayweid/maniml`). Renaming the checkout renames neither the package nor the remote.
+Three names for one project, and they do not move together: **ManimLive** is the product (page titles) and the name of the local checkout directory; **maniml** is the Python package (`import maniml`) and the GitHub repo (`tayweid/maniml`). Renaming the checkout renames neither the package nor the remote.
 
-**Verify the install before debugging anything user-visible.** `pip install -e .` links this working tree, but the install command in the README and in the app's onboarding (step 2) uses `--force-reinstall` from git, which *replaces that link with a copy* under `site-packages`. Once that happens, the `maniml` command silently runs the copy, edits here do nothing, and the symptoms look like unfixable frontend bugs. Check first:
+**Verify the install before debugging anything user-visible.** `pip install -e .` links this working tree, but the install command in the README uses `--force-reinstall` from git, which *replaces that link with a copy* under `site-packages`. Once that happens, the `maniml` command silently runs the copy, edits here do nothing, and the symptoms look like unfixable frontend bugs. Check first:
 
 ```bash
 cd /tmp && python -c "import maniml; print(maniml.__file__)"   # must be this repo
@@ -52,10 +52,13 @@ maniml script.py SceneName --render
 # stream), WebGL2, WebGPU (client-rendered), plus a split toggle.
 maniml script.py SceneName --web
 
-# The app (Stage 3): persistent local server with a landing page
-# listing scene files under [dir] (default cwd); each scene opens as
-# its own --web subprocess (crash isolation), same viewer as above
+# The app: persistent local server with a landing page listing scene
+# files under [dir] (default cwd); each scene opens as its own --web
+# subprocess (crash isolation), same viewer as above.
 maniml app [dir]
+
+# Keep it running as a macOS login agent at http://localhost:8685
+maniml agent install [dir]
 
 # Unit tests (stdlib unittest; test_web_viewer is a headless end-to-end
 # drive of --web over a real WebSocket)
@@ -101,28 +104,55 @@ All of this lives in `maniml/`:
 
 8. **File watcher** (`scene/file_watcher.py` + `_handle_file_change` in `scene/checkpoints.py`): polling thread diffs the file on save and reports the earliest changed line. The handler re-anchors against the new source map: checkpoints from units before the edited unit survive; later ones are discarded and replayed — fast-forwarded via `temp_skip()`, with the edited unit played at real speed (`_replay_to_unit`). Edits **outside** construct() (imports, constants, helpers, other methods) trigger `_restart_from_source()`: reload the module (bypassing the bytecode cache — see `load_scene_module`), rebuild checkpoint 0, fast-forward back to where the user was. Integration-tested headlessly in `tests/test_checkpoint_reload.py`.
 
-## The desktop bridge: how "Open" actually works
+## Delivery: one artifact, local only
 
-A hosted web page cannot start a local process, so the Open button in `static/app.html` (and the viewer's File → Open) navigates to `maniml://open`. On macOS a small locally generated AppleScript bundle claims that scheme (`maniml/desktop.py`, installed by `maniml install-desktop`): it shows a native file chooser, then runs `python -m maniml open <path>` with the *interpreter that installed it*, which starts a transient `AppServer` and opens the hosted PWA at the scene's viewer URL.
+The interface is served by the engine that runs the scenes. `maniml app` (and
+`maniml agent`) binds loopback, serves `web/static/` from the installed
+package, and the page connects back to a control WebSocket on the same machine.
+There is no hosted origin, no deployment step, and no version negotiation:
+frontend and engine are the same pip install, so they cannot drift.
 
-Three failure modes, all of which present identically as "the button does nothing":
+This replaced an architecture where the UI was a PWA on GitHub Pages talking to
+localhost. Everything that existed to bridge that gap is gone — a generated
+AppleScript launcher, a `maniml://` URL scheme, Launch Services registration,
+Chrome PWA shim discovery, an Origin allowlist, a service worker, and
+`WEB_PROTOCOL_VERSION`. Roughly 1,400 lines, none of which animated anything.
+**Do not reintroduce a public origin that talks to loopback**; that seam caused
+essentially every delivery bug in this project's history.
 
-- **No handler registered.** Custom-scheme navigation with no handler is completely silent — no error, no event. `install-desktop` must have been run, and it fails loudly if Launch Services does not retain the registration. Verify with `LSCopyDefaultHandlerForURLScheme` (see `_set_default_url_handler`); it must return `io.tayweid.maniml.desktop`.
-- **A stale engine.** If `maniml` resolves to an old copy (see the install trap above), the launcher subcommand may not exist at all, and `SceneProcess.wait_for_url` will reject the child's handshake line, reporting `"scene failed to start"` for a scene that in fact started and rendered fine. `VIEWER_LAUNCH_PATTERN` requires the `#token=` fragment that older viewers did not emit.
-- **Detecting the silent failure.** The page starts a watchdog after the navigation. The signal is **focus, not visibility**: a page is only `hidden` once backgrounded, minimised or occluded, whereas another application coming to the front (Chrome's confirmation sheet, then the launcher's dialog) leaves `visibilityState === "visible"` and merely removes focus. Use `document.hasFocus()` and cancel on `blur`, and keep the timeout longer than the launcher's cold start. Watching visibility reports a *working* bridge as missing.
+What remains, and why:
 
-The hosted frontend is served by GitHub Pages from `maniml/web/static/` (`.github/workflows/deploy.yml`), so frontend fixes reach an installed PWA only after a push to `main` — not after a local reinstall.
+- **Capability tokens.** Loopback is a network boundary, not an authorization
+  one: it keeps other machines out, not other programs on this one. Each server
+  mints a token and requires it. `maniml agent` persists one in
+  `~/.maniml/capability` (0600) so a stable local address survives restarts.
+- **The launchd agent** (`maniml/agent.py`) keeps `http://localhost:8685` up
+  without a terminal. It owns the default control port for the login session, so
+  `_start_control_ws` falls back to an OS-assigned port and `run_app` puts the
+  resolved port in the launch URL — otherwise a foreground `maniml app` would
+  open a page that talks to the *agent* instead of itself.
+- **The native file dialog** (`maniml/desktop.py`, now only
+  `choose_python_file`). The engine shows the platform dialog and gets a real
+  path, which the watcher and the scene's `__file__`-relative imports both need.
+  A browser file handle cannot provide one.
 
-### The background agent (`maniml/agent.py`)
+### Roadmap constraint: a zero-install browser build
 
-`maniml agent install` registers the app server as a launchd login agent, which removes the bridge from the common path: with an engine always on the default control port, the page is already paired, so **Open…** takes the in-page `choose` branch (native dialog → real absolute path → `window.location` in the same window). The `maniml://` droplet is then only needed to start a *specific* file from Finder.
+A future Pyodide target would run the engine in the page with no local process.
+Two things are kept deliberately intact for it, and should not be entangled with
+the local transport:
 
-Two consequences worth knowing:
+- **The client-side renderers** — `static/gl.js`, `static/webgpu.js`,
+  `static/glsl/`, `static/wgsl/`, `web/geometry.py`, `web/reference_renderer.py`,
+  and the baked player (`web/export.py`, `static/player.*`). These already draw
+  scenes with no Python in the loop; they are the basis of a browser-only build.
+- **The transport seam in `viewer.html`.** The WebSocket is confined to `wsUrl`,
+  `send()`, and the message pump; everything else speaks only in protocol
+  messages. An in-page engine should be able to replace those three things.
 
-- **The capability is persisted**, not per-process (`load_or_create_capability`, `~/.maniml/capability`, 0600) — a browser cannot stay paired across restarts otherwise. `app.html` therefore stores a default-port pairing in `localStorage` (and an ephemeral-port one only in `sessionStorage`, since that port never returns). `maniml agent rotate-token` revokes every paired browser.
-- **The agent owns the default control port** for the whole login session. `_start_control_ws` falls back to an OS-assigned port when the default is taken, and `run_app` puts the resolved port in the launch URL for local pages as well as hosted ones — otherwise a foreground `maniml app` would open a page that talks to the *agent* instead of itself.
-
-Not done yet: `file_handlers` in the webmanifest would make the PWA itself the Finder handler for `.py` and retire the droplet entirely (this is how Knuth does it). The blocker is that `launchQueue` delivers a `FileSystemFileHandle` with no path, while the engine needs a real path for the watcher and for `__file__`-relative imports in scene files. Resolving name+content-hash against the agent's root would close that gap.
+A hosted build would need its own manifest and service worker again — both were
+deleted rather than kept, because a Pyodide app's would differ anyway (no
+loopback, no file handlers, a different scope).
 
 ### Known weak spots (as of 2026-08)
 

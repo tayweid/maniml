@@ -1,9 +1,10 @@
-"""Security primitives shared by the localhost app and scene viewers.
+"""Security primitives shared by the local app and its scene viewers.
 
-Loopback is a network boundary, not an authorization boundary: arbitrary
-websites can attempt connections to localhost from a browser.  Every
-privileged channel therefore requires both an allowed browser Origin and an
-unguessable, process-local capability token.
+Everything ManimLive serves is same-origin on loopback, so there is no public
+origin to allowlist.  Loopback is still a network boundary rather than an
+authorization boundary — any page in any browser, and any other program on
+this machine, can reach 127.0.0.1 — so each server keeps an unguessable
+capability token and requires it before it will act.
 """
 
 from __future__ import annotations
@@ -20,23 +21,6 @@ from typing import Any
 AUTH_MESSAGE_TYPE = "authenticate"
 MAX_CONTROL_MESSAGE = 64 * 1024
 AUTH_TIMEOUT = 5.0
-WEB_PROTOCOL_VERSION = 2
-
-# Keep the old Pages origin accepted while the dedicated custom domain rolls
-# out.  The custom domain is the preferred public origin: unlike github.io it
-# is not shared with every project page owned by the same account.  Capability
-# tokens remain the primary authorization check; this exact allowlist is an
-# independent browser-side CSWSH defense.
-HOSTED_APP_ORIGIN = "https://tayweid.github.io"
-CUSTOM_HOSTED_APP_ORIGIN = "https://maniml.tayweid.io"
-HOSTED_APP_ORIGINS = frozenset({
-    HOSTED_APP_ORIGIN,
-    CUSTOM_HOSTED_APP_ORIGIN,
-})
-# The dedicated domain is now live.  Keep the GitHub Pages origin in the
-# allowlist during the transition, but all locally launched sessions should
-# open the dedicated origin.
-HOSTED_APP_URL = f"{CUSTOM_HOSTED_APP_ORIGIN}/"
 
 
 def new_capability_token() -> str:

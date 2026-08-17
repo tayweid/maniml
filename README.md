@@ -62,78 +62,35 @@ command, `from manim import *` resolves to maniml (the alias is local
 to the maniml process, so a real ManimCE install on the same machine
 is unaffected).
 
-## Installable app
+## The app
 
-The hosted ManimLive interface is an installable PWA. Scene files and Python
-execution remain local: the web app connects to a capability-authenticated
-daemon bound to loopback.
+`maniml app [dir]` starts a local server and opens a page listing the scene
+files under `dir`. Clicking a scene runs it as its own subprocess and opens the
+browser viewer; **Open…** asks the engine for the platform's native file dialog,
+so a scene anywhere on disk opens by its real path.
 
-On macOS, install the local engine and Finder integration once from the Python
-environment that contains your scene dependencies:
+Interface and engine ship together in this package and are served from the same
+local origin, so there is nothing to deploy, nothing to pair across origins, and
+no way for the page to be out of step with the engine that answers it.
 
-```bash
-python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"
-python -m maniml install-desktop --replace
-```
+### Background engine (macOS)
 
-Using `python -m maniml` deliberately selects the same Python environment as
-the preceding install, even when another older `maniml` executable appears
-earlier on `PATH`.
-
-After setup, open **ManimLive Desktop** from Applications to choose a scene, or
-right-click a Python file and choose **Open With → ManimLive Desktop**. The
-helper starts the matching local Python engine automatically. The ManimLive
-web app's **Open…** toolbar button invokes that desktop helper when the engine
-is not running, then uses a native file picker. A file selected outside the
-current project grants access to that file only.
-
-### Background engine (recommended on macOS)
-
-Registering the engine as a login agent keeps it running, so the web app is
-already paired whenever you open it:
+Registering the engine as a login agent keeps `http://localhost:8685` up without
+a terminal:
 
 ```bash
 python -m maniml agent install ~/Projects   # scenes live under this directory
-python -m maniml agent pair                 # once, to pair this browser
+python -m maniml agent open                 # open the app
 ```
 
-With an agent running, **Open…** never needs the desktop bridge: it asks the
-engine for a native file dialog and opens the scene in the same window, instead
-of launching a second app window. `maniml agent status`, `restart` and
-`uninstall` manage the job; the log is `~/Library/Logs/maniml-agent.log`.
-
-Unlike a foreground session, an agent's pairing capability is persisted
-(`~/.maniml/capability`, mode 600) so it survives restarts, and the browser
-keeps it in local storage. That is a deliberate trade: the pairing lasts until
-you revoke it with `maniml agent rotate-token`, which invalidates every paired
-browser.
+`maniml agent status`, `restart`, `uninstall` manage the job; the log is
+`~/Library/Logs/maniml-agent.log`. The agent stores its capability in
+`~/.maniml/capability` (mode 600) so the address keeps working across restarts;
+`maniml agent rotate-token` revokes it.
 
 The agent holds the default control port for the whole login session. A
 foreground `maniml app` started alongside it binds an OS-assigned port instead
 and advertises that port in the URL it opens, so both remain usable.
-
-Hosted sessions open in the installed ManimLive Chrome app when it is present,
-then in Google Chrome. This avoids transient default-browser windows that do
-not share the same site-permission context. Install the PWA from Chrome to get
-the standalone app window.
-
-The existing command remains available as a development and recovery path:
-
-```bash
-maniml app . --hosted
-```
-
-The hosted page cannot install or execute local software by itself. The copied
-setup command is the one-time explicit boundary crossing; daily use does not
-require a terminal. The desktop launcher currently targets macOS. Signed
-macOS packaging remains public-release work; Windows and Linux launchers are
-planned after the WebGPU renderer becomes canonical.
-
-On first connection, Chrome may ask whether `maniml.tayweid.io` can access the
-local network. Allow it so the hosted interface can reach the ManimLive engine
-on loopback. If access was previously denied, restore **Local network access**
-in the site settings and use the viewer&rsquo;s Retry button. ManimLive still
-requires its separate per-session capability token and exact Origin check.
 
 ## Interactive controls
 
@@ -183,9 +140,11 @@ regression suites.
 ## Security
 
 Scene files are Python programs and run with your user account's privileges.
-Only run scenes you trust. The local browser app uses process-local capability
-tokens and Origin checks; by default, `maniml app DIR` launches scenes only
-from `DIR`. See [SECURITY.md](SECURITY.md) for the trust model and vulnerability
+Only run scenes you trust. Everything ManimLive serves is bound to loopback and
+same-origin, and each server still requires an unguessable capability token —
+loopback keeps other machines out, not other programs on this one. By default,
+`maniml app DIR` launches scenes only from `DIR`; a file chosen through the
+native dialog grants access to that file alone. See [SECURITY.md](SECURITY.md) for the trust model and vulnerability
 reporting guidance.
 
 Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the

@@ -104,10 +104,26 @@ class AgentPlistTests(unittest.TestCase):
         self.assertEqual(agent.install(missing), 1)
         self.assertFalse(self.plist.exists())
 
-    def test_pairing_url_carries_the_persisted_capability(self):
-        url = agent.pairing_url()
-        self.assertTrue(url.startswith(security.HOSTED_APP_URL))
+    def test_app_url_is_local_and_carries_the_capability(self):
+        url = agent.app_url()
+        self.assertTrue(url.startswith("http://localhost:"))
         self.assertIn(f"#token={security.load_or_create_capability()}", url)
+
+    def test_app_url_follows_the_port_the_agent_actually_got(self):
+        """The default port may already be taken, in which case the app server
+        falls back and this is the only record of where it landed."""
+        state = Path(self.tmpdir.name) / "agent.json"
+        with patch.object(agent, "STATE_PATH", state):
+            state.write_text('{"url": "http://localhost:51234/"}')
+            self.assertTrue(agent.app_url().startswith("http://localhost:51234/#token="))
+
+            # A stale or corrupt file must not produce a nonsense address.
+            state.write_text("{ not json")
+            self.assertTrue(
+                agent.app_url().startswith(f"http://localhost:{agent.DEFAULT_APP_PORT}/"))
+            state.write_text('{"url": "https://example.invalid/"}')
+            self.assertTrue(
+                agent.app_url().startswith(f"http://localhost:{agent.DEFAULT_APP_PORT}/"))
 
 
 if __name__ == "__main__":

@@ -13,9 +13,7 @@ maniml - ManimCE-compatible API on an OpenGL backend
 
 Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
-       maniml open [file]
-       maniml agent [install [dir] | pair | status | uninstall]
-       maniml install-desktop
+       maniml agent [install [dir] | open | status | uninstall]
 
 App:
   maniml app       Persistent local app: a landing page listing the
@@ -24,15 +22,10 @@ App:
   --allow-outside-root
                    Allow the app to open explicitly entered scene paths
                    outside [dir] (off by default)
-  --hosted         Pair and open the hosted PWA instead of the locally
-                   served app page
-  maniml open FILE Start the hosted app for FILE (used by desktop launchers)
-  maniml install-desktop
-                   Install the macOS app / Finder "Open With" integration
   maniml agent install [dir]
-                   Run the engine as a macOS login agent, so the app is
-                   always paired and Open... needs no desktop bridge
-  maniml agent pair | status | restart | rotate-token | uninstall
+                   Keep the app running as a macOS login agent, so
+                   http://localhost:8685 is always there
+  maniml agent open | status | restart | rotate-token | uninstall
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -69,17 +62,6 @@ def main():
     flags = {a for a in sys.argv[1:] if a.startswith("-")}
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
 
-    if args and args[0] == "install-desktop":
-        from maniml.desktop import install_desktop_launcher
-
-        try:
-            path = install_desktop_launcher(replace="--replace" in flags)
-        except (FileExistsError, RuntimeError, ValueError) as exc:
-            print(f"Error: {exc}")
-            sys.exit(1)
-        print(f"Installed ManimLive desktop launcher: {path}")
-        return
-
     if args and args[0] == "agent":
         from pathlib import Path
 
@@ -101,38 +83,15 @@ def main():
             sys.exit(agent_module.status())
         if action == "restart":
             sys.exit(agent_module.restart())
-        if action == "pair":
-            sys.exit(agent_module.pair())
+        if action == "open":
+            sys.exit(agent_module.open_app())
         if action == "rotate-token":
             sys.exit(agent_module.rotate_token())
         print(
             "Usage: maniml agent "
-            "[install [dir] | pair | status | restart | rotate-token | uninstall]"
+            "[install [dir] | open | status | restart | rotate-token | uninstall]"
         )
         sys.exit(1)
-
-    if args and args[0] == "open":
-        if len(args) != 2:
-            print("Error: maniml open requires one Python scene file")
-            sys.exit(1)
-        from pathlib import Path
-        from maniml.web.app import run_app
-
-        try:
-            scene_file = Path(args[1]).expanduser().resolve(strict=True)
-        except OSError:
-            print(f"Error: File '{args[1]}' not found")
-            sys.exit(1)
-        if not scene_file.is_file() or scene_file.suffix.lower() != ".py":
-            print("Error: maniml open requires a regular .py file")
-            sys.exit(1)
-        run_app(
-            root=str(scene_file.parent),
-            hosted=True,
-            initial_file=str(scene_file),
-            control_port=0,
-        )
-        return
 
     if args and args[0] == "app":
         from maniml.web.app import run_app
@@ -141,7 +100,6 @@ def main():
             root=args[1] if len(args) > 1 else ".",
             open_browser="--no-browser" not in flags,
             allow_outside_root="--allow-outside-root" in flags,
-            hosted="--hosted" in flags,
         )
         return
 

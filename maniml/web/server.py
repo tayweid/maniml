@@ -28,9 +28,7 @@ from collections.abc import Callable
 from maniml.logger import log
 from maniml.web.security import (
     AUTH_TIMEOUT,
-    HOSTED_APP_ORIGINS,
     MAX_CONTROL_MESSAGE,
-    WEB_PROTOCOL_VERSION,
     is_auth_message,
     new_capability_token,
     parse_json_object,
@@ -137,10 +135,7 @@ class WebServer:
         self.token = new_capability_token()
         self.base_url = f"http://localhost:{self.http_port}/"
         self.url = f"{self.base_url}#token={self.token}"
-        self.allowed_origins = {
-            f"http://localhost:{self.http_port}",
-            *HOSTED_APP_ORIGINS,
-        }
+        self.allowed_origins = {f"http://localhost:{self.http_port}"}
         parent_origin = os.environ.get("MANIML_APP_ORIGIN")
         if parent_origin:
             self.allowed_origins.add(parent_origin)
@@ -197,7 +192,6 @@ class WebServer:
             self._events.append({"type": "_connect"})
             await ws.send(json.dumps({
                 "type": "authenticated",
-                "protocol": WEB_PROTOCOL_VERSION,
                 "capabilities": self.capabilities,
             }))
             async for message in ws:

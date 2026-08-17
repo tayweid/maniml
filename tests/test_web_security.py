@@ -23,22 +23,13 @@ class WebSecurityTests(unittest.TestCase):
         self.assertFalse(security.token_matches(second, first))
         self.assertFalse(security.token_matches(None, first))
 
-    def test_hosted_origins_are_exact_and_custom_domain_ready(self):
-        self.assertEqual(security.WEB_PROTOCOL_VERSION, 2)
-        self.assertEqual(
-            security.HOSTED_APP_ORIGINS,
-            frozenset(
-                {
-                    "https://tayweid.github.io",
-                    "https://maniml.tayweid.io",
-                }
-            ),
-        )
-        self.assertNotIn("*", security.HOSTED_APP_ORIGINS)
-        self.assertEqual(
-            security.HOSTED_APP_URL,
-            "https://maniml.tayweid.io/",
-        )
+    def test_no_public_origin_is_baked_into_the_engine(self):
+        """Everything is same-origin on loopback now; a public origin in here
+        would be a standing invitation for any site to drive the engine."""
+        source = Path(security.__file__).read_text()
+        self.assertNotIn("https://", source)
+        for name in ("HOSTED_APP_ORIGIN", "HOSTED_APP_ORIGINS", "HOSTED_APP_URL"):
+            self.assertFalse(hasattr(security, name), name)
 
     def test_auth_message_and_strict_json(self):
         token = security.new_capability_token()

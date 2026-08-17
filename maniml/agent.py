@@ -1,12 +1,10 @@
 """Background engine management: `maniml agent install` registers the app
 server as a macOS launchd user agent — started at login, restarted if it
-dies — so the hosted interface always finds a local engine.
+dies — so ManimLive is always there at a stable local address.
 
-This is what removes the desktop bridge from the common path. With an engine
-always listening on the fixed control port, the hosted page is already paired
-when you open it, so Open… uses the engine's own native file dialog and
-navigates the current window. The `maniml://` launcher is then only needed to
-start a scene straight from Finder.
+With the agent running, http://localhost:8685 is simply always up: no
+terminal to keep open, no pairing dance, and the page it serves comes from
+the installed package, so it can never be out of step with the engine.
 
 The plist points at the current interpreter (sys.executable), so it survives
 shell PATH changes but must be reinstalled if the environment moves.
@@ -18,11 +16,13 @@ import os
 import plistlib
 import subprocess
 import sys
+import json
+import webbrowser
 from pathlib import Path
 
-from maniml.web.app import CONTROL_WS_PORT, open_hosted_url
+from maniml.web.app import CONTROL_WS_PORT, DEFAULT_APP_PORT
 from maniml.web.security import (
-    HOSTED_APP_URL,
+    CONFIG_DIR,
     capability_path,
     load_or_create_capability,
     rotate_capability,
@@ -33,7 +33,7 @@ PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 LOG = Path.home() / "Library" / "Logs" / "maniml-agent.log"
 UNSUPPORTED = (
     "maniml agent currently supports macOS (launchd) only.\n"
-    "Use `maniml app . --hosted` for the cross-platform foreground engine."
+    "Use `maniml app` for the cross-platform foreground engine."
 )
 
 
@@ -45,9 +45,24 @@ def _launchctl(*args):
     return subprocess.run(["launchctl", *args], capture_output=True, text=True)
 
 
-def pairing_url() -> str:
-    """Hosted URL carrying the stable capability, for a one-time pairing."""
-    return f"{HOSTED_APP_URL}#token={load_or_create_capability()}"
+STATE_PATH = CONFIG_DIR / "agent.json"
+
+
+def app_url() -> str:
+    """Local address of the running agent, carrying its capability.
+
+    Read from the file the agent writes at startup rather than assumed: if
+    something already held the default port, it is serving somewhere else.
+    """
+    base = f"http://localhost:{DEFAULT_APP_PORT}/"
+    try:
+        with STATE_PATH.open(encoding="utf-8") as file:
+            published = json.load(file).get("url")
+        if isinstance(published, str) and published.startswith("http://localhost:"):
+            base = published
+    except (OSError, ValueError):
+        pass
+    return f"{base}#token={load_or_create_capability()}"
 
 
 def install(root: str | os.PathLike[str] | None = None, port: int = CONTROL_WS_PORT) -> int:
@@ -90,7 +105,7 @@ def install(root: str | os.PathLike[str] | None = None, port: int = CONTROL_WS_P
     _launchctl("kickstart", f"{_domain()}/{LABEL}")
     print(f"Installed {LABEL}: engine on 127.0.0.1:{port} (scenes under {scene_root})")
     print(f"Runs at login, restarts on exit. Log: {LOG}")
-    print("Pair this browser once with: maniml agent pair")
+    print("Open it with: maniml agent open")
     return 0
 
 
@@ -119,7 +134,7 @@ def status() -> int:
         (line.strip() for line in result.stdout.splitlines() if "state =" in line),
         "state unknown",
     )
-    paired = "capability configured" if capability_path().exists() else "not paired"
+    paired = "capability configured" if capability_path().exists() else "no capability"
     print(f"{LABEL}: installed, {state}, {paired}. Log: {LOG}")
     return 0
 
@@ -136,29 +151,30 @@ def restart() -> int:
     return 0
 
 
-def pair(open_browser: bool = True) -> int:
-    """Hand the hosted app the capability once, through the URL fragment."""
-    url = pairing_url()
-    if open_browser and open_hosted_url(url):
-        print("Opened ManimLive to pair this browser with the local engine.")
+def open_app(open_browser: bool = True) -> int:
+    """Open the running agent's app."""
+    if not STATE_PATH.exists():
+        print(f"{LABEL} does not appear to be running (maniml agent status)")
+    url = app_url()
+    if open_browser and webbrowser.open(url):
+        print(f"Opened {url}")
     else:
-        print("Open this once to pair your browser with the local engine:")
         print(url)
     print("Treat that URL like a local password.")
-    print("Revoke every paired browser with: maniml agent rotate-token")
+    print("Revoke it with: maniml agent rotate-token")
     return 0
 
 
 def rotate_token() -> int:
     rotate_capability()
-    print("maniml pairing capability rotated; paired browsers are revoked.")
+    print("maniml capability rotated; existing browser sessions are revoked.")
     if sys.platform == "darwin" and _launchctl(
         "kickstart", "-k", f"{_domain()}/{LABEL}"
     ).returncode == 0:
         print("The agent restarted with the new capability.")
     else:
         print("Restart any running engine to apply the rotation.")
-    print("Pair again with: maniml agent pair")
+    print("Reopen the app with: maniml agent open")
     return 0
 
 
@@ -169,8 +185,8 @@ def serve(root: str, port: int = CONTROL_WS_PORT) -> int:
     run_app(
         root=root,
         open_browser=False,
-        hosted=True,
         control_port=port,
         token=load_or_create_capability(),
+        state_path=STATE_PATH,
     )
     return 0

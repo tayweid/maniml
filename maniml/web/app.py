@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import ast
 import atexit
-import hashlib
 import json
 import os
 import plistlib
@@ -42,10 +41,7 @@ from maniml.utils.processes import (
 from maniml.desktop import choose_python_file
 from maniml.web.security import (
     AUTH_TIMEOUT,
-    HOSTED_APP_ORIGINS,
-    HOSTED_APP_URL,
     MAX_CONTROL_MESSAGE,
-    WEB_PROTOCOL_VERSION,
     is_auth_message,
     new_capability_token,
     parse_json_object,
@@ -60,141 +56,14 @@ RECENTS_PATH = os.environ.get(
 )
 RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
-# Bounds for resolving an OS-launched file back to a path on disk.
-RESOLVE_MAX_DEPTH = 6
-RESOLVE_MAX_FILES = 50000
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: " r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
 )
 DEFAULT_APP_PORT = 8685
-# Fixed control-channel port, Knuth-style.  The hosted frontend connects to
-# loopback after the CLI pairs it with a process-local capability.  Both that
-# token and an exact Origin allowlist are required before any operation.
+# Fixed control-channel port.  The page the app serves connects back to it
+# with the capability token it was launched with; the token and a same-origin
+# check are both required before any operation.
 CONTROL_WS_PORT = 8686
-
-
-def _macos_maniml_pwa_candidates() -> tuple[Path, ...]:
-    """Return the conventional Chrome PWA locations on macOS."""
-    home = Path.home()
-    return (
-        home / "Applications/Chrome Apps.localized/ManimLive.app",
-        home / "Applications/Chrome Apps/ManimLive.app",
-        Path("/Applications/Chrome Apps.localized/ManimLive.app"),
-        Path("/Applications/Chrome Apps/ManimLive.app"),
-    )
-
-
-def _is_maniml_chrome_pwa(application: Path) -> bool:
-    """Return whether this is Chrome's shim for the hosted ManimLive PWA."""
-    return _maniml_chrome_pwa_metadata(application) is not None
-
-
-def _maniml_chrome_pwa_metadata(
-    application: Path,
-) -> tuple[str, str | None] | None:
-    """Read the validated Chrome app ID and optional profile directory.
-
-    Hosted viewer URLs contain a short-lived capability token.  Do not hand
-    one to an arbitrary same-named bundle in a user-writable directory.
-    """
-    try:
-        with (application / "Contents/Info.plist").open("rb") as file:
-            info = plistlib.load(file)
-    except (OSError, plistlib.InvalidFileException):
-        return None
-
-    shortcut_url = info.get("CrAppModeShortcutURL")
-    if not isinstance(shortcut_url, str):
-        return None
-    shortcut = urlsplit(shortcut_url)
-    hosted = urlsplit(HOSTED_APP_URL)
-    app_id = info.get("CrAppModeShortcutID")
-    if not (
-        isinstance(app_id, str)
-        and re.fullmatch(r"[a-p]{32}", app_id)
-        and info.get("CFBundleIdentifier") == f"com.google.Chrome.app.{app_id}"
-        and application.is_dir()
-        and info.get("CFBundleExecutable") == "app_mode_loader"
-        and info.get("CrBundleIdentifier") == "com.google.Chrome"
-        and info.get("CrAppModeShortcutName") == "ManimLive"
-        and (shortcut.scheme, shortcut.netloc) == (hosted.scheme, hosted.netloc)
-    ):
-        return None
-
-    profile = info.get("CrAppModeProfileDir")
-    if profile is not None and not (
-        isinstance(profile, str)
-        and profile not in {"", ".", ".."}
-        and Path(profile).name == profile
-    ):
-        return None
-    return app_id, profile
-
-
-def _macos_chrome_executable(application: Path) -> Path | None:
-    executable = application / "Contents/MacOS/Google Chrome"
-    return executable if executable.is_file() else None
-
-
-def _macos_pwa_launch_command(
-    application: Path, chrome: Path, url: str
-) -> list[str] | None:
-    """Build Chrome's supported deep-link command for an installed PWA.
-
-    Launch Services opens a Chrome PWA shim at its manifest ``start_url`` and
-    discards a URL passed to ``open -a``.  Chrome's app launch switches retain
-    the requested in-scope viewer URL, including its capability fragment.
-    """
-    metadata = _maniml_chrome_pwa_metadata(application)
-    executable = _macos_chrome_executable(chrome)
-    if metadata is None or executable is None:
-        return None
-    app_id, profile = metadata
-    command = [str(executable)]
-    if profile is not None:
-        command.append(f"--profile-directory={profile}")
-    command.extend(
-        [
-            f"--app-id={app_id}",
-            f"--app-launch-url-for-shortcuts-menu-item={url}",
-        ]
-    )
-    return command
-
-
-def _macos_chrome_app() -> Path | None:
-    """Return the supported system Chrome installation, if present."""
-    application = Path("/Applications/Google Chrome.app")
-    return application if application.is_dir() else None
-
-
-def open_hosted_url(url: str) -> bool:
-    """Open a hosted session in its installed PWA or supported browser."""
-    if sys.platform == "darwin":
-        chrome = _macos_chrome_app()
-        if chrome is not None:
-            commands = []
-            for application in _macos_maniml_pwa_candidates():
-                command = _macos_pwa_launch_command(application, chrome, url)
-                if command is not None:
-                    commands.append(command)
-            commands.append(["/usr/bin/open", "-a", str(chrome), url])
-        else:
-            commands = []
-        for command in commands:
-            try:
-                subprocess.Popen(
-                    command,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                    start_new_session=True,
-                )
-                return True
-            except OSError:
-                continue
-    return bool(webbrowser.open(url))
 
 
 def missing_module_hint(log: str) -> str | None:
@@ -442,7 +311,7 @@ class AppServer:
                     self._json(app.files_payload())
                     return
                 # Serve the whole static dir (landing, viewer, renderer
-                # assets) so the local flow matches the hosted one
+                # assets) from the one server
                 request_path = urlsplit(self.path).path
                 path = (
                     "app.html"
@@ -504,7 +373,7 @@ class AppServer:
         self.origin = f"http://localhost:{self.port}"
         self.url = f"{self.origin}/"
         self.launch_url = f"{self.url}#token={self.token}"
-        self.allowed_origins = {self.origin, *HOSTED_APP_ORIGINS}
+        self.allowed_origins = {self.origin}
         self.control_port = control_port
         self._start_control_ws(control_port)
 
@@ -600,7 +469,7 @@ class AppServer:
                 "log": tail[-4000:],
                 "hint": missing_module_hint(tail),
             }
-        # ws_port lets a hosted frontend connect its own viewer page
+        # ws_port lets the app page open the viewer itself
         parsed = urlsplit(url)
         if parsed.port is None:
             return {"error": "scene returned an invalid viewer URL"}
@@ -658,98 +527,8 @@ class AppServer:
         self._granted_files.add(path)
         return {"file": {"path": path, "rel": candidate.name, "scenes": scenes}}
 
-    def _resolve_candidates(self, name: str):
-        """Paths that could be the launched file, nearest first.
-
-        Recents and already-granted files come first: they are the files this
-        user actually works on, so the common case never walks the tree.
-        """
-        seen: set[str] = set()
-
-        def offer(raw: str):
-            if raw in seen:
-                return None
-            seen.add(raw)
-            return raw
-
-        for known in (*self._granted_files, *load_recents()):
-            if os.path.basename(known) == name and offer(known):
-                yield known
-
-        root = self.root
-        examined = 0
-        for dirpath, dirnames, filenames in os.walk(root):
-            depth = os.path.relpath(dirpath, root).count(os.sep)
-            dirnames[:] = [
-                d for d in dirnames
-                if d not in SKIP_DIRS
-                and not d.startswith(".")
-                and depth < RESOLVE_MAX_DEPTH
-            ]
-            if name in filenames:
-                candidate = os.path.join(dirpath, name)
-                if offer(candidate):
-                    yield candidate
-            examined += len(filenames)
-            if examined > RESOLVE_MAX_FILES:
-                return
-
-    def resolve_payload(self, request: dict) -> dict:
-        """Map a browser-launched file back to its real path on disk.
-
-        The File Handling API hands the page a file handle with no path, but
-        the engine needs the real one: the watcher follows it, and scene files
-        routinely resolve imports and assets relative to ``__file__``. Copying
-        the bytes somewhere would break both. So match on name and verify by
-        content digest — a same-named file elsewhere cannot pass.
-
-        Being handed a file by the OS is an explicit user action, so a
-        verified match grants that one file, exactly as the native dialog does.
-        """
-        name = request.get("name")
-        digest = request.get("sha256")
-        size = request.get("size")
-        if (
-            not isinstance(name, str)
-            or not name
-            or os.path.basename(name) != name
-            or not name.lower().endswith(".py")
-            or not isinstance(digest, str)
-            or not re.fullmatch(r"[0-9a-f]{64}", digest)
-        ):
-            return {"error": "bad launch request"}
-
-        for candidate in self._resolve_candidates(name):
-            try:
-                if isinstance(size, int) and os.path.getsize(candidate) != size:
-                    continue
-                with open(candidate, "rb") as file:
-                    if hashlib.sha256(file.read()).hexdigest() != digest:
-                        continue
-                resolved = resolve_authorized_file(
-                    self._root_path, candidate, suffix=".py",
-                    allow_outside_root=True,
-                )
-            except (OSError, ValueError):
-                continue
-            path = str(resolved)
-            self._granted_files.add(path)
-            return {
-                "file": {
-                    "path": path,
-                    "rel": os.path.relpath(path, self.root)
-                    if resolved.is_relative_to(self._root_path) else path,
-                    "scenes": find_scene_classes(path),
-                }
-            }
-        return {
-            "error": f"could not find {name} under {self.root}",
-            "hint": "Open it with the Open… button, or point the engine at "
-                    "its folder (maniml agent install <dir>).",
-        }
-
     def _start_control_ws(self, control_port: int):
-        """Loopback control channel for the hosted and local frontends.
+        """Loopback control channel for the page this app serves.
 
         Normal app sessions use the stable default port; desktop-open sessions
         request an OS-assigned port so independently opened files cannot
@@ -773,10 +552,7 @@ class AppServer:
             try:
                 await ws.send(
                     json.dumps(
-                        {
-                            "type": "authenticated",
-                            "protocol": WEB_PROTOCOL_VERSION,
-                        }
+                        {"type": "authenticated"}
                     )
                 )
                 async for message in ws:
@@ -786,9 +562,6 @@ class AppServer:
                     op = request.get("op")
                     if op == "files":
                         response = self.files_payload()
-                    elif op == "resolve":
-                        response = await asyncio.to_thread(
-                            self.resolve_payload, request)
                     elif op == "choose":
                         response = await asyncio.to_thread(self.choose_payload)
                     elif op == "open":
@@ -887,10 +660,10 @@ def run_app(
     root: str = ".",
     open_browser: bool = True,
     allow_outside_root: bool = False,
-    hosted: bool = False,
     initial_file: str | None = None,
     control_port: int = CONTROL_WS_PORT,
     token: str | None = None,
+    state_path: str | os.PathLike[str] | None = None,
 ) -> None:
     server = AppServer(
         root,
@@ -910,16 +683,13 @@ def run_app(
     control_fragment = f"token={server.token}"
     if server.control_port != CONTROL_WS_PORT:
         control_fragment += f"&control={server.control_port}"
-    # The local page needs the resolved port for the same reason the hosted
-    # one does: it may not be the default when an agent already holds it.
-    launch_url = (
-        f"{HOSTED_APP_URL}#{control_fragment}" if hosted
-        else f"{server.url}#{control_fragment}"
-    )
+    # The page needs the resolved port: it may not be the default when a
+    # background agent already holds it.
+    launch_url = f"{server.url}#{control_fragment}"
     if initial_file is not None:
         opened = server.open_payload({"path": initial_file})
-        if hosted and opened.get("viewer_url"):
-            launch_url = HOSTED_APP_URL + opened["viewer_url"]
+        if opened.get("viewer_url"):
+            launch_url = f"{server.url}{opened['viewer_url']}"
         elif opened.get("error"):
             # A desktop open has no UI of its own: without this the launcher
             # log is silent and the landing page gives no hint why the file
@@ -929,12 +699,25 @@ def run_app(
             # listed and openable there even though the direct open failed
             # (a multi-scene file is the common case — pick a scene).
             server.grant_file(initial_file)
+    # A supervised agent is not the one printing to a terminal, and it may not
+    # have got the default port. Publish where it actually landed.
+    if state_path is not None:
+        try:
+            state_file = Path(state_path)
+            state_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(
+                state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+                json.dump(
+                    {"url": server.url, "control_port": server.control_port},
+                    file,
+                )
+            atexit.register(lambda: state_file.unlink(missing_ok=True))
+        except OSError:
+            pass
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
     if open_browser:
-        if hosted:
-            open_hosted_url(launch_url)
-        else:
-            webbrowser.open(launch_url)
+        webbrowser.open(launch_url)
     if initial_file is not None:
         server.start_exit_when_idle(
             exit_when_children_finish=bool(opened.get("viewer_url"))

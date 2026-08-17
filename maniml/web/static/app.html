@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ManimLive</title>
-<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/maniml-192.png">
-<link rel="apple-touch-icon" href="icons/maniml-192.png">
 <meta name="theme-color" content="#2b2a2d">
 <style>
   :root {
@@ -39,16 +37,12 @@
     letter-spacing: .075em; margin: 0; }
   .tagline { color: var(--dim); margin: 0 0 0 7px; font-size: 11px;
     padding-left: 12px; border-left: 1px solid var(--line-strong); }
-  #install-app, .copy, #openbtn {
+  #openbtn {
     border: 0; border-radius: 8px; background: none;
     color: var(--dim); padding: 6px 10px; cursor: pointer;
   }
-  #install-app:hover, .copy:hover, #openbtn:hover {
-    background: rgba(255,255,255,.055); color: var(--text);
-  }
-  #install-app[hidden] { display: none; }
-  #openbtn:disabled { cursor: default; opacity: 0.45;
-    border-color: var(--line); color: var(--text); }
+  #openbtn:hover { background: rgba(255,255,255,.055); color: var(--text); }
+  #openbtn:disabled { cursor: default; opacity: 0.45; color: var(--text); }
   .header-actions { display: flex; gap: 2px; padding: 4px; }
   #status { display: flex; align-items: center; gap: 7px; color: var(--dim);
     font-size: 11px; }
@@ -56,42 +50,23 @@
     background: var(--dim); }
   body[data-connection="connecting"] #status-dot { background: var(--warn); }
   body[data-connection="connected"] #status-dot { background: var(--good); }
-  body[data-connection="expired"] #status-dot,
-  body[data-connection="bridge-missing"] #status-dot,
-  body[data-connection="incompatible"] #status-dot { background: var(--bad); }
+  body[data-connection="expired"] #status-dot { background: var(--bad); }
 
-  #onboarding { background: var(--panel); border: 1px solid var(--line);
-    border-radius: 15px; overflow: hidden; box-shadow: 0 18px 52px rgba(0,0,0,.18);
-    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
-  body[data-connection="connected"] #onboarding { display: none; }
-  .onboarding-intro { padding: 25px 26px 22px; border-bottom: 1px solid var(--line); }
-  .onboarding-intro h2 { font: 500 22px/1.2 Georgia, "Times New Roman", serif;
+  #offline { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 15px; padding: 25px 26px 22px;
+    box-shadow: 0 18px 52px rgba(0,0,0,.18); }
+  body[data-connection="connected"] #offline { display: none; }
+  #offline h2 { font: 500 22px/1.2 Georgia, "Times New Roman", serif;
     letter-spacing: .015em; margin: 0 0 6px; }
-  .onboarding-intro p { color: var(--dim); margin: 0; }
-  /* Shown whenever setConnectionState supplies a detail. Keying this on the
-     connection state instead silently swallowed the one message the Open
-     button depends on: the desktop bridge is fire-and-forget, so an
-     unexplained "connecting" state is indistinguishable from a dead click. */
+  #offline p { color: var(--dim); margin: 0; }
   #connection-message { color: var(--warn); margin-top: 10px; }
   #connection-message:empty { display: none; }
-  body[data-connection="bridge-missing"] #connection-message { color: var(--bad); }
-  .step { display: grid; grid-template-columns: 30px minmax(0, 1fr);
-    gap: 14px; padding: 20px 26px; border-bottom: 1px solid var(--line); }
-  .step:last-child { border-bottom: none; }
-  .step-number { display: grid; place-items: center; width: 26px; height: 26px;
-    border: 1px solid var(--line-strong); border-radius: 9px; color: var(--accent);
-    font-size: 12px; font-weight: 650; }
-  .step h3 { font-size: 14px; margin: 2px 0 4px; }
-  .step p { color: var(--dim); margin: 0 0 10px; }
-  .command { display: flex; align-items: stretch; min-width: 0;
+  .command { display: flex; align-items: stretch; min-width: 0; margin-top: 14px;
     border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
     background: rgba(8,8,10,.52); }
   .command code { flex: 1; min-width: 0; padding: 10px 12px;
     color: #c9d1d9; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo,
     Consolas, monospace; overflow-x: auto; white-space: nowrap; }
-  .command .copy { border: 0; border-left: 1px solid var(--line);
-    border-radius: 0; min-width: 64px; }
-  .small { color: var(--dim); font-size: 12px; }
 
   #workspace { display: none; }
   body[data-connection="connected"] #workspace { display: block; }
@@ -122,67 +97,35 @@
     header { left: 7px; right: 7px; gap: 5px; }
     .pod { min-height: 38px; padding: 2px 7px; border-radius: 12px; }
     .tagline, #status-text { display: none; }
-    .step { padding: 16px; }
     .file { display: block; }
     .file .name { margin-bottom: 9px; }
     .command { display: block; }
     .command code { display: block; }
-    .command .copy { width: 100%; border-left: 0;
-      border-top: 1px solid var(--line); }
   }
 </style>
 </head>
-<body data-connection="unpaired">
+<body data-connection="connecting">
 <header>
     <div class="brand pod">
       <h1>ManimLive</h1>
       <p class="tagline">Live Manim development in the browser.</p>
     </div>
     <div id="status" class="pod" role="status" aria-live="polite">
-      <span id="status-dot"></span><span id="status-text">Not connected</span>
+      <span id="status-dot"></span><span id="status-text">Connecting…</span>
     </div>
     <div class="header-actions pod">
       <button id="openbtn">Open&hellip;</button>
-      <button id="install-app" hidden>Install app</button>
     </div>
 </header>
 
 <main>
 
-  <section id="onboarding" aria-labelledby="setup-title">
-    <div class="onboarding-intro">
-      <h2 id="setup-title">Set up ManimLive</h2>
-      <p>The interface installs from the web. Your scenes and Python engine stay on this computer.</p>
-      <p id="connection-message"></p>
-    </div>
-    <div class="step">
-      <span class="step-number">1</span>
-      <div>
-        <h3>Install the web app</h3>
-        <p id="install-description">Use your browser&rsquo;s install icon or menu to add ManimLive to your applications.</p>
-        <span id="installed-label" class="small" hidden>Installed as an app.</span>
-      </div>
-    </div>
-    <div class="step">
-      <span class="step-number">2</span>
-      <div>
-        <h3>Install the local engine and app</h3>
-        <p>Once, in a terminal, activate the Python environment you use for Manim, then run:</p>
-        <div class="command">
-          <code id="install-command">python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git" &amp;&amp; python -m maniml install-desktop --replace</code>
-          <button class="copy" data-copy="install-command">Copy</button>
-        </div>
-        <p id="desktop-note" class="small" style="margin-top:10px">After this one-time macOS setup, open a scene from Finder or the app&mdash;no terminal needed.</p>
-      </div>
-    </div>
-    <div class="step">
-      <span class="step-number">3</span>
-      <div>
-        <h3>Open a scene</h3>
-        <p>Open <strong>ManimLive Desktop</strong> from Applications, choose <strong>Open With &rarr; ManimLive Desktop</strong> on a Python file, or use <strong>Open&hellip;</strong> above while the local app is connected.</p>
-        <p class="small">The desktop launcher performs the explicit local action that a website is not allowed to perform.</p>
-      </div>
-    </div>
+  <section id="offline" aria-labelledby="offline-title">
+    <h2 id="offline-title">Waiting for the engine</h2>
+    <p>This page is served by your local ManimLive engine. If it has stopped,
+       start it again from a terminal:</p>
+    <div class="command"><code>maniml app .</code></div>
+    <p id="connection-message"></p>
   </section>
 
   <section id="workspace">
@@ -202,29 +145,15 @@
 <script>
 "use strict";
 
-// Increment alongside WEB_PROTOCOL_VERSION in maniml/web/security.py whenever
-// a hosted frontend is no longer wire-compatible with an installed engine.
-const WEB_PROTOCOL_VERSION = 2;
+// This page ships inside the maniml package and is served by the engine that
+// runs the scenes, so the two can never be out of step and there is no
+// cross-origin boundary to negotiate. The token below is still required: any
+// program on this machine can reach loopback.
 const DEFAULT_CONTROL_PORT = 8686;
-const ENGINE_INSTALL_COMMAND = 'python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"';
-const clientPlatform = navigator.userAgentData?.platform
-  || navigator.platform || "";
-const isMacOS = /mac/i.test(clientPlatform);
-const INSTALL_COMMAND = isMacOS
-  ? ENGINE_INSTALL_COMMAND + " && python -m maniml install-desktop --replace"
-  : ENGINE_INSTALL_COMMAND;
 
 const errorEl = document.getElementById("error");
 const statusText = document.getElementById("status-text");
 const connectionMessage = document.getElementById("connection-message");
-const installButton = document.getElementById("install-app");
-const installDescription = document.getElementById("install-description");
-const installedLabel = document.getElementById("installed-label");
-document.getElementById("install-command").textContent = INSTALL_COMMAND;
-if (!isMacOS) {
-  document.getElementById("desktop-note").textContent =
-    "The no-terminal desktop bridge currently supports macOS. Windows and Linux packaging is still in progress; use maniml app . --hosted as the fallback.";
-}
 
 function setConnectionState(state, message, detail) {
   document.body.dataset.connection = state;
@@ -232,15 +161,6 @@ function setConnectionState(state, message, detail) {
   connectionMessage.textContent = detail || "";
 }
 
-// Capability storage. A foreground session mints a per-process token, so
-// remembering it past this tab is pointless; `maniml agent` persists one
-// capability on disk instead, and staying paired across restarts is the whole
-// point of running an agent. So: session storage for a per-process pairing,
-// local storage only for a pairing that outlives the process. Either is
-// cleared the moment the engine rejects it (close code 1008), and
-// `maniml agent rotate-token` revokes every paired browser.
-const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const isHostedApp = !loopbackHosts.has(location.hostname);
 const controlTokenKey = "maniml-control-token";
 const fragment = new URLSearchParams(location.hash.slice(1));
 const fragmentToken = fragment.get("token");
@@ -249,32 +169,20 @@ const controlPort = Number.isInteger(requestedControlPort)
   && requestedControlPort >= 1024 && requestedControlPort <= 65535
   ? requestedControlPort : DEFAULT_CONTROL_PORT;
 const CONTROL_URL = `ws://127.0.0.1:${controlPort}/`;
-// Only a pairing against the default control port can outlive the process:
-// an ephemeral port belongs to one transient session and will never be there
-// again, so persisting that token would just strand a dead capability.
-const persistToken = controlPort === DEFAULT_CONTROL_PORT;
-const tokenStore = persistToken ? localStorage : sessionStorage;
 
-function forgetControlToken() {
-  try {
-    localStorage.removeItem(controlTokenKey);
-    sessionStorage.removeItem(controlTokenKey);
-  } catch (error) { /* storage may be unavailable */ }
-}
-
+// Keyed by port so two engines never trade tokens. Session storage keeps a
+// reload working without leaving a capability on disk.
+const storageKey = `${controlTokenKey}:${controlPort}`;
 if (fragmentToken) {
-  try { tokenStore.setItem(controlTokenKey, fragmentToken); }
-  catch (error) { /* storage may be unavailable */ }
+  try { sessionStorage.setItem(storageKey, fragmentToken); } catch (error) {}
   history.replaceState(null, "", location.pathname + location.search);
 }
 let storedToken = null;
-try { storedToken = tokenStore.getItem(controlTokenKey); }
-catch (error) { storedToken = null; }
+try { storedToken = sessionStorage.getItem(storageKey); } catch (error) {}
 const controlToken = fragmentToken || storedToken;
 
 let control = null;
 let reconnectTimer = null;
-let protocolMismatch = false;
 let nextId = 1;
 const pending = new Map();
 
@@ -298,10 +206,15 @@ function request(op, extra) {
 function connectControl() {
   clearTimeout(reconnectTimer);
   if (!controlToken) {
-    setConnectionState("unpaired", "Local engine not paired");
+    setConnectionState(
+      "expired",
+      "No capability",
+      "Open the address the engine printed when it started, or run "
+        + "`maniml agent open`."
+    );
     return;
   }
-  setConnectionState("connecting", "Connecting to local engine…");
+  setConnectionState("connecting", "Connecting…");
   try {
     control = new WebSocket(CONTROL_URL);
   } catch (error) {
@@ -316,23 +229,9 @@ function connectControl() {
     try { data = JSON.parse(event.data); }
     catch (error) { return; }
     if (data.type === "authenticated") {
-      if (data.protocol !== WEB_PROTOCOL_VERSION) {
-        protocolMismatch = true;
-        setConnectionState(
-          "incompatible",
-          "Engine update required",
-          "This web app is newer than the installed engine. Copy and run the install command below, then start ManimLive again."
-        );
-        control.close(1000, "protocol mismatch");
-        return;
-      }
-      cancelBridgeWatchdog();
       setConnectionState("connected", "Connected");
-      // A drop while a choose/open request was in flight left this disabled.
       document.getElementById("openbtn").disabled = false;
       refresh();
-      // A Finder launch can beat the handshake; open it now that we can.
-      void drainPendingLaunch();
       return;
     }
     const entry = pending.get(data.id);
@@ -342,97 +241,26 @@ function connectControl() {
     }
   };
   control.onclose = (event) => {
-    rejectPending("local engine disconnected");
-    if (protocolMismatch) return;
+    rejectPending("engine disconnected");
     if (event.code === 1008) {
-      forgetControlToken();
+      try { sessionStorage.removeItem(storageKey); } catch (error) {}
       setConnectionState(
         "expired",
-        "Pairing expired",
-        "The local engine rejected this pairing. Run `maniml agent pair` to "
-          + "pair again, or start ManimLive from your project folder."
+        "Capability rejected",
+        "The engine did not accept this token. Reopen the address it printed."
       );
       return;
     }
-    setConnectionState("connecting", "Waiting for local engine…");
+    setConnectionState("connecting", "Waiting for the engine…");
     scheduleReconnect();
   };
   control.onerror = () => {};
 }
 
 function scheduleReconnect() {
-  if (controlToken && !protocolMismatch) {
-    reconnectTimer = setTimeout(connectControl, 1500);
-  }
+  if (controlToken) reconnectTimer = setTimeout(connectControl, 1500);
 }
 connectControl();
-
-async function copyText(text, button) {
-  const previous = button.textContent;
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const copied = document.execCommand("copy");
-      textarea.remove();
-      if (!copied) throw new Error("copy failed");
-    }
-    button.textContent = "Copied";
-  } catch (error) {
-    button.textContent = "Select";
-    const range = document.createRange();
-    range.selectNodeContents(document.getElementById(button.dataset.copy));
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-  setTimeout(() => { button.textContent = previous; }, 1800);
-}
-
-for (const button of document.querySelectorAll("[data-copy]")) {
-  button.addEventListener("click", () => {
-    const text = document.getElementById(button.dataset.copy).textContent;
-    copyText(text, button);
-  });
-}
-
-let installPrompt = null;
-const standalone = window.matchMedia("(display-mode: standalone)").matches
-  || window.navigator.standalone === true;
-if (standalone) {
-  installDescription.hidden = true;
-  installedLabel.hidden = false;
-}
-window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
-  installPrompt = event;
-  installButton.hidden = false;
-  installDescription.textContent = "Install ManimLive as a focused desktop app. Your Python engine remains separate and local.";
-});
-installButton.addEventListener("click", async () => {
-  if (!installPrompt) return;
-  await installPrompt.prompt();
-  installPrompt = null;
-  installButton.hidden = true;
-});
-window.addEventListener("appinstalled", () => {
-  installPrompt = null;
-  installButton.hidden = true;
-  installDescription.hidden = true;
-  installedLabel.hidden = false;
-});
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  });
-}
 
 async function openScene(path, scene, button) {
   errorEl.style.display = "none";
@@ -494,152 +322,18 @@ async function refresh() {
     for (const file of data.recents) recentsEl.appendChild(fileCard(file));
   } catch (error) {
     if (document.body.dataset.connection === "connected") {
-      setConnectionState("connecting", "Local engine disconnected");
+      setConnectionState("connecting", "Engine disconnected");
     }
   }
 }
 
-// Navigating to a custom scheme with no registered handler is silent: the
-// browser fires no error and the page simply stays put. Without this
-// watchdog the Open button is indistinguishable from a broken button, which
-// is exactly how an engine that was never installed used to present itself.
-//
-// The signal is FOCUS, not visibility. A page is only "hidden" once it is
-// backgrounded, minimised or occluded; another application coming to the
-// front — Chrome's confirmation sheet, then the launcher's file dialog —
-// leaves visibilityState at "visible" and merely takes focus away. Watching
-// visibility therefore reported a working bridge as missing. The timeout
-// also has to outlast the launcher's cold start, which is seconds, not
-// milliseconds, on first use.
-const BRIDGE_TIMEOUT = 6000;
-let bridgeTimer = null;
-
-function cancelBridgeWatchdog() {
-  clearTimeout(bridgeTimer);
-  bridgeTimer = null;
-}
-
-function reportSilentBridge() {
-  bridgeTimer = null;
-  if (document.body.dataset.connection === "connected") return;
-  setConnectionState(
-    "bridge-missing",
-    "Nothing opened",
-    "No application answered the maniml:// link, so no file dialog appeared. "
-      + "If the local app is not installed yet, finish step 2 below and click "
-      + "Open… again."
-  );
-  document.getElementById("onboarding")
-    .scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function requestDesktopBridge() {
-  cancelBridgeWatchdog();
-  setConnectionState(
-    "connecting",
-    "Opening desktop bridge…",
-    "Choose a scene in the native dialog."
-  );
-  window.location.href = "maniml://open";
-  bridgeTimer = setTimeout(() => {
-    bridgeTimer = null;
-    // Anything else in front means a handler claimed the link.
-    if (!document.hasFocus()) return;
-    reportSilentBridge();
-  }, BRIDGE_TIMEOUT);
-}
-
-// Losing focus or visibility before the deadline settles it immediately.
-window.addEventListener("blur", cancelBridgeWatchdog);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") cancelBridgeWatchdog();
-});
-
-// --- Opening a file handed over by the OS (Finder "Open With") ---
-//
-// The File Handling API delivers a FileSystemFileHandle with no path, but the
-// engine needs the real one: the watcher follows it, and scene files resolve
-// imports and assets relative to __file__. So identify the file by name and
-// content digest and let the engine find it on disk.
-let pendingLaunch = null;
-
-async function digestOf(file) {
-  const bytes = await file.arrayBuffer();
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function openLaunchedFile(file) {
-  errorEl.style.display = "none";
-  let data;
-  try {
-    data = await request("resolve", {
-      name: file.name,
-      size: file.size,
-      sha256: await digestOf(file),
-    });
-  } catch (error) {
-    errorEl.textContent = String(error);
-    errorEl.style.display = "block";
-    return;
-  }
-  if (data.error || !data.file) {
-    errorEl.textContent = (data.error || "could not open that file")
-      + (data.hint ? "\n\n" + data.hint : "");
-    errorEl.style.display = "block";
-    return;
-  }
-  const opened = data.file;
-  if (opened.scenes.length === 1) {
-    await openScene(opened.path, opened.scenes[0], null);
-    return;
-  }
-  // No scenes, or a choice to make: show the file rather than guessing.
-  document.getElementById("picked").replaceChildren(fileCard(opened));
-  document.getElementById("picked-section").hidden = false;
-  if (!opened.scenes.length) {
-    errorEl.textContent =
-      "No Manim scene classes were found in " + opened.rel;
-    errorEl.style.display = "block";
-  }
-}
-
-async function drainPendingLaunch() {
-  const file = pendingLaunch;
-  pendingLaunch = null;
-  if (file) await openLaunchedFile(file);
-}
-
-if (window.launchQueue) {
-  window.launchQueue.setConsumer(async (params) => {
-    const handle = (params.files || [])[0];
-    if (!handle) return;
-    let file;
-    try { file = await handle.getFile(); }
-    catch (error) { return; }
-    // A cold launch arrives before the control channel is authenticated.
-    if (document.body.dataset.connection === "connected") {
-      await openLaunchedFile(file);
-    } else {
-      pendingLaunch = file;
-    }
-  });
-}
-
+// The engine shows the platform's own file dialog: no browser file-handle
+// indirection, so it returns a real path the watcher and the scene's
+// __file__-relative imports can both use.
 document.getElementById("openbtn").onclick = async () => {
   const button = document.getElementById("openbtn");
   errorEl.style.display = "none";
-  if (document.body.dataset.connection !== "connected") {
-    if (!isMacOS) {
-      errorEl.textContent =
-        "The desktop bridge currently supports macOS. Start the fallback with: maniml app . --hosted";
-      errorEl.style.display = "block";
-      return;
-    }
-    requestDesktopBridge();
-    return;
-  }
+  if (document.body.dataset.connection !== "connected") return;
   button.disabled = true;
   try {
     const data = await request("choose");

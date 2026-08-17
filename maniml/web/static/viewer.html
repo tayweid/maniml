@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>maniml</title>
-<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/maniml-192.png">
 <meta name="theme-color" content="#2b2a2d">
 <style>
@@ -371,29 +370,25 @@
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const chipsEl = document.getElementById("chips");
-// Keep in sync with WEB_PROTOCOL_VERSION in maniml/web/security.py.
-const WEB_PROTOCOL_VERSION = 2;
-// A hosted PWA passes the scene's WebSocket
-// port as ?ws=; served locally by a scene process, it is port+1
+// Transport. Today the engine is a local process reached over a WebSocket:
+// the app page opens this with ?ws=PORT, and a scene process serving its own
+// page uses its HTTP port + 1. Everything below this line speaks only in
+// protocol messages, so an in-page engine (Pyodide) would replace `send` and
+// the message pump and leave the rest of the viewer untouched.
 const wsParam = new URLSearchParams(location.search).get("ws");
 const wsUrl = wsParam
   ? "ws://127.0.0.1:" + wsParam + "/"
   : "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
 const viewerTokenKey = "maniml-viewer-token:" + wsUrl;
-const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const isHostedApp = !loopbackHosts.has(location.hostname);
-document.getElementById("open-file").onclick = () => requestDesktopBridge();
+const appUrl = new URLSearchParams(location.search).get("app") || "/";
+document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
-if (fragmentToken && !isHostedApp) {
-  sessionStorage.setItem(viewerTokenKey, fragmentToken);
-}
 if (fragmentToken) {
+  sessionStorage.setItem(viewerTokenKey, fragmentToken);
   history.replaceState(null, "", location.pathname + location.search);
 }
-const viewerToken = fragmentToken
-  || (!isHostedApp && sessionStorage.getItem(viewerTokenKey));
+const viewerToken = fragmentToken || sessionStorage.getItem(viewerTokenKey);
 let ws = null;
-let protocolMismatch = false;
 let reconnectCount = 0;
 let reconnectTimer = null;
 const MAX_RECONNECTS = 3;
@@ -418,75 +413,14 @@ function hideConnectionIssue() {
   connectionOverlay.hidden = true;
 }
 
-// Custom-scheme navigation fails silently when no application claims the
-// scheme, so an uninstalled desktop app made Open look like a dead control.
-// Focus, not visibility, is the signal: another application taking the front
-// leaves this page "visible" and only removes its focus. The timeout must
-// also outlast the launcher's cold start.
-const BRIDGE_TIMEOUT = 6000;
-let bridgeTimer = null;
-
-function cancelBridgeWatchdog() {
-  clearTimeout(bridgeTimer);
-  bridgeTimer = null;
-}
-
-function requestDesktopBridge() {
-  cancelBridgeWatchdog();
-  bridgeTimer = setTimeout(() => {
-    bridgeTimer = null;
-    if (!document.hasFocus()) return;
-    // Deliberately not showConnectionIssue: this scene's own connection is
-    // unaffected, so it must not be marked disconnected. Dismissable, because
-    // the viewer behind it is still fully usable.
-    showOverlay(
-      "Nothing opened",
-      "No application answered the maniml:// link, so no file dialog "
-        + "appeared. Install the ManimLive local app from the ManimLive start "
-        + "page, then try Open again.",
-      { canDismiss: true }
-    );
-  }, BRIDGE_TIMEOUT);
-  window.location.href = "maniml://open";
-}
-
-window.addEventListener("blur", cancelBridgeWatchdog);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") cancelBridgeWatchdog();
-});
-
-function primeLoopbackPermission() {
-  if (!isHostedApp || !wsParam) return;
-  const httpPort = Number(wsParam) - 1;
-  if (!Number.isInteger(httpPort) || httpPort < 1024 || httpPort > 65534) return;
-  // Chrome 142+ gates public-to-loopback requests behind Local Network
-  // Access, and Chrome 147+ applies it to WebSockets. A harmless, token-free
-  // request gives the browser a chance to ask before the socket opens. Older
-  // browsers ignore targetAddressSpace; older engines can serve this asset.
-  try {
-    const request = new Request(
-      `http://127.0.0.1:${httpPort}/manifest.webmanifest?probe=${Date.now()}`,
-      { method: "HEAD", mode: "no-cors", cache: "no-store",
-        targetAddressSpace: "loopback" }
-    );
-    fetch(request).catch(() => {});
-  } catch (error) {
-    // WebSocket fallback below preserves compatibility with browsers that do
-    // not yet understand the Local Network Access request option.
-  }
-}
-
 function scheduleReconnect() {
   reconnectCount += 1;
   if (reconnectCount >= MAX_RECONNECTS) {
-    document.getElementById("conn").textContent = isHostedApp
-      ? "Local access needed" : "Engine unavailable";
-    const detail = isHostedApp
-      ? `Open this scene in Chrome or the installed ManimLive app. Allow Local network access for ${location.host} when asked, then retry.`
-      : "The local viewer server is no longer responding. Retry, or reopen the scene to start a fresh session.";
+    document.getElementById("conn").textContent = "Engine unavailable";
     showConnectionIssue(
       "Can’t reach the local engine",
-      detail,
+      "The scene process is no longer responding. Retry, or reopen the scene "
+        + "from ManimLive to start a fresh session.",
       true
     );
     return;
@@ -506,15 +440,13 @@ function connect(manualRetry = false) {
     document.getElementById("conn").textContent = "viewer authorization missing";
     showConnectionIssue(
       "This viewer link has expired",
-      "Open the scene again from ManimLive or Finder to create a fresh, private viewer session.",
+      "Open the scene again from ManimLive to create a fresh, private viewer session.",
       false
     );
     return;
   }
   document.body.classList.add("disconnected");
-  document.getElementById("conn").textContent = isHostedApp
-    ? "Requesting local access" : "Connecting";
-  primeLoopbackPermission();
+  document.getElementById("conn").textContent = "Connecting";
   try {
     ws = new WebSocket(wsUrl);
   } catch (error) {
@@ -528,13 +460,12 @@ function connect(manualRetry = false) {
   };
   ws.onclose = (event) => {
     document.body.classList.add("disconnected");
-    if (protocolMismatch) return;
     if (event.code === 1008) {
-      if (!isHostedApp) sessionStorage.removeItem(viewerTokenKey);
+      sessionStorage.removeItem(viewerTokenKey);
       document.getElementById("conn").textContent = "viewer authorization expired";
       showConnectionIssue(
         "This viewer link has expired",
-        "Open the scene again from ManimLive or Finder to create a fresh, private viewer session.",
+        "Open the scene again from ManimLive to create a fresh, private viewer session.",
         false
       );
       return;
@@ -546,19 +477,6 @@ function connect(manualRetry = false) {
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
       if (data.type === "authenticated") {
-        if (data.protocol !== WEB_PROTOCOL_VERSION) {
-          protocolMismatch = true;
-          document.body.classList.add("disconnected");
-          document.getElementById("conn").textContent =
-            "engine update required";
-          showConnectionIssue(
-            "Engine update required",
-            "The installed Python engine is older than this interface. Update ManimLive, then open the scene again.",
-            false
-          );
-          ws.close(1000, "protocol mismatch");
-          return;
-        }
         reconnectCount = 0;
         document.body.classList.remove("disconnected");
         document.getElementById("conn").textContent = "Connected";
@@ -585,7 +503,7 @@ connect();
 
 document.getElementById("retry-connection").onclick = () => connect(true);
 document.getElementById("dismiss-overlay").onclick = () => hideConnectionIssue();
-document.getElementById("open-from-error").onclick = () => requestDesktopBridge();
+document.getElementById("open-from-error").onclick = () => { window.location = appUrl; };
 
 function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
