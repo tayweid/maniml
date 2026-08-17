@@ -21,6 +21,7 @@ import ast
 import atexit
 import json
 import os
+import plistlib
 import re
 import signal
 import subprocess
@@ -65,6 +66,76 @@ DEFAULT_APP_PORT = 8685
 # loopback after the CLI pairs it with a process-local capability.  Both that
 # token and an exact Origin allowlist are required before any operation.
 CONTROL_WS_PORT = 8686
+
+
+def _macos_maniml_pwa_candidates() -> tuple[Path, ...]:
+    """Return the conventional Chrome PWA locations on macOS."""
+    home = Path.home()
+    return (
+        home / "Applications/Chrome Apps.localized/ManimLive.app",
+        home / "Applications/Chrome Apps/ManimLive.app",
+        Path("/Applications/Chrome Apps.localized/ManimLive.app"),
+        Path("/Applications/Chrome Apps/ManimLive.app"),
+    )
+
+
+def _is_maniml_chrome_pwa(application: Path) -> bool:
+    """Verify that an app bundle is Chrome's shim for the hosted ManimLive PWA.
+
+    Hosted viewer URLs contain a short-lived capability token.  Do not hand
+    one to an arbitrary same-named bundle in a user-writable directory.
+    """
+    try:
+        with (application / "Contents/Info.plist").open("rb") as file:
+            info = plistlib.load(file)
+    except (OSError, plistlib.InvalidFileException):
+        return False
+
+    shortcut_url = info.get("CrAppModeShortcutURL")
+    if not isinstance(shortcut_url, str):
+        return False
+    shortcut = urlsplit(shortcut_url)
+    hosted = urlsplit(HOSTED_APP_URL)
+    return (
+        application.is_dir()
+        and info.get("CFBundleExecutable") == "app_mode_loader"
+        and info.get("CrBundleIdentifier") == "com.google.Chrome"
+        and info.get("CrAppModeShortcutName") == "ManimLive"
+        and (shortcut.scheme, shortcut.netloc) == (hosted.scheme, hosted.netloc)
+    )
+
+
+def _macos_chrome_app() -> Path | None:
+    """Return the supported system Chrome installation, if present."""
+    application = Path("/Applications/Google Chrome.app")
+    return application if application.is_dir() else None
+
+
+def open_hosted_url(url: str) -> bool:
+    """Open a hosted session in its installed PWA or supported browser."""
+    if sys.platform == "darwin":
+        applications = [
+            application
+            for application in _macos_maniml_pwa_candidates()
+            if _is_maniml_chrome_pwa(application)
+        ]
+        chrome = _macos_chrome_app()
+        if chrome is not None:
+            applications.append(chrome)
+        for application in applications:
+            try:
+                subprocess.Popen(
+                    ["/usr/bin/open", "-a", str(application), url],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    start_new_session=True,
+                )
+                return True
+            except OSError:
+                continue
+    return bool(webbrowser.open(url))
 
 
 def missing_module_hint(log: str) -> str | None:
@@ -603,7 +674,10 @@ def run_app(
             launch_url = HOSTED_APP_URL + opened["viewer_url"]
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
     if open_browser:
-        webbrowser.open(launch_url)
+        if hosted:
+            open_hosted_url(launch_url)
+        else:
+            webbrowser.open(launch_url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

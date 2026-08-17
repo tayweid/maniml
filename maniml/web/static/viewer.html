@@ -412,7 +412,7 @@ function scheduleReconnect() {
     document.getElementById("conn").textContent = isHostedApp
       ? "Local access needed" : "Engine unavailable";
     const detail = isHostedApp
-      ? `Allow Local network access for ${location.host} in your browser’s site settings, then retry. If it is already allowed, reopen the scene.`
+      ? `Open this scene in Chrome or the installed ManimLive app. Allow Local network access for ${location.host} when asked, then retry.`
       : "The local viewer server is no longer responding. Retry, or reopen the scene to start a fresh session.";
     showConnectionIssue(
       "Can’t reach the local engine",

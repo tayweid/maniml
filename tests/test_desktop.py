@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from maniml.desktop import install_desktop_launcher
-from maniml.web.app import AppServer
+from maniml.web.app import AppServer, _is_maniml_chrome_pwa, open_hosted_url
 
 SCENE_SOURCE = """\
 from manim import *
@@ -74,6 +74,85 @@ class FilePickerTests(unittest.TestCase):
         with mock.patch("maniml.web.app.choose_python_file", return_value=None):
             self.assertEqual(server.choose_payload(), {"cancelled": True})
         self.assertEqual(server._granted_files, set())
+
+
+class HostedBrowserLaunchTests(unittest.TestCase):
+    @staticmethod
+    def _write_pwa_info(application: Path, url: str) -> None:
+        contents = application / "Contents"
+        contents.mkdir(parents=True)
+        with (contents / "Info.plist").open("wb") as file:
+            plistlib.dump(
+                {
+                    "CFBundleExecutable": "app_mode_loader",
+                    "CrBundleIdentifier": "com.google.Chrome",
+                    "CrAppModeShortcutName": "ManimLive",
+                    "CrAppModeShortcutURL": url,
+                },
+                file,
+            )
+
+    def test_macos_prefers_installed_pwa_without_a_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            pwa = home / "Applications/Chrome Apps.localized/ManimLive.app"
+            self._write_pwa_info(pwa, "https://maniml.tayweid.io/")
+            url = "https://maniml.tayweid.io/viewer.html?ws=1234#token=secret"
+            with (
+                mock.patch("maniml.web.app.sys.platform", "darwin"),
+                mock.patch("maniml.web.app.Path.home", return_value=home),
+                mock.patch("maniml.web.app._macos_chrome_app", return_value=None),
+                mock.patch("maniml.web.app.subprocess.Popen") as popen,
+                mock.patch("maniml.web.app.webbrowser.open") as fallback,
+            ):
+                self.assertTrue(open_hosted_url(url))
+            args, kwargs = popen.call_args
+            self.assertEqual(
+                args[0],
+                [
+                    "/usr/bin/open",
+                    "-a",
+                    str(pwa),
+                    url,
+                ],
+            )
+            self.assertNotIn("shell", kwargs)
+            fallback.assert_not_called()
+
+    def test_same_named_bundle_with_wrong_origin_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pwa = Path(directory) / "ManimLive.app"
+            self._write_pwa_info(pwa, "https://example.test/")
+            self.assertFalse(_is_maniml_chrome_pwa(pwa))
+
+    def test_macos_skips_unverified_pwa_and_uses_system_chrome(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pwa = Path(directory) / "ManimLive.app"
+            pwa.mkdir()
+            chrome = Path("/Applications/Google Chrome.app")
+            url = "https://maniml.tayweid.io/viewer.html"
+            with (
+                mock.patch("maniml.web.app.sys.platform", "darwin"),
+                mock.patch(
+                    "maniml.web.app._macos_maniml_pwa_candidates",
+                    return_value=(pwa,),
+                ),
+                mock.patch("maniml.web.app._macos_chrome_app", return_value=chrome),
+                mock.patch("maniml.web.app.subprocess.Popen") as popen,
+            ):
+                self.assertTrue(open_hosted_url(url))
+            self.assertEqual(
+                popen.call_args.args[0],
+                ["/usr/bin/open", "-a", str(chrome), url],
+            )
+
+    def test_non_macos_uses_default_browser(self):
+        with (
+            mock.patch("maniml.web.app.sys.platform", "linux"),
+            mock.patch("maniml.web.app.webbrowser.open", return_value=True) as open_,
+        ):
+            self.assertTrue(open_hosted_url("https://maniml.test/session"))
+        open_.assert_called_once_with("https://maniml.test/session")
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS launcher")

@@ -75,6 +75,11 @@ invokes the installed desktop bridge when the engine is not running, then uses
 a native file picker. A file selected outside the current project grants
 access to that file only.
 
+Hosted sessions open in the installed ManimLive Chrome app when it is present,
+then in Google Chrome. This avoids transient default-browser windows that do
+not share the same site-permission context. Install the PWA from Chrome to get
+the standalone app window.
+
 The existing command remains available as a development and recovery path:
 
 ```bash

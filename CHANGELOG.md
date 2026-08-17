@@ -14,6 +14,9 @@ interfaces may still change before the first public release.
   native file picker that grants only the selected file outside the app root.
 - Switched locally launched hosted sessions to `maniml.tayweid.io` and added
   dynamic control ports for concurrent desktop-open sessions.
+- Open hosted desktop sessions in the installed ManimLive PWA or Chrome instead
+  of an arbitrary default browser, avoiding isolated transient-window
+  permission contexts.
 
 ### Security
 
