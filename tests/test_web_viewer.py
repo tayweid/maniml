@@ -130,6 +130,7 @@ class WebViewerE2E(unittest.TestCase):
         response = json.loads(ws.recv(timeout=5))
         self.assertEqual(response["type"], "authenticated")
         self.assertEqual(response["protocol"], WEB_PROTOCOL_VERSION)
+        self.assertEqual(set(response["capabilities"]), {"export", "restart"})
         return ws
 
     def test_full_loop(self):
@@ -146,6 +147,7 @@ class WebViewerE2E(unittest.TestCase):
             self.assertTrue(states, "no state message after connect")
             start_state = states[-1]
             self.assertGreaterEqual(start_state["count"], 2)
+            self.assertEqual(start_state["file"], "web_scene.py")
 
             # RIGHT arrow: the next unit runs and streams JPEG frames
             ws.send(json.dumps(

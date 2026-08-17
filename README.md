@@ -98,6 +98,12 @@ In the preview window:
   timeline at the bottom edge of the window
 - `--render` — headless: writes an MP4 plus a PNG per checkpoint
 
+The browser viewer exposes the same reverse/forward behavior in its top
+transport slug and shows the whole scene as a clickable pausepoint timeline
+along the bottom. Its export menu can save the current frame, render the scene
+to video, or bake the self-contained web player; video and web exports run in
+a separate process so the live preview does not lose its current state.
+
 ## How it works
 
 The scene file is parsed into **animation units** (runs of statements

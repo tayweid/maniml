@@ -68,7 +68,11 @@ def _find_port_pair(start: int) -> int:
 class WebServer:
     """Owns both servers; exposes a thread-safe queue in each direction."""
 
-    def __init__(self, http_port: int | None = None):
+    def __init__(
+        self,
+        http_port: int | None = None,
+        capabilities: tuple[str, ...] = (),
+    ):
         self.http_port = _find_port_pair(http_port or DEFAULT_HTTP_PORT)
         self.ws_port = self.http_port + 1
         self.token = new_capability_token()
@@ -81,6 +85,7 @@ class WebServer:
         parent_origin = os.environ.get("MANIML_APP_ORIGIN")
         if parent_origin:
             self.allowed_origins.add(parent_origin)
+        self.capabilities = list(capabilities)
 
         self._events: deque[dict] = deque()
         self._clients: set = set()
@@ -130,6 +135,7 @@ class WebServer:
             await ws.send(json.dumps({
                 "type": "authenticated",
                 "protocol": WEB_PROTOCOL_VERSION,
+                "capabilities": self.capabilities,
             }))
             async for message in ws:
                 event = parse_json_object(message)

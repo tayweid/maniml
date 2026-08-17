@@ -23,8 +23,13 @@ frame ([0,1], y-up), so no window-size bookkeeping is needed.
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
+import threading
 import time
 import webbrowser
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -69,7 +74,7 @@ class WebViewer:
 
     def __init__(self, open_browser: bool = True):
         self.scene: Optional[Scene] = None
-        self.server = WebServer()
+        self.server = WebServer(capabilities=("export", "restart"))
         self.pressed_keys: set[int] = set()
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
@@ -81,6 +86,8 @@ class WebViewer:
         self._last_state = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
         self._pixel_mode = True  # off in solo-GL: geometry is the only stream
+        self._export_lock = threading.Lock()
+        self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
         self._geometry_cache = GeometryCache()  # delta-encoding state
         log.info(f"maniml web viewer: {self.server.url}")
@@ -250,6 +257,20 @@ class WebViewer:
         elif kind == "chip_future":
             self._advance_to_unit(int(event.get("unit", 0)))
 
+        elif kind == "restart":
+            if not getattr(scene, "_processing_key", False):
+                scene._processing_key = True
+                try:
+                    scene._restart_from_source()
+                finally:
+                    scene._processing_key = False
+
+        elif kind == "export":
+            export_format = event.get("format")
+            if export_format in {"video", "web"}:
+                self._start_export(export_format)
+            self._dirty = False
+
         elif kind == "geometry_request":
             # One-shot snapshot (sent on toggle-on, before any frame flows)
             from maniml.web.geometry import serialize_scene
@@ -303,6 +324,90 @@ class WebViewer:
         finally:
             scene._processing_key = False
 
+    def _start_export(self, export_format: str) -> None:
+        """Render a copy of the current scene in a separate process.
+
+        The browser chooses only a fixed export format.  The source path and
+        scene name always come from the already-running scene, and ``shell``
+        is deliberately not involved.  Keeping export out of the live scene
+        preserves its checkpoints and interaction state.
+        """
+        scene = self.scene
+        raw_source = getattr(scene, "_scene_filepath", None)
+        source = Path(raw_source) if raw_source else Path()
+        scene_name = type(scene).__name__ if scene is not None else ""
+        if not source.is_file() or not scene_name.isidentifier():
+            self.server.broadcast_json(
+                {
+                    "type": "export_status",
+                    "format": export_format,
+                    "status": "failed",
+                }
+            )
+            return
+
+        with self._export_lock:
+            if self._export_process is not None and self._export_process.poll() is None:
+                self.server.broadcast_json(
+                    {
+                        "type": "export_status",
+                        "format": export_format,
+                        "status": "busy",
+                    }
+                )
+                return
+            mode = "--render" if export_format == "video" else "--export"
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-m", "maniml", str(source), scene_name, mode],
+                    cwd=str(source.parent),
+                    env=os.environ.copy(),
+                )
+            except OSError:
+                self.server.broadcast_json(
+                    {
+                        "type": "export_status",
+                        "format": export_format,
+                        "status": "failed",
+                    }
+                )
+                return
+            self._export_process = process
+
+        self.server.broadcast_json(
+            {
+                "type": "export_status",
+                "format": export_format,
+                "status": "running",
+            }
+        )
+        threading.Thread(
+            target=self._finish_export,
+            args=(process, export_format),
+            name=f"maniml-{export_format}-export",
+            daemon=True,
+        ).start()
+
+    def _finish_export(
+        self,
+        process: subprocess.Popen,
+        export_format: str,
+    ) -> None:
+        returncode = process.wait()
+        with self._export_lock:
+            if self._export_process is process:
+                self._export_process = None
+        status = "complete" if returncode == 0 else "failed"
+        self.server.broadcast_json(
+            {
+                "type": "export_status",
+                "format": export_format,
+                "status": status,
+            }
+        )
+        if returncode:
+            log.error(f"maniml {export_format} export exited with {returncode}")
+
     # -- Mapping helpers --
 
     @staticmethod
@@ -353,9 +458,11 @@ class WebViewer:
     def _current_state(self) -> dict:
         scene = self.scene
         checkpoints = scene.animation_checkpoints
+        raw_source = getattr(scene, "_scene_filepath", None)
         return {
             "type": "state",
             "scene": type(scene).__name__,
+            "file": Path(raw_source).name if raw_source else "scene.py",
             "current": scene.current_animation_index,
             "count": len(checkpoints),
             "lines": [c.get("line_number") for c in checkpoints],

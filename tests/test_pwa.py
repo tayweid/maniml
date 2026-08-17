@@ -54,6 +54,15 @@ class PWAAssetsTests(unittest.TestCase):
         self.assertIn("engine update required", viewer)
         self.assertIn('id="open-file"', viewer)
         self.assertIn('window.location.href = "maniml://open"', viewer)
+        self.assertIn('id="file-menu"', viewer)
+        self.assertIn('id="previous"', viewer)
+        self.assertIn('id="next"', viewer)
+        self.assertIn('id="export-video"', viewer)
+        self.assertIn('id="export-web"', viewer)
+        self.assertIn('id="export-frame"', viewer)
+        self.assertIn('aria-label="Scene pausepoints"', viewer)
+        self.assertIn('{ type: "export", format: "video" }', viewer)
+        self.assertIn("applyCapabilities(data.capabilities || [])", viewer)
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()

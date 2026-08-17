@@ -205,11 +205,16 @@ no import) plus recents (~/.maniml_recents.json); opening a scene
 spawns `maniml file.py Scene --web` as its own subprocess (crash
 isolation; process reused for repeat opens; children terminated on app
 exit; stdout tail kept per process — the future console panel's feed).
-The viewer got a redesign: three-way renderer control (Pixel / WebGL2 /
-WebGPU) + split toggle replacing the cycling buttons, scene name in
-the bar/title, unified dark palette shared with the landing page.
-Later: console panel in the viewer (stdout is already captured),
-stop/restart controls on the landing page, multi-scene tabs.
+The viewer and landing shell were redesigned again on 2026-08-16 in the
+shared Plass/Knuth visual language: warm graphite canvas, quiet floating
+glass slugs, file-action and renderer flyovers, explicit reverse/forward
+transport, and a separate DOM pausepoint rail at the bottom. The export
+flyover saves the current frame or starts an isolated, one-at-a-time video
+render / baked-web export, leaving the live scene and its checkpoints intact.
+The three-way renderer control (Pixel / WebGL2 / WebGPU) and comparison mode
+remain available in a compact flyover. Later: console panel in the viewer
+(stdout is already captured), process controls on the landing page, and
+multi-scene tabs.
 
 Security baseline (2026-08-16): the app control socket and each viewer
 socket now require independent process-local capability tokens plus exact
