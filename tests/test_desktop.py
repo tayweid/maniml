@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from maniml.desktop import install_desktop_launcher
+from maniml.desktop import _register_desktop_launcher, install_desktop_launcher
 from maniml.web.app import AppServer, _is_maniml_chrome_pwa, open_hosted_url
 
 SCENE_SOURCE = """\
@@ -74,6 +74,47 @@ class FilePickerTests(unittest.TestCase):
         with mock.patch("maniml.web.app.choose_python_file", return_value=None):
             self.assertEqual(server.choose_payload(), {"cancelled": True})
         self.assertEqual(server._granted_files, set())
+
+
+class LaunchServicesTests(unittest.TestCase):
+    @mock.patch("maniml.desktop.time.sleep")
+    @mock.patch("maniml.desktop.subprocess.run")
+    def test_registration_retries_the_permanent_path(self, run, sleep):
+        registrar = mock.MagicMock()
+        registrar.is_file.return_value = True
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="busy"),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ]
+
+        _register_desktop_launcher(
+            Path("/Applications/ManimLive.app"),
+            registrar=registrar,
+        )
+
+        self.assertEqual(run.call_args_list[0].args[0][1], "-u")
+        self.assertEqual(run.call_args_list[1].args[0][1:3], ["-lint", "-f"])
+        self.assertEqual(run.call_args_list[2].args[0][1:3], ["-lint", "-f"])
+        sleep.assert_called_once_with(0.2)
+
+    @mock.patch("maniml.desktop.time.sleep")
+    @mock.patch("maniml.desktop.subprocess.run")
+    def test_registration_failure_is_reported(self, run, _sleep):
+        registrar = mock.MagicMock()
+        registrar.is_file.return_value = True
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="still busy"),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="still busy"),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="still busy"),
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "still busy"):
+            _register_desktop_launcher(
+                Path("/Applications/ManimLive.app"),
+                registrar=registrar,
+            )
 
 
 class HostedBrowserLaunchTests(unittest.TestCase):

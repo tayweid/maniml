@@ -20,10 +20,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 APP_NAME = "ManimLive"
 BUNDLE_IDENTIFIER = "io.tayweid.maniml"
+LAUNCH_SERVICES_REGISTRAR = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+    "LaunchServices.framework/Support/lsregister"
+)
+LAUNCH_SERVICES_ATTEMPTS = 3
 
 
 def _applescript_string(value: str) -> str:
@@ -72,6 +78,40 @@ end open location
 """
 
 
+def _register_desktop_launcher(
+    application: Path,
+    *,
+    registrar: Path = LAUNCH_SERVICES_REGISTRAR,
+    attempts: int = LAUNCH_SERVICES_ATTEMPTS,
+) -> None:
+    """Replace any stale registration with this permanent app path."""
+    if not registrar.is_file():
+        raise RuntimeError("macOS Launch Services registrar was not found")
+
+    subprocess.run(
+        [str(registrar), "-u", str(application)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    last_detail = "Launch Services rejected the application"
+    for attempt in range(attempts):
+        result = subprocess.run(
+            [str(registrar), "-lint", "-f", str(application)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+        last_detail = (
+            result.stderr.strip() or result.stdout.strip() or last_detail
+        )
+        if attempt + 1 < attempts:
+            time.sleep(0.2)
+    raise RuntimeError(f"could not register desktop launcher: {last_detail}")
+
+
 def install_desktop_launcher(
     destination: str | os.PathLike[str] | None = None,
     *,
@@ -111,6 +151,7 @@ def install_desktop_launcher(
     source = _launcher_source(
         python, log_dir / "launcher.log", os.environ.get("PATH", "")
     )
+    registrar = LAUNCH_SERVICES_REGISTRAR
 
     # Compile beside the destination and move into place only after a complete
     # bundle exists, so an interrupted update cannot destroy a working app.
@@ -189,6 +230,17 @@ def install_desktop_launcher(
             detail = (signed.stderr or signed.stdout).strip()
             raise RuntimeError(f"could not sign desktop launcher: {detail}")
 
+        # osacompile can make Launch Services notice this staging path. Remove
+        # that record before moving the finished bundle so it cannot compete
+        # with the permanent application for maniml:// URLs.
+        if registrar.is_file():
+            subprocess.run(
+                [str(registrar), "-u", str(bundle_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
         if destination_path.exists():
             backup = temporary_path / "previous.app"
             destination_path.replace(backup)
@@ -200,19 +252,10 @@ def install_desktop_launcher(
         else:
             bundle_path.replace(destination_path)
 
-    # Refresh Launch Services so Finder offers ManimLive immediately.  Failure
-    # is non-fatal; macOS will discover the bundle on its next normal scan.
-    registrar = Path(
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
-        "LaunchServices.framework/Support/lsregister"
-    )
-    if register and registrar.is_file():
-        subprocess.run(
-            [str(registrar), "-f", str(destination_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+    # Finder and the PWA both depend on this registration. Do not claim the
+    # installation succeeded when the OS rejected it.
+    if register:
+        _register_desktop_launcher(destination_path, registrar=registrar)
     return destination_path
 
 
