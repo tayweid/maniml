@@ -391,35 +391,39 @@ function hideConnectionIssue() {
 
 // Custom-scheme navigation fails silently when no application claims the
 // scheme, so an uninstalled desktop app made Open look like a dead control.
-// Losing visibility means a handler took over; still being visible after the
-// timeout means the link went nowhere.
-const BRIDGE_TIMEOUT = 2500;
+// Focus, not visibility, is the signal: another application taking the front
+// leaves this page "visible" and only removes its focus. The timeout must
+// also outlast the launcher's cold start.
+const BRIDGE_TIMEOUT = 6000;
 let bridgeTimer = null;
 
-function requestDesktopBridge() {
+function cancelBridgeWatchdog() {
   clearTimeout(bridgeTimer);
-  window.location.href = "maniml://open";
+  bridgeTimer = null;
+}
+
+function requestDesktopBridge() {
+  cancelBridgeWatchdog();
   bridgeTimer = setTimeout(() => {
     bridgeTimer = null;
-    if (document.visibilityState === "hidden") return;
+    if (!document.hasFocus()) return;
     // Deliberately not showConnectionIssue: this scene's own connection is
     // unaffected, so it must not be marked disconnected. Dismissable, because
     // the viewer behind it is still fully usable.
     showOverlay(
-      "Local app not installed",
-      "macOS has no handler for maniml:// links, so no file dialog opened. "
-        + "Install the ManimLive local app from the ManimLive start page, "
-        + "then try Open again.",
+      "Nothing opened",
+      "No application answered the maniml:// link, so no file dialog "
+        + "appeared. Install the ManimLive local app from the ManimLive start "
+        + "page, then try Open again.",
       { canDismiss: true }
     );
   }, BRIDGE_TIMEOUT);
+  window.location.href = "maniml://open";
 }
 
+window.addEventListener("blur", cancelBridgeWatchdog);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    clearTimeout(bridgeTimer);
-    bridgeTimer = null;
-  }
+  if (document.visibilityState === "hidden") cancelBridgeWatchdog();
 });
 
 function primeLoopbackPermission() {

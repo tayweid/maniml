@@ -481,7 +481,15 @@ async function refresh() {
 // browser fires no error and the page simply stays put. Without this
 // watchdog the Open button is indistinguishable from a broken button, which
 // is exactly how an engine that was never installed used to present itself.
-const BRIDGE_TIMEOUT = 2500;
+//
+// The signal is FOCUS, not visibility. A page is only "hidden" once it is
+// backgrounded, minimised or occluded; another application coming to the
+// front — Chrome's confirmation sheet, then the launcher's file dialog —
+// leaves visibilityState at "visible" and merely takes focus away. Watching
+// visibility therefore reported a working bridge as missing. The timeout
+// also has to outlast the launcher's cold start, which is seconds, not
+// milliseconds, on first use.
+const BRIDGE_TIMEOUT = 6000;
 let bridgeTimer = null;
 
 function cancelBridgeWatchdog() {
@@ -489,15 +497,15 @@ function cancelBridgeWatchdog() {
   bridgeTimer = null;
 }
 
-function reportMissingBridge() {
+function reportSilentBridge() {
   bridgeTimer = null;
   if (document.body.dataset.connection === "connected") return;
   setConnectionState(
     "bridge-missing",
-    "Local app not installed",
-    "macOS has no handler for maniml:// links yet, so nothing opened. "
-      + "Finish step 2 below — run the install command in a terminal — then "
-      + "click Open… again."
+    "Nothing opened",
+    "No application answered the maniml:// link, so no file dialog appeared. "
+      + "If the local app is not installed yet, finish step 2 below and click "
+      + "Open… again."
   );
   document.getElementById("onboarding")
     .scrollIntoView({ behavior: "smooth", block: "start" });
@@ -508,22 +516,19 @@ function requestDesktopBridge() {
   setConnectionState(
     "connecting",
     "Opening desktop bridge…",
-    "Choose a scene in the native dialog. If no dialog appears, the local app "
-      + "is not installed yet."
+    "Choose a scene in the native dialog."
   );
-  // A handler that exists takes focus (Chrome's confirmation sheet, then the
-  // launcher), so losing visibility is the success signal; still being front
-  // and centre after the timeout means nothing claimed the link.
   window.location.href = "maniml://open";
   bridgeTimer = setTimeout(() => {
-    if (document.visibilityState === "hidden") {
-      cancelBridgeWatchdog();
-      return;
-    }
-    reportMissingBridge();
+    bridgeTimer = null;
+    // Anything else in front means a handler claimed the link.
+    if (!document.hasFocus()) return;
+    reportSilentBridge();
   }, BRIDGE_TIMEOUT);
 }
 
+// Losing focus or visibility before the deadline settles it immediately.
+window.addEventListener("blur", cancelBridgeWatchdog);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") cancelBridgeWatchdog();
 });

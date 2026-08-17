@@ -51,13 +51,26 @@ class PWAAssetsTests(unittest.TestCase):
         """A maniml:// navigation with no handler is silent, so the page must
         detect the dead click itself rather than sit on 'connecting'."""
         page = (STATIC / "app.html").read_text()
-        self.assertIn("const BRIDGE_TIMEOUT = 2500;", page)
+        self.assertIn("const BRIDGE_TIMEOUT = 6000;", page)
         self.assertIn("function requestDesktopBridge()", page)
-        self.assertIn("function reportMissingBridge()", page)
+        self.assertIn("function reportSilentBridge()", page)
         self.assertIn('setConnectionState(\n    "bridge-missing"', page)
         self.assertIn('body[data-connection="bridge-missing"] #status-dot', page)
-        self.assertIn('document.visibilityState === "hidden"', page)
         self.assertIn("cancelBridgeWatchdog()", page)
+
+    def test_bridge_watchdog_keys_on_focus_not_visibility(self):
+        """A launcher coming to the front takes focus but leaves the page
+        visible, so a visibility test reported a working bridge as missing."""
+        for name in ("app.html", "viewer.html"):
+            page = (STATIC / name).read_text()
+            watchdog = page.split("function requestDesktopBridge()", 1)[1].split(
+                "\n}\n", 1
+            )[0]
+            self.assertIn("!document.hasFocus()", watchdog, name)
+            self.assertNotIn("visibilityState", watchdog, name)
+            self.assertIn(
+                'window.addEventListener("blur", cancelBridgeWatchdog);', page, name
+            )
 
     def test_connection_message_is_visible_whenever_it_has_text(self):
         """The detail passed to setConnectionState used to be display:none for
@@ -84,12 +97,12 @@ class PWAAssetsTests(unittest.TestCase):
     def test_viewer_open_button_reports_a_missing_desktop_bridge(self):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn("function requestDesktopBridge()", viewer)
-        self.assertIn("const BRIDGE_TIMEOUT = 2500;", viewer)
+        self.assertIn("const BRIDGE_TIMEOUT = 6000;", viewer)
         self.assertIn('id="dismiss-overlay"', viewer)
         # A missing launcher says nothing about this scene's own socket, so
         # it must not flip the viewer into its disconnected presentation.
         bridge = viewer.split("function requestDesktopBridge()", 1)[1].split(
-            "document.addEventListener", 1
+            "window.addEventListener", 1
         )[0]
         self.assertIn("showOverlay(", bridge)
         self.assertNotIn("showConnectionIssue(", bridge)
