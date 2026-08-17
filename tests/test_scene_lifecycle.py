@@ -9,6 +9,24 @@ from maniml.web.export import record_scene
 
 
 class SceneRunLifecycleTests(unittest.TestCase):
+    @patch("maniml.scene.scene.time.sleep")
+    def test_web_interaction_pauses_without_clients(self, sleep):
+        scene = Scene.__new__(Scene)
+        scene.window = object()
+        scene.camera = SimpleNamespace(fps=30)
+        scene.auto_reload_enabled = False
+        scene._file_changed_flag = False
+        scene.skip_animations = True
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.has_clients.return_value = False
+        scene.is_window_closing = MagicMock(side_effect=[False, True])
+        scene.update_frame = MagicMock()
+
+        scene.interact()
+
+        scene.update_frame.assert_not_called()
+        sleep.assert_called_once_with(1 / 30)
+
     def test_setup_error_aborts_output_and_preserves_original_error(self):
         scene = Scene.__new__(Scene)
         scene.file_writer = MagicMock()

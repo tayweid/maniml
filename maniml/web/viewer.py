@@ -70,11 +70,11 @@ PNG_AFTER_QUIET = 0.4  # seconds of quiet before the crisp idle frame
 
 class WebViewer:
     is_web_viewer = True
-    is_closing = False
 
     def __init__(self, open_browser: bool = True):
         self.scene: Optional[Scene] = None
         self.server = WebServer(capabilities=("export", "restart"))
+        self._transient_session = os.environ.get("MANIML_TRANSIENT_VIEWER") == "1"
         self.pressed_keys: set[int] = set()
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
@@ -105,6 +105,13 @@ class WebViewer:
 
     def destroy(self):
         self.server.stop()
+
+    @property
+    def is_closing(self) -> bool:
+        return self._transient_session and self.server.client_lease_expired()
+
+    def has_clients(self) -> bool:
+        return self.server.has_clients()
 
     def has_undrawn_event(self) -> bool:
         return self._has_undrawn_event

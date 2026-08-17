@@ -283,8 +283,17 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             if self._file_changed_flag:
                 self._file_changed_flag = False
                 self._handle_file_change()
-            
-            self.update_frame(1 / self.camera.fps)
+
+            frame_interval = 1 / self.camera.fps
+            if self._web_viewer is not None:
+                if not self._web_viewer.has_clients():
+                    # A detached browser needs neither GL capture nor a busy
+                    # event loop.  The viewer lease still gets checked by the
+                    # while condition on every pass.
+                    time.sleep(min(frame_interval, 0.1))
+                    continue
+
+            self.update_frame(frame_interval)
 
     def embed(self, *args, **kwargs) -> None:
         """ManimGL's IPython embed mode was removed from maniml.

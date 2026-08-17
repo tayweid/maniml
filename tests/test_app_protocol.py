@@ -13,9 +13,57 @@ from unittest.mock import MagicMock, call, patch
 
 import maniml.utils.processes as process_utils
 from maniml.web.app import AppServer, SceneProcess, parse_viewer_launch_line, run_app
+from maniml.web.server import ClientLease
+from maniml.web.viewer import WebViewer
 
 TOKEN = "NEoPxsQMRSQbR0OjdaE2QBzm6cKFpSNNOV_aYF8KiHU"
 URL = f"http://localhost:8689/#token={TOKEN}"
+
+
+class ClientLeaseTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 100.0
+        self.lease = ClientLease(
+            startup_timeout=10,
+            disconnect_grace=3,
+            clock=lambda: self.now,
+        )
+
+    def test_unattended_startup_expires(self):
+        self.now += 9.9
+        self.assertFalse(self.lease.expired())
+        self.now += 0.1
+        self.assertTrue(self.lease.expired())
+
+    def test_connected_client_prevents_expiry(self):
+        self.lease.connected()
+        self.now += 100
+        self.assertTrue(self.lease.has_clients())
+        self.assertFalse(self.lease.expired())
+
+    def test_disconnect_uses_grace_and_reconnect_resets_it(self):
+        self.lease.connected()
+        self.lease.disconnected()
+        self.now += 2.9
+        self.assertFalse(self.lease.expired())
+
+        self.lease.connected()
+        self.lease.disconnected()
+        self.now += 2.9
+        self.assertFalse(self.lease.expired())
+        self.now += 0.1
+        self.assertTrue(self.lease.expired())
+
+    def test_all_clients_must_disconnect(self):
+        self.lease.connected()
+        self.lease.connected()
+        self.lease.disconnected()
+        self.now += 100
+        self.assertTrue(self.lease.has_clients())
+        self.assertFalse(self.lease.expired())
+        self.lease.disconnected()
+        self.now += 3
+        self.assertTrue(self.lease.expired())
 
 
 class ViewerLaunchProtocolTests(unittest.TestCase):
@@ -45,6 +93,26 @@ class ViewerLaunchProtocolTests(unittest.TestCase):
 
 
 class SceneProcessLifecycleTests(unittest.TestCase):
+    @patch("maniml.web.app.SceneProcess")
+    def test_transient_app_marks_its_scene_process(self, scene_process):
+        process = scene_process.return_value
+        process.wait_for_url.return_value = URL
+        server = AppServer.__new__(AppServer)
+        server._lock = threading.Lock()
+        server._shutdown_complete = False
+        server.processes = {}
+        server.origin = "http://localhost:8685"
+        server.transient = True
+
+        self.assertEqual(server.open_scene("/tmp/scene.py", "Demo"), URL)
+
+        scene_process.assert_called_once_with(
+            "/tmp/scene.py",
+            "Demo",
+            "http://localhost:8685",
+            transient=True,
+        )
+
     def test_process_group_options_are_cross_platform(self):
         self.assertEqual(
             process_utils.process_group_popen_kwargs("posix"),
@@ -278,10 +346,57 @@ while True:
 
 
 class AppShutdownTests(unittest.TestCase):
+    @staticmethod
+    def monitor_server(processes, session_lease=None):
+        server = AppServer.__new__(AppServer)
+        server._lock = threading.Lock()
+        server.processes = processes
+        server._session_lease = session_lease or ClientLease()
+        server._serving = threading.Event()
+        server._serving.set()
+        server._shutdown_event = threading.Event()
+        server.httpd = MagicMock()
+        return server
+
+    def test_transient_monitor_exits_after_scene_finishes(self):
+        process = MagicMock()
+        process.alive.return_value = False
+        server = self.monitor_server({("scene.py", "Demo"): process})
+
+        thread = server.start_exit_when_idle(True, poll_interval=0.001)
+        thread.join(timeout=1)
+
+        self.assertFalse(thread.is_alive())
+        server.httpd.shutdown.assert_called_once_with()
+
+    def test_transient_monitor_exits_if_app_never_connects(self):
+        server = self.monitor_server(
+            {}, ClientLease(startup_timeout=0, disconnect_grace=0)
+        )
+
+        thread = server.start_exit_when_idle(False, poll_interval=0.001)
+        thread.join(timeout=1)
+
+        self.assertFalse(thread.is_alive())
+        server.httpd.shutdown.assert_called_once_with()
+
+    def test_transient_monitor_keeps_live_scene(self):
+        process = MagicMock()
+        process.alive.return_value = True
+        server = self.monitor_server({("scene.py", "Demo"): process})
+
+        thread = server.start_exit_when_idle(True, poll_interval=0.001)
+        time.sleep(0.01)
+        server._shutdown_event.set()
+        thread.join(timeout=1)
+
+        server.httpd.shutdown.assert_not_called()
+
     def test_shutdown_is_idempotent(self):
         server = AppServer.__new__(AppServer)
         server._shutdown_lock = threading.Lock()
         server._shutdown_complete = False
+        server._shutdown_event = threading.Event()
         server._lock = threading.Lock()
         process = MagicMock()
         server.processes = {("scene.py", "Demo"): process}
@@ -310,6 +425,18 @@ class AppShutdownTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
         server.shutdown.assert_called_once_with()
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous_handler)
+
+
+class WebViewerLeaseTests(unittest.TestCase):
+    def test_only_transient_viewers_close_when_the_lease_expires(self):
+        viewer = WebViewer.__new__(WebViewer)
+        viewer.server = MagicMock()
+        viewer.server.client_lease_expired.return_value = True
+
+        viewer._transient_session = False
+        self.assertFalse(viewer.is_closing)
+        viewer._transient_session = True
+        self.assertTrue(viewer.is_closing)
 
 
 if __name__ == "__main__":

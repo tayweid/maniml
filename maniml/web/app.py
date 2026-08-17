@@ -51,6 +51,7 @@ from maniml.web.security import (
     resolve_authorized_file,
     token_matches,
 )
+from maniml.web.server import ClientLease
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 RECENTS_PATH = os.environ.get(
@@ -291,21 +292,30 @@ def remember_recent(path: str) -> None:
 class SceneProcess:
     """One running `maniml <file> <Scene> --web` subprocess."""
 
-    def __init__(self, path: str, scene: str | None, app_origin: str):
+    def __init__(
+        self,
+        path: str,
+        scene: str | None,
+        app_origin: str,
+        transient: bool = False,
+    ):
         self.path = path
         self.scene = scene
         command = [sys.executable, "-m", "maniml", path]
         if scene:
             command.append(scene)
         command += ["--web", "--no-browser"]
+        child_env = {
+            **os.environ,
+            "PYTHONUNBUFFERED": "1",
+            "MANIML_APP_ORIGIN": app_origin,
+        }
+        if transient:
+            child_env["MANIML_TRANSIENT_VIEWER"] = "1"
         self.proc = subprocess.Popen(
             command,
             cwd=os.path.dirname(path) or None,
-            env={
-                **os.environ,
-                "PYTHONUNBUFFERED": "1",
-                "MANIML_APP_ORIGIN": app_origin,
-            },
+            env=child_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -365,18 +375,23 @@ class AppServer:
         port: int | None = None,
         allow_outside_root: bool = False,
         control_port: int = CONTROL_WS_PORT,
+        transient: bool = False,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
         if not self._root_path.is_dir():
             raise ValueError(f"app root is not a directory: {self.root}")
         self.allow_outside_root = allow_outside_root
+        self.transient = transient
         self.token = new_capability_token()
         self.processes: dict[tuple, SceneProcess] = {}
         self._granted_files: set[str] = set()
         self._lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
+        self._shutdown_event = threading.Event()
+        self._serving = threading.Event()
+        self._session_lease = ClientLease()
         atexit.register(self.shutdown)
 
         app = self
@@ -496,7 +511,9 @@ class AppServer:
                 process.stop()
                 process = None
             if process is None:
-                process = SceneProcess(path, scene, self.origin)
+                process = SceneProcess(
+                    path, scene, self.origin, transient=self.transient
+                )
                 self.processes[key] = process
         url = process.wait_for_url()
         if url:
@@ -623,9 +640,11 @@ class AppServer:
         collide.
         """
         import asyncio
+
         import websockets.asyncio.server as ws_server
 
         async def handler(ws):
+            registered = False
             try:
                 first = await asyncio.wait_for(ws.recv(), timeout=AUTH_TIMEOUT)
             except Exception:
@@ -633,29 +652,35 @@ class AppServer:
             if not is_auth_message(first, self.token):
                 await ws.close(code=1008, reason="authentication required")
                 return
-            await ws.send(
-                json.dumps(
-                    {
-                        "type": "authenticated",
-                        "protocol": WEB_PROTOCOL_VERSION,
-                    }
+            self._session_lease.connected()
+            registered = True
+            try:
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "authenticated",
+                            "protocol": WEB_PROTOCOL_VERSION,
+                        }
+                    )
                 )
-            )
-            async for message in ws:
-                request = parse_json_object(message)
-                if request is None:
-                    continue
-                op = request.get("op")
-                if op == "files":
-                    response = self.files_payload()
-                elif op == "choose":
-                    response = await asyncio.to_thread(self.choose_payload)
-                elif op == "open":
-                    response = await asyncio.to_thread(self.open_payload, request)
-                else:
-                    response = {"error": f"unknown op {op}"}
-                response["id"] = request.get("id")
-                await ws.send(json.dumps(response))
+                async for message in ws:
+                    request = parse_json_object(message)
+                    if request is None:
+                        continue
+                    op = request.get("op")
+                    if op == "files":
+                        response = self.files_payload()
+                    elif op == "choose":
+                        response = await asyncio.to_thread(self.choose_payload)
+                    elif op == "open":
+                        response = await asyncio.to_thread(self.open_payload, request)
+                    else:
+                        response = {"error": f"unknown op {op}"}
+                    response["id"] = request.get("id")
+                    await ws.send(json.dumps(response))
+            finally:
+                if registered:
+                    self._session_lease.disconnected()
 
         async def main():
             async with ws_server.serve(
@@ -686,13 +711,42 @@ class AppServer:
         self._control_ready.wait(timeout=5)
 
     def serve_forever(self):
+        self._serving.set()
         self.httpd.serve_forever()
+
+    def start_exit_when_idle(
+        self,
+        exit_when_children_finish: bool,
+        poll_interval: float = 0.2,
+    ) -> threading.Thread:
+        """Stop a transient desktop-open server after its session ends."""
+
+        def monitor():
+            if not self._serving.wait(timeout=5):
+                return
+            while not self._shutdown_event.wait(poll_interval):
+                with self._lock:
+                    processes = list(self.processes.values())
+                if (
+                    exit_when_children_finish
+                    and processes
+                    and all(not process.alive() for process in processes)
+                ) or (not processes and self._session_lease.expired()):
+                    self.httpd.shutdown()
+                    return
+
+        thread = threading.Thread(
+            target=monitor, name="maniml-app-session", daemon=True
+        )
+        thread.start()
+        return thread
 
     def shutdown(self):
         with self._shutdown_lock:
             if self._shutdown_complete:
                 return
             self._shutdown_complete = True
+            self._shutdown_event.set()
             with self._lock:
                 processes = list(self.processes.values())
             for process in processes:
@@ -708,7 +762,10 @@ def run_app(
     control_port: int = CONTROL_WS_PORT,
 ) -> None:
     server = AppServer(
-        root, allow_outside_root=allow_outside_root, control_port=control_port
+        root,
+        allow_outside_root=allow_outside_root,
+        control_port=control_port,
+        transient=initial_file is not None,
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
@@ -732,6 +789,10 @@ def run_app(
             open_hosted_url(launch_url)
         else:
             webbrowser.open(launch_url)
+    if initial_file is not None:
+        server.start_exit_when_idle(
+            exit_when_children_finish=bool(opened.get("viewer_url"))
+        )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
