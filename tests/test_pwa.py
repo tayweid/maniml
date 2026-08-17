@@ -31,6 +31,7 @@ class PWAAssetsTests(unittest.TestCase):
         self.assertIn("navigator.clipboard.writeText", page)
         self.assertIn('data-copy="install-command"', page)
         self.assertIn("python -m pip install --upgrade", page)
+        self.assertIn("--force-reinstall --no-cache-dir", page)
         self.assertIn("python -m maniml install-desktop --replace", page)
         self.assertNotIn("&& maniml install-desktop", page)
         self.assertIn("clientPlatform", page)
@@ -74,8 +75,17 @@ class PWAAssetsTests(unittest.TestCase):
         )[0]
         self.assertNotIn("token: viewerToken", probe)
 
+    def test_live_viewer_uses_webgpu_first_with_visible_pixel_fallback(self):
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('const DEFAULT_RENDERER = "gpu";', viewer)
+        self.assertIn('let renderer = DEFAULT_RENDERER;', viewer)
+        self.assertIn('void selectRenderer(renderer, segment);', viewer)
+        self.assertIn('renderer = "pixel";', viewer)
+        self.assertIn('WebGPU unavailable; using Pixel:', viewer)
+
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()
+        self.assertIn('const CACHE_NAME = "maniml-app-shell-v3";', worker)
         self.assertIn("url.origin !== self.location.origin", worker)
         self.assertIn('event.request.method !== "GET"', worker)
         self.assertLess(

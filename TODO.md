@@ -147,10 +147,11 @@ native renderer, in priority order; checked = done):
   via a blit pass since the canvas swapchain format is
   platform-preferred. The client now has TWO backend buttons, GL
   (WebGL2) and WGPU, each cycling off → compare → solo, mutually
-  exclusive. webgpu.js is browser-unverified until dogfooding clicks
-  it (the Python wgpu renderer verifies the WGSL + pass structure).
-  Remaining: dogfood both backends → pick WebGPU as canonical → retire
-  gl.js/glsl, then the geometry-shader pipeline + pyglet.
+  exclusive. Browser dogfooding now covers the live ManimCE compatibility
+  path, reverse/forward pausepoint playback, and visible WebGPU output. The
+  live viewer starts on WebGPU and falls back visibly to Pixel when WebGPU is
+  unavailable. Remaining: broaden course-scene dogfooding, then retire
+  gl.js/glsl, followed by the geometry-shader pipeline and pyglet.
 
 **Stage 3b — the hosted PWA (2026-08-14, Knuth's architecture).**
 The frontend deploys to GitHub Pages on push (.github/workflows/

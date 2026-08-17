@@ -495,7 +495,15 @@ function connect(manualRetry = false) {
         hideConnectionIssue();
         applyCapabilities(data.capabilities || []);
         canvas.focus();
-        if (renderer !== "pixel") sendRendererMode();
+        // WebGPU is the live viewer's primary path.  Initialize it only after
+        // the engine is authenticated, then request the geometry snapshot.
+        // selectRenderer falls back visibly to Pixel on older browsers.
+        if (renderer !== "pixel") {
+          const segment = document.querySelector(
+            `#renderers .seg[data-renderer="${renderer}"]`
+          );
+          void selectRenderer(renderer, segment);
+        }
       } else {
         handleMessage(data);
       }
@@ -557,7 +565,8 @@ const backends = {
   gpu: { module: ManimlWGPU, canvas: document.getElementById("gpuview"),
          ready: false },
 };
-let renderer = "pixel";
+const DEFAULT_RENDERER = "gpu";
+let renderer = DEFAULT_RENDERER;
 let split = false;
 
 function applyRendererUI() {
@@ -598,17 +607,24 @@ async function selectRenderer(name, seg) {
         seg.classList.add("failed");
         seg.title = "unavailable: " + err.message;
       }
-      return;
+      renderer = "pixel";
+      applyRendererUI();
+      glWarn.textContent = "WebGPU unavailable; using Pixel: " + err.message;
+      glWarn.classList.add("on");
+      sendRendererMode();
+      return false;
     }
   }
   renderer = name;
   applyRendererUI();
   sendRendererMode();
+  return true;
 }
 
 for (const seg of document.querySelectorAll("#renderers .seg")) {
   seg.onclick = () => selectRenderer(seg.dataset.renderer, seg);
 }
+applyRendererUI();
 splitEl.onclick = () => {
   split = !split;
   applyRendererUI();
