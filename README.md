@@ -19,7 +19,7 @@ Linux support is intentionally deferred until the WebGPU renderer transition
 and cross-platform desktop packaging are complete.
 
 ```bash
-pip install git+https://github.com/tayweid/maniml.git
+python -m pip install --upgrade "maniml @ git+https://github.com/tayweid/maniml.git"
 ```
 
 Or install from source:
@@ -64,9 +64,13 @@ On macOS, install the local engine and Finder integration once from the Python
 environment that contains your scene dependencies:
 
 ```bash
-python -m pip install "git+https://github.com/tayweid/maniml.git"
-maniml install-desktop
+python -m pip install --upgrade "maniml @ git+https://github.com/tayweid/maniml.git"
+python -m maniml install-desktop --replace
 ```
+
+Using `python -m maniml` deliberately selects the same Python environment as
+the preceding install, even when another older `maniml` executable appears
+earlier on `PATH`.
 
 After setup, open **ManimLive** from Applications to choose a scene, or
 right-click a Python file and choose **Open With → ManimLive**. The app starts

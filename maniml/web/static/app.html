@@ -164,7 +164,7 @@
         <h3>Install the local engine and app</h3>
         <p>Once, in a terminal, activate the Python environment you use for Manim, then run:</p>
         <div class="command">
-          <code id="install-command">python -m pip install "git+https://github.com/tayweid/maniml.git" &amp;&amp; maniml install-desktop</code>
+          <code id="install-command">python -m pip install --upgrade "maniml @ git+https://github.com/tayweid/maniml.git" &amp;&amp; python -m maniml install-desktop --replace</code>
           <button class="copy" data-copy="install-command">Copy</button>
         </div>
         <p id="desktop-note" class="small" style="margin-top:10px">After this one-time macOS setup, open a scene from Finder or the app&mdash;no terminal needed.</p>
@@ -201,12 +201,12 @@
 // a hosted frontend is no longer wire-compatible with an installed engine.
 const WEB_PROTOCOL_VERSION = 2;
 const DEFAULT_CONTROL_PORT = 8686;
-const ENGINE_INSTALL_COMMAND = 'python -m pip install "git+https://github.com/tayweid/maniml.git"';
+const ENGINE_INSTALL_COMMAND = 'python -m pip install --upgrade "maniml @ git+https://github.com/tayweid/maniml.git"';
 const clientPlatform = navigator.userAgentData?.platform
   || navigator.platform || "";
 const isMacOS = /mac/i.test(clientPlatform);
 const INSTALL_COMMAND = isMacOS
-  ? ENGINE_INSTALL_COMMAND + " && maniml install-desktop"
+  ? ENGINE_INSTALL_COMMAND + " && python -m maniml install-desktop --replace"
   : ENGINE_INSTALL_COMMAND;
 
 const errorEl = document.getElementById("error");
