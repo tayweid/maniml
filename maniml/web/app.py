@@ -80,7 +80,14 @@ def _macos_maniml_pwa_candidates() -> tuple[Path, ...]:
 
 
 def _is_maniml_chrome_pwa(application: Path) -> bool:
-    """Verify that an app bundle is Chrome's shim for the hosted ManimLive PWA.
+    """Return whether this is Chrome's shim for the hosted ManimLive PWA."""
+    return _maniml_chrome_pwa_metadata(application) is not None
+
+
+def _maniml_chrome_pwa_metadata(
+    application: Path,
+) -> tuple[str, str | None] | None:
+    """Read the validated Chrome app ID and optional profile directory.
 
     Hosted viewer URLs contain a short-lived capability token.  Do not hand
     one to an arbitrary same-named bundle in a user-writable directory.
@@ -89,20 +96,65 @@ def _is_maniml_chrome_pwa(application: Path) -> bool:
         with (application / "Contents/Info.plist").open("rb") as file:
             info = plistlib.load(file)
     except (OSError, plistlib.InvalidFileException):
-        return False
+        return None
 
     shortcut_url = info.get("CrAppModeShortcutURL")
     if not isinstance(shortcut_url, str):
-        return False
+        return None
     shortcut = urlsplit(shortcut_url)
     hosted = urlsplit(HOSTED_APP_URL)
-    return (
-        application.is_dir()
+    app_id = info.get("CrAppModeShortcutID")
+    if not (
+        isinstance(app_id, str)
+        and re.fullmatch(r"[a-p]{32}", app_id)
+        and info.get("CFBundleIdentifier") == f"com.google.Chrome.app.{app_id}"
+        and application.is_dir()
         and info.get("CFBundleExecutable") == "app_mode_loader"
         and info.get("CrBundleIdentifier") == "com.google.Chrome"
         and info.get("CrAppModeShortcutName") == "ManimLive"
         and (shortcut.scheme, shortcut.netloc) == (hosted.scheme, hosted.netloc)
+    ):
+        return None
+
+    profile = info.get("CrAppModeProfileDir")
+    if profile is not None and not (
+        isinstance(profile, str)
+        and profile not in {"", ".", ".."}
+        and Path(profile).name == profile
+    ):
+        return None
+    return app_id, profile
+
+
+def _macos_chrome_executable(application: Path) -> Path | None:
+    executable = application / "Contents/MacOS/Google Chrome"
+    return executable if executable.is_file() else None
+
+
+def _macos_pwa_launch_command(
+    application: Path, chrome: Path, url: str
+) -> list[str] | None:
+    """Build Chrome's supported deep-link command for an installed PWA.
+
+    Launch Services opens a Chrome PWA shim at its manifest ``start_url`` and
+    discards a URL passed to ``open -a``.  Chrome's app launch switches retain
+    the requested in-scope viewer URL, including its capability fragment.
+    """
+    metadata = _maniml_chrome_pwa_metadata(application)
+    executable = _macos_chrome_executable(chrome)
+    if metadata is None or executable is None:
+        return None
+    app_id, profile = metadata
+    command = [str(executable)]
+    if profile is not None:
+        command.append(f"--profile-directory={profile}")
+    command.extend(
+        [
+            f"--app-id={app_id}",
+            f"--app-launch-url-for-shortcuts-menu-item={url}",
+        ]
     )
+    return command
 
 
 def _macos_chrome_app() -> Path | None:
@@ -114,18 +166,20 @@ def _macos_chrome_app() -> Path | None:
 def open_hosted_url(url: str) -> bool:
     """Open a hosted session in its installed PWA or supported browser."""
     if sys.platform == "darwin":
-        applications = [
-            application
-            for application in _macos_maniml_pwa_candidates()
-            if _is_maniml_chrome_pwa(application)
-        ]
         chrome = _macos_chrome_app()
         if chrome is not None:
-            applications.append(chrome)
-        for application in applications:
+            commands = []
+            for application in _macos_maniml_pwa_candidates():
+                command = _macos_pwa_launch_command(application, chrome, url)
+                if command is not None:
+                    commands.append(command)
+            commands.append(["/usr/bin/open", "-a", str(chrome), url])
+        else:
+            commands = []
+        for command in commands:
             try:
                 subprocess.Popen(
-                    ["/usr/bin/open", "-a", str(application), url],
+                    command,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

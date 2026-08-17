@@ -17,6 +17,8 @@ interfaces may still change before the first public release.
 - Open hosted desktop sessions in the installed ManimLive PWA or Chrome instead
   of an arbitrary default browser, avoiding isolated transient-window
   permission contexts.
+- Deep-link installed Chrome PWAs with their validated app ID so Finder-opened
+  scenes retain the per-session viewer URL instead of reopening the start page.
 
 ### Security
 

@@ -78,14 +78,21 @@ class FilePickerTests(unittest.TestCase):
 
 class HostedBrowserLaunchTests(unittest.TestCase):
     @staticmethod
-    def _write_pwa_info(application: Path, url: str) -> None:
+    def _write_pwa_info(
+        application: Path,
+        url: str,
+        *,
+        app_id: str = "abcdefghijklmnopabcdefghijklmnop",
+    ) -> None:
         contents = application / "Contents"
         contents.mkdir(parents=True)
         with (contents / "Info.plist").open("wb") as file:
             plistlib.dump(
                 {
+                    "CFBundleIdentifier": f"com.google.Chrome.app.{app_id}",
                     "CFBundleExecutable": "app_mode_loader",
                     "CrBundleIdentifier": "com.google.Chrome",
+                    "CrAppModeShortcutID": app_id,
                     "CrAppModeShortcutName": "ManimLive",
                     "CrAppModeShortcutURL": url,
                 },
@@ -97,11 +104,15 @@ class HostedBrowserLaunchTests(unittest.TestCase):
             home = Path(directory)
             pwa = home / "Applications/Chrome Apps.localized/ManimLive.app"
             self._write_pwa_info(pwa, "https://maniml.tayweid.io/")
+            chrome = home / "Google Chrome.app"
+            chrome_executable = chrome / "Contents/MacOS/Google Chrome"
+            chrome_executable.parent.mkdir(parents=True)
+            chrome_executable.touch()
             url = "https://maniml.tayweid.io/viewer.html?ws=1234#token=secret"
             with (
                 mock.patch("maniml.web.app.sys.platform", "darwin"),
                 mock.patch("maniml.web.app.Path.home", return_value=home),
-                mock.patch("maniml.web.app._macos_chrome_app", return_value=None),
+                mock.patch("maniml.web.app._macos_chrome_app", return_value=chrome),
                 mock.patch("maniml.web.app.subprocess.Popen") as popen,
                 mock.patch("maniml.web.app.webbrowser.open") as fallback,
             ):
@@ -110,10 +121,9 @@ class HostedBrowserLaunchTests(unittest.TestCase):
             self.assertEqual(
                 args[0],
                 [
-                    "/usr/bin/open",
-                    "-a",
-                    str(pwa),
-                    url,
+                    str(chrome_executable),
+                    "--app-id=abcdefghijklmnopabcdefghijklmnop",
+                    f"--app-launch-url-for-shortcuts-menu-item={url}",
                 ],
             )
             self.assertNotIn("shell", kwargs)
@@ -123,6 +133,18 @@ class HostedBrowserLaunchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             pwa = Path(directory) / "ManimLive.app"
             self._write_pwa_info(pwa, "https://example.test/")
+            self.assertFalse(_is_maniml_chrome_pwa(pwa))
+
+    def test_pwa_bundle_identifier_must_match_app_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pwa = Path(directory) / "ManimLive.app"
+            self._write_pwa_info(pwa, "https://maniml.tayweid.io/")
+            info_path = pwa / "Contents/Info.plist"
+            with info_path.open("rb") as file:
+                info = plistlib.load(file)
+            info["CFBundleIdentifier"] = "com.google.Chrome.app.wrong"
+            with info_path.open("wb") as file:
+                plistlib.dump(info, file)
             self.assertFalse(_is_maniml_chrome_pwa(pwa))
 
     def test_macos_skips_unverified_pwa_and_uses_system_chrome(self):
