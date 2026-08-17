@@ -49,6 +49,31 @@
     box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035);
     background: #000;
   }
+  #connection-overlay {
+    position: absolute; z-index: 10; left: 50%; top: 50%;
+    width: min(430px, calc(100% - 42px)); transform: translate(-50%, -50%);
+    padding: 24px 25px 22px; border: 1px solid var(--line-strong);
+    border-radius: 15px; background: rgba(24, 23, 27, .94);
+    box-shadow: 0 20px 65px rgba(0,0,0,.48);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  }
+  #connection-overlay[hidden] { display: none; }
+  .connection-mark { display: flex; align-items: center; gap: 5px; margin-bottom: 16px; }
+  .connection-mark span { width: 7px; height: 7px; border-radius: 50%;
+    background: var(--bad); }
+  .connection-mark::after { content: ""; width: 28px; height: 1px;
+    margin-left: 2px; background: var(--line-strong); }
+  #connection-title { margin: 0 0 7px; font: 500 20px/1.2 Georgia,
+    "Times New Roman", serif; letter-spacing: .015em; }
+  #connection-detail { margin: 0; color: var(--dim); font-size: 12px; line-height: 1.55; }
+  .connection-actions { display: flex; gap: 7px; margin-top: 19px; }
+  .connection-actions button { padding: 7px 11px; border: 1px solid var(--line);
+    border-radius: 8px; background: rgba(255,255,255,.035); color: var(--text);
+    cursor: pointer; }
+  .connection-actions button:hover, .connection-actions button:focus-visible {
+    border-color: var(--line-strong); background: rgba(255,255,255,.07); outline: none; }
+  .connection-actions button[hidden] { display: none; }
+  #open-from-error { color: var(--dim); background: transparent; }
   #view {
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
@@ -148,9 +173,12 @@
   #connection-pod { padding: 4px 11px; gap: 7px; color: var(--dim); font-size: 11px; }
   #conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good);
     box-shadow: 0 0 0 3px rgba(121,191,139,.08); }
-  #conn { max-width: 135px; overflow: hidden; text-overflow: ellipsis; }
+  #conn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   body.disconnected #conn-dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(218,119,119,.08); }
   body.disconnected #conn { color: #cf9494; }
+  body.disconnected #export-menu, body.disconnected #renderer-menu {
+    opacity: .16; pointer-events: none;
+  }
 
   #timeline-shell {
     position: fixed; z-index: 18; left: 50%; bottom: 12px;
@@ -208,11 +236,20 @@
   }
 </style>
 </head>
-<body>
+<body class="disconnected">
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
   <canvas id="glview" class="altview" title="WebGL2 client render"></canvas>
   <canvas id="gpuview" class="altview" title="WebGPU client render"></canvas>
+  <section id="connection-overlay" role="alert" hidden>
+    <div class="connection-mark" aria-hidden="true"><span></span><span></span></div>
+    <h2 id="connection-title">Can&rsquo;t reach the local engine</h2>
+    <p id="connection-detail"></p>
+    <div class="connection-actions">
+      <button id="retry-connection">Retry</button>
+      <button id="open-from-error">Open another scene</button>
+    </div>
+  </section>
 </div>
 
 <header id="toolbar" aria-label="Scene controls">
@@ -237,11 +274,11 @@
   </div>
 
   <div class="pod transport-pod">
-    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse">
+    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; ←</span>
     </button>
     <div id="position"><span class="position-word">Pausepoint </span><strong>1 / &mdash;</strong></div>
-    <button id="next" class="icon-button" aria-label="Play next animation">
+    <button id="next" class="icon-button" aria-label="Play next animation" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; →</span>
     </button>
   </div>
@@ -285,7 +322,7 @@
   </div>
 
   <div id="connection-pod" class="pod" title="Connection to the local ManimLive engine">
-    <span id="conn-dot"></span><span id="conn">Connected</span>
+    <span id="conn-dot"></span><span id="conn">Connecting</span>
   </div>
 </header>
 
@@ -329,16 +366,94 @@ const viewerToken = fragmentToken
   || (!isHostedApp && sessionStorage.getItem(viewerTokenKey));
 let ws = null;
 let protocolMismatch = false;
+let reconnectCount = 0;
+let reconnectTimer = null;
+const MAX_RECONNECTS = 3;
+const connectionOverlay = document.getElementById("connection-overlay");
+const connectionTitle = document.getElementById("connection-title");
+const connectionDetail = document.getElementById("connection-detail");
 
-function connect() {
-  if (!viewerToken) {
-    document.body.classList.add("disconnected");
-    document.getElementById("conn").textContent = "viewer authorization missing";
+function showConnectionIssue(title, detail, canRetry) {
+  document.body.classList.add("disconnected");
+  connectionTitle.textContent = title;
+  connectionDetail.textContent = detail;
+  document.getElementById("retry-connection").hidden = !canRetry;
+  connectionOverlay.hidden = false;
+}
+
+function hideConnectionIssue() {
+  connectionOverlay.hidden = true;
+}
+
+function primeLoopbackPermission() {
+  if (!isHostedApp || !wsParam) return;
+  const httpPort = Number(wsParam) - 1;
+  if (!Number.isInteger(httpPort) || httpPort < 1024 || httpPort > 65534) return;
+  // Chrome 142+ gates public-to-loopback requests behind Local Network
+  // Access, and Chrome 147+ applies it to WebSockets. A harmless, token-free
+  // request gives the browser a chance to ask before the socket opens. Older
+  // browsers ignore targetAddressSpace; older engines can serve this asset.
+  try {
+    const request = new Request(
+      `http://127.0.0.1:${httpPort}/manifest.webmanifest?probe=${Date.now()}`,
+      { method: "HEAD", mode: "no-cors", cache: "no-store",
+        targetAddressSpace: "loopback" }
+    );
+    fetch(request).catch(() => {});
+  } catch (error) {
+    // WebSocket fallback below preserves compatibility with browsers that do
+    // not yet understand the Local Network Access request option.
+  }
+}
+
+function scheduleReconnect() {
+  reconnectCount += 1;
+  if (reconnectCount >= MAX_RECONNECTS) {
+    document.getElementById("conn").textContent = isHostedApp
+      ? "Local access needed" : "Engine unavailable";
+    const detail = isHostedApp
+      ? `Allow Local network access for ${location.host} in your browser’s site settings, then retry. If it is already allowed, reopen the scene.`
+      : "The local viewer server is no longer responding. Retry, or reopen the scene to start a fresh session.";
+    showConnectionIssue(
+      "Can’t reach the local engine",
+      detail,
+      true
+    );
     return;
   }
-  ws = new WebSocket(wsUrl);
+  document.getElementById("conn").textContent = "Reconnecting";
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connect, 700 * reconnectCount);
+}
+
+function connect(manualRetry = false) {
+  clearTimeout(reconnectTimer);
+  if (manualRetry) {
+    reconnectCount = 0;
+    hideConnectionIssue();
+  }
+  if (!viewerToken) {
+    document.getElementById("conn").textContent = "viewer authorization missing";
+    showConnectionIssue(
+      "This viewer link has expired",
+      "Open the scene again from ManimLive or Finder to create a fresh, private viewer session.",
+      false
+    );
+    return;
+  }
+  document.body.classList.add("disconnected");
+  document.getElementById("conn").textContent = isHostedApp
+    ? "Requesting local access" : "Connecting";
+  primeLoopbackPermission();
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (error) {
+    scheduleReconnect();
+    return;
+  }
   ws.binaryType = "blob";
   ws.onopen = () => {
+    document.getElementById("conn").textContent = "Authorizing";
     ws.send(JSON.stringify({ type: "authenticate", token: viewerToken }));
   };
   ws.onclose = (event) => {
@@ -347,11 +462,16 @@ function connect() {
     if (event.code === 1008) {
       if (!isHostedApp) sessionStorage.removeItem(viewerTokenKey);
       document.getElementById("conn").textContent = "viewer authorization expired";
+      showConnectionIssue(
+        "This viewer link has expired",
+        "Open the scene again from ManimLive or Finder to create a fresh, private viewer session.",
+        false
+      );
       return;
     }
-    document.getElementById("conn").textContent = "Reconnecting";
-    setTimeout(connect, 1000);
+    scheduleReconnect();
   };
+  ws.onerror = () => {};
   ws.onmessage = (e) => {
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
@@ -361,11 +481,18 @@ function connect() {
           document.body.classList.add("disconnected");
           document.getElementById("conn").textContent =
             "engine update required";
+          showConnectionIssue(
+            "Engine update required",
+            "The installed Python engine is older than this interface. Update ManimLive, then open the scene again.",
+            false
+          );
           ws.close(1000, "protocol mismatch");
           return;
         }
+        reconnectCount = 0;
         document.body.classList.remove("disconnected");
         document.getElementById("conn").textContent = "Connected";
+        hideConnectionIssue();
         applyCapabilities(data.capabilities || []);
         canvas.focus();
         if (renderer !== "pixel") sendRendererMode();
@@ -377,6 +504,11 @@ function connect() {
   };
 }
 connect();
+
+document.getElementById("retry-connection").onclick = () => connect(true);
+document.getElementById("open-from-error").onclick = () => {
+  window.location.href = "maniml://open";
+};
 
 function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));

@@ -84,6 +84,12 @@ setup command is the one-time explicit boundary crossing; daily use does not
 require a terminal. The desktop launcher currently targets macOS. Signed
 macOS packaging plus Windows and Linux launchers remain public-release work.
 
+On first connection, Chrome may ask whether `maniml.tayweid.io` can access the
+local network. Allow it so the hosted interface can reach the ManimLive engine
+on loopback. If access was previously denied, restore **Local network access**
+in the site settings and use the viewer&rsquo;s Retry button. ManimLive still
+requires its separate per-session capability token and exact Origin check.
+
 ## Interactive controls
 
 In the preview window:

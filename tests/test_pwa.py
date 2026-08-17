@@ -63,6 +63,15 @@ class PWAAssetsTests(unittest.TestCase):
         self.assertIn('aria-label="Scene pausepoints"', viewer)
         self.assertIn('{ type: "export", format: "video" }', viewer)
         self.assertIn("applyCapabilities(data.capabilities || [])", viewer)
+        self.assertIn('id="connection-overlay"', viewer)
+        self.assertIn('id="retry-connection"', viewer)
+        self.assertIn('targetAddressSpace: "loopback"', viewer)
+        self.assertIn("const MAX_RECONNECTS = 3", viewer)
+        self.assertIn("Local network access", viewer)
+        probe = viewer.split("function primeLoopbackPermission", 1)[1].split(
+            "function scheduleReconnect", 1
+        )[0]
+        self.assertNotIn("token: viewerToken", probe)
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()

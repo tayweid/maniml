@@ -83,6 +83,14 @@ No wildcard web origin is trusted. The hosted client and local daemon also
 exchange an integer protocol version after authentication and refuse an
 incompatible pairing.
 
+Current Chromium releases separately require user permission before a public
+website can connect to loopback. The hosted viewer issues a token-free `HEAD`
+request for a static app asset so the browser can present that Local Network
+Access prompt before the WebSocket handshake. Granting the browser permission
+only makes the transport reachable: the WebSocket still requires its
+unguessable viewer token and an exact allowed Origin. The probe never contains
+the token, a scene path, or other local data.
+
 ### Exported scenes are public artifacts
 
 `--export` creates a self-contained web player. Images and textures used by the
