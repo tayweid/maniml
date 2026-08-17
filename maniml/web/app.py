@@ -376,6 +376,7 @@ class AppServer:
         allow_outside_root: bool = False,
         control_port: int = CONTROL_WS_PORT,
         transient: bool = False,
+        token: str | None = None,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
@@ -383,7 +384,9 @@ class AppServer:
             raise ValueError(f"app root is not a directory: {self.root}")
         self.allow_outside_root = allow_outside_root
         self.transient = transient
-        self.token = new_capability_token()
+        # A background agent supplies a persisted capability so paired
+        # browsers survive restarts; a foreground session stays per-process.
+        self.token = token or new_capability_token()
         self.processes: dict[tuple, SceneProcess] = {}
         self._granted_files: set[str] = set()
         self._lock = threading.Lock()
@@ -701,11 +704,11 @@ class AppServer:
                 if registered:
                     self._session_lease.disconnected()
 
-        async def main():
+        async def main(port):
             async with ws_server.serve(
                 handler,
                 "127.0.0.1",
-                control_port,
+                port,
                 origins=sorted(self.allowed_origins),
                 max_size=MAX_CONTROL_MESSAGE,
                 max_queue=16,
@@ -717,12 +720,23 @@ class AppServer:
 
         def run():
             try:
-                asyncio.run(main())
+                asyncio.run(main(control_port))
+                return
             except OSError:
-                print(
-                    f"warning: control port {control_port} is taken — "
-                    "the hosted app page will not find this server"
-                )
+                pass
+            # The default port is a rendezvous, not a requirement: a
+            # background agent holds it for the whole login session, and a
+            # foreground `maniml app` must still be reachable. Fall back to an
+            # OS-assigned port — run_app puts it in the launch URL, so the
+            # page it opens connects to this server rather than the agent.
+            if control_port == 0:
+                print("warning: could not start the control channel")
+                self._control_ready.set()
+                return
+            try:
+                asyncio.run(main(0))
+            except OSError:
+                print("warning: could not start the control channel")
                 self._control_ready.set()
 
         self._control_ready = threading.Event()
@@ -779,12 +793,14 @@ def run_app(
     hosted: bool = False,
     initial_file: str | None = None,
     control_port: int = CONTROL_WS_PORT,
+    token: str | None = None,
 ) -> None:
     server = AppServer(
         root,
         allow_outside_root=allow_outside_root,
         control_port=control_port,
         transient=initial_file is not None,
+        token=token,
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
@@ -797,7 +813,12 @@ def run_app(
     control_fragment = f"token={server.token}"
     if server.control_port != CONTROL_WS_PORT:
         control_fragment += f"&control={server.control_port}"
-    launch_url = f"{HOSTED_APP_URL}#{control_fragment}" if hosted else server.launch_url
+    # The local page needs the resolved port for the same reason the hosted
+    # one does: it may not be the default when an agent already holds it.
+    launch_url = (
+        f"{HOSTED_APP_URL}#{control_fragment}" if hosted
+        else f"{server.url}#{control_fragment}"
+    )
     if initial_file is not None:
         opened = server.open_payload({"path": initial_file})
         if hosted and opened.get("viewer_url"):

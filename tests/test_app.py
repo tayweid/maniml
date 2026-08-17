@@ -65,11 +65,13 @@ class AppShellE2E(unittest.TestCase):
                     "app died:\n" + "".join(cls.lines))
             for line in cls.lines:
                 match = re.search(
-                    r"(http://localhost:\d+/)#token=([A-Za-z0-9_-]+)",
+                    r"(http://localhost:\d+/)#token=([A-Za-z0-9_-]+)"
+                    r"(?:&control=(\d+))?",
                     line)
                 if match:
                     cls.url = match.group(1)
                     cls.token = match.group(2)
+                    cls.control_port = int(match.group(3) or 8686)
                     break
             time.sleep(0.05)
         assert cls.url, "no app URL:\n" + "".join(cls.lines)
@@ -90,6 +92,13 @@ class AppShellE2E(unittest.TestCase):
         request_headers.update(headers or {})
         return urllib.request.Request(
             cls.url + path, data=data, headers=request_headers)
+
+    @classmethod
+    def _control_url(cls):
+        # Discovered, not assumed: a background agent may hold the default
+        # control port, in which case the app falls back to an OS-assigned one
+        # and advertises it in the launch URL.
+        return f"ws://127.0.0.1:{cls.control_port}/"
 
     @classmethod
     def _open_request(cls, path, scene):
@@ -146,7 +155,7 @@ class AppShellE2E(unittest.TestCase):
     def test_control_websocket(self):
         # The fixed-port control channel the hosted PWA uses
         with ws_connect(
-                "ws://127.0.0.1:8686/", origin=self.url.rstrip("/")) as ws:
+                self._control_url(), origin=self.url.rstrip("/")) as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": self.token}))
             authenticated = json.loads(ws.recv(timeout=5))
@@ -237,18 +246,43 @@ class AppShellE2E(unittest.TestCase):
     def test_control_websocket_rejects_untrusted_origin(self):
         with self.assertRaises(Exception):
             with ws_connect(
-                    "ws://127.0.0.1:8686/",
+                    self._control_url(),
                     origin="https://attacker.invalid", open_timeout=3):
                 pass
 
     def test_control_websocket_rejects_wrong_token(self):
         with ws_connect(
-                "ws://127.0.0.1:8686/", origin=self.url.rstrip("/"),
+                self._control_url(), origin=self.url.rstrip("/"),
                 open_timeout=3) as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": "wrong"}))
             with self.assertRaises(Exception):
                 ws.recv(timeout=3)
+
+
+class ControlPortFallbackTests(unittest.TestCase):
+    """A background agent owns the default control port for the whole login
+    session, so a foreground app must still come up with a working channel."""
+
+    def test_a_taken_control_port_falls_back_to_an_assigned_one(self):
+        import tempfile
+        from maniml.web.app import CONTROL_WS_PORT, AppServer
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            holder = AppServer(tmpdir, port=0, control_port=0)
+            self.addCleanup(holder.shutdown)
+            occupied = holder.control_port
+            self.assertNotEqual(occupied, 0)
+
+            second = AppServer(tmpdir, port=0, control_port=occupied)
+            self.addCleanup(second.shutdown)
+            self.assertNotEqual(
+                second.control_port, occupied,
+                "second server bound a port already in use")
+            self.assertGreater(second.control_port, 0)
+            self.assertNotEqual(second.token, holder.token)
+
+        self.assertEqual(CONTROL_WS_PORT, 8686)
 
 
 class DesktopOpenFallbackTests(unittest.TestCase):

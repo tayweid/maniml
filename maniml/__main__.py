@@ -14,6 +14,7 @@ maniml - ManimCE-compatible API on an OpenGL backend
 Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
        maniml open [file]
+       maniml agent [install [dir] | pair | status | uninstall]
        maniml install-desktop
 
 App:
@@ -28,6 +29,10 @@ App:
   maniml open FILE Start the hosted app for FILE (used by desktop launchers)
   maniml install-desktop
                    Install the macOS app / Finder "Open With" integration
+  maniml agent install [dir]
+                   Run the engine as a macOS login agent, so the app is
+                   always paired and Open... needs no desktop bridge
+  maniml agent pair | status | restart | rotate-token | uninstall
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -74,6 +79,37 @@ def main():
             sys.exit(1)
         print(f"Installed ManimLive desktop launcher: {path}")
         return
+
+    if args and args[0] == "agent":
+        from pathlib import Path
+
+        from maniml import agent as agent_module
+
+        action = args[1] if len(args) > 1 else "status"
+        target = args[2] if len(args) > 2 else None
+        port = agent_module.CONTROL_WS_PORT
+        for flag in flags:
+            if flag.startswith("--port="):
+                port = int(flag.split("=", 1)[1])
+        if action == "install":
+            sys.exit(agent_module.install(target, port))
+        if action == "serve":
+            sys.exit(agent_module.serve(target or str(Path.home()), port))
+        if action == "uninstall":
+            sys.exit(agent_module.uninstall())
+        if action == "status":
+            sys.exit(agent_module.status())
+        if action == "restart":
+            sys.exit(agent_module.restart())
+        if action == "pair":
+            sys.exit(agent_module.pair())
+        if action == "rotate-token":
+            sys.exit(agent_module.rotate_token())
+        print(
+            "Usage: maniml agent "
+            "[install [dir] | pair | status | restart | rotate-token | uninstall]"
+        )
+        sys.exit(1)
 
     if args and args[0] == "open":
         if len(args) != 2:

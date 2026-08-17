@@ -113,6 +113,17 @@ Three failure modes, all of which present identically as "the button does nothin
 
 The hosted frontend is served by GitHub Pages from `maniml/web/static/` (`.github/workflows/deploy.yml`), so frontend fixes reach an installed PWA only after a push to `main` — not after a local reinstall.
 
+### The background agent (`maniml/agent.py`)
+
+`maniml agent install` registers the app server as a launchd login agent, which removes the bridge from the common path: with an engine always on the default control port, the page is already paired, so **Open…** takes the in-page `choose` branch (native dialog → real absolute path → `window.location` in the same window). The `maniml://` droplet is then only needed to start a *specific* file from Finder.
+
+Two consequences worth knowing:
+
+- **The capability is persisted**, not per-process (`load_or_create_capability`, `~/.maniml/capability`, 0600) — a browser cannot stay paired across restarts otherwise. `app.html` therefore stores a default-port pairing in `localStorage` (and an ephemeral-port one only in `sessionStorage`, since that port never returns). `maniml agent rotate-token` revokes every paired browser.
+- **The agent owns the default control port** for the whole login session. `_start_control_ws` falls back to an OS-assigned port when the default is taken, and `run_app` puts the resolved port in the launch URL for local pages as well as hosted ones — otherwise a foreground `maniml app` would open a page that talks to the *agent* instead of itself.
+
+Not done yet: `file_handlers` in the webmanifest would make the PWA itself the Finder handler for `.py` and retire the droplet entirely (this is how Knuth does it). The blocker is that `launchQueue` delivers a `FileSystemFileHandle` with no path, while the engine needs a real path for the watcher and for `__file__`-relative imports in scene files. Resolving name+content-hash against the agent's root would close that gap.
+
 ### Known weak spots (as of 2026-08)
 
 - `deepcopy_namespace` falls back to per-value copies with a shared memo when batch deepcopy fails, and keeps live references (with a named warning) for values that cannot copy at all; a scene holding non-picklable state degrades checkpoint isolation.

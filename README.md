@@ -87,6 +87,31 @@ web app's **Open…** toolbar button invokes that desktop helper when the engine
 is not running, then uses a native file picker. A file selected outside the
 current project grants access to that file only.
 
+### Background engine (recommended on macOS)
+
+Registering the engine as a login agent keeps it running, so the web app is
+already paired whenever you open it:
+
+```bash
+python -m maniml agent install ~/Projects   # scenes live under this directory
+python -m maniml agent pair                 # once, to pair this browser
+```
+
+With an agent running, **Open…** never needs the desktop bridge: it asks the
+engine for a native file dialog and opens the scene in the same window, instead
+of launching a second app window. `maniml agent status`, `restart` and
+`uninstall` manage the job; the log is `~/Library/Logs/maniml-agent.log`.
+
+Unlike a foreground session, an agent's pairing capability is persisted
+(`~/.maniml/capability`, mode 600) so it survives restarts, and the browser
+keeps it in local storage. That is a deliberate trade: the pairing lasts until
+you revoke it with `maniml agent rotate-token`, which invalidates every paired
+browser.
+
+The agent holds the default control port for the whole login session. A
+foreground `maniml app` started alongside it binds an OS-assigned port instead
+and advertises that port in the URL it opens, so both remain usable.
+
 Hosted sessions open in the installed ManimLive Chrome app when it is present,
 then in Google Chrome. This avoids transient default-browser windows that do
 not share the same site-permission context. Install the PWA from Chrome to get

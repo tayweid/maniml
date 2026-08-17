@@ -232,8 +232,13 @@ function setConnectionState(state, message, detail) {
   connectionMessage.textContent = detail || "";
 }
 
-// The hosted page intentionally keeps capabilities only in memory. Local
-// pages may retain them for the lifetime of this tab so reload remains useful.
+// Capability storage. A foreground session mints a per-process token, so
+// remembering it past this tab is pointless; `maniml agent` persists one
+// capability on disk instead, and staying paired across restarts is the whole
+// point of running an agent. So: session storage for a per-process pairing,
+// local storage only for a pairing that outlives the process. Either is
+// cleared the moment the engine rejects it (close code 1008), and
+// `maniml agent rotate-token` revokes every paired browser.
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const isHostedApp = !loopbackHosts.has(location.hostname);
 const controlTokenKey = "maniml-control-token";
@@ -244,14 +249,28 @@ const controlPort = Number.isInteger(requestedControlPort)
   && requestedControlPort >= 1024 && requestedControlPort <= 65535
   ? requestedControlPort : DEFAULT_CONTROL_PORT;
 const CONTROL_URL = `ws://127.0.0.1:${controlPort}/`;
-if (fragmentToken && !isHostedApp) {
-  sessionStorage.setItem(controlTokenKey, fragmentToken);
+// Only a pairing against the default control port can outlive the process:
+// an ephemeral port belongs to one transient session and will never be there
+// again, so persisting that token would just strand a dead capability.
+const persistToken = controlPort === DEFAULT_CONTROL_PORT;
+const tokenStore = persistToken ? localStorage : sessionStorage;
+
+function forgetControlToken() {
+  try {
+    localStorage.removeItem(controlTokenKey);
+    sessionStorage.removeItem(controlTokenKey);
+  } catch (error) { /* storage may be unavailable */ }
 }
+
 if (fragmentToken) {
+  try { tokenStore.setItem(controlTokenKey, fragmentToken); }
+  catch (error) { /* storage may be unavailable */ }
   history.replaceState(null, "", location.pathname + location.search);
 }
-const controlToken = fragmentToken
-  || (!isHostedApp && sessionStorage.getItem(controlTokenKey));
+let storedToken = null;
+try { storedToken = tokenStore.getItem(controlTokenKey); }
+catch (error) { storedToken = null; }
+const controlToken = fragmentToken || storedToken;
 
 let control = null;
 let reconnectTimer = null;
@@ -324,11 +343,12 @@ function connectControl() {
     rejectPending("local engine disconnected");
     if (protocolMismatch) return;
     if (event.code === 1008) {
-      if (!isHostedApp) sessionStorage.removeItem(controlTokenKey);
+      forgetControlToken();
       setConnectionState(
         "expired",
         "Pairing expired",
-        "Start ManimLive again from your project folder to create a fresh, secure pairing."
+        "The local engine rejected this pairing. Run `maniml agent pair` to "
+          + "pair again, or start ManimLive from your project folder."
       );
       return;
     }

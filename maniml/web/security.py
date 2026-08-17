@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import secrets
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,84 @@ HOSTED_APP_URL = f"{CUSTOM_HOSTED_APP_ORIGIN}/"
 def new_capability_token() -> str:
     """Return a process-local capability with 256 bits of entropy."""
     return secrets.token_urlsafe(32)
+
+
+CONFIG_DIR = Path.home() / ".maniml"
+CAPABILITY_FILE = "capability"
+
+
+def capability_path() -> Path:
+    return CONFIG_DIR / CAPABILITY_FILE
+
+
+def _prepare_config_dir() -> Path:
+    directory = CONFIG_DIR
+    try:
+        info = directory.lstat()
+    except FileNotFoundError:
+        directory.mkdir(mode=0o700, parents=True)
+    else:
+        if not stat.S_ISDIR(info.st_mode) or directory.is_symlink():
+            raise RuntimeError(f"maniml config path is not a directory: {directory}")
+    if os.name != "nt":
+        directory.chmod(0o700)
+    return directory
+
+
+def _read_capability(path: Path) -> str:
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError(f"capability file is empty: {path}")
+    return value
+
+
+def load_or_create_capability() -> str:
+    """Return the stable per-install capability, creating it without races.
+
+    A per-process token dies with the process, which is fine for a
+    terminal-launched session but not for a background agent: the browser has
+    to stay paired across restarts and logins. This one is written 0600 and
+    replaced only by rotate_capability().
+    """
+    directory = _prepare_config_dir()
+    path = directory / CAPABILITY_FILE
+    try:
+        return _read_capability(path)
+    except FileNotFoundError:
+        pass
+
+    capability = new_capability_token()
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        # Another concurrently starting engine won the creation race.
+        return _read_capability(path)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+        file.write(capability + "\n")
+    return capability
+
+
+def rotate_capability() -> str:
+    """Atomically replace the capability, revoking every paired browser."""
+    directory = _prepare_config_dir()
+    destination = directory / CAPABILITY_FILE
+    capability = new_capability_token()
+    temporary = directory / f".{CAPABILITY_FILE}.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            file.write(capability + "\n")
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return capability
 
 
 def token_matches(candidate: Any, expected: str) -> bool:

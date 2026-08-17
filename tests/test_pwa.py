@@ -82,6 +82,24 @@ class PWAAssetsTests(unittest.TestCase):
             'body[data-connection="expired"] #connection-message', page
         )
 
+    def test_only_a_default_port_pairing_is_persisted(self):
+        """An agent's capability outlives its process and should survive a
+        reload; a transient session's ephemeral port never returns, so
+        persisting that token would strand a dead capability."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn(
+            "const persistToken = controlPort === DEFAULT_CONTROL_PORT;", page)
+        self.assertIn(
+            "const tokenStore = persistToken ? localStorage : sessionStorage;",
+            page,
+        )
+        # A rejected pairing must not linger in either store.
+        self.assertIn("function forgetControlToken()", page)
+        self.assertIn("localStorage.removeItem(controlTokenKey);", page)
+        self.assertIn("sessionStorage.removeItem(controlTokenKey);", page)
+        close = page.split("control.onclose", 1)[1].split("control.onerror", 1)[0]
+        self.assertIn("forgetControlToken();", close)
+
     def test_hosted_root_forwards_the_pairing_fragment(self):
         """run_app pairs via HOSTED_APP_URL#token=...; a bare meta refresh to
         app.html would drop the fragment and the capability with it."""
