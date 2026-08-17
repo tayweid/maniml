@@ -13,6 +13,26 @@ STATIC = Path(__file__).resolve().parent.parent / "maniml" / "web" / "static"
 
 
 class PWAAssetsTests(unittest.TestCase):
+    def test_manifest_registers_the_app_as_a_python_file_handler(self):
+        """The PWA itself handles .py from Finder, so the desktop bridge is
+        not the only way in. Its consumer must exist, or the OS would hand
+        files to a page that ignores them."""
+        manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
+        handler = manifest["file_handlers"][0]
+        self.assertEqual(handler["action"], "./app.html")
+        self.assertEqual(handler["accept"]["text/x-python"], [".py"])
+        # Reuse the open window instead of stacking up a second one.
+        self.assertEqual(manifest["launch_handler"]["client_mode"],
+                         "navigate-existing")
+
+        page = (STATIC / "app.html").read_text()
+        self.assertIn("window.launchQueue.setConsumer", page)
+        self.assertIn('request("resolve"', page)
+        self.assertIn('crypto.subtle.digest("SHA-256", bytes)', page)
+        # A launch can beat the handshake; it must not be dropped.
+        self.assertIn("pendingLaunch = file;", page)
+        self.assertIn("void drainPendingLaunch();", page)
+
     def test_manifest_has_installable_identity_and_icons(self):
         manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
         self.assertEqual(manifest["name"], "ManimLive")
@@ -175,7 +195,7 @@ class PWAAssetsTests(unittest.TestCase):
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()
-        self.assertIn('const CACHE_NAME = "maniml-app-shell-v5";', worker)
+        self.assertIn('const CACHE_NAME = "maniml-app-shell-v6";', worker)
         self.assertIn("url.origin !== self.location.origin", worker)
         self.assertIn('event.request.method !== "GET"', worker)
         self.assertLess(

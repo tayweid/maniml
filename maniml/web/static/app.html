@@ -331,6 +331,8 @@ function connectControl() {
       // A drop while a choose/open request was in flight left this disabled.
       document.getElementById("openbtn").disabled = false;
       refresh();
+      // A Finder launch can beat the handshake; open it now that we can.
+      void drainPendingLaunch();
       return;
     }
     const entry = pending.get(data.id);
@@ -552,6 +554,78 @@ window.addEventListener("blur", cancelBridgeWatchdog);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") cancelBridgeWatchdog();
 });
+
+// --- Opening a file handed over by the OS (Finder "Open With") ---
+//
+// The File Handling API delivers a FileSystemFileHandle with no path, but the
+// engine needs the real one: the watcher follows it, and scene files resolve
+// imports and assets relative to __file__. So identify the file by name and
+// content digest and let the engine find it on disk.
+let pendingLaunch = null;
+
+async function digestOf(file) {
+  const bytes = await file.arrayBuffer();
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function openLaunchedFile(file) {
+  errorEl.style.display = "none";
+  let data;
+  try {
+    data = await request("resolve", {
+      name: file.name,
+      size: file.size,
+      sha256: await digestOf(file),
+    });
+  } catch (error) {
+    errorEl.textContent = String(error);
+    errorEl.style.display = "block";
+    return;
+  }
+  if (data.error || !data.file) {
+    errorEl.textContent = (data.error || "could not open that file")
+      + (data.hint ? "\n\n" + data.hint : "");
+    errorEl.style.display = "block";
+    return;
+  }
+  const opened = data.file;
+  if (opened.scenes.length === 1) {
+    await openScene(opened.path, opened.scenes[0], null);
+    return;
+  }
+  // No scenes, or a choice to make: show the file rather than guessing.
+  document.getElementById("picked").replaceChildren(fileCard(opened));
+  document.getElementById("picked-section").hidden = false;
+  if (!opened.scenes.length) {
+    errorEl.textContent =
+      "No Manim scene classes were found in " + opened.rel;
+    errorEl.style.display = "block";
+  }
+}
+
+async function drainPendingLaunch() {
+  const file = pendingLaunch;
+  pendingLaunch = null;
+  if (file) await openLaunchedFile(file);
+}
+
+if (window.launchQueue) {
+  window.launchQueue.setConsumer(async (params) => {
+    const handle = (params.files || [])[0];
+    if (!handle) return;
+    let file;
+    try { file = await handle.getFile(); }
+    catch (error) { return; }
+    // A cold launch arrives before the control channel is authenticated.
+    if (document.body.dataset.connection === "connected") {
+      await openLaunchedFile(file);
+    } else {
+      pendingLaunch = file;
+    }
+  });
+}
 
 document.getElementById("openbtn").onclick = async () => {
   const button = document.getElementById("openbtn");

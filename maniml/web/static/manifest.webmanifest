@@ -6,6 +6,17 @@
   "start_url": "./app.html",
   "scope": "./",
   "display": "standalone",
+  "file_handlers": [
+    {
+      "action": "./app.html",
+      "accept": {
+        "text/x-python": [".py"]
+      }
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "background_color": "#101014",
   "theme_color": "#101014",
   "icons": [

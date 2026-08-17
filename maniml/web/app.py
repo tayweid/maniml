@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import atexit
+import hashlib
 import json
 import os
 import plistlib
@@ -59,6 +60,9 @@ RECENTS_PATH = os.environ.get(
 )
 RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
+# Bounds for resolving an OS-launched file back to a path on disk.
+RESOLVE_MAX_DEPTH = 6
+RESOLVE_MAX_FILES = 50000
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: " r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
 )
@@ -654,6 +658,96 @@ class AppServer:
         self._granted_files.add(path)
         return {"file": {"path": path, "rel": candidate.name, "scenes": scenes}}
 
+    def _resolve_candidates(self, name: str):
+        """Paths that could be the launched file, nearest first.
+
+        Recents and already-granted files come first: they are the files this
+        user actually works on, so the common case never walks the tree.
+        """
+        seen: set[str] = set()
+
+        def offer(raw: str):
+            if raw in seen:
+                return None
+            seen.add(raw)
+            return raw
+
+        for known in (*self._granted_files, *load_recents()):
+            if os.path.basename(known) == name and offer(known):
+                yield known
+
+        root = self.root
+        examined = 0
+        for dirpath, dirnames, filenames in os.walk(root):
+            depth = os.path.relpath(dirpath, root).count(os.sep)
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in SKIP_DIRS
+                and not d.startswith(".")
+                and depth < RESOLVE_MAX_DEPTH
+            ]
+            if name in filenames:
+                candidate = os.path.join(dirpath, name)
+                if offer(candidate):
+                    yield candidate
+            examined += len(filenames)
+            if examined > RESOLVE_MAX_FILES:
+                return
+
+    def resolve_payload(self, request: dict) -> dict:
+        """Map a browser-launched file back to its real path on disk.
+
+        The File Handling API hands the page a file handle with no path, but
+        the engine needs the real one: the watcher follows it, and scene files
+        routinely resolve imports and assets relative to ``__file__``. Copying
+        the bytes somewhere would break both. So match on name and verify by
+        content digest — a same-named file elsewhere cannot pass.
+
+        Being handed a file by the OS is an explicit user action, so a
+        verified match grants that one file, exactly as the native dialog does.
+        """
+        name = request.get("name")
+        digest = request.get("sha256")
+        size = request.get("size")
+        if (
+            not isinstance(name, str)
+            or not name
+            or os.path.basename(name) != name
+            or not name.lower().endswith(".py")
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        ):
+            return {"error": "bad launch request"}
+
+        for candidate in self._resolve_candidates(name):
+            try:
+                if isinstance(size, int) and os.path.getsize(candidate) != size:
+                    continue
+                with open(candidate, "rb") as file:
+                    if hashlib.sha256(file.read()).hexdigest() != digest:
+                        continue
+                resolved = resolve_authorized_file(
+                    self._root_path, candidate, suffix=".py",
+                    allow_outside_root=True,
+                )
+            except (OSError, ValueError):
+                continue
+            path = str(resolved)
+            self._granted_files.add(path)
+            return {
+                "file": {
+                    "path": path,
+                    "rel": os.path.relpath(path, self.root)
+                    if resolved.is_relative_to(self._root_path) else path,
+                    "scenes": find_scene_classes(path),
+                }
+            }
+        return {
+            "error": f"could not find {name} under {self.root}",
+            "hint": "Open it with the Open… button, or point the engine at "
+                    "its folder (maniml agent install <dir>).",
+        }
+
     def _start_control_ws(self, control_port: int):
         """Loopback control channel for the hosted and local frontends.
 
@@ -692,6 +786,9 @@ class AppServer:
                     op = request.get("op")
                     if op == "files":
                         response = self.files_payload()
+                    elif op == "resolve":
+                        response = await asyncio.to_thread(
+                            self.resolve_payload, request)
                     elif op == "choose":
                         response = await asyncio.to_thread(self.choose_payload)
                     elif op == "open":
