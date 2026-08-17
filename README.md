@@ -22,13 +22,21 @@ and cross-platform desktop packaging are complete.
 python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"
 ```
 
-Or install from source:
+Or install from source, for development:
 
 ```bash
 git clone https://github.com/tayweid/maniml.git
 cd maniml
 pip install -e .
 ```
+
+An editable install makes the `maniml` command run your working tree, so an
+edit takes effect the next time you run a scene. Note that the install command
+above is **not** idempotent with it: `--force-reinstall` replaces the editable
+link with a copy under `site-packages`, and from then on your edits are
+silently ignored until you push and reinstall. If you develop ManimLive, run
+that command only when you mean to test the end-user setup path, and restore
+the editable install afterwards with `pip install -e . --no-deps`.
 
 ## Usage
 
