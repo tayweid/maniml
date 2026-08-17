@@ -136,6 +136,17 @@ class PWAAssetsTests(unittest.TestCase):
         )[0]
         self.assertNotIn("token: viewerToken", probe)
 
+    def test_viewer_has_a_scene_picker(self):
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('id="scene-menu"', viewer)
+        self.assertIn('class="scene-picker"', viewer)
+        self.assertIn('aria-haspopup="menu"', viewer)
+        self.assertIn('{ type: "switch_scene", scene: name }', viewer)
+        self.assertIn("function renderSceneMenu(current)", viewer)
+        # The list is engine-supplied; a file with one scene offers no switch.
+        self.assertIn("if (Array.isArray(state.scenes)) sceneNames = state.scenes;", viewer)
+        self.assertIn("sceneButton.disabled = sceneNames.length < 2;", viewer)
+
     def test_live_viewer_uses_webgpu_first_with_visible_pixel_fallback(self):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('const DEFAULT_RENDERER = "gpu";', viewer)

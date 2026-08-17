@@ -84,6 +84,12 @@ class WebViewer:
         self._last_send_time = 0.0
         self._last_send_lossy = False
         self._last_state = None
+        # Set when a client picks another scene from the same file. The run
+        # loop in __main__ reads it after Scene.run() returns and builds the
+        # next scene against this same viewer, so the HTTP/WebSocket servers,
+        # the capability token and the open browser tab all survive.
+        self._pending_scene: str | None = None
+        self._scene_names_cache: tuple[tuple, list[str]] | None = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
         self._pixel_mode = True  # off in solo-GL: geometry is the only stream
         self._export_lock = threading.Lock()
@@ -104,11 +110,46 @@ class WebViewer:
         self._needs_refresh = True
 
     def destroy(self):
+        # A scene switch tears down the scene, not the session: keep the
+        # servers up so the next scene reuses this viewer and the client
+        # never has to reconnect or re-authenticate.
+        if self._pending_scene is not None:
+            return
         self.server.stop()
 
     @property
     def is_closing(self) -> bool:
+        if self._pending_scene is not None:
+            return True
         return self._transient_session and self.server.client_lease_expired()
+
+    def take_pending_scene(self) -> str | None:
+        """Consume a requested scene switch, if any."""
+        pending, self._pending_scene = self._pending_scene, None
+        return pending
+
+    def scene_names(self) -> list[str]:
+        """Scene classes in the current file, by AST — no import.
+
+        Cached on (path, mtime): this feeds the per-frame state comparison in
+        on_frame_rendered, so it must not re-read and re-parse the file on
+        every rendered frame. The mtime key keeps it correct across edits,
+        which the file watcher applies live.
+        """
+        source = getattr(self.scene, "_scene_filepath", None)
+        if not source:
+            return []
+        try:
+            key = (source, os.stat(source).st_mtime_ns)
+        except OSError:
+            return []
+        if self._scene_names_cache and self._scene_names_cache[0] == key:
+            return self._scene_names_cache[1]
+        from maniml.web.app import find_scene_classes
+
+        names = find_scene_classes(source)
+        self._scene_names_cache = (key, names)
+        return names
 
     def has_clients(self) -> bool:
         return self.server.has_clients()
@@ -271,6 +312,17 @@ class WebViewer:
                     scene._restart_from_source()
                 finally:
                     scene._processing_key = False
+
+        elif kind == "switch_scene":
+            # Only a scene actually declared in this file: the name selects a
+            # class to instantiate, so it must never come straight from the
+            # wire.
+            requested = event.get("scene")
+            if isinstance(requested, str) and requested in self.scene_names():
+                if requested != type(scene).__name__:
+                    self._pending_scene = requested
+                    scene.quit_interaction = True
+            self._dirty = False
 
         elif kind == "export":
             export_format = event.get("format")
@@ -469,6 +521,7 @@ class WebViewer:
         return {
             "type": "state",
             "scene": type(scene).__name__,
+            "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",
             "current": scene.current_animation_index,
             "count": len(checkpoints),

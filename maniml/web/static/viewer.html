@@ -103,7 +103,36 @@
   }
   #file-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
   .slug-separator { color: #bb6e70; margin: 0 7px; }
-  #scene-name { color: var(--dim); font-size: 12px; letter-spacing: .035em; }
+  .scene-picker { position: relative; display: inline-flex; }
+  #scene-name {
+    padding: 1px 5px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--dim); font: inherit; font-size: 12px; letter-spacing: .035em;
+    cursor: pointer; transition: color 140ms ease, background 140ms ease;
+  }
+  #scene-name:hover, #scene-name:focus-visible {
+    color: var(--text); background: rgba(255,255,255,.07); outline: none;
+  }
+  /* A file with a single scene has nothing to switch to: keep the name, drop
+     the affordance rather than opening an empty menu. */
+  #scene-name:disabled { cursor: default; background: transparent; color: var(--dim); }
+  #scene-menu {
+    position: absolute; z-index: 40; top: calc(100% + 9px); left: -4px;
+    display: flex; flex-direction: column; gap: 1px; padding: 4px;
+    min-width: 150px; max-height: min(46vh, 340px); overflow-y: auto;
+    border-radius: 11px; background: var(--glass-light);
+    border: 1px solid rgba(255,255,255,.5); box-shadow: 0 10px 28px rgba(0,0,0,.3);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  }
+  #scene-menu[hidden] { display: none; }
+  .scene-option {
+    padding: 6px 10px; border: 0; border-radius: 7px; background: transparent;
+    color: var(--ink); font: inherit; font-size: 12px; text-align: left;
+    white-space: nowrap; cursor: pointer; opacity: .72;
+  }
+  .scene-option:hover, .scene-option:focus-visible {
+    background: rgba(20,19,22,.08); opacity: 1; outline: none;
+  }
+  .scene-option[aria-current="true"] { font-weight: 650; opacity: 1; }
   .icon-button, .fly-action {
     position: relative; display: grid; place-items: center; width: 32px; height: 32px;
     padding: 0; border: 0; border-radius: 9px; background: transparent;
@@ -256,7 +285,7 @@
 <header id="toolbar" aria-label="Scene controls">
   <div class="pod file-pod">
     <div class="document-slug" title="Current scene file">
-      <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span id="scene-name">Scene</span>
+      <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
     </div>
     <div class="flyover">
       <button id="file-menu" class="icon-button" aria-label="File options" aria-haspopup="menu">
@@ -693,10 +722,62 @@ function handleMessage(data) {
   else if (data.type === "export_status") handleExportStatus(data);
 }
 
+// Scene picker: every Scene class the engine found in the open file, so one
+// file's animations are reachable without going back to the landing page.
+const sceneButton = document.getElementById("scene-name");
+const sceneMenu = document.getElementById("scene-menu");
+let sceneNames = [];
+
+function closeSceneMenu() {
+  sceneMenu.hidden = true;
+  sceneButton.setAttribute("aria-expanded", "false");
+}
+
+function renderSceneMenu(current) {
+  sceneMenu.replaceChildren();
+  for (const name of sceneNames) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "scene-option";
+    option.setAttribute("role", "menuitem");
+    option.textContent = name;
+    if (name === current) option.setAttribute("aria-current", "true");
+    option.onclick = () => {
+      closeSceneMenu();
+      if (name !== current) send({ type: "switch_scene", scene: name });
+    };
+    sceneMenu.appendChild(option);
+  }
+  sceneButton.disabled = sceneNames.length < 2;
+  if (sceneButton.disabled) closeSceneMenu();
+}
+
+sceneButton.onclick = () => {
+  const opening = sceneMenu.hidden;
+  sceneMenu.hidden = !opening;
+  sceneButton.setAttribute("aria-expanded", String(opening));
+};
+
+document.addEventListener("click", (event) => {
+  if (!sceneMenu.hidden && !event.target.closest(".scene-picker")) {
+    closeSceneMenu();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  // Only claim Escape while the menu is open; the canvas owns the keyboard
+  // otherwise and forwards keys to the scene.
+  if (event.key === "Escape" && !sceneMenu.hidden) {
+    closeSceneMenu();
+    event.stopPropagation();
+  }
+}, true);
+
 function handleState(state) {
+  if (Array.isArray(state.scenes)) sceneNames = state.scenes;
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
     document.title = state.scene + " — maniml";
+    renderSceneMenu(state.scene);
   }
   if (state.file) document.getElementById("file-name").textContent = state.file;
 

@@ -43,17 +43,28 @@ STARTUP_TIMEOUT = 25
 MESSAGE_TIMEOUT = 10
 
 
-class WebViewerE2E(unittest.TestCase):
+class _ViewerHarness:
+    """Launch one scene subprocess and act as the browser against it.
+
+    Deliberately not a TestCase: suites mix this in, so no suite inherits
+    another's tests. Subclasses vary the fixture through the three class
+    attributes below.
+    """
+
+    SOURCE = SCENE_SOURCE
+    SCENE = "WebDemo"
+    FILENAME = "web_scene.py"
+
     @classmethod
     def setUpClass(cls):
         import tempfile
         cls.tmpdir = tempfile.TemporaryDirectory()
-        scene_path = os.path.join(cls.tmpdir.name, "web_scene.py")
+        scene_path = os.path.join(cls.tmpdir.name, cls.FILENAME)
         with open(scene_path, "w") as f:
-            f.write(SCENE_SOURCE)
+            f.write(cls.SOURCE)
 
         cls.proc = subprocess.Popen(
-            [sys.executable, "-m", "maniml", scene_path, "WebDemo",
+            [sys.executable, "-m", "maniml", scene_path, cls.SCENE,
              "--web", "--no-browser"],
             cwd=cls.tmpdir.name,
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
@@ -133,6 +144,8 @@ class WebViewerE2E(unittest.TestCase):
         self.assertEqual(set(response["capabilities"]), {"export", "restart"})
         return ws
 
+
+class WebViewerE2E(_ViewerHarness, unittest.TestCase):
     def test_full_loop(self):
         # The client page is served
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
@@ -268,6 +281,74 @@ class WebViewerE2E(unittest.TestCase):
                 {"type": "authenticate", "token": "wrong"}))
             with self.assertRaises(Exception):
                 ws.recv(timeout=3)
+
+
+MULTI_SCENE_SOURCE = """
+from manim import *
+
+class AlphaScene(Scene):
+    def construct(self):
+        self.play(FadeIn(Text("alpha")))
+
+class BetaScene(Scene):
+    def construct(self):
+        self.play(FadeIn(Text("beta")))
+
+class GammaScene(Scene):
+    def construct(self):
+        self.play(FadeIn(Text("gamma")))
+"""
+
+
+class SceneSwitchE2E(_ViewerHarness, unittest.TestCase):
+    """Switching scenes reuses one viewer: same servers, same token, same
+    connection. Its own subprocess, because switching changes which scene the
+    process serves."""
+
+    SOURCE = MULTI_SCENE_SOURCE
+    SCENE = "AlphaScene"
+    FILENAME = "multi_scene.py"
+
+    def _state_after(self, ws, seconds):
+        _, states = self._collect(ws, seconds)
+        return states[-1] if states else None
+
+    def test_state_lists_every_scene_in_the_file(self):
+        with self._connect() as ws:
+            state = self._state_after(ws, 4)
+            self.assertIsNotNone(state, "no state after connect")
+            self.assertEqual(state["scene"], "AlphaScene")
+            self.assertEqual(
+                state["scenes"], ["AlphaScene", "BetaScene", "GammaScene"])
+
+    def test_switching_scene_keeps_the_same_connection(self):
+        with self._connect() as ws:
+            self.assertIsNotNone(self._state_after(ws, 4))
+
+            ws.send(json.dumps(
+                {"type": "switch_scene", "scene": "GammaScene"}))
+            switched = self._state_after(ws, 20)
+            self.assertIsNotNone(switched, "no state after switch")
+            self.assertEqual(switched["scene"], "GammaScene")
+
+            # And back again, on the very same socket.
+            ws.send(json.dumps(
+                {"type": "switch_scene", "scene": "AlphaScene"}))
+            restored = self._state_after(ws, 20)
+            self.assertIsNotNone(restored, "no state after second switch")
+            self.assertEqual(restored["scene"], "AlphaScene")
+
+    def test_unknown_scene_name_is_ignored(self):
+        """The name selects a class to instantiate, so it must be checked
+        against the file rather than trusted from the wire."""
+        with self._connect() as ws:
+            before = self._state_after(ws, 4)
+            ws.send(json.dumps(
+                {"type": "switch_scene", "scene": "NotAScene"}))
+            after = self._state_after(ws, 4)
+            current = (after or before)["scene"]
+            self.assertEqual(current, before["scene"])
+            self.assertTrue(self.proc.poll() is None, "process died")
 
 
 if __name__ == "__main__":

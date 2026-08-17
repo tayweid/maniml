@@ -2,6 +2,7 @@
 
 import sys
 import os
+import traceback
 import importlib
 import importlib.abc
 import importlib.machinery
@@ -206,6 +207,40 @@ def load_scene_module(script_file):
     return module
 
 
+def _run_web_scenes(viewer, script_file, scene_name, scene_class, present):
+    """Serve one scene after another through a single browser viewer.
+
+    Picking another scene from the file sets a pending switch and ends the
+    current scene's interaction loop. The viewer itself is deliberately not
+    destroyed in between, so the next scene reuses the same servers, the same
+    capability token and the same connected tab — the client sees the scene
+    change, not a disconnect.
+
+    The module is re-imported per scene for the same reason `_restart_from_source`
+    does it: the previous scene may have mutated module-level state.
+    """
+    source_path = os.path.abspath(script_file)
+    while True:
+        scene = scene_class(window=viewer)
+        scene._present_mode = present
+        scene._scene_filepath = source_path
+        scene.run()
+
+        pending = viewer.take_pending_scene()
+        if pending is None:
+            return
+        try:
+            module = load_scene_module(script_file)
+            next_class = getattr(module, pending, None)
+        except Exception:
+            traceback.print_exc()
+            next_class = None
+        if next_class is None or not callable(next_class):
+            print(f"Error: Scene '{pending}' could not be loaded; keeping {scene_name}")
+            return
+        scene_name, scene_class = pending, next_class
+
+
 def run_scene(
     script_file,
     scene_name,
@@ -274,8 +309,8 @@ def run_scene(
         from maniml.web import WebViewer
 
         viewer = WebViewer(open_browser=open_browser)
-        scene = scene_class(window=viewer)
-        scene._present_mode = present
+        _run_web_scenes(viewer, script_file, scene_name, scene_class, present)
+        return
     else:
         from maniml.rendering.window import Window
 

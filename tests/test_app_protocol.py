@@ -428,15 +428,38 @@ class AppShutdownTests(unittest.TestCase):
 
 
 class WebViewerLeaseTests(unittest.TestCase):
-    def test_only_transient_viewers_close_when_the_lease_expires(self):
+    def _viewer(self):
         viewer = WebViewer.__new__(WebViewer)
         viewer.server = MagicMock()
         viewer.server.client_lease_expired.return_value = True
+        viewer._pending_scene = None
+        return viewer
 
+    def test_only_transient_viewers_close_when_the_lease_expires(self):
+        viewer = self._viewer()
         viewer._transient_session = False
         self.assertFalse(viewer.is_closing)
         viewer._transient_session = True
         self.assertTrue(viewer.is_closing)
+
+    def test_a_pending_scene_ends_the_scene_but_not_the_session(self):
+        """The run loop needs interact() to return, but the servers must
+        survive so the next scene reuses this viewer and its token."""
+        viewer = self._viewer()
+        viewer._transient_session = False
+        viewer.server.client_lease_expired.return_value = False
+        viewer._pending_scene = "BetaScene"
+
+        self.assertTrue(viewer.is_closing)
+        viewer.destroy()
+        viewer.server.stop.assert_not_called()
+
+        self.assertEqual(viewer.take_pending_scene(), "BetaScene")
+        self.assertIsNone(viewer.take_pending_scene())
+        self.assertFalse(viewer.is_closing)
+
+        viewer.destroy()
+        viewer.server.stop.assert_called_once_with()
 
 
 if __name__ == "__main__":
