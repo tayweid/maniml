@@ -193,10 +193,9 @@ class MacDesktopLauncherTests(unittest.TestCase):
             document = info["CFBundleDocumentTypes"][0]
             self.assertEqual(document["CFBundleTypeExtensions"], ["py"])
             self.assertEqual(document["LSHandlerRank"], "Alternate")
-            self.assertEqual(
-                info["CFBundleURLTypes"][0]["CFBundleURLSchemes"],
-                ["maniml"],
-            )
+            url_type = info["CFBundleURLTypes"][0]
+            self.assertEqual(url_type["CFBundleURLSchemes"], ["maniml"])
+            self.assertEqual(url_type["CFBundleTypeRole"], "Viewer")
             self.assertFalse(any(key.endswith("UsageDescription") for key in info))
             source = subprocess.run(
                 ["/usr/bin/osadecompile", str(installed)],

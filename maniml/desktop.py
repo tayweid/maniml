@@ -158,6 +158,10 @@ def install_desktop_launcher(
                 "CFBundleURLTypes": [
                     {
                         "CFBundleURLName": BUNDLE_IDENTIFIER,
+                        # Required by Launch Services for a URL-type
+                        # declaration. Without it, Finder document handling
+                        # still works but maniml:// links may have no handler.
+                        "CFBundleTypeRole": "Viewer",
                         "CFBundleURLSchemes": ["maniml"],
                     }
                 ],
