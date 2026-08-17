@@ -29,9 +29,10 @@ uv run --locked python -m unittest \
   tests.test_scene_lifecycle
 ```
 
-The OpenGL and interactive suites require a working display. CI runs the
-headless subset under Xvfb; before a release, the windowed interactive suite is
-also run on macOS.
+The current developer preview targets macOS. CI runs the package and headless
+integration suites on macOS 14; before a release, the windowed interactive
+suite is also run manually on macOS. Windows and Linux testing returns after
+the WebGPU renderer transition and cross-platform packaging work.
 
 ## ManimCE compatibility
 

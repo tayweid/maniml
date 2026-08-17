@@ -56,6 +56,9 @@ interfaces may still change before the first public release.
 
 ### Packaging and release engineering
 
+- Scoped the initial developer preview and release-candidate workflow to
+  macOS; Windows and Linux support resumes after the WebGPU renderer and
+  cross-platform packaging settle.
 - Replaced inherited ManimCE publishing workflows with project-specific CI,
   CodeQL, Pages, and manual release-candidate workflows.
 - Added a non-executing weekly check for public-API drift on ManimCE `main`.

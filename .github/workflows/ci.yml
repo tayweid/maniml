@@ -15,12 +15,11 @@ concurrency:
 
 jobs:
   syntax-build:
-    name: Syntax and package (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    name: Syntax and package (macOS 14, Python ${{ matrix.python }})
+    runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2025]
         python: ["3.11", "3.14"]
 
     steps:
@@ -40,13 +39,6 @@ jobs:
           version: "0.12.5"
           enable-cache: true
 
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            libpango1.0-dev pkg-config
-
       - name: Install locked development environment
         run: uv sync --locked
 
@@ -54,8 +46,7 @@ jobs:
         run: uv run --locked python -m compileall -q maniml tests
 
       - name: Run display-independent hardening tests
-        # YAML folding produces one command under bash and PowerShell. Shell
-        # continuation characters are deliberately avoided in this OS matrix.
+        # YAML folding keeps the test list readable while executing one command.
         run: >-
           uv run --locked python -m unittest
           tests.test_ce_extractor
@@ -70,7 +61,7 @@ jobs:
           tests.test_scene_lifecycle
 
       - name: Audit locked dependencies
-        if: matrix.os == 'ubuntu-22.04' && matrix.python == '3.14'
+        if: matrix.python == '3.14'
         run: uv audit --locked
 
       - name: Build and inspect distributions
@@ -80,7 +71,7 @@ jobs:
           uv run --locked python tests/check_wheel.py
 
       - name: Store release-candidate distributions
-        if: matrix.os == 'ubuntu-22.04' && matrix.python == '3.14'
+        if: matrix.python == '3.14'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maniml-distributions
@@ -88,8 +79,8 @@ jobs:
           if-no-files-found: error
 
   integration:
-    name: Integration (Ubuntu, Python ${{ matrix.python }})
-    runs-on: ubuntu-22.04
+    name: Integration (macOS 14, Python ${{ matrix.python }})
+    runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
@@ -112,25 +103,16 @@ jobs:
           version: "0.12.5"
           enable-cache: true
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            ffmpeg libegl1 libgl1-mesa-dev libgles2 libpango1.0-dev \
-            pkg-config xauth xvfb
-
       - name: Install maniml
         run: uv sync --locked --no-dev
 
-      - name: Run logic and headless-GL integration tests
-        env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
-        run: |
-          xvfb-run -a uv run --locked --no-dev python -m unittest \
-            tests.test_source_map \
-            tests.test_ce_conformance \
-            tests.test_checkpoint_reload \
-            tests.test_modes \
-            tests.test_export \
-            tests.test_app \
-            tests.test_web_viewer
+      - name: Run logic and headless integration tests
+        run: >-
+          uv run --locked --no-dev python -m unittest
+          tests.test_source_map
+          tests.test_ce_conformance
+          tests.test_checkpoint_reload
+          tests.test_modes
+          tests.test_export
+          tests.test_app
+          tests.test_web_viewer

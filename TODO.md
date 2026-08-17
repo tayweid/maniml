@@ -246,13 +246,13 @@ authoring. Watch: typography drift vs CE is already noted in Quality
 tier; Typst-rendered math will drift differently — keep the conformance
 eye on it.
 
-- **CI and release safety. SHIPPED 2026-08-16.** Locked syntax/package jobs
-  cover Ubuntu, macOS, and Windows on Python 3.11 and 3.14. Mesa/Xvfb runs the
-  logic, compatibility, checkpoint, mode, export, app, and browser-viewer
-  integration suites on Ubuntu. CodeQL scans `maniml/`; a weekly AST-only job
-  detects ManimCE public-API drift; the release workflow can build and inspect
-  a candidate but cannot publish it. The full windowed interactive suite on
-  macOS remains a manual public-release gate.
+- **CI and release safety. SHIPPED 2026-08-16.** During the macOS developer
+  preview, locked syntax/package and headless integration jobs cover macOS 14
+  on Python 3.11 and 3.14. Windows and Linux application matrices return after
+  WebGPU is canonical and cross-platform packaging resumes. CodeQL scans
+  `maniml/`; a weekly AST-only job detects ManimCE public-API drift; the release
+  workflow can build and inspect a candidate but cannot publish it. The full
+  windowed interactive suite on macOS remains a manual public-release gate.
 
 
 - **Presentation timeline: window the scrubber for large scenes.** The bar

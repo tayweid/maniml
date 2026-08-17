@@ -14,7 +14,9 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 ## Installation
 
 ManimLive supports Python 3.11 through 3.14, matching current ManimCE's
-supported range.
+supported range. The current developer preview supports macOS. Windows and
+Linux support is intentionally deferred until the WebGPU renderer transition
+and cross-platform desktop packaging are complete.
 
 ```bash
 pip install git+https://github.com/tayweid/maniml.git
@@ -82,7 +84,8 @@ maniml app . --hosted
 The hosted page cannot install or execute local software by itself. The copied
 setup command is the one-time explicit boundary crossing; daily use does not
 require a terminal. The desktop launcher currently targets macOS. Signed
-macOS packaging plus Windows and Linux launchers remain public-release work.
+macOS packaging remains public-release work; Windows and Linux launchers are
+planned after the WebGPU renderer becomes canonical.
 
 On first connection, Chrome may ask whether `maniml.tayweid.io` can access the
 local network. Allow it so the hosted interface can reach the ManimLive engine
