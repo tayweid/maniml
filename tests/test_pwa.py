@@ -85,7 +85,7 @@ class PWAAssetsTests(unittest.TestCase):
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()
-        self.assertIn('const CACHE_NAME = "maniml-app-shell-v3";', worker)
+        self.assertIn('const CACHE_NAME = "maniml-app-shell-v4";', worker)
         self.assertIn("url.origin !== self.location.origin", worker)
         self.assertIn('event.request.method !== "GET"', worker)
         self.assertLess(

@@ -52,6 +52,7 @@ jobs:
           tests.test_ce_extractor
           tests.test_web_security
           tests.test_pwa
+          tests.test_desktop
           tests.test_safe_text_cache
           tests.test_headless_import
           tests.test_app_protocol

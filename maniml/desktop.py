@@ -24,8 +24,12 @@ import tempfile
 import time
 from pathlib import Path
 
-APP_NAME = "ManimLive"
-BUNDLE_IDENTIFIER = "io.tayweid.maniml"
+APP_NAME = "ManimLive Desktop"
+BUNDLE_IDENTIFIER = "io.tayweid.maniml.desktop"
+LEGACY_APP_NAME = "ManimLive"
+LEGACY_BUNDLE_IDENTIFIER = "io.tayweid.maniml"
+PYTHON_CONTENT_TYPE = "public.python-script"
+LS_ROLES_VIEWER = 0x00000002
 LAUNCH_SERVICES_REGISTRAR = Path(
     "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
     "LaunchServices.framework/Support/lsregister"
@@ -187,6 +191,98 @@ def _set_default_url_handler(
         release(scheme_ref)
 
 
+def _verify_document_handler(
+    content_type: str = PYTHON_CONTENT_TYPE,
+    bundle_identifier: str = BUNDLE_IDENTIFIER,
+) -> None:
+    """Require Finder to recognize the desktop app as a Python viewer."""
+    try:
+        core_foundation = ctypes.CDLL(str(CORE_FOUNDATION))
+        core_services = ctypes.CDLL(str(CORE_SERVICES))
+    except OSError as error:
+        raise RuntimeError("macOS Launch Services APIs were not found") from error
+
+    create_string = core_foundation.CFStringCreateWithCString
+    create_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    create_string.restype = ctypes.c_void_p
+    release = core_foundation.CFRelease
+    release.argtypes = [ctypes.c_void_p]
+    release.restype = None
+    compare = core_foundation.CFStringCompare
+    compare.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+    compare.restype = ctypes.c_long
+    array_count = core_foundation.CFArrayGetCount
+    array_count.argtypes = [ctypes.c_void_p]
+    array_count.restype = ctypes.c_long
+    array_value = core_foundation.CFArrayGetValueAtIndex
+    array_value.argtypes = [ctypes.c_void_p, ctypes.c_long]
+    array_value.restype = ctypes.c_void_p
+
+    copy_handlers = core_services.LSCopyAllRoleHandlersForContentType
+    copy_handlers.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    copy_handlers.restype = ctypes.c_void_p
+
+    type_ref = create_string(
+        None, content_type.encode("utf-8"), CF_STRING_ENCODING_UTF8
+    )
+    bundle_ref = create_string(
+        None, bundle_identifier.encode("utf-8"), CF_STRING_ENCODING_UTF8
+    )
+    if not type_ref or not bundle_ref:
+        for reference in (type_ref, bundle_ref):
+            if reference:
+                release(reference)
+        raise RuntimeError("could not create the macOS document handler values")
+
+    handlers_ref = None
+    try:
+        handlers_ref = copy_handlers(type_ref, LS_ROLES_VIEWER)
+        recognized = handlers_ref and any(
+            compare(array_value(handlers_ref, index), bundle_ref, 0) == 0
+            for index in range(array_count(handlers_ref))
+        )
+        if not recognized:
+            raise RuntimeError(
+                f"Finder did not register {bundle_identifier} for "
+                f"{content_type} files"
+            )
+    finally:
+        if handlers_ref:
+            release(handlers_ref)
+        release(bundle_ref)
+        release(type_ref)
+
+
+def _retire_legacy_launcher(
+    *,
+    registrar: Path = LAUNCH_SERVICES_REGISTRAR,
+    legacy_application: Path | None = None,
+) -> None:
+    """Remove the obsolete same-named bridge after its replacement works."""
+    legacy = legacy_application or (
+        Path.home() / "Applications" / f"{LEGACY_APP_NAME}.app"
+    )
+    info_path = legacy / "Contents" / "Info.plist"
+    try:
+        with info_path.open("rb") as file:
+            info = plistlib.load(file)
+    except (OSError, plistlib.InvalidFileException):
+        return
+    if not (
+        info.get("CFBundleIdentifier") == LEGACY_BUNDLE_IDENTIFIER
+        and info.get("CFBundleExecutable") == "droplet"
+    ):
+        return
+    if registrar.is_file():
+        subprocess.run(
+            [str(registrar), "-u", str(legacy)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    shutil.rmtree(legacy)
+
+
 def install_desktop_launcher(
     destination: str | os.PathLike[str] | None = None,
     *,
@@ -208,6 +304,7 @@ def install_desktop_launcher(
     python = Path(os.path.abspath(sys.executable))
     if not python.is_file():
         raise RuntimeError(f"Python interpreter was not found: {python}")
+    default_destination = destination is None
     destination_path = Path(
         destination or Path.home() / "Applications" / f"{APP_NAME}.app"
     ).expanduser()
@@ -235,10 +332,14 @@ def install_desktop_launcher(
     ) as temporary:
         temporary_path = Path(temporary)
         source_path = temporary_path / "launcher.applescript"
-        bundle_path = temporary_path / f"{APP_NAME}.app"
+        compiled_path = temporary_path / "CompiledLauncher.app"
+        # Once osacompile finishes, remove the .app suffix before assigning
+        # ManimLive's real bundle identifier. Launch Services otherwise keeps
+        # dead records for staging paths and can route files/URLs to them.
+        payload_path = temporary_path / "launcher.payload"
         source_path.write_text(source, encoding="utf-8")
         result = subprocess.run(
-            [compiler, "-o", str(bundle_path), str(source_path)],
+            [compiler, "-o", str(compiled_path), str(source_path)],
             capture_output=True,
             text=True,
             check=False,
@@ -247,7 +348,16 @@ def install_desktop_launcher(
             detail = (result.stderr or result.stdout).strip()
             raise RuntimeError(f"could not compile desktop launcher: {detail}")
 
-        info_path = bundle_path / "Contents" / "Info.plist"
+        if registrar.is_file():
+            subprocess.run(
+                [str(registrar), "-u", str(compiled_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        compiled_path.replace(payload_path)
+
+        info_path = payload_path / "Contents" / "Info.plist"
         with info_path.open("rb") as file:
             info = plistlib.load(file)
         # osacompile adds generic purpose strings for every privacy service an
@@ -266,6 +376,7 @@ def install_desktop_launcher(
                         "CFBundleTypeExtensions": ["py"],
                         "CFBundleTypeName": "Python source file",
                         "CFBundleTypeRole": "Viewer",
+                        "LSItemContentTypes": [PYTHON_CONTENT_TYPE],
                         # Appear in Open With without taking over every Python
                         # file as the user's default editor.
                         "LSHandlerRank": "Alternate",
@@ -295,7 +406,7 @@ def install_desktop_launcher(
                 "--sign",
                 "-",
                 "--timestamp=none",
-                str(bundle_path),
+                str(payload_path),
             ],
             capture_output=True,
             text=True,
@@ -305,33 +416,35 @@ def install_desktop_launcher(
             detail = (signed.stderr or signed.stdout).strip()
             raise RuntimeError(f"could not sign desktop launcher: {detail}")
 
-        # osacompile can make Launch Services notice this staging path. Remove
-        # that record before moving the finished bundle so it cannot compete
-        # with the permanent application for maniml:// URLs.
-        if registrar.is_file():
-            subprocess.run(
-                [str(registrar), "-u", str(bundle_path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-
         if destination_path.exists():
-            backup = temporary_path / "previous.app"
+            backup = temporary_path / "previous.payload"
             destination_path.replace(backup)
             try:
-                bundle_path.replace(destination_path)
+                payload_path.replace(destination_path)
             except Exception:
                 backup.replace(destination_path)
                 raise
         else:
-            bundle_path.replace(destination_path)
+            payload_path.replace(destination_path)
 
     # Finder and the PWA both depend on this registration. Do not claim the
     # installation succeeded when the OS rejected it.
     if register:
         _register_desktop_launcher(destination_path, registrar=registrar)
         _set_default_url_handler()
+        _verify_document_handler()
+        if default_destination:
+            _retire_legacy_launcher(registrar=registrar)
+    elif registrar.is_file():
+        # osacompile/Finder may notice even a test or custom unregistered
+        # bundle. Honor register=False by removing that incidental record so
+        # a temporary copy can never compete with the installed application.
+        subprocess.run(
+            [str(registrar), "-u", str(destination_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
     return destination_path
 
 

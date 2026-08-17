@@ -72,12 +72,12 @@ Using `python -m maniml` deliberately selects the same Python environment as
 the preceding install, even when another older `maniml` executable appears
 earlier on `PATH`.
 
-After setup, open **ManimLive** from Applications to choose a scene, or
-right-click a Python file and choose **Open With → ManimLive**. The app starts
-the matching local Python engine automatically. Its **Open…** toolbar button
-invokes the installed desktop bridge when the engine is not running, then uses
-a native file picker. A file selected outside the current project grants
-access to that file only.
+After setup, open **ManimLive Desktop** from Applications to choose a scene, or
+right-click a Python file and choose **Open With → ManimLive Desktop**. The
+helper starts the matching local Python engine automatically. The ManimLive
+web app's **Open…** toolbar button invokes that desktop helper when the engine
+is not running, then uses a native file picker. A file selected outside the
+current project grants access to that file only.
 
 Hosted sessions open in the installed ManimLive Chrome app when it is present,
 then in Google Chrome. This avoids transient default-browser windows that do

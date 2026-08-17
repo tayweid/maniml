@@ -12,7 +12,9 @@ from unittest import mock
 
 from maniml.desktop import (
     _register_desktop_launcher,
+    _retire_legacy_launcher,
     _set_default_url_handler,
+    _verify_document_handler,
     install_desktop_launcher,
 )
 from maniml.web.app import AppServer, _is_maniml_chrome_pwa, open_hosted_url
@@ -82,6 +84,51 @@ class FilePickerTests(unittest.TestCase):
 
 class LaunchServicesTests(unittest.TestCase):
     @mock.patch("maniml.desktop.ctypes.CDLL")
+    def test_python_document_handler_is_verified(self, load_library):
+        core_foundation = mock.MagicMock()
+        core_services = mock.MagicMock()
+        load_library.side_effect = [core_foundation, core_services]
+        core_foundation.CFStringCreateWithCString.side_effect = [201, 202]
+        core_services.LSCopyAllRoleHandlersForContentType.return_value = 203
+        core_foundation.CFArrayGetCount.return_value = 2
+        core_foundation.CFArrayGetValueAtIndex.side_effect = [204, 205]
+        core_foundation.CFStringCompare.side_effect = [1, 0]
+
+        _verify_document_handler()
+
+        core_services.LSCopyAllRoleHandlersForContentType.assert_called_once_with(
+            201, 2
+        )
+        self.assertEqual(
+            [call.args[0] for call in core_foundation.CFRelease.call_args_list],
+            [203, 202, 201],
+        )
+
+    def test_legacy_generated_launcher_is_removed_after_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy = Path(directory) / "ManimLive.app"
+            info_path = legacy / "Contents" / "Info.plist"
+            info_path.parent.mkdir(parents=True)
+            with info_path.open("wb") as file:
+                plistlib.dump(
+                    {
+                        "CFBundleIdentifier": "io.tayweid.maniml",
+                        "CFBundleExecutable": "droplet",
+                    },
+                    file,
+                )
+            registrar = Path(directory) / "lsregister"
+            registrar.touch()
+
+            with mock.patch("maniml.desktop.subprocess.run") as run:
+                _retire_legacy_launcher(
+                    registrar=registrar, legacy_application=legacy
+                )
+
+            self.assertFalse(legacy.exists())
+            run.assert_called_once()
+
+    @mock.patch("maniml.desktop.ctypes.CDLL")
     def test_default_url_handler_is_assigned_and_verified(self, load_library):
         core_foundation = mock.MagicMock()
         core_services = mock.MagicMock()
@@ -129,7 +176,7 @@ class LaunchServicesTests(unittest.TestCase):
         ]
 
         _register_desktop_launcher(
-            Path("/Applications/ManimLive.app"),
+            Path("/Applications/ManimLive Desktop.app"),
             registrar=registrar,
         )
 
@@ -152,7 +199,7 @@ class LaunchServicesTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "still busy"):
             _register_desktop_launcher(
-                Path("/Applications/ManimLive.app"),
+                Path("/Applications/ManimLive Desktop.app"),
                 registrar=registrar,
             )
 
@@ -262,7 +309,7 @@ class HostedBrowserLaunchTests(unittest.TestCase):
 class MacDesktopLauncherTests(unittest.TestCase):
     def test_installed_bundle_registers_python_open_with(self):
         with tempfile.TemporaryDirectory() as directory:
-            destination = Path(directory) / "ManimLive.app"
+            destination = Path(directory) / "ManimLive Desktop.app"
             log_directory = Path(directory) / "logs"
             installed = install_desktop_launcher(
                 destination, log_directory=log_directory, register=False
@@ -270,9 +317,14 @@ class MacDesktopLauncherTests(unittest.TestCase):
             self.assertEqual(installed, destination)
             with (installed / "Contents" / "Info.plist").open("rb") as file:
                 info = plistlib.load(file)
-            self.assertEqual(info["CFBundleIdentifier"], "io.tayweid.maniml")
+            self.assertEqual(
+                info["CFBundleIdentifier"], "io.tayweid.maniml.desktop"
+            )
             document = info["CFBundleDocumentTypes"][0]
             self.assertEqual(document["CFBundleTypeExtensions"], ["py"])
+            self.assertEqual(
+                document["LSItemContentTypes"], ["public.python-script"]
+            )
             self.assertEqual(document["LSHandlerRank"], "Alternate")
             url_type = info["CFBundleURLTypes"][0]
             self.assertEqual(url_type["CFBundleURLSchemes"], ["maniml"])

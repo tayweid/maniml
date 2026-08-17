@@ -178,7 +178,7 @@ the landing; scene processes serve viewer.html at their root).
 
 **Desktop launch bridge (macOS developer preview, 2026-08-16).** Daily use no
 longer needs a terminal after the one-time engine install. `maniml
-install-desktop` generates `~/Applications/ManimLive.app`, bound to the exact
+install-desktop` generates `~/Applications/ManimLive Desktop.app`, bound to the exact
 Python environment used for installation, and registers `.py` as an alternate
 Finder document type. Opening the app presents a native picker; Finder's Open
 With starts `maniml open FILE`, which launches an isolated hosted session on a
