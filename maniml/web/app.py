@@ -602,6 +602,25 @@ class AppServer:
         viewer_url = f"viewer.html?ws={ws_port}#token={viewer_token}"
         return {"url": url, "ws_port": ws_port, "viewer_url": viewer_url}
 
+    def grant_file(self, raw_path: str) -> str | None:
+        """Authorize one file the user named outside the browser.
+
+        A path handed over by Finder or a native dialog is an explicit user
+        action, so it can be opened later without widening the root boundary
+        for anything else. Listing it as a recent makes it reachable on the
+        landing page when the direct open could not proceed.
+        """
+        try:
+            candidate = resolve_authorized_file(
+                self._root_path, raw_path, suffix=".py", allow_outside_root=True
+            )
+        except ValueError:
+            return None
+        path = str(candidate)
+        self._granted_files.add(path)
+        remember_recent(path)
+        return path
+
     def choose_payload(self) -> dict:
         """Choose one file through an OS dialog and grant only that file.
 
@@ -783,6 +802,15 @@ def run_app(
         opened = server.open_payload({"path": initial_file})
         if hosted and opened.get("viewer_url"):
             launch_url = HOSTED_APP_URL + opened["viewer_url"]
+        elif opened.get("error"):
+            # A desktop open has no UI of its own: without this the launcher
+            # log is silent and the landing page gives no hint why the file
+            # the user just picked did not open.
+            print(f"maniml open: {initial_file}: {opened['error']}")
+            # Fall back to the landing page, and make sure the file is
+            # listed and openable there even though the direct open failed
+            # (a multi-scene file is the common case — pick a scene).
+            server.grant_file(initial_file)
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
     if open_browser:
         if hosted:

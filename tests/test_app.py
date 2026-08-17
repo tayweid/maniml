@@ -16,6 +16,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
@@ -248,6 +249,60 @@ class AppShellE2E(unittest.TestCase):
                 {"type": "authenticate", "token": "wrong"}))
             with self.assertRaises(Exception):
                 ws.recv(timeout=3)
+
+
+class DesktopOpenFallbackTests(unittest.TestCase):
+    """`maniml open FILE` hands over a file the user picked in Finder or a
+    native dialog. A file with several scenes cannot be opened directly, so
+    it must still be reachable from the landing page it falls back to."""
+
+    def setUp(self):
+        import tempfile
+        from maniml.web.app import AppServer
+
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        recents = os.path.join(self.tmpdir.name, "recents.json")
+        previous = os.environ.get("MANIML_RECENTS_PATH")
+        os.environ["MANIML_RECENTS_PATH"] = recents
+        self.addCleanup(
+            lambda: os.environ.__setitem__("MANIML_RECENTS_PATH", previous)
+            if previous is not None
+            else os.environ.pop("MANIML_RECENTS_PATH", None)
+        )
+        # grant_file resolves; macOS hands out /var paths that resolve to
+        # /private/var, so compare against the resolved form.
+        self.multi = str(
+            Path(os.path.join(self.tmpdir.name, "two_scenes.py")).resolve()
+        )
+        with open(self.multi, "w") as f:
+            f.write(
+                "from manim import *\n"
+                "class AlphaScene(Scene): pass\n"
+                "class BetaScene(Scene): pass\n"
+            )
+        self.server = AppServer(self.tmpdir.name, port=0, control_port=0)
+        self.addCleanup(self.server.shutdown)
+
+    def test_multi_scene_file_reports_why_it_did_not_open(self):
+        result = self.server.open_payload({"path": self.multi})
+        self.assertIn("error", result)
+        self.assertNotIn("viewer_url", result)
+
+    def test_granted_file_is_listed_with_every_scene(self):
+        self.assertEqual(self.server.grant_file(self.multi), self.multi)
+        listed = {
+            f["path"]: f["scenes"] for f in self.server.files_payload()["files"]
+        }
+        self.assertEqual(listed.get(self.multi), ["AlphaScene", "BetaScene"])
+
+    def test_grant_file_refuses_a_path_that_is_not_a_python_file(self):
+        other = os.path.join(self.tmpdir.name, "notes.txt")
+        with open(other, "w") as f:
+            f.write("not a scene\n")
+        self.assertIsNone(self.server.grant_file(other))
+        self.assertIsNone(self.server.grant_file(
+            os.path.join(self.tmpdir.name, "missing.py")))
 
 
 if __name__ == "__main__":
