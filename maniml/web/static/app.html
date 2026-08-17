@@ -57,6 +57,7 @@
   body[data-connection="connecting"] #status-dot { background: var(--warn); }
   body[data-connection="connected"] #status-dot { background: var(--good); }
   body[data-connection="expired"] #status-dot,
+  body[data-connection="bridge-missing"] #status-dot,
   body[data-connection="incompatible"] #status-dot { background: var(--bad); }
 
   #onboarding { background: var(--panel); border: 1px solid var(--line);
@@ -67,9 +68,13 @@
   .onboarding-intro h2 { font: 500 22px/1.2 Georgia, "Times New Roman", serif;
     letter-spacing: .015em; margin: 0 0 6px; }
   .onboarding-intro p { color: var(--dim); margin: 0; }
-  #connection-message { color: var(--warn); margin-top: 10px; display: none; }
-  body[data-connection="expired"] #connection-message,
-  body[data-connection="incompatible"] #connection-message { display: block; }
+  /* Shown whenever setConnectionState supplies a detail. Keying this on the
+     connection state instead silently swallowed the one message the Open
+     button depends on: the desktop bridge is fire-and-forget, so an
+     unexplained "connecting" state is indistinguishable from a dead click. */
+  #connection-message { color: var(--warn); margin-top: 10px; }
+  #connection-message:empty { display: none; }
+  body[data-connection="bridge-missing"] #connection-message { color: var(--bad); }
   .step { display: grid; grid-template-columns: 30px minmax(0, 1fr);
     gap: 14px; padding: 20px 26px; border-bottom: 1px solid var(--line); }
   .step:last-child { border-bottom: none; }
@@ -302,7 +307,10 @@ function connectControl() {
         control.close(1000, "protocol mismatch");
         return;
       }
+      cancelBridgeWatchdog();
       setConnectionState("connected", "Connected");
+      // A drop while a choose/open request was in flight left this disabled.
+      document.getElementById("openbtn").disabled = false;
       refresh();
       return;
     }
@@ -469,6 +477,57 @@ async function refresh() {
   }
 }
 
+// Navigating to a custom scheme with no registered handler is silent: the
+// browser fires no error and the page simply stays put. Without this
+// watchdog the Open button is indistinguishable from a broken button, which
+// is exactly how an engine that was never installed used to present itself.
+const BRIDGE_TIMEOUT = 2500;
+let bridgeTimer = null;
+
+function cancelBridgeWatchdog() {
+  clearTimeout(bridgeTimer);
+  bridgeTimer = null;
+}
+
+function reportMissingBridge() {
+  bridgeTimer = null;
+  if (document.body.dataset.connection === "connected") return;
+  setConnectionState(
+    "bridge-missing",
+    "Local app not installed",
+    "macOS has no handler for maniml:// links yet, so nothing opened. "
+      + "Finish step 2 below — run the install command in a terminal — then "
+      + "click Open… again."
+  );
+  document.getElementById("onboarding")
+    .scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function requestDesktopBridge() {
+  cancelBridgeWatchdog();
+  setConnectionState(
+    "connecting",
+    "Opening desktop bridge…",
+    "Choose a scene in the native dialog. If no dialog appears, the local app "
+      + "is not installed yet."
+  );
+  // A handler that exists takes focus (Chrome's confirmation sheet, then the
+  // launcher), so losing visibility is the success signal; still being front
+  // and centre after the timeout means nothing claimed the link.
+  window.location.href = "maniml://open";
+  bridgeTimer = setTimeout(() => {
+    if (document.visibilityState === "hidden") {
+      cancelBridgeWatchdog();
+      return;
+    }
+    reportMissingBridge();
+  }, BRIDGE_TIMEOUT);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") cancelBridgeWatchdog();
+});
+
 document.getElementById("openbtn").onclick = async () => {
   const button = document.getElementById("openbtn");
   errorEl.style.display = "none";
@@ -479,12 +538,7 @@ document.getElementById("openbtn").onclick = async () => {
       errorEl.style.display = "block";
       return;
     }
-    setConnectionState(
-      "connecting",
-      "Opening desktop bridge…",
-      "Choose a scene in the native dialog. If nothing opens, install the local app below."
-    );
-    window.location.href = "maniml://open";
+    requestDesktopBridge();
     return;
   }
   button.disabled = true;

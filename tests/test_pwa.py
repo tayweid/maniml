@@ -47,6 +47,54 @@ class PWAAssetsTests(unittest.TestCase):
             page,
         )
 
+    def test_open_button_reports_a_missing_desktop_bridge(self):
+        """A maniml:// navigation with no handler is silent, so the page must
+        detect the dead click itself rather than sit on 'connecting'."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn("const BRIDGE_TIMEOUT = 2500;", page)
+        self.assertIn("function requestDesktopBridge()", page)
+        self.assertIn("function reportMissingBridge()", page)
+        self.assertIn('setConnectionState(\n    "bridge-missing"', page)
+        self.assertIn('body[data-connection="bridge-missing"] #status-dot', page)
+        self.assertIn('document.visibilityState === "hidden"', page)
+        self.assertIn("cancelBridgeWatchdog()", page)
+
+    def test_connection_message_is_visible_whenever_it_has_text(self):
+        """The detail passed to setConnectionState used to be display:none for
+        every state except expired/incompatible, hiding the Open button's
+        only feedback."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn("#connection-message:empty { display: none; }", page)
+        self.assertNotIn(
+            'body[data-connection="expired"] #connection-message', page
+        )
+
+    def test_hosted_root_forwards_the_pairing_fragment(self):
+        """run_app pairs via HOSTED_APP_URL#token=...; a bare meta refresh to
+        app.html would drop the fragment and the capability with it."""
+        index = (STATIC / "index.html").read_text()
+        self.assertIn(
+            'location.replace("app.html" + location.search + location.hash);',
+            index,
+        )
+        # The no-JS fallback must not pre-empt the fragment-preserving script.
+        self.assertIn("<noscript>", index)
+        self.assertLess(index.index("location.replace"), index.index("<noscript>"))
+
+    def test_viewer_open_button_reports_a_missing_desktop_bridge(self):
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("function requestDesktopBridge()", viewer)
+        self.assertIn("const BRIDGE_TIMEOUT = 2500;", viewer)
+        self.assertIn('id="dismiss-overlay"', viewer)
+        # A missing launcher says nothing about this scene's own socket, so
+        # it must not flip the viewer into its disconnected presentation.
+        bridge = viewer.split("function requestDesktopBridge()", 1)[1].split(
+            "document.addEventListener", 1
+        )[0]
+        self.assertIn("showOverlay(", bridge)
+        self.assertNotIn("showConnectionIssue(", bridge)
+        self.assertNotIn("classList.add(\"disconnected\")", bridge)
+
     def test_viewer_and_engine_share_protocol_version(self):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn(
@@ -85,7 +133,7 @@ class PWAAssetsTests(unittest.TestCase):
 
     def test_service_worker_caches_only_same_origin_static_shell(self):
         worker = (STATIC / "sw.js").read_text()
-        self.assertIn('const CACHE_NAME = "maniml-app-shell-v4";', worker)
+        self.assertIn('const CACHE_NAME = "maniml-app-shell-v5";', worker)
         self.assertIn("url.origin !== self.location.origin", worker)
         self.assertIn('event.request.method !== "GET"', worker)
         self.assertLess(

@@ -1,11 +1,19 @@
 <!DOCTYPE html>
-<!-- Root of the hosted app (github.io/maniml): the landing page is
+<!-- Root of the hosted app (maniml.tayweid.io): the landing page is
      app.html; scene processes serve viewer.html at their own root. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=app.html">
 <title>maniml</title>
+<script>
+// run_app pairs a local engine by opening HOSTED_APP_URL#token=...&control=...
+// That URL lands here, and a meta refresh navigates without carrying the
+// fragment, so the pairing capability would be lost before app.html could
+// read it. Forward the fragment (and any query) explicitly; the meta refresh
+// below remains the no-JS fallback.
+location.replace("app.html" + location.search + location.hash);
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=app.html"></noscript>
 </head>
 <body></body>
 </html>

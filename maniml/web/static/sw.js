@@ -3,7 +3,7 @@
 // Network-first keeps the hosted UI moving quickly while retaining a small,
 // non-sensitive offline shell. Local HTTP APIs and WebSockets are on other
 // origins and are deliberately never cached here.
-const CACHE_NAME = "maniml-app-shell-v4";
+const CACHE_NAME = "maniml-app-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
