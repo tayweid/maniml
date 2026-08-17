@@ -27,6 +27,12 @@ jobs:
           version: "0.12.5"
           enable-cache: true
 
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libpango1.0-dev pkg-config
+
       - name: Install locked development environment
         run: uv sync --locked
 

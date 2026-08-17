@@ -40,6 +40,13 @@ jobs:
           version: "0.12.5"
           enable-cache: true
 
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libpango1.0-dev pkg-config
+
       - name: Install locked development environment
         run: uv sync --locked
 
@@ -47,18 +54,20 @@ jobs:
         run: uv run --locked python -m compileall -q maniml tests
 
       - name: Run display-independent hardening tests
-        run: |
-          uv run --locked python -m unittest \
-            tests.test_ce_extractor \
-            tests.test_web_security \
-            tests.test_pwa \
-            tests.test_safe_text_cache \
-            tests.test_headless_import \
-            tests.test_app_protocol \
-            tests.test_export_publication \
-            tests.test_external_processes \
-            tests.test_remote_assets \
-            tests.test_scene_lifecycle
+        # YAML folding produces one command under bash and PowerShell. Shell
+        # continuation characters are deliberately avoided in this OS matrix.
+        run: >-
+          uv run --locked python -m unittest
+          tests.test_ce_extractor
+          tests.test_web_security
+          tests.test_pwa
+          tests.test_safe_text_cache
+          tests.test_headless_import
+          tests.test_app_protocol
+          tests.test_export_publication
+          tests.test_external_processes
+          tests.test_remote_assets
+          tests.test_scene_lifecycle
 
       - name: Audit locked dependencies
         if: matrix.os == 'ubuntu-22.04' && matrix.python == '3.14'
@@ -107,7 +116,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            ffmpeg libegl1 libgl1-mesa-dev libgles2 libpango-1.0-0 xauth xvfb
+            ffmpeg libegl1 libgl1-mesa-dev libgles2 libpango1.0-dev \
+            pkg-config xauth xvfb
 
       - name: Install maniml
         run: uv sync --locked --no-dev
