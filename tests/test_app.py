@@ -121,22 +121,25 @@ class AppShellE2E(unittest.TestCase):
             opened = self._request(
                 ws, "open", path=entry["path"], scene="AppDemo")
             self.assertIn("url", opened, opened.get("error"))
+            # The page is never sent to another port: the port is the
+            # installed app's identity, so a scene opens inside it.
+            self.assertEqual(
+                opened["viewer_url"], f"viewer.html?scene={opened['scene_id']}")
 
             # Re-opening the same scene reuses the live process (same URL)
             reopened = self._request(
                 ws, "open", path=entry["path"], scene="AppDemo")
             self.assertEqual(reopened["url"], opened["url"])
 
-        # The scene process serves its own viewer, and its WebSocket — on
-        # that same port — streams a frame.
+        # Everything the browser touches is this one origin: the viewer page,
+        # and a socket the app relays to the process running the scene.
         viewer = urllib.request.urlopen(
-            opened["url"], timeout=5).read().decode()
+            self.url + opened["viewer_url"], timeout=5).read().decode()
         self.assertIn("<canvas", viewer)
-        parsed = urlsplit(opened["url"])
         with ws_connect(
-                f"ws://localhost:{parsed.port}/", max_size=2**24,
-                origin=f"http://localhost:{parsed.port}") as ws:
-            ready = json.loads(ws.recv(timeout=5))
+                f"{self._control_url()}scene/{opened['scene_id']}",
+                max_size=2**24, origin=self.url.rstrip("/")) as ws:
+            ready = json.loads(ws.recv(timeout=10))
             self.assertEqual(ready["type"], "ready")
             deadline = time.time() + 10
             got_frame = False
@@ -146,7 +149,14 @@ class AppShellE2E(unittest.TestCase):
                 except TimeoutError:
                     continue
                 got_frame = isinstance(message, bytes)
-            self.assertTrue(got_frame, "no frame from opened scene")
+            self.assertTrue(got_frame, "no frame relayed from opened scene")
+
+    def test_relay_refuses_a_scene_it_is_not_running(self):
+        with ws_connect(
+                f"{self._control_url()}scene/not-a-scene",
+                origin=self.url.rstrip("/")) as ws:
+            with self.assertRaises(Exception):
+                ws.recv(timeout=5)
 
     def test_viewer_page_is_served_by_the_app_too(self):
         # The app serves the whole static directory, so a viewer opened from

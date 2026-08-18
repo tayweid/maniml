@@ -375,7 +375,12 @@ const chipsEl = document.getElementById("chips");
 // Everything below this line speaks only in protocol messages, so an in-page
 // engine (Pyodide) would replace `send` and the message pump and leave the
 // rest of the viewer untouched.
-const wsUrl = "ws://" + location.host + "/";
+// A scene opened through the app is reached at /scene/<id> on the app's own
+// origin, which relays to the process running it; a scene process serving its
+// own page answers at the root. Either way the address is where we are.
+const sceneParam = new URLSearchParams(location.search).get("scene");
+const wsUrl = "ws://" + location.host
+  + (sceneParam ? "/scene/" + encodeURIComponent(sceneParam) : "/");
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 let ws = null;

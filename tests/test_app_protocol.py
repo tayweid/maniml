@@ -98,12 +98,14 @@ class SceneProcessLifecycleTests(unittest.TestCase):
         server._lock = threading.Lock()
         server._shutdown_complete = False
         server.processes = {}
+        server._scenes_by_id = {}
+        server._next_scene_id = 0
         server.transient = True
 
         self.assertEqual(server.open_scene("/tmp/scene.py", "Demo"), URL)
 
         scene_process.assert_called_once_with(
-            "/tmp/scene.py", "Demo", transient=True
+            "/tmp/scene.py", "Demo", transient=True, identifier="1"
         )
 
     def test_process_group_options_are_cross_platform(self):

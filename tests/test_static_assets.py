@@ -56,12 +56,19 @@ class ViewerTests(unittest.TestCase):
         for absent in ("token", "sessionStorage", "localStorage"):
             self.assertNotIn(absent, viewer, absent)
 
+    def test_viewer_reaches_its_engine_at_its_own_origin(self):
+        """Through the app a scene is /scene/<id> on the app's port; run on
+        its own, a scene process answers at the root. Never another port."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('"ws://" + location.host', viewer)
+        self.assertIn('"/scene/" + encodeURIComponent(sceneParam)', viewer)
+
     def test_viewer_keeps_its_transport_seam_explicit(self):
         """The client renderers are the basis of any future browser-only
         build, so the WebSocket must stay a replaceable transport rather than
         leak through the rest of the viewer."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn('const wsUrl = "ws://" + location.host + "/";', viewer)
+        self.assertIn('const wsUrl = "ws://" + location.host', viewer)
         self.assertNotIn("127.0.0.1", viewer)
         self.assertIn("function send(obj)", viewer)
         self.assertIn("Pyodide", viewer)

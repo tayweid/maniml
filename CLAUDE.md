@@ -112,6 +112,16 @@ installed package, and accepts the page's control WebSocket on that same port.
 There is no hosted origin, no deployment step, and no version negotiation:
 frontend and engine are the same pip install, so they cannot drift.
 
+**One port, one origin — including scenes.** A scene runs in its own
+subprocess (crash isolation: scene files are arbitrary code) and that process
+is a complete server in its own right, which is what `maniml file.py Scene
+--web` uses. But a scene opened *through the app* must not move the browser to
+that process's port, because **the port is the installed app's identity**: a
+PWA installed from `http://localhost:8685` is scoped to it, and navigating to
+8687 would pop the browser out of the app window. So `app.py` serves the
+viewer page itself and relays `/scene/<id>` to the process backing it,
+connecting as an ordinary client. The browser only ever sees one port.
+
 **One port, one origin.** The page and its socket share an origin exactly, so
 the client says `ws://${location.host}/` and is told nothing at launch — no
 port parameter, no allowlist of a second origin, no port-pair arithmetic. That

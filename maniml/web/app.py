@@ -29,7 +29,7 @@ import time
 import webbrowser
 from collections import deque
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit
 
 from maniml.utils.processes import (
     process_group_popen_kwargs,
@@ -162,9 +162,13 @@ class SceneProcess:
         path: str,
         scene: str | None,
         transient: bool = False,
+        identifier: str = "",
     ):
         self.path = path
         self.scene = scene
+        # How the browser names this scene when it asks the app to relay to
+        # it. The scene's own port never reaches the page.
+        self.id = identifier
         command = [sys.executable, "-m", "maniml", path]
         if scene:
             command.append(scene)
@@ -197,6 +201,14 @@ class SceneProcess:
             self.lines.append(line)
             if self.url is None:
                 self.url = parse_viewer_launch_line(line)
+
+    @property
+    def ws_url(self) -> str | None:
+        """The scene's own socket, which only the app ever connects to."""
+        if not self.url:
+            return None
+        port = urlsplit(self.url).port
+        return f"ws://127.0.0.1:{port}/" if port else None
 
     def wait_for_url(self, timeout: float = 25.0) -> str | None:
         deadline = time.time() + timeout
@@ -245,6 +257,8 @@ class AppServer:
         self.allow_outside_root = allow_outside_root
         self.transient = transient
         self.processes: dict[tuple, SceneProcess] = {}
+        self._scenes_by_id: dict[str, SceneProcess] = {}
+        self._next_scene_id = 0
         self._granted_files: set[str] = set()
         self._lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
@@ -278,10 +292,18 @@ class AppServer:
             process = self.processes.get(key)
             if process is not None and not process.alive():
                 process.stop()
+                # Its id names a process that no longer exists; drop it rather
+                # than leave the relay a dead name to refuse.
+                self._scenes_by_id.pop(process.id, None)
                 process = None
             if process is None:
-                process = SceneProcess(path, scene, transient=self.transient)
+                self._next_scene_id += 1
+                process = SceneProcess(
+                    path, scene, transient=self.transient,
+                    identifier=str(self._next_scene_id),
+                )
                 self.processes[key] = process
+                self._scenes_by_id[process.id] = process
         url = process.wait_for_url()
         if url:
             remember_recent(path)
@@ -360,21 +382,18 @@ class AppServer:
                 "log": tail[-4000:],
                 "hint": missing_module_hint(tail),
             }
-        # The scene serves its own viewer on its own port, so the page just
-        # navigates there; nothing has to be relayed through this origin.
-        parsed = urlsplit(url)
-        if parsed.port is None:
-            return {"error": "scene returned an invalid viewer URL"}
-        viewer_url = urlunsplit(
-            (
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path or "/",
-                urlencode({"app": self.url}),  # the viewer's way back here
-                parsed.fragment,
-            )
-        )
-        return {"url": url, "port": parsed.port, "viewer_url": viewer_url}
+        # The page stays on this origin: it opens the viewer here and the app
+        # relays its socket to the scene process. One origin means one
+        # installable app, and a scene opens *inside* it rather than popping
+        # the browser out to another port.
+        process = self.processes.get((path, scene or ""))
+        if process is None or not process.id:
+            return {"error": "scene process disappeared while starting"}
+        return {
+            "url": url,
+            "scene_id": process.id,
+            "viewer_url": f"viewer.html?{urlencode({'scene': process.id})}",
+        }
 
     def grant_file(self, raw_path: str) -> str | None:
         """Authorize one file the user named outside the browser.
@@ -442,9 +461,60 @@ class AppServer:
                 return None
             return static_response(request, index="app.html")
 
+        async def relay(ws, scene_id):
+            """Pump one viewer's socket to the scene process that backs it.
+
+            The scene process is a full server in its own right — `maniml
+            file.py Scene --web` on its own is unchanged — but a scene opened
+            through the app must not move the browser to another port, because
+            the port is the installed app's identity. So the app connects to
+            it as a client and copies frames both ways.
+            """
+            process = self._scenes_by_id.get(scene_id)
+            target = process.ws_url if process is not None else None
+            if target is None or not process.alive():
+                await ws.close(code=1011, reason="no such scene")
+                return
+            import websockets.asyncio.client as ws_client
+
+            try:
+                async with ws_client.connect(
+                    target,
+                    # The scene checks Origin like every server here; the app
+                    # is not a browser, so it states the scene's own origin.
+                    origin=urlsplit(process.url).scheme
+                    + f"://localhost:{urlsplit(process.url).port}",
+                    max_size=None,
+                    max_queue=32,
+                    compression=None,
+                    open_timeout=10,
+                ) as upstream:
+
+                    async def pump(source, sink):
+                        async for message in source:
+                            await sink.send(message)
+
+                    done, pending = await asyncio.wait(
+                        [
+                            asyncio.create_task(pump(ws, upstream)),
+                            asyncio.create_task(pump(upstream, ws)),
+                        ],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in pending:
+                        task.cancel()
+            except Exception:
+                pass  # the scene died or the tab went away; both just close
+            finally:
+                await ws.close()
+
         async def handler(ws):
             # The Origin check in the handshake already decided this; a
             # connection that gets here is the page we served.
+            path = ws.request.path
+            if path.startswith("/scene/"):
+                await relay(ws, path[len("/scene/"):])
+                return
             self._session_lease.connected()
             try:
                 await ws.send(json.dumps({"type": "ready"}))
