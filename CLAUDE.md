@@ -52,9 +52,10 @@ maniml script.py SceneName --render
 # stream), WebGL2, WebGPU (client-rendered), plus a split toggle.
 maniml script.py SceneName --web
 
-# The app: persistent local server with a landing page listing scene
-# files under [dir] (default cwd); each scene opens as its own --web
-# subprocess (crash isolation), same viewer as above.
+# The app: persistent local server. The landing page is an Open action and
+# the files you opened before — not a directory listing. A file opens at its
+# first scene, as its own --web subprocess (crash isolation), in the viewer
+# above; the viewer's scene picker switches scenes within that process.
 maniml app [dir]
 
 # Keep it running as a macOS login agent at http://localhost:8685

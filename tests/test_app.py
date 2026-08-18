@@ -112,14 +112,9 @@ class AppShellE2E(unittest.TestCase):
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
         self.assertIn("maniml", page)
 
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
         with self._control() as ws:
-            files = self._request(ws, "files")
-            entry = next(f for f in files["files"]
-                         if f["rel"] == "app_scene.py")
-            self.assertEqual(entry["scenes"], ["AppDemo"])
-
-            opened = self._request(
-                ws, "open", path=entry["path"], scene="AppDemo")
+            opened = self._request(ws, "open", path=scene_path, scene="AppDemo")
             self.assertIn("url", opened, opened.get("error"))
             # The page is never sent to another port: the port is the
             # installed app's identity, so a scene opens inside it.
@@ -127,8 +122,7 @@ class AppShellE2E(unittest.TestCase):
                 opened["viewer_url"], f"viewer.html?scene={opened['scene_id']}")
 
             # Re-opening the same scene reuses the live process (same URL)
-            reopened = self._request(
-                ws, "open", path=entry["path"], scene="AppDemo")
+            reopened = self._request(ws, "open", path=scene_path, scene="AppDemo")
             self.assertEqual(reopened["url"], opened["url"])
 
         # Everything the browser touches is this one origin: the viewer page,
@@ -287,6 +281,8 @@ class DesktopOpenFallbackTests(unittest.TestCase):
 
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
+        self.outside = tempfile.TemporaryDirectory()
+        self.addCleanup(self.outside.cleanup)
         recents = os.path.join(self.tmpdir.name, "recents.json")
         previous = os.environ.get("MANIML_RECENTS_PATH")
         os.environ["MANIML_RECENTS_PATH"] = recents
@@ -325,12 +321,30 @@ class DesktopOpenFallbackTests(unittest.TestCase):
         self.assertIn("no Manim scene classes", result.get("error", ""))
         self.assertNotIn("viewer_url", result)
 
-    def test_granted_file_is_listed_with_every_scene(self):
+    def test_a_granted_file_is_listed_as_recent(self):
         self.assertEqual(self.server.grant_file(self.multi), self.multi)
         listed = {
-            f["path"]: f["scenes"] for f in self.server.files_payload()["files"]
+            entry["path"]: entry["name"]
+            for entry in self.server.recents_payload()["recents"]
         }
-        self.assertEqual(listed.get(self.multi), ["AlphaScene", "BetaScene"])
+        self.assertEqual(listed.get(self.multi), "two_scenes.py")
+
+    def test_a_recent_stays_openable_in_a_later_session(self):
+        """Recents are the landing page's only discovery surface, so a file
+        picked through the OS dialog has to survive a restart. A fresh server
+        on the same recents file seeds its grants from it."""
+        from maniml.web.app import AppServer
+
+        outside = Path(self.outside.name) / "elsewhere.py"
+        outside.write_text("from manim import *\nclass Far(Scene): pass\n")
+        self.assertEqual(
+            self.server.grant_file(str(outside)), str(outside.resolve()))
+
+        later = AppServer(self.tmpdir.name, port=0)
+        self.addCleanup(later.shutdown)
+        self.assertIn(str(outside.resolve()), later._granted_files)
+        listed = [e["path"] for e in later.recents_payload()["recents"]]
+        self.assertIn(str(outside.resolve()), listed)
 
     def test_grant_file_refuses_a_path_that_is_not_a_python_file(self):
         other = os.path.join(self.tmpdir.name, "notes.txt")

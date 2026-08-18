@@ -77,9 +77,19 @@ in daily use: `maniml app DIR` rejects paths outside `DIR`, including symlinks
 that resolve outside it, unless `--allow-outside-root` is given.
 
 The toolbar's native picker is reachable only over the control channel. A file
-selected in the OS dialog grants the running app access to that single
-canonical `.py` file for the life of the process; it does not disable root
-confinement for sibling paths. Cancellation grants nothing.
+selected in the OS dialog grants the app access to that single canonical `.py`
+file; it does not disable root confinement for sibling paths, directories, or
+anything else. Cancellation grants nothing.
+
+That grant now outlives the process. The landing page is a list of files you
+have opened before, so an entry you cannot click is worse than no entry: the
+app records opened paths in `~/.maniml_recents.json` and treats the files
+listed there as still openable when it next starts. The effect is that root
+confinement covers files you named yourself through a dialog, in addition to
+everything under the launch directory. Deleting an entry from that file — or
+the file itself — revokes it. As everywhere else in this model, a program
+already running as you can edit that file, and can equally well run `python`
+directly; it is not a new authority.
 
 Each page is served with a Content-Security-Policy of `default-src 'self'` and
 `connect-src 'self'`. Because the page and its socket share an origin exactly,

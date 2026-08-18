@@ -33,6 +33,17 @@ class LocalOnlyTests(unittest.TestCase):
             ):
                 self.assertNotIn(forbidden, page, f"{name}: {forbidden}")
 
+    def test_the_landing_page_is_not_a_file_browser(self):
+        """It offers one action and the files you have opened before. Listing
+        every scene class under the launch directory was noise in front of the
+        one file you actually wanted."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn('id="open-hero"', page)
+        self.assertIn('id="recents"', page)
+        # The directory listing and its per-scene chips are gone.
+        for absent in ("fileCard", 'id="files"', 'id="picked"', "No scene files"):
+            self.assertNotIn(absent, page, absent)
+
     def test_the_installable_app_is_the_local_one(self):
         """The manifest and worker are served by the engine, so the app you
         install is the one that can run a scene. The hosted preview must have
@@ -77,7 +88,7 @@ class LocalOnlyTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1", page)
         self.assertIn('request("choose")', page)
         self.assertIn('request("open"', page)
-        self.assertIn('request("files")', page)
+        self.assertIn('request("recents")', page)
         # Nothing to carry, nothing to store, nothing to lose: the engine
         # accepts the socket because of where the page came from.
         for absent in ("token", "sessionStorage", "localStorage"):

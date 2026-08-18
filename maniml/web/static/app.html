@@ -73,25 +73,32 @@
 
   #workspace { display: none; }
   body[data-connection="connected"] #workspace { display: block; }
-  #root { display: inline-block; color: var(--dim); font-size: 11px;
-    margin-bottom: 22px; padding: 7px 11px; border: 1px solid var(--line);
-    border-radius: 9px; background: var(--panel); overflow-wrap: anywhere; }
   .section-title { font-size: 12px; font-weight: 600; color: var(--dim);
     text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 10px; }
-  .file { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr);
-    align-items: center; gap: 18px; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
-    margin-bottom: 8px; transition: border-color 140ms ease, background 140ms ease; }
-  .file:hover { border-color: var(--line-strong); background: var(--panel-raised); }
-  .file .name { min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    font-family: Georgia, "Times New Roman", serif; letter-spacing: .03em; }
-  .scenes { display: flex; flex-wrap: wrap; gap: 6px; }
-  .scene { border: 1px solid var(--line); border-radius: 8px;
-    padding: 4px 10px; cursor: pointer; color: var(--dim);
-    background: rgba(255,255,255,.025); font: inherit; font-size: 12px; }
-  .scene:hover { border-color: rgba(88,196,221,.45); color: var(--text);
-    background: rgba(88,196,221,.07); }
-  .scene.busy { opacity: 0.5; pointer-events: none; }
+  #hero { text-align: center; padding: 40px 0 34px; }
+  #hero .lede { font: 500 21px/1.3 Georgia, "Times New Roman", serif;
+    letter-spacing: .015em; margin: 0 0 18px; }
+  #open-hero { border: 1px solid var(--line-strong); border-radius: 11px;
+    background: var(--panel); color: var(--text); padding: 10px 20px;
+    cursor: pointer; box-shadow: 0 10px 26px rgba(0,0,0,.2); }
+  #open-hero:hover { border-color: rgba(88,196,221,.5);
+    background: rgba(88,196,221,.08); }
+  #open-hero:disabled { opacity: .45; cursor: default; }
+  .recent { display: flex; align-items: baseline; gap: 12px; width: 100%;
+    text-align: left; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 11px 14px; margin-bottom: 7px; cursor: pointer;
+    font: inherit; color: var(--text);
+    transition: border-color 140ms ease, background 140ms ease; }
+  .recent:hover { border-color: rgba(88,196,221,.45);
+    background: var(--panel-raised); }
+  .recent.busy { opacity: .5; pointer-events: none; }
+  .recent .name { font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .03em; }
+  .recent .dir { color: var(--dim); font-size: 11.5px; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #root-note { color: var(--dim); font-size: 11px; text-align: center;
+    margin: 30px 0 0; }
+  #root { overflow-wrap: anywhere; }
   #error { color: var(--bad); font-size: 13px; margin-top: 10px;
     white-space: pre-wrap; display: none; }
   #empty { color: var(--dim); }
@@ -100,8 +107,6 @@
     header { left: 7px; right: 7px; gap: 5px; }
     .pod { min-height: 38px; padding: 2px 7px; border-radius: 12px; }
     .tagline, #status-text { display: none; }
-    .file { display: block; }
-    .file .name { margin-bottom: 9px; }
     .command { display: block; }
     .command code { display: block; }
   }
@@ -133,16 +138,15 @@
   </section>
 
   <section id="workspace">
-    <div id="root"></div>
-    <div id="files"><div id="empty">Loading scenes&hellip;</div></div>
+    <div id="hero">
+      <p class="lede">Open a scene file to begin.</p>
+      <button id="open-hero">Open a scene&hellip;</button>
+    </div>
     <div id="recents-section" hidden>
       <h2 class="section-title">Recent</h2>
       <div id="recents"></div>
     </div>
-    <div id="picked-section" hidden>
-      <h2 class="section-title">Selected file</h2>
-      <div id="picked"></div>
-    </div>
+    <p id="root-note">Scenes open from <span id="root"></span></p>
     <div id="error"></div>
   </section>
 </main>
@@ -157,6 +161,11 @@
 const CONTROL_URL = `ws://${location.host}/`;
 
 const errorEl = document.getElementById("error");
+// Two ways in, one handler: the header slug and the hero button.
+const openButtons = [
+  document.getElementById("openbtn"),
+  document.getElementById("open-hero"),
+];
 const statusText = document.getElementById("status-text");
 const connectionMessage = document.getElementById("connection-message");
 
@@ -203,7 +212,7 @@ function connectControl() {
     catch (error) { return; }
     if (data.type === "ready") {
       setConnectionState("connected", "Connected");
-      document.getElementById("openbtn").disabled = false;
+      for (const button of openButtons) button.disabled = false;
       refresh();
       return;
     }
@@ -276,43 +285,30 @@ async function openScene(path, scene, button) {
   }
 }
 
-function fileCard(file) {
-  const card = document.createElement("div");
-  card.className = "file";
-  const name = document.createElement("div");
+function recentRow(entry) {
+  const row = document.createElement("button");
+  row.className = "recent";
+  const name = document.createElement("span");
   name.className = "name";
-  name.textContent = file.rel;
-  card.appendChild(name);
-  const scenes = document.createElement("div");
-  scenes.className = "scenes";
-  for (const scene of file.scenes) {
-    const chip = document.createElement("button");
-    chip.className = "scene";
-    chip.textContent = scene;
-    chip.onclick = () => openScene(file.path, scene, chip);
-    scenes.appendChild(chip);
-  }
-  card.appendChild(scenes);
-  return card;
+  name.textContent = entry.name;
+  const dir = document.createElement("span");
+  dir.className = "dir";
+  dir.textContent = entry.dir;
+  row.append(name, dir);
+  // No scene chips: a file opens at its first scene and the viewer's own
+  // picker switches from there.
+  row.onclick = () => openScene(entry.path, null, row);
+  return row;
 }
 
 async function refresh() {
   try {
-    const data = await request("files");
+    const data = await request("recents");
     document.getElementById("root").textContent = data.root;
-    const filesEl = document.getElementById("files");
-    filesEl.replaceChildren();
-    if (!data.files.length) {
-      const empty = document.createElement("div");
-      empty.id = "empty";
-      empty.textContent = "No scene files found under this directory.";
-      filesEl.appendChild(empty);
-    }
-    for (const file of data.files) filesEl.appendChild(fileCard(file));
     const recentsEl = document.getElementById("recents");
     recentsEl.replaceChildren();
     document.getElementById("recents-section").hidden = !data.recents.length;
-    for (const file of data.recents) recentsEl.appendChild(fileCard(file));
+    for (const entry of data.recents) recentsEl.appendChild(recentRow(entry));
   } catch (error) {
     if (document.body.dataset.connection === "connected") {
       setConnectionState("connecting", "Engine disconnected");
@@ -323,11 +319,10 @@ async function refresh() {
 // The engine shows the platform's own file dialog: no browser file-handle
 // indirection, so it returns a real path the watcher and the scene's
 // __file__-relative imports can both use.
-document.getElementById("openbtn").onclick = async () => {
-  const button = document.getElementById("openbtn");
+async function chooseAndOpen() {
   errorEl.style.display = "none";
   if (document.body.dataset.connection !== "connected") return;
-  button.disabled = true;
+  for (const button of openButtons) button.disabled = true;
   try {
     const data = await request("choose");
     if (data.cancelled) return;
@@ -340,10 +335,12 @@ document.getElementById("openbtn").onclick = async () => {
     errorEl.style.display = "block";
   } finally {
     if (document.body.dataset.connection === "connected") {
-      button.disabled = false;
+      for (const button of openButtons) button.disabled = false;
     }
   }
-};
+}
+
+for (const button of openButtons) button.onclick = chooseAndOpen;
 </script>
 </body>
 </html>

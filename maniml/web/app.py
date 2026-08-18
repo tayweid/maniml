@@ -48,7 +48,6 @@ RECENTS_PATH = os.environ.get(
     "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
 )
 RECENTS_MAX = 12
-SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: (?P<url>http://localhost:\d+/)\s*$"
 )
@@ -107,32 +106,6 @@ def find_scene_classes(path: str) -> list[str]:
                 scenes.append(node.name)
                 break
     return scenes
-
-
-def find_scene_files(root: str, max_depth: int = 2) -> list[dict]:
-    results = []
-    root = os.path.abspath(root)
-    for dirpath, dirnames, filenames in os.walk(root):
-        depth = os.path.relpath(dirpath, root).count(os.sep)
-        dirnames[:] = [
-            d
-            for d in dirnames
-            if d not in SKIP_DIRS and not d.startswith(".") and depth < max_depth
-        ]
-        for filename in sorted(filenames):
-            if not filename.endswith(".py"):
-                continue
-            path = os.path.join(dirpath, filename)
-            scenes = find_scene_classes(path)
-            if scenes:
-                results.append(
-                    {
-                        "path": path,
-                        "rel": os.path.relpath(path, root),
-                        "scenes": scenes,
-                    }
-                )
-    return results
 
 
 def load_recents() -> list[str]:
@@ -256,10 +229,17 @@ class AppServer:
             raise ValueError(f"app root is not a directory: {self.root}")
         self.allow_outside_root = allow_outside_root
         self.transient = transient
+        # A file you picked through the OS dialog stays openable in later
+        # sessions: recents are the landing page's only discovery surface, and
+        # an entry you cannot click is worse than no entry. See SECURITY.md —
+        # this widens root confinement to files you named yourself, and
+        # deleting the recents file revokes it.
+        self._granted_files: set[str] = {
+            path for path in load_recents() if path.endswith(".py")
+        }
         self.processes: dict[tuple, SceneProcess] = {}
         self._scenes_by_id: dict[str, SceneProcess] = {}
         self._next_scene_id = 0
-        self._granted_files: set[str] = set()
         self._lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
@@ -309,9 +289,14 @@ class AppServer:
             remember_recent(path)
         return url
 
-    def files_payload(self) -> dict:
-        files = find_scene_files(self.root)
-        listed = {f["path"] for f in files}
+    def recents_payload(self) -> dict:
+        """Files the user has opened before, newest first.
+
+        This is the whole of the landing page. It deliberately does not scan
+        the launch directory: the app is not a file browser, and a listing of
+        every scene class under a course tree was noise in front of the one
+        file you actually wanted.
+        """
         recents = []
         for path in load_recents():
             try:
@@ -319,8 +304,7 @@ class AppServer:
             except OSError:
                 continue
             if (
-                path in listed
-                or not recent.is_file()
+                not recent.is_file()
                 or recent.suffix.lower() != ".py"
                 or (
                     not self.allow_outside_root
@@ -329,15 +313,13 @@ class AppServer:
                 )
             ):
                 continue
-            recent_str = str(recent)
-            recents.append(
-                {
-                    "path": recent_str,
-                    "rel": recent_str,
-                    "scenes": find_scene_classes(recent_str),
-                }
-            )
-        return {"root": self.root, "files": files, "recents": recents}
+            parent = recent.parent
+            try:
+                shown = "~/" + str(parent.relative_to(Path.home()))
+            except ValueError:
+                shown = str(parent)
+            recents.append({"path": str(recent), "name": recent.name, "dir": shown})
+        return {"root": self.root, "recents": recents}
 
     def open_payload(self, request: dict) -> dict:
         raw_path = request.get("path")
@@ -447,7 +429,9 @@ class AppServer:
         if not scenes:
             return {"error": "no Manim scene classes were discovered in this file"}
         self._granted_files.add(path)
-        return {"file": {"path": path, "rel": candidate.name, "scenes": scenes}}
+        # Picking a file is exactly the event the Recent list should record.
+        remember_recent(path)
+        return {"file": {"path": path, "name": candidate.name}}
 
     def _start_server(self):
         """Serve the page and its control socket on the one bound port.
@@ -528,8 +512,8 @@ class AppServer:
                     if request is None:
                         continue
                     op = request.get("op")
-                    if op == "files":
-                        response = self.files_payload()
+                    if op == "recents":
+                        response = self.recents_payload()
                     elif op == "choose":
                         response = await asyncio.to_thread(self.choose_payload)
                     elif op == "open":
