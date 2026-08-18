@@ -50,7 +50,6 @@
     background: var(--dim); }
   body[data-connection="connecting"] #status-dot { background: var(--warn); }
   body[data-connection="connected"] #status-dot { background: var(--good); }
-  body[data-connection="expired"] #status-dot { background: var(--bad); }
 
   #offline { background: var(--panel); border: 1px solid var(--line);
     border-radius: 15px; padding: 25px 26px 22px;
@@ -148,8 +147,8 @@
 // This page ships inside the maniml package and is served by the engine that
 // runs the scenes, so the two can never be out of step and there is no
 // cross-origin boundary to negotiate. The socket is the same origin as this
-// page, so there is no address to configure. The token below is still
-// required: any program on this machine can reach loopback.
+// page: nothing to configure, nothing to pair, and nothing to carry in the
+// URL. The engine accepts it because it came from the page the engine served.
 const CONTROL_URL = `ws://${location.host}/`;
 
 const errorEl = document.getElementById("error");
@@ -161,19 +160,6 @@ function setConnectionState(state, message, detail) {
   statusText.textContent = message;
   connectionMessage.textContent = detail || "";
 }
-
-const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
-
-// Keyed by origin so two engines never trade tokens. Session storage keeps a
-// reload working without leaving a capability on disk.
-const storageKey = `maniml-control-token:${location.host}`;
-if (fragmentToken) {
-  try { sessionStorage.setItem(storageKey, fragmentToken); } catch (error) {}
-  history.replaceState(null, "", location.pathname + location.search);
-}
-let storedToken = null;
-try { storedToken = sessionStorage.getItem(storageKey); } catch (error) {}
-const controlToken = fragmentToken || storedToken;
 
 let control = null;
 let reconnectTimer = null;
@@ -199,15 +185,6 @@ function request(op, extra) {
 
 function connectControl() {
   clearTimeout(reconnectTimer);
-  if (!controlToken) {
-    setConnectionState(
-      "expired",
-      "No capability",
-      "Open the address the engine printed when it started, or run "
-        + "`maniml agent open`."
-    );
-    return;
-  }
   setConnectionState("connecting", "Connecting…");
   try {
     control = new WebSocket(CONTROL_URL);
@@ -215,14 +192,11 @@ function connectControl() {
     scheduleReconnect();
     return;
   }
-  control.onopen = () => {
-    control.send(JSON.stringify({ type: "authenticate", token: controlToken }));
-  };
   control.onmessage = (event) => {
     let data;
     try { data = JSON.parse(event.data); }
     catch (error) { return; }
-    if (data.type === "authenticated") {
+    if (data.type === "ready") {
       setConnectionState("connected", "Connected");
       document.getElementById("openbtn").disabled = false;
       refresh();
@@ -234,17 +208,10 @@ function connectControl() {
       entry.resolve(data);
     }
   };
-  control.onclose = (event) => {
+  // A closed socket only ever means the engine is not there yet: keep
+  // retrying rather than putting the page into a state it cannot leave.
+  control.onclose = () => {
     rejectPending("engine disconnected");
-    if (event.code === 1008) {
-      try { sessionStorage.removeItem(storageKey); } catch (error) {}
-      setConnectionState(
-        "expired",
-        "Capability rejected",
-        "The engine did not accept this token. Reopen the address it printed."
-      );
-      return;
-    }
     setConnectionState("connecting", "Waiting for the engine…");
     scheduleReconnect();
   };
@@ -252,7 +219,7 @@ function connectControl() {
 }
 
 function scheduleReconnect() {
-  if (controlToken) reconnectTimer = setTimeout(connectControl, 1500);
+  reconnectTimer = setTimeout(connectControl, 1500);
 }
 connectControl();
 

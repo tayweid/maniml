@@ -1,42 +1,42 @@
 """Security primitives shared by the local app and its scene viewers.
 
-Everything ManimLive serves is same-origin on loopback, so there is no public
-origin to allowlist.  Loopback is still a network boundary rather than an
-authorization boundary — any page in any browser, and any other program on
-this machine, can reach 127.0.0.1 — so each server keeps an unguessable
-capability token and requires it before it will act.
+**The Origin check is the boundary.** Every server here binds loopback and
+serves its page from the same port its WebSocket listens on, so it accepts a
+socket only from its own origin. Browsers set `Origin` themselves and a page
+cannot forge it, so no website — however malicious, and whether or not it
+guesses the port — can drive the engine.
+
+There used to be a capability token as well. It defended against the other
+attacker in the table: a program already running on this machine, which can
+reach 127.0.0.1 and can forge any header it likes. Keeping that defence real
+meant the token could never reach the page through the served HTML, so it
+travelled in the URL fragment — which made launching a delivery problem (a
+printed address to open, a fragment that Chromium app shims silently drop)
+and recovery a terminal command. The defence it bought was small: a program
+running as you does not need to drive maniml to run Python: it can run
+Python. So the token is gone, and `http://localhost:8685` is simply an
+address that works.
+
+Scene files are still arbitrary code, which is why `resolve_authorized_file`
+keeps the app confined to its launch directory.
 """
 
 from __future__ import annotations
 
-import hmac
 import json
 import os
-import secrets
 import stat
 from pathlib import Path
 from typing import Any
 
 
-AUTH_MESSAGE_TYPE = "authenticate"
 MAX_CONTROL_MESSAGE = 64 * 1024
-AUTH_TIMEOUT = 5.0
-
-
-def new_capability_token() -> str:
-    """Return a process-local capability with 256 bits of entropy."""
-    return secrets.token_urlsafe(32)
-
 
 CONFIG_DIR = Path.home() / ".maniml"
-CAPABILITY_FILE = "capability"
 
 
-def capability_path() -> Path:
-    return CONFIG_DIR / CAPABILITY_FILE
-
-
-def _prepare_config_dir() -> Path:
+def prepare_config_dir() -> Path:
+    """Return ~/.maniml, created 0700, refusing a symlinked or non-directory."""
     directory = CONFIG_DIR
     try:
         info = directory.lstat()
@@ -48,67 +48,6 @@ def _prepare_config_dir() -> Path:
     if os.name != "nt":
         directory.chmod(0o700)
     return directory
-
-
-def _read_capability(path: Path) -> str:
-    value = path.read_text(encoding="utf-8").strip()
-    if not value:
-        raise ValueError(f"capability file is empty: {path}")
-    return value
-
-
-def load_or_create_capability() -> str:
-    """Return the stable per-install capability, creating it without races.
-
-    A per-process token dies with the process, which is fine for a
-    terminal-launched session but not for a background agent: the browser has
-    to stay paired across restarts and logins. This one is written 0600 and
-    replaced only by rotate_capability().
-    """
-    directory = _prepare_config_dir()
-    path = directory / CAPABILITY_FILE
-    try:
-        return _read_capability(path)
-    except FileNotFoundError:
-        pass
-
-    capability = new_capability_token()
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags, 0o600)
-    except FileExistsError:
-        # Another concurrently starting engine won the creation race.
-        return _read_capability(path)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-        file.write(capability + "\n")
-    return capability
-
-
-def rotate_capability() -> str:
-    """Atomically replace the capability, revoking every paired browser."""
-    directory = _prepare_config_dir()
-    destination = directory / CAPABILITY_FILE
-    capability = new_capability_token()
-    temporary = directory / f".{CAPABILITY_FILE}.{secrets.token_hex(8)}.tmp"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(temporary, flags, 0o600)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-            file.write(capability + "\n")
-        os.replace(temporary, destination)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
-    return capability
-
-
-def token_matches(candidate: Any, expected: str) -> bool:
-    """Compare a caller-provided token without leaking prefix timing."""
-    return isinstance(candidate, str) and hmac.compare_digest(candidate, expected)
 
 
 def parse_json_object(message: Any) -> dict | None:
@@ -129,15 +68,6 @@ def parse_json_object(message: Any) -> dict | None:
     except (TypeError, ValueError, UnicodeDecodeError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
-
-
-def is_auth_message(message: Any, expected_token: str) -> bool:
-    request = parse_json_object(message)
-    return bool(
-        request
-        and request.get("type") == AUTH_MESSAGE_TYPE
-        and token_matches(request.get("token"), expected_token)
-    )
 
 
 def resolve_authorized_file(

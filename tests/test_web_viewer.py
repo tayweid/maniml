@@ -84,7 +84,6 @@ class _ViewerHarness:
             find_url, STARTUP_TIMEOUT, "server URL in stdout")
         parsed = urlsplit(cls.capability_url)
         cls.url = f"{parsed.scheme}://{parsed.netloc}/"
-        cls.token = parsed.fragment.removeprefix("token=")
         cls.origin = f"http://localhost:{parsed.port}"
         # Page and socket are the same origin: one port, nothing to derive.
         cls.ws_url = f"ws://localhost:{parsed.port}/"
@@ -136,9 +135,8 @@ class _ViewerHarness:
     def _connect(self):
         ws = ws_connect(
             self.ws_url, max_size=2**24, origin=self.origin)
-        ws.send(json.dumps({"type": "authenticate", "token": self.token}))
         response = json.loads(ws.recv(timeout=5))
-        self.assertEqual(response["type"], "authenticated")
+        self.assertEqual(response["type"], "ready")
         self.assertEqual(set(response["capabilities"]), {"export", "restart"})
         return ws
 
@@ -272,13 +270,12 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                     open_timeout=3):
                 pass
 
-    def test_wrong_viewer_token_is_rejected(self):
-        with ws_connect(
-                self.ws_url, origin=self.origin, open_timeout=3) as ws:
-            ws.send(json.dumps(
-                {"type": "authenticate", "token": "wrong"}))
-            with self.assertRaises(Exception):
-                ws.recv(timeout=3)
+    def test_a_client_that_sends_no_origin_is_rejected(self):
+        """Browsers always send one; anything that does not is not the page
+        this viewer served, and the handshake is where that is decided."""
+        with self.assertRaises(Exception):
+            with ws_connect(self.ws_url, open_timeout=3):
+                pass
 
 
 MULTI_SCENE_SOURCE = """
@@ -299,7 +296,7 @@ class GammaScene(Scene):
 
 
 class SceneSwitchE2E(_ViewerHarness, unittest.TestCase):
-    """Switching scenes reuses one viewer: same servers, same token, same
+    """Switching scenes reuses one viewer: same server, same
     connection. Its own subprocess, because switching changes which scene the
     process serves."""
 

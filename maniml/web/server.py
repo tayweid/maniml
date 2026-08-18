@@ -24,13 +24,7 @@ from collections.abc import Callable
 
 from maniml.logger import log
 from maniml.web.assets import is_websocket_upgrade, static_response
-from maniml.web.security import (
-    AUTH_TIMEOUT,
-    MAX_CONTROL_MESSAGE,
-    is_auth_message,
-    new_capability_token,
-    parse_json_object,
-)
+from maniml.web.security import MAX_CONTROL_MESSAGE, parse_json_object
 
 DEFAULT_PORT = 8687
 MAX_EVENT_QUEUE = 1024
@@ -122,9 +116,9 @@ class WebServer:
     ):
         self._socket = bind_loopback(DEFAULT_PORT if port is None else port, scan=40)
         self.port = self._socket.getsockname()[1]
-        self.token = new_capability_token()
-        self.base_url = f"http://localhost:{self.port}/"
-        self.url = f"{self.base_url}#token={self.token}"
+        self.url = f"http://localhost:{self.port}/"
+        # The whole boundary: a socket is accepted only from the origin this
+        # server serves its own page on.
         self.allowed_origins = {f"http://localhost:{self.port}"}
         self.capabilities = list(capabilities)
 
@@ -172,16 +166,14 @@ class WebServer:
     async def _handle_client(self, ws):
         registered = False
         try:
-            first = await asyncio.wait_for(ws.recv(), timeout=AUTH_TIMEOUT)
-            if not is_auth_message(first, self.token):
-                await ws.close(code=1008, reason="authentication required")
-                return
+            # The Origin check in the handshake already decided this; a
+            # connection that gets here is the page we served.
             self._clients.add(ws)
             self._client_lease.connected()
             registered = True
             self._events.append({"type": "_connect"})
             await ws.send(json.dumps({
-                "type": "authenticated",
+                "type": "ready",
                 "capabilities": self.capabilities,
             }))
             async for message in ws:

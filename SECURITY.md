@@ -45,51 +45,46 @@ so scene authors remain responsible for the URLs they use.
 ### Browser clients start untrusted
 
 Binding a service to loopback prevents remote network access, but websites
-loaded in a browser can still attempt connections to localhost. ManimLive's app
-control channel and each scene viewer therefore require both:
+loaded in a browser can still attempt connections to localhost. **The Origin
+check is what stops them.** Every ManimLive server — the app's control channel
+and each scene viewer — serves its page and accepts its WebSocket on one
+loopback port, and completes a handshake only when the request carries that
+server's exact origin. Browsers set `Origin` themselves and a page cannot forge
+it, so no website can drive the engine regardless of the port it guesses. A
+request with no `Origin` at all is refused for the same reason: it is not the
+page this server handed out.
 
-- an unguessable, process-local capability token; and
-- a browser Origin on the server's exact allowlist.
+There is no capability token, and the address (`http://localhost:8685/`)
+carries no secret. That is a deliberate narrowing of the threat model rather
+than an oversight, so it is worth stating what it does and does not cover:
 
-Tokens are passed to a newly opened page in the URL fragment, which isn't sent
-in the HTTP request. The page removes the fragment. Locally served pages retain
-it only in that tab's session; the hosted page keeps it only in memory because
-all projects on the GitHub Pages account share one web origin. Viewer tokens
-are separate from the app-control token and expire with their respective
-processes.
+| Attacker | Defended | How |
+|---|---|---|
+| A website in your browser | yes | It cannot forge `Origin`, and cannot read a cross-origin response |
+| Another machine on the network | yes | Every server binds 127.0.0.1 only |
+| Another program running as you | **no** | It can forge any header, and it can equally well run `python` itself |
 
-The hosted PWA must be paired with each new local daemon session. The desktop
-launcher starts a freshly paired session when the user opens a file; the
-`maniml app DIR --hosted` command remains an explicit fallback. Opening an old
-installed PWA by itself grants no authority over a newly started daemon. Its
-onboarding page may copy a one-time installation command to the clipboard, but
-it cannot execute that command.
+A token defends only that third row, and only for as long as it never reaches
+the page through the served HTML — the moment it does, any local program can
+read it with a plain `GET /`. Keeping it meaningful therefore meant delivering
+it out of band, which made launching a delivery problem and left a rejected
+page with no way back except a terminal. Against an attacker that already has
+the authority to run Python as you, that price bought very little, so the
+token was removed.
 
-The toolbar's native picker is reachable only over the authenticated control
-channel. A file selected in the OS dialog grants the daemon access to that
-single canonical `.py` file for the life of the process; it does not disable
-root confinement for sibling paths. Cancellation grants nothing. Desktop-open
-sessions use an OS-assigned control port carried in the fragment alongside the
-fresh capability so concurrent sessions do not share authorization.
+Scene root confinement is unchanged and is the boundary that still matters
+in daily use: `maniml app DIR` rejects paths outside `DIR`, including symlinks
+that resolve outside it, unless `--allow-outside-root` is given.
 
-When no engine is paired, the Open button may invoke the registered
-`maniml://open` desktop URL. That URL accepts no file path or command; it can
-only display the OS picker. This prevents an arbitrary website from turning a
-custom-protocol navigation into unattended scene execution.
+The toolbar's native picker is reachable only over the control channel. A file
+selected in the OS dialog grants the running app access to that single
+canonical `.py` file for the life of the process; it does not disable root
+confinement for sibling paths. Cancellation grants nothing.
 
-The dedicated `https://maniml.tayweid.io` origin is the launch target. It and
-the legacy GitHub Pages origin are explicitly allowed during the transition.
-No wildcard web origin is trusted. The hosted client and local daemon also
-exchange an integer protocol version after authentication and refuse an
-incompatible pairing.
-
-Current Chromium releases separately require user permission before a public
-website can connect to loopback. The hosted viewer issues a token-free `HEAD`
-request for a static app asset so the browser can present that Local Network
-Access prompt before the WebSocket handshake. Granting the browser permission
-only makes the transport reachable: the WebSocket still requires its
-unguessable viewer token and an exact allowed Origin. The probe never contains
-the token, a scene path, or other local data.
+Each page is served with a Content-Security-Policy of `default-src 'self'` and
+`connect-src 'self'`. Because the page and its socket share an origin exactly,
+that policy genuinely confines the page to the engine that served it: there is
+no second origin, host, or port it is permitted to reach.
 
 ### Exported scenes are public artifacts
 
@@ -99,7 +94,7 @@ publishing it.
 
 ## In scope for security reports
 
-- Bypassing app or viewer authentication or Origin validation
+- Bypassing Origin validation on the app or a scene viewer
 - Causing a rejected scene path to be imported or executed
 - Escaping the configured scene root without an explicit opt-in
 - Reading frames, geometry, local paths, or logs without authorization

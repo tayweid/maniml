@@ -16,8 +16,7 @@ from maniml.web.app import AppServer, SceneProcess, parse_viewer_launch_line, ru
 from maniml.web.server import ClientLease
 from maniml.web.viewer import WebViewer
 
-TOKEN = "NEoPxsQMRSQbR0OjdaE2QBzm6cKFpSNNOV_aYF8KiHU"
-URL = f"http://localhost:8689/#token={TOKEN}"
+URL = "http://localhost:8689/"
 
 
 class ClientLeaseTests(unittest.TestCase):
@@ -73,18 +72,16 @@ class ViewerLaunchProtocolTests(unittest.TestCase):
             URL,
         )
 
-    def test_rejects_rich_log_line_and_wrapped_token(self):
-        wrapped_url = (
-            "                    http://localhost:8689/#token=" + TOKEN[:22] + "\n"
-        )
+    def test_rejects_a_wrapped_rich_log_line(self):
+        """Rich line-wraps the human-readable log entry carrying the same URL,
+        so only the plain launch line counts as the handshake."""
         self.assertIsNone(
             parse_viewer_launch_line(
                 "[12:56:17] INFO maniml web viewer: viewer.py:86\n"
             )
         )
-        self.assertIsNone(parse_viewer_launch_line(wrapped_url))
         self.assertIsNone(
-            parse_viewer_launch_line(f"                    {TOKEN[22:]}\n")
+            parse_viewer_launch_line("                    http://localhost:8689/\n")
         )
 
     def test_rejects_prefixed_or_suffixed_output(self):
@@ -407,8 +404,7 @@ class AppShutdownTests(unittest.TestCase):
     @patch("maniml.web.app.AppServer")
     def test_sigterm_runs_app_cleanup_and_restores_handler(self, app_server):
         server = app_server.return_value
-        server.token = "token"
-        server.launch_url = "http://localhost/#token=token"
+        server.url = "http://localhost/"
         server.root = "/scenes"
         previous_handler = signal.getsignal(signal.SIGTERM)
 

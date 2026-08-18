@@ -376,15 +376,8 @@ const chipsEl = document.getElementById("chips");
 // engine (Pyodide) would replace `send` and the message pump and leave the
 // rest of the viewer untouched.
 const wsUrl = "ws://" + location.host + "/";
-const viewerTokenKey = "maniml-viewer-token:" + location.host;
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
-const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
-if (fragmentToken) {
-  sessionStorage.setItem(viewerTokenKey, fragmentToken);
-  history.replaceState(null, "", location.pathname + location.search);
-}
-const viewerToken = fragmentToken || sessionStorage.getItem(viewerTokenKey);
 let ws = null;
 let reconnectCount = 0;
 let reconnectTimer = null;
@@ -433,15 +426,6 @@ function connect(manualRetry = false) {
     reconnectCount = 0;
     hideConnectionIssue();
   }
-  if (!viewerToken) {
-    document.getElementById("conn").textContent = "viewer authorization missing";
-    showConnectionIssue(
-      "This viewer link has expired",
-      "Open the scene again from ManimLive to create a fresh, private viewer session.",
-      false
-    );
-    return;
-  }
   document.body.classList.add("disconnected");
   document.getElementById("conn").textContent = "Connecting";
   try {
@@ -451,37 +435,25 @@ function connect(manualRetry = false) {
     return;
   }
   ws.binaryType = "blob";
-  ws.onopen = () => {
-    document.getElementById("conn").textContent = "Authorizing";
-    ws.send(JSON.stringify({ type: "authenticate", token: viewerToken }));
-  };
-  ws.onclose = (event) => {
+  // A closed socket means the scene process is gone or still starting; it is
+  // never a credential to discard, so reconnecting is always the right move.
+  ws.onclose = () => {
     document.body.classList.add("disconnected");
-    if (event.code === 1008) {
-      sessionStorage.removeItem(viewerTokenKey);
-      document.getElementById("conn").textContent = "viewer authorization expired";
-      showConnectionIssue(
-        "This viewer link has expired",
-        "Open the scene again from ManimLive to create a fresh, private viewer session.",
-        false
-      );
-      return;
-    }
     scheduleReconnect();
   };
   ws.onerror = () => {};
   ws.onmessage = (e) => {
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
-      if (data.type === "authenticated") {
+      if (data.type === "ready") {
         reconnectCount = 0;
         document.body.classList.remove("disconnected");
         document.getElementById("conn").textContent = "Connected";
         hideConnectionIssue();
         applyCapabilities(data.capabilities || []);
         canvas.focus();
-        // WebGPU is the live viewer's primary path.  Initialize it only after
-        // the engine is authenticated, then request the geometry snapshot.
+        // WebGPU is the live viewer's primary path.  Initialize it only once
+        // the engine is connected, then request the geometry snapshot.
         // selectRenderer falls back visibly to Pixel on older browsers.
         if (renderer !== "pixel") {
           const segment = document.querySelector(

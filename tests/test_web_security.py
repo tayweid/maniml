@@ -14,14 +14,16 @@ SPEC.loader.exec_module(security)
 
 
 class WebSecurityTests(unittest.TestCase):
-    def test_tokens_are_random_and_compared_as_strings(self):
-        first = security.new_capability_token()
-        second = security.new_capability_token()
-        self.assertNotEqual(first, second)
-        self.assertGreaterEqual(len(first), 40)
-        self.assertTrue(security.token_matches(first, first))
-        self.assertFalse(security.token_matches(second, first))
-        self.assertFalse(security.token_matches(None, first))
+    def test_no_capability_machinery_survives(self):
+        """The Origin check is the boundary. A token that reaches the page
+        through the served HTML defends against nothing the Origin check did
+        not already cover, and one that does not reach it that way makes
+        launching a delivery problem — so there is no token at all."""
+        for name in (
+            "new_capability_token", "token_matches", "is_auth_message",
+            "load_or_create_capability", "rotate_capability", "capability_path",
+        ):
+            self.assertFalse(hasattr(security, name), name)
 
     def test_no_public_origin_is_baked_into_the_engine(self):
         """Everything is same-origin on loopback now; a public origin in here
@@ -31,16 +33,7 @@ class WebSecurityTests(unittest.TestCase):
         for name in ("HOSTED_APP_ORIGIN", "HOSTED_APP_ORIGINS", "HOSTED_APP_URL"):
             self.assertFalse(hasattr(security, name), name)
 
-    def test_auth_message_and_strict_json(self):
-        token = security.new_capability_token()
-        self.assertTrue(
-            security.is_auth_message(
-                f'{{"type":"authenticate","token":"{token}"}}', token
-            )
-        )
-        self.assertFalse(
-            security.is_auth_message('{"type":"authenticate","token":"wrong"}', token)
-        )
+    def test_strict_json(self):
         self.assertIsNone(security.parse_json_object('{"x":NaN}'))
         self.assertIsNone(security.parse_json_object("[]"))
         self.assertIsNone(security.parse_json_object("[" * 1100 + "0" + "]" * 1100))

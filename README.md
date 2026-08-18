@@ -70,8 +70,9 @@ browser viewer; **Open…** asks the engine for the platform's native file dialo
 so a scene anywhere on disk opens by its real path.
 
 Interface and engine ship together in this package and are served from the same
-local origin, so there is nothing to deploy, nothing to pair across origins, and
-no way for the page to be out of step with the engine that answers it.
+local origin — one port for the page and its socket alike — so there is nothing
+to deploy, nothing to pair, no address to configure, and no way for the page to
+be out of step with the engine that answers it.
 
 ### Background engine (macOS)
 
@@ -84,13 +85,12 @@ python -m maniml agent open                 # open the app
 ```
 
 `maniml agent status`, `restart`, `uninstall` manage the job; the log is
-`~/Library/Logs/maniml-agent.log`. The agent stores its capability in
-`~/.maniml/capability` (mode 600) so the address keeps working across restarts;
-`maniml agent rotate-token` revokes it.
+`~/Library/Logs/maniml-agent.log`. The address carries nothing secret, so it
+is worth bookmarking: it keeps working across restarts and logins.
 
-The agent holds the default control port for the whole login session. A
-foreground `maniml app` started alongside it binds an OS-assigned port instead
-and advertises that port in the URL it opens, so both remain usable.
+The agent holds the default port for the whole login session. A foreground
+`maniml app` started alongside it binds an OS-assigned port instead and opens
+the page on *that* address, so both remain usable.
 
 ## Interactive controls
 
@@ -140,12 +140,14 @@ regression suites.
 ## Security
 
 Scene files are Python programs and run with your user account's privileges.
-Only run scenes you trust. Everything ManimLive serves is bound to loopback and
-same-origin, and each server still requires an unguessable capability token —
-loopback keeps other machines out, not other programs on this one. By default,
-`maniml app DIR` launches scenes only from `DIR`; a file chosen through the
-native dialog grants access to that file alone. See [SECURITY.md](SECURITY.md) for the trust model and vulnerability
-reporting guidance.
+Only run scenes you trust. Everything ManimLive serves is bound to loopback,
+and each server serves its page and accepts its WebSocket on one port, so it
+can require its own exact browser Origin — which a website cannot forge, at any
+port it might guess. It does not defend against another program running as you,
+which could equally well run Python itself. By default, `maniml app DIR`
+launches scenes only from `DIR`; a file chosen through the native dialog grants
+access to that file alone. See [SECURITY.md](SECURITY.md) for the trust model
+and vulnerability reporting guidance.
 
 Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 development setup and ManimCE compatibility process.

@@ -86,8 +86,8 @@ class WebViewer:
         self._last_state = None
         # Set when a client picks another scene from the same file. The run
         # loop in __main__ reads it after Scene.run() returns and builds the
-        # next scene against this same viewer, so the HTTP/WebSocket servers,
-        # the capability token and the open browser tab all survive.
+        # next scene against this same viewer, so the server and the open
+        # browser tab both survive.
         self._pending_scene: str | None = None
         self._scene_names_cache: tuple[tuple, list[str]] | None = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels

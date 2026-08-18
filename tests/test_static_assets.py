@@ -44,12 +44,18 @@ class LocalOnlyTests(unittest.TestCase):
         self.assertIn('request("choose")', page)
         self.assertIn('request("open"', page)
         self.assertIn('request("files")', page)
-        # Session-scoped only: no capability persists to disk in the browser.
-        self.assertIn("sessionStorage.setItem(storageKey, fragmentToken)", page)
-        self.assertNotIn("localStorage", page)
+        # Nothing to carry, nothing to store, nothing to lose: the engine
+        # accepts the socket because of where the page came from.
+        for absent in ("token", "sessionStorage", "localStorage"):
+            self.assertNotIn(absent, page, absent)
 
 
 class ViewerTests(unittest.TestCase):
+    def test_viewer_carries_no_credential(self):
+        viewer = (STATIC / "viewer.html").read_text()
+        for absent in ("token", "sessionStorage", "localStorage"):
+            self.assertNotIn(absent, viewer, absent)
+
     def test_viewer_keeps_its_transport_seam_explicit(self):
         """The client renderers are the basis of any future browser-only
         build, so the WebSocket must stay a replaceable transport rather than

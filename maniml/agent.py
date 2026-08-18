@@ -21,12 +21,7 @@ import webbrowser
 from pathlib import Path
 
 from maniml.web.app import DEFAULT_APP_PORT
-from maniml.web.security import (
-    CONFIG_DIR,
-    capability_path,
-    load_or_create_capability,
-    rotate_capability,
-)
+from maniml.web.security import CONFIG_DIR
 
 LABEL = "io.tayweid.maniml.agent"
 PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
@@ -49,7 +44,7 @@ STATE_PATH = CONFIG_DIR / "agent.json"
 
 
 def app_url() -> str:
-    """Local address of the running agent, carrying its capability.
+    """Local address of the running agent.
 
     Read from the file the agent writes at startup rather than assumed: if
     something already held the default port, it is serving somewhere else.
@@ -62,7 +57,7 @@ def app_url() -> str:
             base = published
     except (OSError, ValueError):
         pass
-    return f"{base}#token={load_or_create_capability()}"
+    return base
 
 
 def install(
@@ -80,7 +75,6 @@ def install(
         print(f"Error: agent root is not a directory: {scene_root}")
         return 1
 
-    load_or_create_capability()
     uninstall(quiet=True)
     PLIST.parent.mkdir(parents=True, exist_ok=True)
     LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -136,8 +130,7 @@ def status() -> int:
         (line.strip() for line in result.stdout.splitlines() if "state =" in line),
         "state unknown",
     )
-    paired = "capability configured" if capability_path().exists() else "no capability"
-    print(f"{LABEL}: installed, {state}, {paired}. Log: {LOG}")
+    print(f"{LABEL}: installed, {state}. Log: {LOG}")
     return 0
 
 
@@ -162,21 +155,6 @@ def open_app(open_browser: bool = True) -> int:
         print(f"Opened {url}")
     else:
         print(url)
-    print("Treat that URL like a local password.")
-    print("Revoke it with: maniml agent rotate-token")
-    return 0
-
-
-def rotate_token() -> int:
-    rotate_capability()
-    print("maniml capability rotated; existing browser sessions are revoked.")
-    if sys.platform == "darwin" and _launchctl(
-        "kickstart", "-k", f"{_domain()}/{LABEL}"
-    ).returncode == 0:
-        print("The agent restarted with the new capability.")
-    else:
-        print("Restart any running engine to apply the rotation.")
-    print("Reopen the app with: maniml agent open")
     return 0
 
 
@@ -188,7 +166,6 @@ def serve(root: str, port: int = DEFAULT_APP_PORT) -> int:
         root=root,
         open_browser=False,
         port=port,
-        token=load_or_create_capability(),
         state_path=STATE_PATH,
     )
     return 0

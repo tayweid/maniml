@@ -58,18 +58,15 @@ class AppShellE2E(unittest.TestCase):
 
         deadline = time.time() + 15
         cls.url = None
-        cls.token = None
         while time.time() < deadline and cls.url is None:
             if cls.proc.poll() is not None:
                 raise AssertionError(
                     "app died:\n" + "".join(cls.lines))
             for line in cls.lines:
-                match = re.search(
-                    r"(http://localhost:(\d+)/)#token=([A-Za-z0-9_-]+)", line)
+                match = re.search(r"maniml app: (http://localhost:(\d+)/)", line)
                 if match:
                     cls.url = match.group(1)
                     cls.port = int(match.group(2))
-                    cls.token = match.group(3)
                     break
             time.sleep(0.05)
         assert cls.url, "no app URL:\n" + "".join(cls.lines)
@@ -91,14 +88,12 @@ class AppShellE2E(unittest.TestCase):
 
     @classmethod
     @contextmanager
-    def _control(cls, token=None, origin=None):
-        """An authenticated control socket, exactly as the page opens one."""
+    def _control(cls, origin=None):
+        """A control socket, opened exactly as the page opens one."""
         with ws_connect(
                 cls._control_url(),
                 origin=origin or cls.url.rstrip("/"),
                 open_timeout=5) as ws:
-            ws.send(json.dumps(
-                {"type": "authenticate", "token": token or cls.token}))
             yield ws
 
     @classmethod
@@ -107,7 +102,7 @@ class AppShellE2E(unittest.TestCase):
         deadline = time.time() + timeout
         while time.time() < deadline:
             message = json.loads(ws.recv(timeout=timeout))
-            if message.get("type") == "authenticated":
+            if message.get("type") == "ready":
                 continue
             return message
         raise AssertionError(f"no response to {op}")
@@ -138,14 +133,11 @@ class AppShellE2E(unittest.TestCase):
             opened["url"], timeout=5).read().decode()
         self.assertIn("<canvas", viewer)
         parsed = urlsplit(opened["url"])
-        viewer_token = parsed.fragment.removeprefix("token=")
         with ws_connect(
                 f"ws://localhost:{parsed.port}/", max_size=2**24,
                 origin=f"http://localhost:{parsed.port}") as ws:
-            ws.send(json.dumps(
-                {"type": "authenticate", "token": viewer_token}))
-            authenticated = json.loads(ws.recv(timeout=5))
-            self.assertEqual(authenticated["type"], "authenticated")
+            ready = json.loads(ws.recv(timeout=5))
+            self.assertEqual(ready["type"], "ready")
             deadline = time.time() + 10
             got_frame = False
             while time.time() < deadline and not got_frame:
@@ -184,18 +176,22 @@ class AppShellE2E(unittest.TestCase):
                       f"hint missing; log tail: {data.get('log', '')[-500:]}")
         self.assertIn(sys.executable, hint)
 
-    def test_unauthorized_requests_cannot_start_scenes(self):
+    def test_a_foreign_origin_cannot_start_scenes(self):
+        """The Origin check is the boundary: a page on any other origin —
+        which is every website — is refused before it can say anything."""
         marker = os.path.join(self.tmpdir.name, "unauthorized-marker")
         scene_path = os.path.join(self.tmpdir.name, "unauthorized_scene.py")
         with open(scene_path, "w") as f:
             f.write(
                 f"from pathlib import Path\nPath({marker!r}).touch()\n"
                 "from manim import *\nclass Unauthorized(Scene): pass\n")
-        with self._control(token="wrong") as ws:
-            ws.send(json.dumps(
-                {"op": "open", "id": 1,
-                 "path": scene_path, "scene": "Unauthorized"}))
-            with self.assertRaises(Exception):
+        with self.assertRaises(Exception):
+            with ws_connect(
+                    self._control_url(), origin="https://attacker.invalid",
+                    open_timeout=3) as ws:
+                ws.send(json.dumps(
+                    {"op": "open", "id": 1,
+                     "path": scene_path, "scene": "Unauthorized"}))
                 ws.recv(timeout=3)
         time.sleep(0.5)
         self.assertFalse(os.path.exists(marker))
@@ -236,10 +232,12 @@ class AppShellE2E(unittest.TestCase):
                     origin="https://attacker.invalid", open_timeout=3):
                 pass
 
-    def test_control_websocket_rejects_wrong_token(self):
-        with self._control(token="wrong") as ws:
-            with self.assertRaises(Exception):
-                ws.recv(timeout=3)
+    def test_control_websocket_rejects_a_missing_origin(self):
+        """A non-browser client sends no Origin at all; the handshake must
+        refuse that rather than treat it as same-origin."""
+        with self.assertRaises(Exception):
+            with ws_connect(self._control_url(), open_timeout=3):
+                pass
 
 
 class PortFallbackTests(unittest.TestCase):
@@ -262,7 +260,6 @@ class PortFallbackTests(unittest.TestCase):
                 second.port, occupied,
                 "second server bound a port already in use")
             self.assertGreater(second.port, 0)
-            self.assertNotEqual(second.token, holder.token)
             # Each server's page is confined to its own origin.
             self.assertEqual(second.allowed_origins, {second.origin})
 

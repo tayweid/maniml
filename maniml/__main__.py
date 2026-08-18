@@ -25,7 +25,7 @@ App:
   maniml agent install [dir]
                    Keep the app running as a macOS login agent, so
                    http://localhost:8685 is always there
-  maniml agent open | status | restart | rotate-token | uninstall
+  maniml agent open | status | restart | uninstall
 
 Modes:
   (default)        Interactive development: window + hot-reload
@@ -85,11 +85,9 @@ def main():
             sys.exit(agent_module.restart())
         if action == "open":
             sys.exit(agent_module.open_app())
-        if action == "rotate-token":
-            sys.exit(agent_module.rotate_token())
         print(
             "Usage: maniml agent "
-            "[install [dir] | open | status | restart | rotate-token | uninstall]"
+            "[install [dir] | open | status | restart | uninstall]"
         )
         sys.exit(1)
 
@@ -206,9 +204,8 @@ def _run_web_scenes(viewer, script_file, scene_name, scene_class, present):
 
     Picking another scene from the file sets a pending switch and ends the
     current scene's interaction loop. The viewer itself is deliberately not
-    destroyed in between, so the next scene reuses the same servers, the same
-    capability token and the same connected tab — the client sees the scene
-    change, not a disconnect.
+    destroyed in between, so the next scene reuses the same server and the same
+    connected tab — the client sees the scene change, not a disconnect.
 
     The module is re-imported per scene for the same reason `_restart_from_source`
     does it: the previous scene may have mutated module-level state.

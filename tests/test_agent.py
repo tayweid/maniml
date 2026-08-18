@@ -1,4 +1,4 @@
-"""The background engine agent and its persisted pairing capability."""
+"""The background engine agent."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from maniml import agent
 from maniml.web import security
 
 
-class CapabilityTests(unittest.TestCase):
+class ConfigDirTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
@@ -23,32 +23,22 @@ class CapabilityTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_capability_is_stable_and_private(self):
-        first = security.load_or_create_capability()
-        self.assertTrue(first)
-        # Stable: a restarted agent must not strand every paired browser.
-        self.assertEqual(first, security.load_or_create_capability())
+    def test_config_dir_is_private(self):
+        """The agent publishes where it landed here; nothing secret lives in
+        it any more, but it is still the user's own directory."""
+        created = security.prepare_config_dir()
+        self.assertEqual(created, self.config)
+        self.assertEqual(stat.S_IMODE(os.stat(self.config).st_mode), 0o700)
 
-        path = security.capability_path()
-        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(os.stat(path.parent).st_mode), 0o700)
-
-    def test_rotation_replaces_the_capability(self):
-        first = security.load_or_create_capability()
-        rotated = security.rotate_capability()
-        self.assertNotEqual(first, rotated)
-        self.assertEqual(rotated, security.load_or_create_capability())
-        self.assertEqual(
-            stat.S_IMODE(os.stat(security.capability_path()).st_mode), 0o600)
-        # No temporary files left behind by the atomic replace.
-        self.assertEqual(
-            [p.name for p in self.config.iterdir()], [security.CAPABILITY_FILE])
-
-    def test_a_blank_capability_file_is_rejected(self):
-        self.config.mkdir(mode=0o700, parents=True)
-        security.capability_path().write_text("   \n")
-        with self.assertRaises(ValueError):
-            security.load_or_create_capability()
+    def test_a_symlinked_config_path_is_refused(self):
+        target = Path(self.tmpdir.name) / "elsewhere"
+        target.mkdir()
+        try:
+            self.config.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        with self.assertRaises(RuntimeError):
+            security.prepare_config_dir()
 
 
 class AgentPlistTests(unittest.TestCase):
@@ -104,10 +94,12 @@ class AgentPlistTests(unittest.TestCase):
         self.assertEqual(agent.install(missing), 1)
         self.assertFalse(self.plist.exists())
 
-    def test_app_url_is_local_and_carries_the_capability(self):
+    def test_app_url_is_a_plain_local_address(self):
+        """Nothing to carry: the address is the whole thing, so it survives
+        being bookmarked, and an agent restart does not invalidate it."""
         url = agent.app_url()
         self.assertTrue(url.startswith("http://localhost:"))
-        self.assertIn(f"#token={security.load_or_create_capability()}", url)
+        self.assertNotIn("#", url)
 
     def test_app_url_follows_the_port_the_agent_actually_got(self):
         """The default port may already be taken, in which case the app server
@@ -115,7 +107,7 @@ class AgentPlistTests(unittest.TestCase):
         state = Path(self.tmpdir.name) / "agent.json"
         with patch.object(agent, "STATE_PATH", state):
             state.write_text('{"url": "http://localhost:51234/"}')
-            self.assertTrue(agent.app_url().startswith("http://localhost:51234/#token="))
+            self.assertEqual(agent.app_url(), "http://localhost:51234/")
 
             # A stale or corrupt file must not produce a nonsense address.
             state.write_text("{ not json")

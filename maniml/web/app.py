@@ -38,10 +38,7 @@ from maniml.utils.processes import (
 from maniml.desktop import choose_python_file
 from maniml.web.assets import is_websocket_upgrade, static_response
 from maniml.web.security import (
-    AUTH_TIMEOUT,
     MAX_CONTROL_MESSAGE,
-    is_auth_message,
-    new_capability_token,
     parse_json_object,
     resolve_authorized_file,
 )
@@ -53,7 +50,7 @@ RECENTS_PATH = os.environ.get(
 RECENTS_MAX = 12
 SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
 VIEWER_LAUNCH_PATTERN = re.compile(
-    r"^maniml web viewer: " r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
+    r"^maniml web viewer: (?P<url>http://localhost:\d+/)\s*$"
 )
 # One port for the page and its control socket. It is a rendezvous, not a
 # requirement: a background agent holds it for the login session, and a
@@ -83,9 +80,9 @@ def missing_module_hint(log: str) -> str | None:
 def parse_viewer_launch_line(line: str) -> str | None:
     """Read only the viewer's dedicated, machine-readable launch line.
 
-    Rich may line-wrap the human-readable log entry containing the same URL.
-    Treating any URL-shaped substring as the handshake can therefore capture
-    a truncated capability token. The plain ``print`` emitted by WebViewer is
+    Rich may line-wrap the human-readable log entry containing the same URL,
+    so treating any URL-shaped substring as the handshake can capture a
+    truncated address. The plain ``print`` emitted by WebViewer is
     deliberately stable and is the only accepted child-process handshake.
     """
     match = VIEWER_LAUNCH_PATTERN.fullmatch(line)
@@ -240,7 +237,6 @@ class AppServer:
         port: int | None = None,
         allow_outside_root: bool = False,
         transient: bool = False,
-        token: str | None = None,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
@@ -248,9 +244,6 @@ class AppServer:
             raise ValueError(f"app root is not a directory: {self.root}")
         self.allow_outside_root = allow_outside_root
         self.transient = transient
-        # A background agent supplies a persisted capability so paired
-        # browsers survive restarts; a foreground session stays per-process.
-        self.token = token or new_capability_token()
         self.processes: dict[tuple, SceneProcess] = {}
         self._granted_files: set[str] = set()
         self._lock = threading.Lock()
@@ -272,7 +265,8 @@ class AppServer:
         self.port = self._socket.getsockname()[1]
         self.origin = f"http://localhost:{self.port}"
         self.url = f"{self.origin}/"
-        self.launch_url = f"{self.url}#token={self.token}"
+        # The whole boundary: the control socket is accepted only from the
+        # origin this server serves its own page on.
         self.allowed_origins = {self.origin}
         self._start_server()
 
@@ -449,18 +443,11 @@ class AppServer:
             return static_response(request, index="app.html")
 
         async def handler(ws):
-            registered = False
-            try:
-                first = await asyncio.wait_for(ws.recv(), timeout=AUTH_TIMEOUT)
-            except Exception:
-                return
-            if not is_auth_message(first, self.token):
-                await ws.close(code=1008, reason="authentication required")
-                return
+            # The Origin check in the handshake already decided this; a
+            # connection that gets here is the page we served.
             self._session_lease.connected()
-            registered = True
             try:
-                await ws.send(json.dumps({"type": "authenticated"}))
+                await ws.send(json.dumps({"type": "ready"}))
                 async for message in ws:
                     request = parse_json_object(message)
                     if request is None:
@@ -477,8 +464,7 @@ class AppServer:
                     response["id"] = request.get("id")
                     await ws.send(json.dumps(response))
             finally:
-                if registered:
-                    self._session_lease.disconnected()
+                self._session_lease.disconnected()
 
         async def main():
             self._loop = asyncio.get_running_loop()
@@ -569,7 +555,6 @@ def run_app(
     allow_outside_root: bool = False,
     initial_file: str | None = None,
     port: int | None = None,
-    token: str | None = None,
     state_path: str | os.PathLike[str] | None = None,
 ) -> None:
     server = AppServer(
@@ -577,7 +562,6 @@ def run_app(
         port=port,
         allow_outside_root=allow_outside_root,
         transient=initial_file is not None,
-        token=token,
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
@@ -587,7 +571,7 @@ def run_app(
             raise SystemExit(128 + signum)
 
         signal.signal(signal.SIGTERM, exit_on_sigterm)
-    launch_url = server.launch_url
+    launch_url = server.url
     if initial_file is not None:
         opened = server.open_payload({"path": initial_file})
         if opened.get("viewer_url"):
