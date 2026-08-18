@@ -179,6 +179,24 @@ A hosted build would need its own manifest and service worker again — both wer
 deleted rather than kept, because a Pyodide app's would differ anyway (no
 loopback, no file handlers, a different scope).
 
+### The hosted origin is a preview, and only a preview
+
+`site/` publishes to `maniml.tayweid.io` (`.github/workflows/site.yml`). It
+shows what ManimLive is and how to install it, and it **reaches nothing** — no
+socket, no manifest, no file handlers. `tests/check_site.py` enforces that in
+CI and in the test run, because two invariants meet there:
+
+- A public origin must never talk to loopback. That is the rule above.
+- **Only one app may own the `.py` double-click.** If the hosted build were
+  installable it would compete with the local one for every file the user
+  opens, so the install offer belongs to `http://localhost:8685` alone.
+
+`site/sw.js` is a kill switch rather than a worker: the pre-collapse hosted
+build registered a caching service worker, and a browser that has it keeps
+running it until a replacement at the same URL unregisters it. It must keep
+existing. `site/app.html` redirects for the same reason — an old installed
+shell still opens that path.
+
 ### Known weak spots (as of 2026-08)
 
 - `deepcopy_namespace` falls back to per-value copies with a shared memo when batch deepcopy fails, and keeps live references (with a named warning) for values that cannot copy at all; a scene holding non-picklable state degrades checkpoint isolation.
