@@ -274,6 +274,31 @@ eye on it.
   windowed interactive suite on macOS remains a manual public-release gate.
 
 
+- **BUG: navigation can leave two copies of a moved mobject on screen**
+  (seen 2026-08-18). In `ECON_0100/F26/blocks/A0_The_Landscape/03_Code.py`,
+  `Animation0`, the live viewer showed the `MICROECONOMICS` block letters
+  twice — once at the pre-move position and once where
+  `Squares.animate.to_edge(UP, buff=1)` puts them — after arrowing around and
+  landing on the last pausepoint.
+
+  Already ruled out, so nobody re-does it: **not the client renderers** (the
+  viewer was on Pixel, i.e. the native GL render), **not the scene** (it adds
+  one `Squares` and moves it), and **not a regression from the same-origin
+  work** (that touched no code under `rendering/`, `mobject/`, `scene/`,
+  `camera/`, `animation/`). A forward-only `--render` of the same scene on the
+  same build is correct — checkpoint 032 shows one title — so it is reachable
+  only through interactive navigation.
+
+  Where to look: `_play_reverse_to` in `scene/interaction.py` pairs mobjects by
+  variable name, Transforms matched pairs and fades unmatched ones, and is
+  meant to be display-only (`_no_checkpoints()`); and
+  `_restore_checkpoint_for_display` in `scene/checkpoints.py`. The suspicion is
+  that a display-only morph leaves a mobject in `self.mobjects` that the next
+  restore does not clear, so the restored copy joins it rather than replacing
+  it. Reproduce headlessly the way `tests/test_web_viewer.py` drives the
+  viewer: RIGHT to the end, LEFT/UP back a few, RIGHT forward again, then
+  count top-level mobjects rather than eyeballing a frame.
+
 - **Presentation timeline: window the scrubber for large scenes.** The bar
   packs all N rings into a fixed 60% span, so past ~50 checkpoints the rings
   crowd, and past ~78 they overlap and the connecting-line stubs invert
