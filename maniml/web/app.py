@@ -36,7 +36,11 @@ from maniml.utils.processes import (
     terminate_process_tree,
 )
 from maniml.desktop import choose_python_file
-from maniml.web.assets import is_websocket_upgrade, static_response
+from maniml.web.assets import (
+    _package_version,
+    is_websocket_upgrade,
+    static_response,
+)
 from maniml.web.security import (
     MAX_CONTROL_MESSAGE,
     parse_json_object,
@@ -608,6 +612,72 @@ class AppServer:
                 process.stop()
 
 
+def running_engine(port: int = DEFAULT_APP_PORT, timeout: float = 1.5) -> str | None:
+    """The version a ManimLive engine on `port` is serving, or None.
+
+    Distinguishes our own engine from anything else that happens to hold the
+    port, and reports what it is *running* rather than what is installed —
+    pip replaces files, it does not restart processes.
+    """
+    import re
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"http://localhost:{port}/", timeout=timeout
+        ) as response:
+            head = response.read(4096).decode("utf-8", "replace")
+    except (OSError, urllib.error.URLError, ValueError):
+        return None
+    found = re.search(r'<meta name="maniml" content="([^"]*)"', head)
+    return found.group(1) if found else None
+
+
+def hand_off_to_a_running_engine(root: str, open_browser: bool) -> bool:
+    """Use an engine that is already up, or offer to install one that stays.
+
+    Returns True when this command has nothing left to serve.
+
+    Two things follow from the port being the installed app's identity. An
+    engine already on it should be *used*, not competed with — starting a
+    second one on another port gives you a page the installed app will never
+    open. And an engine still serving pre-upgrade code should be restarted:
+    pip replaces files, it does not restart processes, and the symptoms of
+    that are baffling.
+    """
+    from maniml import agent
+
+    serving = running_engine()
+    if serving is not None:
+        installed = _package_version()
+        if serving != installed and agent.is_installed():
+            print(
+                f"The running engine is serving {serving}, but {installed} is "
+                "installed. Restarting it."
+            )
+            agent.restart()
+        elif serving != installed:
+            print(
+                f"Note: the engine on port {DEFAULT_APP_PORT} is serving "
+                f"{serving}, but {installed} is installed. Restart it to pick "
+                "up the new version."
+            )
+        url = f"http://localhost:{DEFAULT_APP_PORT}/"
+        print(f"maniml app: {url}  (already running)")
+        if open_browser:
+            webbrowser.open(url)
+        return True
+
+    if agent.offer_at_first_run(root):
+        url = f"http://localhost:{DEFAULT_APP_PORT}/"
+        print(f"maniml app: {url}  (running in the background)")
+        if open_browser:
+            webbrowser.open(url)
+        return True
+    return False
+
+
 def run_app(
     root: str = ".",
     open_browser: bool = True,
@@ -615,7 +685,10 @@ def run_app(
     initial_file: str | None = None,
     port: int | None = None,
     state_path: str | os.PathLike[str] | None = None,
+    offer_agent: bool = False,
 ) -> None:
+    if offer_agent and hand_off_to_a_running_engine(root, open_browser):
+        return
     server = AppServer(
         root,
         port=port,

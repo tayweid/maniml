@@ -101,11 +101,14 @@ def static_response(request: Request, index: str) -> Response:
         return _response(404, "Not Found", b"not found\n", "text/plain")
 
     body = target.read_bytes()
-    if target.name == "sw.js":
-        # Stamp the worker with the installed version. The browser decides
-        # whether to install a new worker by comparing bytes, so an upgraded
-        # engine must not serve a byte-identical file — and the stamp is what
-        # keys the shell cache, so a new engine cannot be served an old shell.
+    if VERSION_PLACEHOLDER.encode() in body:
+        # Stamp whatever asks for it with the installed version. Two things
+        # depend on this: the service worker, because a browser decides
+        # whether to install a new one by comparing bytes and because the
+        # stamp keys its shell cache; and the app page, so `maniml app` can
+        # ask a running engine what it is serving. pip replaces files, it
+        # does not restart processes, and an engine that has been up since
+        # before an upgrade keeps serving what it booted with.
         body = body.replace(
             VERSION_PLACEHOLDER.encode(), _package_version().encode()
         )

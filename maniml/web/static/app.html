@@ -6,6 +6,10 @@
 <title>ManimLive</title>
 <link rel="icon" href="icons/maniml-192.png">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- Stamped as this page is served. `maniml app` reads it to tell a running
+     ManimLive engine from anything else holding the port, and to notice one
+     still serving pre-upgrade code. -->
+<meta name="maniml" content="__MANIML_VERSION__">
 <meta name="theme-color" content="#2b2a2d">
 <style>
   :root {

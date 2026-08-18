@@ -98,6 +98,9 @@ def main():
             root=args[1] if len(args) > 1 else ".",
             open_browser="--no-browser" not in flags,
             allow_outside_root="--allow-outside-root" in flags,
+            # Only the command a person typed may reuse a running engine or
+            # ask about the login agent; `maniml agent serve` is the agent.
+            offer_agent=True,
         )
         return
 

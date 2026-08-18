@@ -76,8 +76,12 @@ be out of step with the engine that answers it.
 
 ### Background engine (macOS)
 
-Registering the engine as a login agent keeps `http://localhost:8685` up without
-a terminal:
+The first time you run `maniml app` it offers to keep the engine running in the
+background. Accept and the terminal is free: the app stays at
+`http://localhost:8685` across logouts and reboots, and later `maniml app`
+simply opens it. It asks once and remembers your answer.
+
+You can do the same by hand at any time:
 
 ```bash
 python -m maniml agent install ~/Projects   # scenes live under this directory

@@ -244,6 +244,27 @@ class AppShellE2E(unittest.TestCase):
                 pass
 
 
+class RunningEngineTests(unittest.TestCase):
+    """`maniml app` should use an engine that is already up, not compete with
+    it: the port is the installed app's identity, so a second engine on
+    another port serves a page the installed app will never open."""
+
+    def test_it_reports_what_a_running_engine_serves(self):
+        from maniml.web.app import AppServer, running_engine
+        from maniml.web.assets import _package_version
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = AppServer(tmpdir, port=0)
+            self.addCleanup(server.shutdown)
+            self.assertEqual(running_engine(server.port), _package_version())
+
+    def test_nothing_listening_is_not_an_engine(self):
+        from maniml.web.app import running_engine
+        # Port 9 (discard) is reserved and never serves HTML.
+        self.assertIsNone(running_engine(9, timeout=0.5))
+
+
 class PortFallbackTests(unittest.TestCase):
     """A background agent owns the default port for the whole login session,
     so a foreground app must still come up on a working one of its own."""

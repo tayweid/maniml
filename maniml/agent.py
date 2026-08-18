@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import plistlib
+import socket
+import time
 import subprocess
 import sys
 import json
@@ -21,7 +23,7 @@ import webbrowser
 from pathlib import Path
 
 from maniml.web.app import DEFAULT_APP_PORT
-from maniml.web.security import CONFIG_DIR
+from maniml.web.security import CONFIG_DIR, prepare_config_dir
 
 LABEL = "io.tayweid.maniml.agent"
 PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
@@ -58,6 +60,67 @@ def app_url() -> str:
     except (OSError, ValueError):
         pass
     return base
+
+
+OFFERED_PATH = CONFIG_DIR / "agent-offered"
+
+
+def is_installed() -> bool:
+    return PLIST.exists()
+
+
+def offer_at_first_run(root: str, port: int = DEFAULT_APP_PORT) -> bool:
+    """Ask once whether to keep the engine running after the terminal closes.
+
+    Returns True when the agent now owns the engine, so the caller has nothing
+    left to serve.
+
+    The agent is what makes ManimLive an application rather than a command you
+    have to leave running: close the terminal, log out, reboot, and
+    http://localhost:8685 is still there. The only moment worth asking is the
+    first time someone starts the app — asking again would be nagging, and
+    never asking leaves the good behaviour behind a command nobody knows
+    exists.
+    """
+    if sys.platform != "darwin" or OFFERED_PATH.exists():
+        return False
+    if is_installed():
+        _mark_offered()
+        return False
+    if not (sys.stdin and sys.stdin.isatty()):
+        return False  # a supervised or piped run must never block on input
+
+    print()
+    print("Keep ManimLive running in the background, so it stays at")
+    print(f"http://localhost:{port} without a terminal?")
+    try:
+        answer = input("[Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    _mark_offered()
+    if answer not in ("", "y", "yes"):
+        print("Skipped. Run `maniml agent install` later if you change your mind.")
+        return False
+    if install(root, port) != 0:
+        return False
+    # The agent is the engine now. Wait for it to take the port so the caller
+    # opens a page that answers.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.1)
+    return True
+
+
+def _mark_offered() -> None:
+    try:
+        prepare_config_dir()
+        OFFERED_PATH.touch()
+    except OSError:
+        pass  # asking twice is a nuisance, not a failure
 
 
 def install(

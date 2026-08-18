@@ -58,7 +58,10 @@ maniml script.py SceneName --web
 # above; the viewer's scene picker switches scenes within that process.
 maniml app [dir]
 
-# Keep it running as a macOS login agent at http://localhost:8685
+# Keep it running as a macOS login agent at http://localhost:8685. `maniml
+# app` offers this once, on first run, so the terminal need not stay open;
+# it also hands off to an engine already on the port rather than binding a
+# second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
 # Unit tests (stdlib unittest; test_web_viewer is a headless end-to-end

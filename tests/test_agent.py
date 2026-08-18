@@ -8,7 +8,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from maniml import agent
 from maniml.web import security
@@ -39,6 +39,54 @@ class ConfigDirTests(unittest.TestCase):
             self.skipTest("symlinks unavailable")
         with self.assertRaises(RuntimeError):
             security.prepare_config_dir()
+
+
+class FirstRunOfferTests(unittest.TestCase):
+    """`maniml app` asks once. Never twice, and never when nobody can answer."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.config = Path(self.tmpdir.name) / ".maniml"
+        for target, value in (("CONFIG_DIR", self.config),
+                              ("OFFERED_PATH", self.config / "agent-offered")):
+            patcher = patch.object(agent, target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        security_patcher = patch.object(security, "CONFIG_DIR", self.config)
+        security_patcher.start()
+        self.addCleanup(security_patcher.stop)
+
+    def test_a_run_nobody_is_watching_is_never_asked(self):
+        """The launchd agent runs `maniml agent serve`, and a blocked input()
+        there would hang the engine on every login."""
+        with patch.object(agent.sys, "stdin", None):
+            self.assertFalse(agent.offer_at_first_run(self.tmpdir.name))
+        self.assertFalse(agent.OFFERED_PATH.exists())
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_declining_is_remembered_so_it_asks_only_once(self):
+        stdin = MagicMock()
+        stdin.isatty.return_value = True
+        with patch.object(agent.sys, "stdin", stdin), \
+                patch.object(agent, "is_installed", return_value=False), \
+                patch("builtins.input", return_value="n"):
+            self.assertFalse(agent.offer_at_first_run(self.tmpdir.name))
+        self.assertTrue(agent.OFFERED_PATH.exists())
+
+        # Asked already: no prompt, and nothing installed behind your back.
+        with patch("builtins.input", side_effect=AssertionError("asked twice")):
+            self.assertFalse(agent.offer_at_first_run(self.tmpdir.name))
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_an_already_installed_agent_is_not_offered(self):
+        stdin = MagicMock()
+        stdin.isatty.return_value = True
+        with patch.object(agent.sys, "stdin", stdin), \
+                patch.object(agent, "is_installed", return_value=True), \
+                patch("builtins.input", side_effect=AssertionError("asked anyway")):
+            self.assertFalse(agent.offer_at_first_run(self.tmpdir.name))
+        self.assertTrue(agent.OFFERED_PATH.exists())
 
 
 class AgentPlistTests(unittest.TestCase):
