@@ -189,13 +189,35 @@ of them landed here:
   table is in `SECURITY.md`. Note the trap named in the notes: *embedding a
   token and keeping a token are different decisions.*
 
-Still open from those notes, if a double-click workflow is ever wanted
-back: a PWA installed **from the loopback origin itself** can register OS
-file handlers and receive a double-clicked file through `launchQueue`, even
-with the server stopped (measured on Chrome 151/macOS 26). That is not a
-public origin talking to loopback — it is the engine's own origin — so it
-does not violate the rule above. It needs a manifest and service worker
-again, both deliberately deleted; weigh that before starting.
+**The shape it settled into (2026-08-17), matching Knuth's first run:**
+
+1. `maniml.tayweid.io` is a preview (`site/`) — shows what this is, gives the
+   install command, reaches nothing, cannot be installed.
+2. `pip install` → `maniml app` starts the engine and opens
+   `http://localhost:8685`.
+3. The app offers **Install** for an icon and a tab-less window. Installing
+   belongs to this origin alone, because only one installed app can own a
+   `.py` and it should be the one with a Python process behind it.
+
+Scenes are relayed through the app's port rather than opened on their own,
+because the port is the installed app's identity — see CLAUDE.md.
+
+Still open on this path:
+- **`.py` double-click.** Blocked on a real problem, not effort: `launchQueue`
+  delivers a browser file handle with no filesystem path, and the watcher and
+  the scene's `__file__`-relative imports both need one. Options if it matters:
+  resolve the handle's name against the app root and recents (ambiguous for
+  duplicate basenames), or keep the native dialog as the only path in.
+- **Fold `agent install` into first run.** Knuth asks once, at the only moment
+  it makes sense, rather than leaving a documented command to discover. maniml
+  still expects you to know `maniml agent install`.
+- **Confirm the install in a real browser.** Chrome's installability criteria
+  and the offline shell have not been exercised here — Knuth measured its own
+  spike on Chrome 151/macOS 26 and got file handlers, `launchQueue`, and an
+  offline shell all working from a loopback origin.
+- **A live demo on the preview.** `--export` already bakes a scene into a
+  self-contained page that runs with no Python at all, which would let a
+  visitor actually scrub through a real scene instead of reading about one.
 
 **Stage 3 — the app (started 2026-08-14).** `maniml app [dir]`
 (`web/app.py` + `static/app.html`): persistent local server, landing
