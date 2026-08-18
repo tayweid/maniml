@@ -193,8 +193,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                 self._prepare_presentation()
                 self.interact()
             else:
-                # Run only the first animation instead of all of construct
-                self.run_next_animation()
+                # Nothing runs until the user asks for it. Running "just the
+                # first animation" here meant running the first *unit*, and a
+                # unit ends at the statement containing a play() — so a scene
+                # whose first play sits inside a for-loop played the whole loop
+                # before the window even opened. Paint checkpoint 0 and wait.
+                self.update_frame(dt=0, force_draw=True)
                 self.interact()
         except EndScene:
             pass

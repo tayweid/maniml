@@ -274,6 +274,18 @@ eye on it.
   windowed interactive suite on macOS remains a manual public-release gate.
 
 
+- **Stepping forward runs a whole unit, not a whole pausepoint.** A unit ends
+  at the statement containing a `play()`, so a `for` loop of plays is one unit:
+  the rail may show 16 pausepoints while a single forward press fires all of
+  them. Opening no longer auto-runs (2026-08-18), which removed the worst of
+  it, but per-play stepping inside a loop would mean running a unit as
+  something suspendable — a coroutine or a thread that parks at each `play()`.
+  Related: a scene's `self.add(...)` preamble lives in the same unit as its
+  first play, so a scene now opens on an empty frame. Rendering the preamble
+  needs `source_map` to split a unit at its play statement, and checkpoint 0
+  re-baked to match — doable, but it must not let the preamble run twice, or
+  it reproduces the duplicate-mobject bug below.
+
 - **BUG: navigation can leave two copies of a moved mobject on screen**
   (seen 2026-08-18). In `ECON_0100/F26/blocks/A0_The_Landscape/03_Code.py`,
   `Animation0`, the live viewer showed the `MICROECONOMICS` block letters

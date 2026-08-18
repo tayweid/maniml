@@ -155,7 +155,10 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(frames[0][1:9].startswith(b"\x89PNG"), "PNG magic")
             self.assertTrue(states, "no state message after connect")
             start_state = states[-1]
-            self.assertGreaterEqual(start_state["count"], 2)
+            # Nothing has run: the scene waits at checkpoint 0 until asked.
+            self.assertEqual(start_state["count"], 1)
+            self.assertEqual(start_state["current"], 0)
+            self.assertTrue(start_state["future"], "no units left to run")
             self.assertEqual(start_state["file"], "web_scene.py")
 
             # RIGHT arrow: the next unit runs and streams JPEG frames
