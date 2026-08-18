@@ -1,5 +1,6 @@
 """Display-independent tests for the app/scene subprocess handshake."""
 
+import io
 import os
 import signal
 import subprocess
@@ -338,6 +339,51 @@ while True:
                     process.kill()
                 if process.stdout is not None:
                     process.stdout.close()
+
+
+class OutputTapTests(unittest.TestCase):
+    """Teeing the scene's own streams is what makes its output visible: in app
+    mode stdout is a pipe into the app process, where nothing reads it once
+    the scene is running."""
+
+    def setUp(self):
+        from maniml.web.viewer import LogBuffer, OutputTap
+        self.buffer = LogBuffer(limit=4)
+        self.written = io.StringIO()
+        self.tap = OutputTap(self.written, "out", self.buffer)
+
+    def test_the_real_stream_still_gets_everything(self):
+        """The app scrapes the launch line from this stream; swallowing it
+        would break the handshake."""
+        self.tap.write("maniml web viewer: http://localhost:8687/\n")
+        self.assertEqual(
+            self.written.getvalue(), "maniml web viewer: http://localhost:8687/\n")
+
+    def test_a_line_is_held_until_its_newline(self):
+        """print() writes its text and its terminator separately."""
+        self.tap.write("half a line")
+        self.assertEqual(self.buffer.take_pending(), [])
+        self.tap.write("\n")
+        self.assertEqual(self.buffer.take_pending(), [("out", "half a line")])
+
+    def test_several_lines_in_one_write_are_split(self):
+        self.tap.write("one\ntwo\nthree\n")
+        self.assertEqual(
+            self.buffer.take_pending(),
+            [("out", "one"), ("out", "two"), ("out", "three")])
+
+    def test_pending_drains_once_but_history_persists(self):
+        self.tap.write("kept\n")
+        self.assertEqual(self.buffer.take_pending(), [("out", "kept")])
+        self.assertEqual(self.buffer.take_pending(), [])
+        self.assertEqual(self.buffer.history(), [("out", "kept")])
+
+    def test_history_is_bounded_so_a_chatty_scene_cannot_grow_forever(self):
+        for n in range(10):
+            self.tap.write(f"line {n}\n")
+        self.assertEqual(
+            [text for _, text in self.buffer.history()],
+            ["line 6", "line 7", "line 8", "line 9"])
 
 
 class AppShutdownTests(unittest.TestCase):

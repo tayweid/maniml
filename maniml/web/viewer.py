@@ -29,6 +29,7 @@ import sys
 import threading
 import time
 import webbrowser
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -68,6 +69,71 @@ MIN_SEND_INTERVAL = 1 / 30  # global throttle, also caps fast-forward previews
 PNG_AFTER_QUIET = 0.4  # seconds of quiet before the crisp idle frame
 
 
+class OutputTap:
+    """Mirror a text stream into a buffer without swallowing it.
+
+    Everything a scene prints — its own output, tracebacks from a failed
+    unit, rich's log records — goes to stdout or stderr, and in app mode that
+    is a pipe into the app process where nobody ever sees it. Teeing here
+    keeps the real stream working (the app still reads the launch line from
+    it) while giving the viewer something to show.
+
+    Writes arrive from the render thread and the file-watcher thread, so the
+    buffer is guarded; partial writes are held until their newline, because
+    `print` emits its text and its terminator separately.
+    """
+
+    def __init__(self, stream, name: str, sink: "LogBuffer"):
+        self._stream = stream
+        self._name = name
+        self._sink = sink
+        self._partial = ""
+
+    def write(self, text: str) -> int:
+        written = self._stream.write(text)
+        try:
+            self._partial += text
+            while "\n" in self._partial:
+                line, self._partial = self._partial.split("\n", 1)
+                self._sink.add(self._name, line)
+        except Exception:
+            self._partial = ""  # never let logging break printing
+        return written
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def isatty(self) -> bool:
+        return False
+
+    def __getattr__(self, attribute):
+        return getattr(self._stream, attribute)
+
+
+class LogBuffer:
+    """The scene's recent output, and whatever has not been sent yet."""
+
+    def __init__(self, limit: int = 500):
+        self._lock = threading.Lock()
+        self._history: deque[tuple[str, str]] = deque(maxlen=limit)
+        self._pending: list[tuple[str, str]] = []
+
+    def add(self, stream: str, text: str) -> None:
+        with self._lock:
+            self._history.append((stream, text))
+            self._pending.append((stream, text))
+
+    def take_pending(self) -> list[tuple[str, str]]:
+        with self._lock:
+            pending, self._pending = self._pending, []
+            return pending
+
+    def history(self) -> list[tuple[str, str]]:
+        with self._lock:
+            self._pending = []
+            return list(self._history)
+
+
 class WebViewer:
     is_web_viewer = True
 
@@ -96,6 +162,9 @@ class WebViewer:
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
         self._geometry_cache = GeometryCache()  # delta-encoding state
+        self.logs = LogBuffer()
+        sys.stdout = OutputTap(sys.stdout, "out", self.logs)
+        sys.stderr = OutputTap(sys.stderr, "err", self.logs)
         log.info(f"maniml web viewer: {self.server.url}")
         print(f"maniml web viewer: {self.server.url}")
         if open_browser:
@@ -187,6 +256,7 @@ class WebViewer:
 
         if not self.server.has_clients():
             return
+        self._broadcast_logs()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
         # input event (present-mode prep, watcher replays, programmatic
@@ -236,6 +306,21 @@ class WebViewer:
                 serialize_scene(self.scene, self._geometry_cache))
         self._broadcast_state()
 
+    def _broadcast_logs(self, replace: bool = False) -> None:
+        """Send whatever the scene has printed since the last frame.
+
+        Deliberately ahead of the "has anything changed" test below: a scene
+        can sit perfectly still and still be saying something.
+        """
+        lines = self.logs.history() if replace else self.logs.take_pending()
+        if not lines and not replace:
+            return
+        self.server.broadcast_json({
+            "type": "log",
+            "replace": replace,
+            "lines": [{"stream": stream, "text": text} for stream, text in lines],
+        })
+
     # -- Inbound events --
 
     def dispatch_events(self):
@@ -251,6 +336,9 @@ class WebViewer:
             self._needs_refresh = True
             self._last_state = None
             self._geometry_cache.reset()  # new client holds no batches
+            # Hand the new client the whole backlog: output from before it
+            # connected is usually the output that explains something.
+            self._broadcast_logs(replace=True)
             return
 
         self._dirty = True

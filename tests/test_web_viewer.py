@@ -117,8 +117,12 @@ class _ViewerHarness:
             what, "".join(cls.stdout_lines)))
 
     @staticmethod
-    def _collect(ws, seconds):
-        """Gather (binary_frames, states) arriving within `seconds`."""
+    def _collect(ws, seconds, logs=None):
+        """Gather (binary_frames, states) arriving within `seconds`.
+
+        Console output shares this socket, so log messages are separated out
+        rather than left to masquerade as the last state.
+        """
         frames, states = [], []
         deadline = time.time() + seconds
         while time.time() < deadline:
@@ -128,8 +132,13 @@ class _ViewerHarness:
                 break
             if isinstance(msg, bytes):
                 frames.append(msg)
+                continue
+            message = json.loads(msg)
+            if message.get("type") == "log":
+                if logs is not None:
+                    logs.extend(message["lines"])
             else:
-                states.append(json.loads(msg))
+                states.append(message)
         return frames, states
 
     def _connect(self):
@@ -164,7 +173,15 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             # RIGHT arrow: the next unit runs and streams JPEG frames
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
-            frames, states = self._collect(ws, 4)
+            printed = []
+            frames, states = self._collect(ws, 4, logs=printed)
+            # Whatever the scene said on the way reaches the console. In app
+            # mode this socket is the only place it can be seen at all: the
+            # child's stdout is a pipe into the app process.
+            self.assertTrue(printed, "no console output from a running unit")
+            self.assertTrue(
+                any("animation" in line["text"].lower() for line in printed),
+                printed)
             jpegs = [f for f in frames if f[0] == 0x01]
             self.assertGreater(len(jpegs), 3, "expected streamed JPEG frames")
             self.assertTrue(jpegs[0][1:3] == b"\xff\xd8", "JPEG magic")

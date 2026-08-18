@@ -43,6 +43,47 @@
     display: flex; align-items: center; justify-content: center;
     gap: 10px; padding: 72px 22px 78px;
   }
+  /* The console. Toggled by hand and never by itself: stepping through a
+     scene prints on every arrow key, so a panel that opened on output would
+     be opening constantly — and it must never appear mid-presentation. */
+  #console {
+    position: fixed; z-index: 19; top: 62px; right: 12px; bottom: 12px;
+    width: 340px; display: none; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 13px;
+    background: var(--glass); box-shadow: var(--shadow);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    overflow: hidden;
+  }
+  body.console #console { display: flex; }
+  body.console #stage { padding-right: 366px; }
+  /* Presenting wants the whole window; the console is chrome like the rest. */
+  body.fullscreen #console { display: none; }
+  body.fullscreen #stage { padding-right: 0; }
+  #console-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; border-bottom: 1px solid var(--line);
+    color: var(--dim); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  #console-clear {
+    border: 0; background: none; color: var(--dim); cursor: pointer;
+    font: inherit; letter-spacing: normal; text-transform: none;
+    padding: 2px 6px; border-radius: 6px;
+  }
+  #console-clear:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  #console-lines {
+    flex: 1; min-height: 0; overflow-y: auto; padding: 9px 12px;
+    font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #console-lines .line { color: var(--dim); }
+  #console-lines .line.err { color: #e8a0a0; }
+  #console-empty { color: var(--dim); font-style: italic; }
+  @media (max-width: 860px) {
+    #console { display: none !important; }
+    body.console #stage { padding-right: 22px; }
+  }
+
   /* Full screen: the stage padding is what reserves room for the chrome, so
      dropping it lets the frame fill the display. The pods stay in the DOM and
      fade, but `visibility` has to go too — an invisible pod would still eat
@@ -336,6 +377,10 @@
     <button id="next" class="icon-button" aria-label="Play next animation" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; →</span>
     </button>
+    <button id="console-toggle" class="icon-button" aria-label="Console" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 4 4-4 4M12 16h7"/></svg>
+      <span class="control-label">Console&nbsp; C</span>
+    </button>
     <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
       <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
       <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
@@ -385,6 +430,14 @@
     <span id="conn-dot"></span><span id="conn">Connecting</span>
   </div>
 </header>
+
+<aside id="console" aria-label="Python output">
+  <div id="console-head">
+    <span>Session</span>
+    <button id="console-clear" type="button">Clear</button>
+  </div>
+  <div id="console-lines"><div id="console-empty">No output yet.</div></div>
+</aside>
 
 <div id="timeline-shell" class="pod" aria-label="Pausepoint timeline">
   <div id="pausepoint-summary">
@@ -497,6 +550,8 @@ function connect(manualRetry = false) {
           );
           void selectRenderer(renderer, segment);
         }
+      } else if (data.type === "log") {
+        appendLog(data.lines || [], !!data.replace);
       } else {
         handleMessage(data);
       }
@@ -808,6 +863,57 @@ document.getElementById("export-frame").onclick = () => {
   canvas.focus();
 };
 
+// -- Console --
+// Toggle-only, and remembered for the tab: stepping a scene prints on every
+// arrow key, so anything that opened this by itself would be opening it
+// constantly — and never at a worse moment than mid-presentation.
+const consoleLines = document.getElementById("console-lines");
+const consoleEmpty = document.getElementById("console-empty");
+const consoleToggle = document.getElementById("console-toggle");
+const CONSOLE_KEY = "maniml-console:" + location.host;
+const MAX_CONSOLE_LINES = 500;
+
+function setConsole(open) {
+  document.body.classList.toggle("console", open);
+  consoleToggle.setAttribute("aria-pressed", String(open));
+  try { sessionStorage.setItem(CONSOLE_KEY, open ? "1" : "0"); } catch (error) {}
+  if (open) consoleLines.scrollTop = consoleLines.scrollHeight;
+}
+
+function appendLog(entries, replace) {
+  if (replace) consoleLines.replaceChildren();
+  for (const entry of entries) {
+    const line = document.createElement("div");
+    line.className = "line" + (entry.stream === "err" ? " err" : "");
+    line.textContent = entry.text;
+    consoleLines.appendChild(line);
+  }
+  while (consoleLines.childElementCount > MAX_CONSOLE_LINES) {
+    consoleLines.firstElementChild.remove();
+  }
+  const hasLines = consoleLines.childElementCount > 0;
+  consoleEmpty.hidden = hasLines;
+  if (!hasLines) consoleLines.appendChild(consoleEmpty);
+  // Follow the tail only when already at it, so reading scrollback is not
+  // yanked away by the next line.
+  const atEnd = consoleLines.scrollHeight - consoleLines.scrollTop
+    - consoleLines.clientHeight < 40;
+  if (atEnd) consoleLines.scrollTop = consoleLines.scrollHeight;
+}
+
+consoleToggle.onclick = () => {
+  setConsole(!document.body.classList.contains("console"));
+  canvas.focus();
+};
+document.getElementById("console-clear").onclick = () => {
+  consoleLines.replaceChildren(consoleEmpty);
+  consoleEmpty.hidden = false;
+  canvas.focus();
+};
+try {
+  if (sessionStorage.getItem(CONSOLE_KEY) === "1") setConsole(true);
+} catch (error) {}
+
 // -- Full screen --
 // The stage fills the display and the chrome recedes, coming back when the
 // pointer nears an edge. The frame itself is a fixed size the engine chose
@@ -897,6 +1003,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     claimed.add(e.key);
     toggleFullscreen();
+    return;
+  }
+  if ((e.key === "c" || e.key === "C") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    claimed.add(e.key);
+    setConsole(!document.body.classList.contains("console"));
     return;
   }
   if (FORWARDED.has(e.key)) e.preventDefault();

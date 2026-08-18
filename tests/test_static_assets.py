@@ -8,6 +8,7 @@ which is exactly what these tests are here to keep true.
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -97,9 +98,14 @@ class LocalOnlyTests(unittest.TestCase):
 
 class ViewerTests(unittest.TestCase):
     def test_viewer_carries_no_credential(self):
+        """No secret reaches the page, so none can be stored or lost. Browser
+        storage itself is fine — the console toggle is remembered per tab —
+        the point is that nothing in there is an authorization."""
         viewer = (STATIC / "viewer.html").read_text()
-        for absent in ("token", "sessionStorage", "localStorage"):
+        for absent in ("token", "localStorage"):
             self.assertNotIn(absent, viewer, absent)
+        stored_keys = re.findall(r'sessionStorage\.\w+\((\w+)', viewer)
+        self.assertEqual(set(stored_keys), {"CONSOLE_KEY"}, stored_keys)
 
     def test_viewer_reaches_its_engine_at_its_own_origin(self):
         """Through the app a scene is /scene/<id> on the app's port; run on
@@ -117,6 +123,23 @@ class ViewerTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1", viewer)
         self.assertIn("function send(obj)", viewer)
         self.assertIn("Pyodide", viewer)
+
+    def test_the_console_only_ever_opens_because_you_asked(self):
+        """Stepping a scene prints on every arrow key, so a panel that opened
+        on output would open constantly — and never at a worse moment than
+        mid-presentation. Nothing may open it but the toggle."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('id="console-toggle"', viewer)
+        self.assertIn("body.console #console { display: flex; }", viewer)
+        # Presenting gets the whole window back.
+        self.assertIn("body.fullscreen #console { display: none; }", viewer)
+        # setConsole(true) is reachable only from the toggle, the shortcut, and
+        # the remembered per-tab preference — never from a log arriving.
+        opens = viewer.count("setConsole(true)")
+        self.assertEqual(opens, 1, "an extra path opens the console")
+        appended = viewer.index("function appendLog")
+        block = viewer[appended:viewer.index("consoleToggle.onclick", appended)]
+        self.assertNotIn("setConsole", block, "appendLog must not open the panel")
 
     def test_full_screen_never_leaks_its_key_to_the_scene(self):
         """Every single-character key is forwarded to the engine, so the

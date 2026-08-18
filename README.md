@@ -110,6 +110,11 @@ In the preview window:
   timeline at the bottom edge of the window
 - `--render` — headless: writes an MP4 plus a PNG per checkpoint
 
+The viewer's **Console** button (or `C`) opens a panel showing everything the
+scene prints, including tracebacks — the only place that output is visible when
+a scene runs under `maniml app`. It never opens by itself, and full screen (`F`)
+hides it along with the rest of the chrome.
+
 The browser viewer exposes the same reverse/forward behavior in its top
 transport slug and shows the whole scene as a clickable pausepoint timeline
 along the bottom. Its export menu can save the current frame, render the scene
