@@ -1,11 +1,10 @@
-"""Localhost servers backing the browser viewer (--web).
+"""The localhost server backing the browser viewer (--web).
 
-Two servers on adjacent ports, both on daemon threads so the GL/scene
-thread stays the process's main thread:
-
-- an HTTP server (stdlib) serving the static client page
-- a WebSocket server (`websockets`) that broadcasts frames/state to
-  every authenticated client and queues inbound input events
+One server on one port, on a daemon thread so the GL/scene thread stays the
+process's main thread. The port answers both plain GETs for the client page
+and its assets (`assets.static_response`) and the WebSocket that broadcasts
+frames/state and queues inbound input events, so the page and its socket are
+the same origin and the page needs to be told nothing about where to connect.
 
 Threading contract: the scene thread talks to this module only through
 `broadcast()` (thread-safe, hands off to the asyncio loop) and
@@ -16,9 +15,7 @@ touch the scene directly.
 from __future__ import annotations
 
 import asyncio
-import http.server
 import json
-import os
 import socket
 import threading
 import time
@@ -26,6 +23,7 @@ from collections import deque
 from collections.abc import Callable
 
 from maniml.logger import log
+from maniml.web.assets import is_websocket_upgrade, static_response
 from maniml.web.security import (
     AUTH_TIMEOUT,
     MAX_CONTROL_MESSAGE,
@@ -34,8 +32,7 @@ from maniml.web.security import (
     parse_json_object,
 )
 
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-DEFAULT_HTTP_PORT = 8687  # ws port is always http port + 1
+DEFAULT_PORT = 8687
 MAX_EVENT_QUEUE = 1024
 VIEWER_STARTUP_TIMEOUT = 120.0
 VIEWER_DISCONNECT_GRACE = 30.0
@@ -96,49 +93,39 @@ class ClientLease:
             )
 
 
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=STATIC_DIR, **kwargs)
+def bind_loopback(preferred: int, scan: int = 1) -> socket.socket:
+    """Listening socket on loopback, falling back to an OS-assigned port.
 
-    def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            self.path = "/viewer.html"  # a scene process serves the viewer
-        super().do_GET()
+    Binding here rather than inside the server means the port — and so the
+    origin the page will run on — is known before the WebSocket server is
+    configured, which is when the Origin allowlist has to be decided.
 
-    def log_message(self, format, *args):
-        pass
-
-
-def _find_port_pair(start: int) -> int:
-    """First port p >= start with both p and p+1 free."""
-    for p in range(start, start + 40, 2):
+    `preferred` is a rendezvous, not a requirement: `scan` consecutive ports
+    are tried so several scene viewers can coexist, and anything still taken
+    (an agent holding the default, say) lands on an OS-assigned port.
+    """
+    for port in range(preferred, preferred + scan) if preferred else ():
         try:
-            for q in (p, p + 1):
-                with socket.socket() as s:
-                    s.bind(("127.0.0.1", q))
+            return socket.create_server(("127.0.0.1", port))
         except OSError:
             continue
-        return p
-    raise OSError(f"no free port pair near {start}")
+    return socket.create_server(("127.0.0.1", 0))
 
 
 class WebServer:
-    """Owns both servers; exposes a thread-safe queue in each direction."""
+    """Owns the viewer's port; exposes a thread-safe queue in each direction."""
 
     def __init__(
         self,
-        http_port: int | None = None,
+        port: int | None = None,
         capabilities: tuple[str, ...] = (),
     ):
-        self.http_port = _find_port_pair(http_port or DEFAULT_HTTP_PORT)
-        self.ws_port = self.http_port + 1
+        self._socket = bind_loopback(DEFAULT_PORT if port is None else port, scan=40)
+        self.port = self._socket.getsockname()[1]
         self.token = new_capability_token()
-        self.base_url = f"http://localhost:{self.http_port}/"
+        self.base_url = f"http://localhost:{self.port}/"
         self.url = f"{self.base_url}#token={self.token}"
-        self.allowed_origins = {f"http://localhost:{self.http_port}"}
-        parent_origin = os.environ.get("MANIML_APP_ORIGIN")
-        if parent_origin:
-            self.allowed_origins.add(parent_origin)
+        self.allowed_origins = {f"http://localhost:{self.port}"}
         self.capabilities = list(capabilities)
 
         self._events: deque[dict] = deque()
@@ -146,38 +133,41 @@ class WebServer:
         self._busy: set = set()  # clients with an unfinished frame send
         self._client_lease = ClientLease()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._closing: asyncio.Event | None = None
         self._started = threading.Event()
 
-        self._httpd = http.server.ThreadingHTTPServer(
-            ("127.0.0.1", self.http_port), _QuietHandler)
         threading.Thread(
-            target=self._httpd.serve_forever, name="maniml-web-http",
-            daemon=True).start()
-        threading.Thread(
-            target=self._run_ws_loop, name="maniml-web-ws",
-            daemon=True).start()
+            target=self._run_loop, name="maniml-web", daemon=True).start()
         if not self._started.wait(timeout=5):
-            raise RuntimeError("web viewer WebSocket server failed to start")
+            raise RuntimeError("web viewer server failed to start")
 
-    # -- WebSocket side (runs on its own thread + event loop) --
+    # -- Server side (runs on its own thread + event loop) --
 
-    def _run_ws_loop(self):
+    def _serve_static(self, connection, request):
+        """Answer page/asset GETs; let handshakes through to the Origin check."""
+        if is_websocket_upgrade(request):
+            return None
+        return static_response(request, index="viewer.html")
+
+    def _run_loop(self):
         import websockets.asyncio.server as ws_server
 
         async def main():
             self._loop = asyncio.get_running_loop()
+            self._closing = asyncio.Event()
             async with ws_server.serve(
-                    self._handle_client, "127.0.0.1", self.ws_port,
+                    self._handle_client, sock=self._socket,
+                    process_request=self._serve_static,
                     origins=sorted(self.allowed_origins),
                     max_size=MAX_CONTROL_MESSAGE, max_queue=32,
                     compression=None):
                 self._started.set()
-                await asyncio.Future()  # run until process exit
+                await self._closing.wait()  # released by stop()
 
         try:
             asyncio.run(main())
         except Exception as e:  # daemon thread: report, don't kill the scene
-            log.error(f"web viewer WebSocket server died: {e}")
+            log.error(f"web viewer server died: {e}")
 
     async def _handle_client(self, ws):
         registered = False
@@ -252,6 +242,8 @@ class WebServer:
                 return events
 
     def stop(self) -> None:
-        self._httpd.shutdown()
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop is not None and self._closing is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._closing.set)
+            except RuntimeError:
+                pass  # the loop is already gone

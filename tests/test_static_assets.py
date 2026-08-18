@@ -35,10 +35,12 @@ class LocalOnlyTests(unittest.TestCase):
         for name in ("sw.js", "manifest.webmanifest", "index.html"):
             self.assertFalse((STATIC / name).exists(), name)
 
-    def test_app_page_talks_only_to_loopback(self):
+    def test_app_page_talks_only_to_its_own_origin(self):
         page = (STATIC / "app.html").read_text()
-        self.assertIn("const DEFAULT_CONTROL_PORT = 8686;", page)
-        self.assertIn("ws://127.0.0.1:${controlPort}/", page)
+        # Same origin as the page: no port to configure, nothing to be told
+        # at launch, and connect-src 'self' actually constrains it.
+        self.assertIn("const CONTROL_URL = `ws://${location.host}/`;", page)
+        self.assertNotIn("127.0.0.1", page)
         self.assertIn('request("choose")', page)
         self.assertIn('request("open"', page)
         self.assertIn('request("files")', page)
@@ -53,7 +55,8 @@ class ViewerTests(unittest.TestCase):
         build, so the WebSocket must stay a replaceable transport rather than
         leak through the rest of the viewer."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("const wsUrl = wsParam", viewer)
+        self.assertIn('const wsUrl = "ws://" + location.host + "/";', viewer)
+        self.assertNotIn("127.0.0.1", viewer)
         self.assertIn("function send(obj)", viewer)
         self.assertIn("Pyodide", viewer)
 

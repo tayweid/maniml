@@ -20,7 +20,7 @@ import json
 import webbrowser
 from pathlib import Path
 
-from maniml.web.app import CONTROL_WS_PORT, DEFAULT_APP_PORT
+from maniml.web.app import DEFAULT_APP_PORT
 from maniml.web.security import (
     CONFIG_DIR,
     capability_path,
@@ -65,7 +65,9 @@ def app_url() -> str:
     return f"{base}#token={load_or_create_capability()}"
 
 
-def install(root: str | os.PathLike[str] | None = None, port: int = CONTROL_WS_PORT) -> int:
+def install(
+    root: str | os.PathLike[str] | None = None, port: int = DEFAULT_APP_PORT
+) -> int:
     if sys.platform != "darwin":
         print(UNSUPPORTED)
         return 1
@@ -178,14 +180,14 @@ def rotate_token() -> int:
     return 0
 
 
-def serve(root: str, port: int = CONTROL_WS_PORT) -> int:
+def serve(root: str, port: int = DEFAULT_APP_PORT) -> int:
     """Run the engine in the foreground; this is what launchd supervises."""
     from maniml.web.app import run_app
 
     run_app(
         root=root,
         open_browser=False,
-        control_port=port,
+        port=port,
         token=load_or_create_capability(),
         state_path=STATE_PATH,
     )

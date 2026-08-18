@@ -98,7 +98,7 @@ All of this lives in `maniml/`:
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame, timeline, fixed-in-frame excluded). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`).
 
-6. **Browser viewer** (`maniml/web/`, `--web` flag): an additive frontend that stands in for the pyglet window; the pyglet path is unchanged and remains the default. `viewer.py`'s `WebViewer` duck-types the small Window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`) and gives the camera `window=None` — rendering happens on the standalone (windowless) GL context, the same tested path `--render` uses. `server.py` runs two daemon threads: a stdlib HTTP server for `static/index.html` and a `websockets` server for the frame/event protocol (server→client: binary frames — 1 header byte, 0x01 JPEG / 0x02 PNG, image GL-bottom-up so the client flips via canvas transform — plus state JSON `{current, count, lines}`; client→server: key/pointer/chip JSON, pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping). Each viewer has an independent process-local capability token passed in the launch URL fragment; the WebSocket requires that token as its first message and an allowlisted Origin before it sends frames or accepts events (`web/security.py`). Streaming policy in `WebViewer.on_frame_rendered` (hooked after every `camera.capture`): JPEG while animating / input events arriving / any top-level mobject `has_updaters()`, one lossless PNG once quiet, a forced PNG on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events), nothing when no client is connected. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain. End-to-end tested headlessly in `tests/test_web_viewer.py`.
+6. **Browser viewer** (`maniml/web/`, `--web` flag): an additive frontend that stands in for the pyglet window; the pyglet path is unchanged and remains the default. `viewer.py`'s `WebViewer` duck-types the small Window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`) and gives the camera `window=None` — rendering happens on the standalone (windowless) GL context, the same tested path `--render` uses. `server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location` (server→client: binary frames — 1 header byte, 0x01 JPEG / 0x02 PNG, image GL-bottom-up so the client flips via canvas transform — plus state JSON `{current, count, lines}`; client→server: key/pointer/chip JSON, pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping). Each viewer has an independent process-local capability token passed in the launch URL fragment; the WebSocket requires that token as its first message and an allowlisted Origin before it sends frames or accepts events (`web/security.py`). Streaming policy in `WebViewer.on_frame_rendered` (hooked after every `camera.capture`): JPEG while animating / input events arriving / any top-level mobject `has_updaters()`, one lossless PNG once quiet, a forced PNG on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events), nothing when no client is connected. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain. End-to-end tested headlessly in `tests/test_web_viewer.py`.
 
 7. **Client-side rendering experiment** (Stage 2, `maniml/web/geometry.py` + `static/glsl/` + `static/gl.js` + `reference_renderer.py`): the client's "GL" toggle requests a geometry snapshot (message 0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) and renders it with WebGL2 next to the pixel stream. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `gl_VertexID` picks the strip vertex); shader sources are shared between the browser and `reference_renderer.py`, a desktop-GL mirror of gl.js that `tests/test_gl_port.py` pixel-diffs against the native renderer — **edit gl.js and reference_renderer.py together**. 2D VMobjects only; depth-tested/triangulated fill, images, surfaces, dot clouds are listed `unsupported` and stay on the pixel stream.
 
@@ -107,10 +107,18 @@ All of this lives in `maniml/`:
 ## Delivery: one artifact, local only
 
 The interface is served by the engine that runs the scenes. `maniml app` (and
-`maniml agent`) binds loopback, serves `web/static/` from the installed
-package, and the page connects back to a control WebSocket on the same machine.
+`maniml agent`) binds **one** loopback port, serves `web/static/` from the
+installed package, and accepts the page's control WebSocket on that same port.
 There is no hosted origin, no deployment step, and no version negotiation:
 frontend and engine are the same pip install, so they cannot drift.
+
+**One port, one origin.** The page and its socket share an origin exactly, so
+the client says `ws://${location.host}/` and is told nothing at launch — no
+port parameter, no allowlist of a second origin, no port-pair arithmetic. That
+is also what makes the `connect-src 'self'` in `web/assets.py`'s CSP a real
+restriction rather than a comment. `bind_loopback()` (in `server.py`) binds
+before the server is configured, because the Origin allowlist needs the
+resolved port at that moment.
 
 This replaced an architecture where the UI was a PWA on GitHub Pages talking to
 localhost. Everything that existed to bridge that gap is gone — a generated
@@ -127,10 +135,10 @@ What remains, and why:
   mints a token and requires it. `maniml agent` persists one in
   `~/.maniml/capability` (0600) so a stable local address survives restarts.
 - **The launchd agent** (`maniml/agent.py`) keeps `http://localhost:8685` up
-  without a terminal. It owns the default control port for the login session, so
-  `_start_control_ws` falls back to an OS-assigned port and `run_app` puts the
-  resolved port in the launch URL — otherwise a foreground `maniml app` would
-  open a page that talks to the *agent* instead of itself.
+  without a terminal. It owns the default port for the login session, so a
+  foreground `maniml app` started alongside it lands on an OS-assigned port and
+  opens a page on *that* origin — which then talks to itself, not the agent,
+  because the page only ever speaks to where it came from.
 - **The native file dialog** (`maniml/desktop.py`, now only
   `choose_python_file`). The engine shows the platform dialog and gets a real
   path, which the watcher and the scene's `__file__`-relative imports both need.

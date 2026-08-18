@@ -69,7 +69,7 @@ def main():
 
         action = args[1] if len(args) > 1 else "status"
         target = args[2] if len(args) > 2 else None
-        port = agent_module.CONTROL_WS_PORT
+        port = agent_module.DEFAULT_APP_PORT
         for flag in flags:
             if flag.startswith("--port="):
                 port = int(flag.split("=", 1)[1])

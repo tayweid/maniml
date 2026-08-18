@@ -101,16 +101,12 @@ class SceneProcessLifecycleTests(unittest.TestCase):
         server._lock = threading.Lock()
         server._shutdown_complete = False
         server.processes = {}
-        server.origin = "http://localhost:8685"
         server.transient = True
 
         self.assertEqual(server.open_scene("/tmp/scene.py", "Demo"), URL)
 
         scene_process.assert_called_once_with(
-            "/tmp/scene.py",
-            "Demo",
-            "http://localhost:8685",
-            transient=True,
+            "/tmp/scene.py", "Demo", transient=True
         )
 
     def test_process_group_options_are_cross_platform(self):
@@ -355,7 +351,7 @@ class AppShutdownTests(unittest.TestCase):
         server._serving = threading.Event()
         server._serving.set()
         server._shutdown_event = threading.Event()
-        server.httpd = MagicMock()
+        server.stop_serving = MagicMock()
         return server
 
     def test_transient_monitor_exits_after_scene_finishes(self):
@@ -367,7 +363,7 @@ class AppShutdownTests(unittest.TestCase):
         thread.join(timeout=1)
 
         self.assertFalse(thread.is_alive())
-        server.httpd.shutdown.assert_called_once_with()
+        server.stop_serving.assert_called_once_with()
 
     def test_transient_monitor_exits_if_app_never_connects(self):
         server = self.monitor_server(
@@ -378,7 +374,7 @@ class AppShutdownTests(unittest.TestCase):
         thread.join(timeout=1)
 
         self.assertFalse(thread.is_alive())
-        server.httpd.shutdown.assert_called_once_with()
+        server.stop_serving.assert_called_once_with()
 
     def test_transient_monitor_keeps_live_scene(self):
         process = MagicMock()
@@ -390,13 +386,15 @@ class AppShutdownTests(unittest.TestCase):
         server._shutdown_event.set()
         thread.join(timeout=1)
 
-        server.httpd.shutdown.assert_not_called()
+        server.stop_serving.assert_not_called()
 
     def test_shutdown_is_idempotent(self):
         server = AppServer.__new__(AppServer)
         server._shutdown_lock = threading.Lock()
         server._shutdown_complete = False
         server._shutdown_event = threading.Event()
+        server._stopped = threading.Event()
+        server._loop = None
         server._lock = threading.Lock()
         process = MagicMock()
         server.processes = {("scene.py", "Demo"): process}

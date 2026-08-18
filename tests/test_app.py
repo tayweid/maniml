@@ -1,10 +1,10 @@
 """End-to-end test of the maniml app shell.
 
-Launches `maniml app` in a temp directory containing a scene file,
-then acts as the browser: fetches the landing page, lists scene files
-via the API, opens a scene (which spawns the scene subprocess), and
-confirms the returned viewer URL serves the viewer and streams a frame
-over its WebSocket.
+Launches `maniml app` in a temp directory containing a scene file, then acts
+as the browser: fetches the landing page over HTTP, drives the control
+WebSocket *on the same port* to list and open scenes, and confirms the scene
+process serves its own viewer and streams a frame — one origin per process,
+page and socket together.
 """
 
 import json
@@ -16,6 +16,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -64,13 +65,11 @@ class AppShellE2E(unittest.TestCase):
                     "app died:\n" + "".join(cls.lines))
             for line in cls.lines:
                 match = re.search(
-                    r"(http://localhost:\d+/)#token=([A-Za-z0-9_-]+)"
-                    r"(?:&control=(\d+))?",
-                    line)
+                    r"(http://localhost:(\d+)/)#token=([A-Za-z0-9_-]+)", line)
                 if match:
                     cls.url = match.group(1)
-                    cls.token = match.group(2)
-                    cls.control_port = int(match.group(3) or 8686)
+                    cls.port = int(match.group(2))
+                    cls.token = match.group(3)
                     break
             time.sleep(0.05)
         assert cls.url, "no app URL:\n" + "".join(cls.lines)
@@ -86,50 +85,62 @@ class AppShellE2E(unittest.TestCase):
         cls.outside_tmpdir.cleanup()
 
     @classmethod
-    def _request(cls, path, data=None, headers=None):
-        request_headers = {"Authorization": f"Bearer {cls.token}"}
-        request_headers.update(headers or {})
-        return urllib.request.Request(
-            cls.url + path, data=data, headers=request_headers)
-
-    @classmethod
     def _control_url(cls):
-        # Discovered, not assumed: a background agent may hold the default
-        # control port, in which case the app falls back to an OS-assigned one
-        # and advertises it in the launch URL.
-        return f"ws://127.0.0.1:{cls.control_port}/"
+        # The page's own address: one port serves the page and its socket.
+        return f"ws://localhost:{cls.port}/"
 
     @classmethod
-    def _open_request(cls, path, scene):
-        return cls._request(
-            "api/open",
-            data=json.dumps({"path": path, "scene": scene}).encode(),
-            headers={"Content-Type": "application/json"})
+    @contextmanager
+    def _control(cls, token=None, origin=None):
+        """An authenticated control socket, exactly as the page opens one."""
+        with ws_connect(
+                cls._control_url(),
+                origin=origin or cls.url.rstrip("/"),
+                open_timeout=5) as ws:
+            ws.send(json.dumps(
+                {"type": "authenticate", "token": token or cls.token}))
+            yield ws
+
+    @classmethod
+    def _request(cls, ws, op, timeout=40, **extra):
+        ws.send(json.dumps({"op": op, "id": 1, **extra}))
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            message = json.loads(ws.recv(timeout=timeout))
+            if message.get("type") == "authenticated":
+                continue
+            return message
+        raise AssertionError(f"no response to {op}")
 
     def test_open_scene_from_landing(self):
+        # The landing page comes off the same port the socket listens on.
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
         self.assertIn("maniml", page)
 
-        files = json.loads(urllib.request.urlopen(
-            self._request("api/files"), timeout=5).read())
-        entry = next(f for f in files["files"]
-                     if f["rel"] == "app_scene.py")
-        self.assertEqual(entry["scenes"], ["AppDemo"])
+        with self._control() as ws:
+            files = self._request(ws, "files")
+            entry = next(f for f in files["files"]
+                         if f["rel"] == "app_scene.py")
+            self.assertEqual(entry["scenes"], ["AppDemo"])
 
-        request = self._open_request(entry["path"], "AppDemo")
-        opened = json.loads(
-            urllib.request.urlopen(request, timeout=40).read())
-        self.assertIn("url", opened, opened.get("error"))
+            opened = self._request(
+                ws, "open", path=entry["path"], scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
 
-        # The viewer serves its page, and its WebSocket streams a frame
+            # Re-opening the same scene reuses the live process (same URL)
+            reopened = self._request(
+                ws, "open", path=entry["path"], scene="AppDemo")
+            self.assertEqual(reopened["url"], opened["url"])
+
+        # The scene process serves its own viewer, and its WebSocket — on
+        # that same port — streams a frame.
         viewer = urllib.request.urlopen(
             opened["url"], timeout=5).read().decode()
         self.assertIn("<canvas", viewer)
         parsed = urlsplit(opened["url"])
-        ws_port = parsed.port + 1
         viewer_token = parsed.fragment.removeprefix("token=")
         with ws_connect(
-                f"ws://localhost:{ws_port}/", max_size=2**24,
+                f"ws://localhost:{parsed.port}/", max_size=2**24,
                 origin=f"http://localhost:{parsed.port}") as ws:
             ws.send(json.dumps(
                 {"type": "authenticate", "token": viewer_token}))
@@ -145,34 +156,18 @@ class AppShellE2E(unittest.TestCase):
                 got_frame = isinstance(message, bytes)
             self.assertTrue(got_frame, "no frame from opened scene")
 
-        # Re-opening the same scene reuses the live process (same URL)
-        reopened = json.loads(
-            urllib.request.urlopen(request, timeout=40).read())
-        self.assertEqual(reopened["url"], opened["url"])
-
-    def test_control_websocket(self):
-        # The control channel the served page connects back to
-        with ws_connect(
-                self._control_url(), origin=self.url.rstrip("/")) as ws:
-            ws.send(json.dumps(
-                {"type": "authenticate", "token": self.token}))
-            authenticated = json.loads(ws.recv(timeout=5))
-            self.assertEqual(authenticated["type"], "authenticated")
-            ws.send(json.dumps({"op": "files", "id": 1}))
-            data = json.loads(ws.recv(timeout=10))
-            self.assertEqual(data["id"], 1)
-            entry = next(f for f in data["files"]
-                         if f["rel"] == "app_scene.py")
-            ws.send(json.dumps({"op": "open", "id": 2,
-                                "path": entry["path"], "scene": "AppDemo"}))
-            opened = json.loads(ws.recv(timeout=60))
-            self.assertEqual(opened["id"], 2)
-            self.assertIn("ws_port", opened, opened.get("error"))
-        # The app server also serves the viewer page it navigates to
-        # (viewer.html?ws=PORT), from the same origin.
+    def test_viewer_page_is_served_by_the_app_too(self):
+        # The app serves the whole static directory, so a viewer opened from
+        # a bookmark on this origin still finds its assets.
         page = urllib.request.urlopen(
             self.url + "viewer.html", timeout=5).read().decode()
         self.assertIn("<canvas", page)
+
+    def test_served_pages_restrict_themselves_to_this_origin(self):
+        with urllib.request.urlopen(self.url, timeout=5) as response:
+            policy = response.headers["Content-Security-Policy"]
+        self.assertIn("connect-src 'self'", policy)
+        self.assertIn("default-src 'self'", policy)
 
     def test_missing_module_hint(self):
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")
@@ -181,12 +176,8 @@ class AppShellE2E(unittest.TestCase):
                     "from manim import *\n"
                     "class Broken(Scene):\n"
                     "    def construct(self): pass\n")
-        request = self._open_request(broken, "Broken")
-        try:
-            body = urllib.request.urlopen(request, timeout=40).read()
-        except urllib.error.HTTPError as err:
-            body = err.read()
-        data = json.loads(body)
+        with self._control() as ws:
+            data = self._request(ws, "open", path=broken, scene="Broken")
         self.assertIn("error", data)
         hint = data.get("hint") or ""
         self.assertIn("not_a_real_module_xyz", hint,
@@ -200,14 +191,13 @@ class AppShellE2E(unittest.TestCase):
             f.write(
                 f"from pathlib import Path\nPath({marker!r}).touch()\n"
                 "from manim import *\nclass Unauthorized(Scene): pass\n")
-        request = urllib.request.Request(
-            self.url + "api/open",
-            data=json.dumps(
-                {"path": scene_path, "scene": "Unauthorized"}).encode(),
-            headers={"Content-Type": "application/json"})
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            urllib.request.urlopen(request, timeout=5)
-        self.assertEqual(raised.exception.code, 401)
+        with self._control(token="wrong") as ws:
+            ws.send(json.dumps(
+                {"op": "open", "id": 1,
+                 "path": scene_path, "scene": "Unauthorized"}))
+            with self.assertRaises(Exception):
+                ws.recv(timeout=3)
+        time.sleep(0.5)
         self.assertFalse(os.path.exists(marker))
 
     def test_outside_root_and_unknown_scene_are_rejected_before_import(self):
@@ -219,11 +209,6 @@ class AppShellE2E(unittest.TestCase):
             f.write(
                 f"from pathlib import Path\nPath({outside_marker!r}).touch()\n"
                 "from manim import *\nclass Outside(Scene): pass\n")
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            urllib.request.urlopen(
-                self._open_request(outside_scene, "Outside"), timeout=5)
-        self.assertEqual(raised.exception.code, 400)
-        self.assertFalse(os.path.exists(outside_marker))
 
         inside_marker = os.path.join(self.tmpdir.name, "unknown-marker")
         inside_scene = os.path.join(self.tmpdir.name, "unknown_scene.py")
@@ -231,10 +216,17 @@ class AppShellE2E(unittest.TestCase):
             f.write(
                 f"from pathlib import Path\nPath({inside_marker!r}).touch()\n"
                 "from manim import *\nclass Known(Scene): pass\n")
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            urllib.request.urlopen(
-                self._open_request(inside_scene, "NotDiscovered"), timeout=5)
-        self.assertEqual(raised.exception.code, 400)
+
+        with self._control() as ws:
+            outside = self._request(
+                ws, "open", path=outside_scene, scene="Outside", timeout=10)
+            self.assertIn("error", outside)
+            unknown = self._request(
+                ws, "open", path=inside_scene, scene="NotDiscovered",
+                timeout=10)
+            self.assertIn("error", unknown)
+
+        self.assertFalse(os.path.exists(outside_marker))
         self.assertFalse(os.path.exists(inside_marker))
 
     def test_control_websocket_rejects_untrusted_origin(self):
@@ -245,38 +237,36 @@ class AppShellE2E(unittest.TestCase):
                 pass
 
     def test_control_websocket_rejects_wrong_token(self):
-        with ws_connect(
-                self._control_url(), origin=self.url.rstrip("/"),
-                open_timeout=3) as ws:
-            ws.send(json.dumps(
-                {"type": "authenticate", "token": "wrong"}))
+        with self._control(token="wrong") as ws:
             with self.assertRaises(Exception):
                 ws.recv(timeout=3)
 
 
-class ControlPortFallbackTests(unittest.TestCase):
-    """A background agent owns the default control port for the whole login
-    session, so a foreground app must still come up with a working channel."""
+class PortFallbackTests(unittest.TestCase):
+    """A background agent owns the default port for the whole login session,
+    so a foreground app must still come up on a working one of its own."""
 
-    def test_a_taken_control_port_falls_back_to_an_assigned_one(self):
+    def test_a_taken_port_falls_back_to_an_assigned_one(self):
         import tempfile
-        from maniml.web.app import CONTROL_WS_PORT, AppServer
+        from maniml.web.app import DEFAULT_APP_PORT, AppServer
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            holder = AppServer(tmpdir, port=0, control_port=0)
+            holder = AppServer(tmpdir, port=0)
             self.addCleanup(holder.shutdown)
-            occupied = holder.control_port
+            occupied = holder.port
             self.assertNotEqual(occupied, 0)
 
-            second = AppServer(tmpdir, port=0, control_port=occupied)
+            second = AppServer(tmpdir, port=occupied)
             self.addCleanup(second.shutdown)
             self.assertNotEqual(
-                second.control_port, occupied,
+                second.port, occupied,
                 "second server bound a port already in use")
-            self.assertGreater(second.control_port, 0)
+            self.assertGreater(second.port, 0)
             self.assertNotEqual(second.token, holder.token)
+            # Each server's page is confined to its own origin.
+            self.assertEqual(second.allowed_origins, {second.origin})
 
-        self.assertEqual(CONTROL_WS_PORT, 8686)
+        self.assertEqual(DEFAULT_APP_PORT, 8685)
 
 
 class DesktopOpenFallbackTests(unittest.TestCase):
@@ -309,7 +299,7 @@ class DesktopOpenFallbackTests(unittest.TestCase):
                 "class AlphaScene(Scene): pass\n"
                 "class BetaScene(Scene): pass\n"
             )
-        self.server = AppServer(self.tmpdir.name, port=0, control_port=0)
+        self.server = AppServer(self.tmpdir.name, port=0)
         self.addCleanup(self.server.shutdown)
 
     def test_multi_scene_file_reports_why_it_did_not_open(self):

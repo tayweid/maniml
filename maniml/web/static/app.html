@@ -147,9 +147,10 @@
 
 // This page ships inside the maniml package and is served by the engine that
 // runs the scenes, so the two can never be out of step and there is no
-// cross-origin boundary to negotiate. The token below is still required: any
-// program on this machine can reach loopback.
-const DEFAULT_CONTROL_PORT = 8686;
+// cross-origin boundary to negotiate. The socket is the same origin as this
+// page, so there is no address to configure. The token below is still
+// required: any program on this machine can reach loopback.
+const CONTROL_URL = `ws://${location.host}/`;
 
 const errorEl = document.getElementById("error");
 const statusText = document.getElementById("status-text");
@@ -161,18 +162,11 @@ function setConnectionState(state, message, detail) {
   connectionMessage.textContent = detail || "";
 }
 
-const controlTokenKey = "maniml-control-token";
-const fragment = new URLSearchParams(location.hash.slice(1));
-const fragmentToken = fragment.get("token");
-const requestedControlPort = Number(fragment.get("control"));
-const controlPort = Number.isInteger(requestedControlPort)
-  && requestedControlPort >= 1024 && requestedControlPort <= 65535
-  ? requestedControlPort : DEFAULT_CONTROL_PORT;
-const CONTROL_URL = `ws://127.0.0.1:${controlPort}/`;
+const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");
 
-// Keyed by port so two engines never trade tokens. Session storage keeps a
+// Keyed by origin so two engines never trade tokens. Session storage keeps a
 // reload working without leaving a capability on disk.
-const storageKey = `${controlTokenKey}:${controlPort}`;
+const storageKey = `maniml-control-token:${location.host}`;
 if (fragmentToken) {
   try { sessionStorage.setItem(storageKey, fragmentToken); } catch (error) {}
   history.replaceState(null, "", location.pathname + location.search);

@@ -86,8 +86,8 @@ class _ViewerHarness:
         cls.url = f"{parsed.scheme}://{parsed.netloc}/"
         cls.token = parsed.fragment.removeprefix("token=")
         cls.origin = f"http://localhost:{parsed.port}"
-        cls.ws_url = "ws://localhost:%d/" % (
-            parsed.port + 1)
+        # Page and socket are the same origin: one port, nothing to derive.
+        cls.ws_url = f"ws://localhost:{parsed.port}/"
 
     @classmethod
     def tearDownClass(cls):

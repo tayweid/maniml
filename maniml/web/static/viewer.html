@@ -370,16 +370,13 @@
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const chipsEl = document.getElementById("chips");
-// Transport. Today the engine is a local process reached over a WebSocket:
-// the app page opens this with ?ws=PORT, and a scene process serving its own
-// page uses its HTTP port + 1. Everything below this line speaks only in
-// protocol messages, so an in-page engine (Pyodide) would replace `send` and
-// the message pump and leave the rest of the viewer untouched.
-const wsParam = new URLSearchParams(location.search).get("ws");
-const wsUrl = wsParam
-  ? "ws://127.0.0.1:" + wsParam + "/"
-  : "ws://" + location.hostname + ":" + (parseInt(location.port) + 1) + "/";
-const viewerTokenKey = "maniml-viewer-token:" + wsUrl;
+// Transport. Today the engine is a local process reached over a WebSocket on
+// the very port that served this page, so the address is simply where we are.
+// Everything below this line speaks only in protocol messages, so an in-page
+// engine (Pyodide) would replace `send` and the message pump and leave the
+// rest of the viewer untouched.
+const wsUrl = "ws://" + location.host + "/";
+const viewerTokenKey = "maniml-viewer-token:" + location.host;
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 const fragmentToken = new URLSearchParams(location.hash.slice(1)).get("token");

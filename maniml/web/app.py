@@ -7,12 +7,11 @@ that scene as its own subprocess — exactly `maniml file.py Scene --web`
 subprocess-per-scene keeps a crashing scene from taking the app down
 (the same isolation argument as Knuth's kernel).
 
-Endpoints:
-    GET  /            the landing page (static/app.html)
-    GET  /api/files   authenticated scene files under the launch dir + recents,
-                      each with its Scene classes (AST scan, no import)
-    POST /api/open    authenticated {"path":..., "scene":...} -> viewer URL
-                      (reuses a live process for the same file+scene)
+One port serves everything: plain GETs return the landing page and the
+static assets, and the same port accepts the control WebSocket the page
+connects back to (ops: `files`, `open`, `choose`). Page and socket therefore
+share an origin exactly, so the page derives its socket URL from
+`window.location` and has nothing to be told at launch.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ import ast
 import atexit
 import json
 import os
-import plistlib
 import re
 import signal
 import subprocess
@@ -30,15 +28,15 @@ import threading
 import time
 import webbrowser
 from collections import deque
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from maniml.utils.processes import (
     process_group_popen_kwargs,
     terminate_process_tree,
 )
 from maniml.desktop import choose_python_file
+from maniml.web.assets import is_websocket_upgrade, static_response
 from maniml.web.security import (
     AUTH_TIMEOUT,
     MAX_CONTROL_MESSAGE,
@@ -46,11 +44,9 @@ from maniml.web.security import (
     new_capability_token,
     parse_json_object,
     resolve_authorized_file,
-    token_matches,
 )
-from maniml.web.server import ClientLease
+from maniml.web.server import ClientLease, bind_loopback
 
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 RECENTS_PATH = os.environ.get(
     "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
 )
@@ -59,11 +55,10 @@ SKIP_DIRS = {".git", "__pycache__", "media", "node_modules", ".venv", "venv"}
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: " r"(?P<url>http://localhost:\d+/#token=[A-Za-z0-9_-]+)\s*$"
 )
+# One port for the page and its control socket. It is a rendezvous, not a
+# requirement: a background agent holds it for the login session, and a
+# foreground `maniml app` started alongside falls back to an OS-assigned one.
 DEFAULT_APP_PORT = 8685
-# Fixed control-channel port.  The page the app serves connects back to it
-# with the capability token it was launched with; the token and a same-origin
-# check are both required before any operation.
-CONTROL_WS_PORT = 8686
 
 
 def missing_module_hint(log: str) -> str | None:
@@ -169,7 +164,6 @@ class SceneProcess:
         self,
         path: str,
         scene: str | None,
-        app_origin: str,
         transient: bool = False,
     ):
         self.path = path
@@ -178,11 +172,9 @@ class SceneProcess:
         if scene:
             command.append(scene)
         command += ["--web", "--no-browser"]
-        child_env = {
-            **os.environ,
-            "PYTHONUNBUFFERED": "1",
-            "MANIML_APP_ORIGIN": app_origin,
-        }
+        # The scene serves its own page on its own port, so it needs to know
+        # nothing about the app that spawned it.
+        child_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         if transient:
             child_env["MANIML_TRANSIENT_VIEWER"] = "1"
         self.proc = subprocess.Popen(
@@ -247,7 +239,6 @@ class AppServer:
         root: str,
         port: int | None = None,
         allow_outside_root: bool = False,
-        control_port: int = CONTROL_WS_PORT,
         transient: bool = False,
         token: str | None = None,
     ):
@@ -267,115 +258,23 @@ class AppServer:
         self._shutdown_complete = False
         self._shutdown_event = threading.Event()
         self._serving = threading.Event()
+        self._ready = threading.Event()
+        self._stopped = threading.Event()
+        self._loop = None
+        self._closing = None
         self._session_lease = ClientLease()
         atexit.register(self.shutdown)
 
-        app = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, format, *args):
-                pass
-
-            def _json(self, obj, status=200):
-                body = json.dumps(obj).encode()
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header("Referrer-Policy", "no-referrer")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def _authorized(self) -> bool:
-                prefix = "Bearer "
-                header = self.headers.get("Authorization", "")
-                if not header.startswith(prefix) or not token_matches(
-                    header[len(prefix) :], app.token
-                ):
-                    self._json({"error": "authorization required"}, 401)
-                    return False
-                origin = self.headers.get("Origin")
-                if origin is not None and origin not in app.allowed_origins:
-                    self._json({"error": "origin not allowed"}, 403)
-                    return False
-                if self.headers.get("Sec-Fetch-Site") == "cross-site":
-                    self._json({"error": "cross-site request rejected"}, 403)
-                    return False
-                return True
-
-            def do_GET(self):
-                if self.path == "/api/files":
-                    if not self._authorized():
-                        return
-                    self._json(app.files_payload())
-                    return
-                # Serve the whole static dir (landing, viewer, renderer
-                # assets) from the one server
-                request_path = urlsplit(self.path).path
-                path = (
-                    "app.html"
-                    if request_path in ("/", "/index.html")
-                    else request_path.lstrip("/")
-                )
-                static_root = Path(STATIC_DIR).resolve()
-                full = (static_root / path).resolve()
-                if not full.is_relative_to(static_root) or not full.is_file():
-                    self._json({"error": "not found"}, 404)
-                    return
-                import mimetypes
-
-                ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
-                with open(full, "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", ctype)
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header("Referrer-Policy", "no-referrer")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_POST(self):
-                if self.path != "/api/open":
-                    self._json({"error": "not found"}, 404)
-                    return
-                if not self._authorized():
-                    return
-                if (
-                    self.headers.get("Content-Type", "").split(";", 1)[0].lower()
-                    != "application/json"
-                ):
-                    self._json({"error": "application/json required"}, 415)
-                    return
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                except ValueError:
-                    self._json({"error": "bad request"}, 400)
-                    return
-                if length <= 0 or length > MAX_CONTROL_MESSAGE:
-                    self._json({"error": "request too large"}, 413)
-                    return
-                request = parse_json_object(self.rfile.read(length))
-                if request is None:
-                    self._json({"error": "bad request"}, 400)
-                    return
-                response = app.open_payload(request)
-                self._json(response, 200 if "url" in response else 400)
-
-        try:
-            self.httpd = ThreadingHTTPServer(
-                ("127.0.0.1", port or DEFAULT_APP_PORT), Handler
-            )
-        except OSError:  # port taken: let the OS pick
-            self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.port = self.httpd.server_address[1]
+        # Bind before starting the server: the origin allowlist needs the
+        # resolved port, and the caller needs a usable URL the moment the
+        # constructor returns.
+        self._socket = bind_loopback(DEFAULT_APP_PORT if port is None else port)
+        self.port = self._socket.getsockname()[1]
         self.origin = f"http://localhost:{self.port}"
         self.url = f"{self.origin}/"
         self.launch_url = f"{self.url}#token={self.token}"
         self.allowed_origins = {self.origin}
-        self.control_port = control_port
-        self._start_control_ws(control_port)
+        self._start_server()
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
         key = (path, scene or "")
@@ -387,9 +286,7 @@ class AppServer:
                 process.stop()
                 process = None
             if process is None:
-                process = SceneProcess(
-                    path, scene, self.origin, transient=self.transient
-                )
+                process = SceneProcess(path, scene, transient=self.transient)
                 self.processes[key] = process
         url = process.wait_for_url()
         if url:
@@ -469,14 +366,21 @@ class AppServer:
                 "log": tail[-4000:],
                 "hint": missing_module_hint(tail),
             }
-        # ws_port lets the app page open the viewer itself
+        # The scene serves its own viewer on its own port, so the page just
+        # navigates there; nothing has to be relayed through this origin.
         parsed = urlsplit(url)
         if parsed.port is None:
             return {"error": "scene returned an invalid viewer URL"}
-        ws_port = parsed.port + 1
-        viewer_token = parsed.fragment.removeprefix("token=")
-        viewer_url = f"viewer.html?ws={ws_port}#token={viewer_token}"
-        return {"url": url, "ws_port": ws_port, "viewer_url": viewer_url}
+        viewer_url = urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path or "/",
+                urlencode({"app": self.url}),  # the viewer's way back here
+                parsed.fragment,
+            )
+        )
+        return {"url": url, "port": parsed.port, "viewer_url": viewer_url}
 
     def grant_file(self, raw_path: str) -> str | None:
         """Authorize one file the user named outside the browser.
@@ -527,16 +431,22 @@ class AppServer:
         self._granted_files.add(path)
         return {"file": {"path": path, "rel": candidate.name, "scenes": scenes}}
 
-    def _start_control_ws(self, control_port: int):
-        """Loopback control channel for the page this app serves.
+    def _start_server(self):
+        """Serve the page and its control socket on the one bound port.
 
-        Normal app sessions use the stable default port; desktop-open sessions
-        request an OS-assigned port so independently opened files cannot
-        collide.
+        Plain GETs are answered from `web/static/`; WebSocket handshakes fall
+        through to the Origin check and then the control protocol. The page
+        therefore reaches its engine at `window.location` and has no port or
+        address to be told.
         """
         import asyncio
 
         import websockets.asyncio.server as ws_server
+
+        def process_request(connection, request):
+            if is_websocket_upgrade(request):
+                return None
+            return static_response(request, index="app.html")
 
         async def handler(ws):
             registered = False
@@ -550,11 +460,7 @@ class AppServer:
             self._session_lease.connected()
             registered = True
             try:
-                await ws.send(
-                    json.dumps(
-                        {"type": "authenticated"}
-                    )
-                )
+                await ws.send(json.dumps({"type": "authenticated"}))
                 async for message in ws:
                     request = parse_json_object(message)
                     if request is None:
@@ -574,48 +480,48 @@ class AppServer:
                 if registered:
                     self._session_lease.disconnected()
 
-        async def main(port):
+        async def main():
+            self._loop = asyncio.get_running_loop()
+            self._closing = asyncio.Event()
             async with ws_server.serve(
                 handler,
-                "127.0.0.1",
-                port,
+                sock=self._socket,
+                process_request=process_request,
                 origins=sorted(self.allowed_origins),
                 max_size=MAX_CONTROL_MESSAGE,
                 max_queue=16,
                 compression=None,
-            ) as server:
-                self.control_port = server.sockets[0].getsockname()[1]
-                self._control_ready.set()
-                await asyncio.Future()
+            ):
+                self._ready.set()
+                await self._closing.wait()  # released by stop_serving()
 
         def run():
             try:
-                asyncio.run(main(control_port))
-                return
-            except OSError:
-                pass
-            # The default port is a rendezvous, not a requirement: a
-            # background agent holds it for the whole login session, and a
-            # foreground `maniml app` must still be reachable. Fall back to an
-            # OS-assigned port — run_app puts it in the launch URL, so the
-            # page it opens connects to this server rather than the agent.
-            if control_port == 0:
-                print("warning: could not start the control channel")
-                self._control_ready.set()
-                return
-            try:
-                asyncio.run(main(0))
-            except OSError:
-                print("warning: could not start the control channel")
-                self._control_ready.set()
+                asyncio.run(main())
+            except Exception as exc:  # noqa: BLE001 - report, don't take the app down
+                print(f"warning: the app server stopped: {exc}")
+            finally:
+                self._ready.set()
+                self._stopped.set()
 
-        self._control_ready = threading.Event()
-        threading.Thread(target=run, name="maniml-app-control", daemon=True).start()
-        self._control_ready.wait(timeout=5)
+        threading.Thread(target=run, name="maniml-app", daemon=True).start()
+        if not self._ready.wait(timeout=5):
+            raise RuntimeError("app server failed to start")
 
     def serve_forever(self):
+        """Block until the server stops (Ctrl-C, SIGTERM, or the idle monitor)."""
         self._serving.set()
-        self.httpd.serve_forever()
+        self._stopped.wait()
+
+    def stop_serving(self):
+        """Stop accepting connections and release serve_forever()."""
+        closing = getattr(self, "_closing", None)
+        if self._loop is not None and closing is not None:
+            try:
+                self._loop.call_soon_threadsafe(closing.set)
+            except RuntimeError:
+                pass  # the loop is already gone
+        self._stopped.set()
 
     def start_exit_when_idle(
         self,
@@ -635,7 +541,7 @@ class AppServer:
                     and processes
                     and all(not process.alive() for process in processes)
                 ) or (not processes and self._session_lease.expired()):
-                    self.httpd.shutdown()
+                    self.stop_serving()
                     return
 
         thread = threading.Thread(
@@ -650,6 +556,7 @@ class AppServer:
                 return
             self._shutdown_complete = True
             self._shutdown_event.set()
+            self.stop_serving()
             with self._lock:
                 processes = list(self.processes.values())
             for process in processes:
@@ -661,14 +568,14 @@ def run_app(
     open_browser: bool = True,
     allow_outside_root: bool = False,
     initial_file: str | None = None,
-    control_port: int = CONTROL_WS_PORT,
+    port: int | None = None,
     token: str | None = None,
     state_path: str | os.PathLike[str] | None = None,
 ) -> None:
     server = AppServer(
         root,
+        port=port,
         allow_outside_root=allow_outside_root,
-        control_port=control_port,
         transient=initial_file is not None,
         token=token,
     )
@@ -680,16 +587,11 @@ def run_app(
             raise SystemExit(128 + signum)
 
         signal.signal(signal.SIGTERM, exit_on_sigterm)
-    control_fragment = f"token={server.token}"
-    if server.control_port != CONTROL_WS_PORT:
-        control_fragment += f"&control={server.control_port}"
-    # The page needs the resolved port: it may not be the default when a
-    # background agent already holds it.
-    launch_url = f"{server.url}#{control_fragment}"
+    launch_url = server.launch_url
     if initial_file is not None:
         opened = server.open_payload({"path": initial_file})
         if opened.get("viewer_url"):
-            launch_url = f"{server.url}{opened['viewer_url']}"
+            launch_url = opened["viewer_url"]
         elif opened.get("error"):
             # A desktop open has no UI of its own: without this the launcher
             # log is silent and the landing page gives no hint why the file
@@ -708,10 +610,7 @@ def run_app(
             descriptor = os.open(
                 state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-                json.dump(
-                    {"url": server.url, "control_port": server.control_port},
-                    file,
-                )
+                json.dump({"url": server.url, "port": server.port}, file)
             atexit.register(lambda: state_file.unlink(missing_ok=True))
         except OSError:
             pass
