@@ -15,129 +15,167 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #2b2a2d; --panel: rgba(22, 21, 25, .82);
-    --line: rgba(255, 255, 255, .085); --line-strong: rgba(255,255,255,.15);
-    --text: #ebe7e1; --dim: #969199; --ink: #252428;
-    --accent: #58c4dd; --good: #68d391;
+    --bg: #2b2a2d;
+    --card: #201f23;
+    --well: #141316;
+    --line: rgba(255, 255, 255, .085);
+    --line-strong: rgba(255, 255, 255, .15);
+    --text: #ebe7e1;
+    --dim: #969199;
+    --accent: #58c4dd;
+    --good: #68d391;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --serif: Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; background: var(--bg);
-    color: var(--text); font: 14px/1.6 -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif; }
-  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
-    background: radial-gradient(circle at 50% -15%, rgba(255,255,255,.04), transparent 43%); }
+  html { min-height: 100%; }
+  body {
+    margin: 0; min-height: 100dvh; padding: 2rem 1rem;
+    display: grid; place-items: center;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 var(--sans);
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(circle at 50% -10%, rgba(255,255,255,.045), transparent 45%);
+  }
   button { font: inherit; }
-  main { position: relative; max-width: 720px; margin: 0 auto;
-    padding: 92px 24px 96px; }
-  header { position: fixed; z-index: 20; top: 10px; left: 12px; right: 12px;
-    display: flex; justify-content: center; pointer-events: none; }
-  .pod { min-height: 42px; display: flex; align-items: center; gap: 7px;
-    padding: 4px 14px; border: 1px solid var(--line); border-radius: 13px;
-    background: var(--panel); box-shadow: 0 11px 32px rgba(0,0,0,.28);
-    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-    pointer-events: auto; white-space: nowrap; }
-  h1 { font: 500 15px/1.1 Georgia, "Times New Roman", serif;
-    letter-spacing: .075em; margin: 0; }
-  .tagline { color: var(--dim); margin: 0 0 0 7px; font-size: 11px;
-    padding-left: 12px; border-left: 1px solid var(--line-strong); }
-  .lede { font: 500 30px/1.25 Georgia, "Times New Roman", serif;
-    letter-spacing: .01em; margin: 0 0 14px; }
-  .sub { color: var(--dim); font-size: 15px; margin: 0 0 40px; max-width: 56ch; }
-  .card { background: var(--panel); border: 1px solid var(--line);
-    border-radius: 15px; padding: 24px 26px; margin: 0 0 18px;
-    box-shadow: 0 18px 52px rgba(0,0,0,.18); }
-  .card h2 { font: 500 17px/1.2 Georgia, "Times New Roman", serif;
-    margin: 0 0 4px; }
-  .card p { color: var(--dim); margin: 0 0 16px; }
-  .card p:last-child { margin-bottom: 0; }
-  .step { display: flex; gap: 14px; align-items: baseline; }
-  .num { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums;
-    border: 1px solid var(--line-strong); border-radius: 50%; width: 22px;
-    height: 22px; display: inline-flex; align-items: center;
-    justify-content: center; flex: none; }
-  .cmd { display: flex; align-items: stretch; gap: 8px; margin: 10px 0 0; }
-  code, pre { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .cmd pre { flex: 1; margin: 0; padding: 11px 13px; overflow-x: auto;
-    background: rgba(0,0,0,.28); border: 1px solid var(--line);
-    border-radius: 10px; color: var(--text); }
-  .copy { border: 1px solid var(--line); border-radius: 10px; background: none;
-    color: var(--dim); padding: 0 14px; cursor: pointer; flex: none; }
-  .copy:hover { background: rgba(255,255,255,.055); color: var(--text); }
-  .copy.done { color: var(--good); border-color: rgba(104,211,145,.4); }
-  ul { color: var(--dim); margin: 0; padding-left: 20px; }
-  li { margin-bottom: 6px; }
-  li b { color: var(--text); font-weight: 500; }
-  footer { color: var(--dim); font-size: 12px; margin-top: 40px;
-    padding-top: 20px; border-top: 1px solid var(--line); }
   a { color: var(--accent); }
+
+  /* The card is the page. Width is capped rather than floored — a min-width
+     here would overflow a phone. */
+  .card {
+    position: relative;
+    width: min(680px, calc(100vw - 2rem));
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .42);
+    overflow: hidden;
+  }
+
+  .card-head { padding: 1.6rem 1.75rem 1.35rem; border-bottom: 1px solid var(--line); }
+  .kicker {
+    color: #9db8d6; font-size: 10px; line-height: 1.3;
+    letter-spacing: .14em; text-transform: uppercase; margin-bottom: .45rem;
+  }
+  .card-head h1 { font: 600 22px/1.25 var(--serif); margin: 0; letter-spacing: .01em; }
+  .card-head p { color: var(--dim); font-size: 13px; margin: .5rem 0 0; }
+
+  .step {
+    display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: .85rem;
+    padding: 1.2rem 1.75rem; border-bottom: 1px solid var(--line);
+  }
+  .step-number {
+    display: grid; place-items: center; align-self: start;
+    width: 25px; height: 25px; border: 1px solid var(--line-strong);
+    border-radius: 50%; color: #9db8d6; font-size: 11px;
+  }
+  .step h2 { font: 600 14px/1.4 var(--sans); margin: .1rem 0 .2rem; }
+  .step p { color: var(--dim); font-size: 12px; margin: 0 0 .7rem; }
+  .step p:last-child { margin-bottom: 0; }
+
+  /* The command and its button share one box. `min-width: 0` on the code is
+     load-bearing: a flex item defaults to `min-width: auto`, so without it a
+     long command sets an unshrinkable floor and pushes the button out of the
+     card instead of scrolling inside it. */
+  .command-row {
+    display: flex; align-items: stretch; min-width: 0;
+    background: var(--well); border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden;
+  }
+  .command-row code {
+    flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+    padding: .62rem .75rem; color: #d5d2cc; font: 11.5px/1.5 var(--mono);
+  }
+  .command-copy {
+    flex: none; border: 0; border-left: 1px solid var(--line);
+    background: rgba(255, 255, 255, .04); color: var(--text);
+    padding: 0 .85rem; font-size: 11px; cursor: pointer;
+  }
+  .command-copy:hover { background: rgba(255, 255, 255, .1); }
+  .command-copy.done { color: var(--good); }
+
+  .features { padding: 1.2rem 1.75rem; border-bottom: 1px solid var(--line); }
+  .features h2 { font: 600 14px/1.4 var(--sans); margin: 0 0 .7rem; }
+  .features ul { margin: 0; padding-left: 1.1rem; color: var(--dim); font-size: 12.5px; }
+  .features li { margin-bottom: .4rem; }
+  .features li:last-child { margin-bottom: 0; }
+  .features b { color: var(--text); font-weight: 500; }
+  code { font-family: var(--mono); }
+  .features code { font-size: 11.5px; }
+
+  .card-foot { padding: 1rem 1.75rem; color: var(--dim); font-size: 11.5px; }
+
+  @media (max-width: 520px) {
+    body { padding: 1rem .5rem; }
+    .card-head, .step, .features, .card-foot { padding-inline: 1.1rem; }
+    .step { grid-template-columns: 22px minmax(0, 1fr); gap: .6rem; }
+  }
 </style>
 </head>
 <body>
-<header><div class="pod"><h1>ManimLive</h1>
-  <span class="tagline">preview — the app runs on your machine</span></div></header>
-<main>
-  <p class="lede">Live manim, with the animation you are editing already on screen.</p>
-  <p class="sub">A ManimCE-compatible API on an OpenGL backend, with checkpoints
-    at every <code>play()</code>: arrow through your animations, save the file and
-    watch only what changed replay, and render the scene in the browser with its
-    own GPU.</p>
-
-  <div class="card">
-    <h2>This page is a preview</h2>
-    <p>ManimLive runs Python — your scenes, your packages, your files — so it
-      runs on your own computer, not here. Nothing on this page connects to it.
-      Two commands and you have the real thing:</p>
-
-    <div class="step"><span class="num">1</span><div style="flex:1">
-      <b>Install it.</b>
-      <div class="cmd">
-        <pre id="cmd-install">python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"</pre>
-        <button class="copy" data-for="cmd-install">Copy</button>
-      </div>
-    </div></div>
-
-    <div class="step" style="margin-top:20px"><span class="num">2</span><div style="flex:1">
-      <b>Open it.</b> This starts the engine and opens the app in your browser
-      at <code>http://localhost:8685</code>.
-      <div class="cmd">
-        <pre id="cmd-run">maniml app ~/Projects</pre>
-        <button class="copy" data-for="cmd-run">Copy</button>
-      </div>
-    </div></div>
-
-    <p style="margin-top:20px">From there the app itself offers to install as a
-      desktop app — its own icon, its own window, and double-clicking a
-      <code>.py</code> file opens it. That offer belongs to the local app rather
-      than this page, so only one ManimLive ever owns your Python files.</p>
+<main class="card">
+  <div class="card-head">
+    <div class="kicker">Preview &middot; local Python, browser viewer</div>
+    <h1>Live manim, with the animation you are editing already on screen</h1>
+    <p>Checkpoints at every <code>play()</code>, hot reload that replays only what
+       changed, and scenes rendered by your own GPU.</p>
   </div>
 
-  <div class="card">
+  <section class="step">
+    <span class="step-number">1</span>
+    <div>
+      <h2>Install it</h2>
+      <p>ManimLive runs your scenes, your packages and your files, so it runs on
+         your computer. Nothing on this page connects to it.</p>
+      <div class="command-row">
+        <code id="cmd-install">python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"</code>
+        <button class="command-copy" data-for="cmd-install">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="step">
+    <span class="step-number">2</span>
+    <div>
+      <h2>Open it</h2>
+      <p>Starts the engine and opens the app at <code>http://localhost:8685</code>,
+         where it offers to install as a desktop app with its own icon and window.
+         That offer belongs to the local app, not to this page, so only one
+         ManimLive ever owns your Python files.</p>
+      <div class="command-row">
+        <code id="cmd-run">maniml app ~/Projects</code>
+        <button class="command-copy" data-for="cmd-run">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="features">
     <h2>What you get</h2>
     <ul>
-      <li><b>Checkpoints at every play().</b> Arrow keys step forward through
-        your animations, re-running each from source, or jump back instantly.</li>
-      <li><b>Hot reload that replays only what changed.</b> Save the file and
-        edited animations replay from the last good checkpoint.</li>
-      <li><b>Click a mobject to find it.</b> It prints the variable name; drag
-        it and you get a paste-ready <code>move_to([x, y, z])</code>.</li>
-      <li><b>The browser renders it.</b> Scenes draw through WebGPU on your own
-        GPU, pixel-faithful to the native renderer.</li>
-      <li><b>Bake a scene to share.</b> <code>--export</code> writes a
-        self-contained page students can scrub through, with no Python anywhere.</li>
+      <li><b>Checkpoints at every play().</b> Step forward through your animations,
+          re-running each from source, or jump back instantly.</li>
+      <li><b>Hot reload that replays only what changed.</b> Save the file and the
+          edited animations replay from the last good checkpoint.</li>
+      <li><b>Click a mobject to find it.</b> It prints the variable name; drag it
+          and you get a paste-ready <code>move_to([x, y, z])</code>.</li>
+      <li><b>Bake a scene to share.</b> <code>--export</code> writes a self-contained
+          page students can scrub through, with no Python anywhere.</li>
     </ul>
-  </div>
+  </section>
 
-  <footer>
-    ManimLive is alpha software, built from 3Blue1Brown's ManimGL lineage with
-    code adapted from ManimCommunity's Manim. It is not an official
-    ManimCommunity project.
+  <div class="card-foot">
+    Alpha software, built from 3Blue1Brown's ManimGL lineage with code adapted from
+    ManimCommunity's Manim. Not an official ManimCommunity project.
     <a href="https://github.com/tayweid/maniml">Source on GitHub</a>.
-  </footer>
+  </div>
 </main>
 <script>
 // The only script here: copy a command to the clipboard. This page has no
 // engine to talk to and must never grow one.
-for (const button of document.querySelectorAll(".copy")) {
+for (const button of document.querySelectorAll(".command-copy")) {
   button.addEventListener("click", async () => {
     const text = document.getElementById(button.dataset.for).textContent;
     try {

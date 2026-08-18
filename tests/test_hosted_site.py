@@ -23,6 +23,16 @@ class HostedSiteTests(unittest.TestCase):
         self.assertIn("pip install", page)
         self.assertIn("maniml app", page)
 
+    def test_a_long_command_scrolls_inside_its_box(self):
+        """The install command is long enough to break a naive flex row: a flex
+        item's min-width defaults to auto, so without min-width:0 the code sets
+        an unshrinkable floor and shoves the copy button out of the card."""
+        page = (SITE / "index.html").read_text()
+        self.assertIn(".command-row code", page)
+        self.assertIn("min-width: 0", page)
+        # The button lives inside the bordered box, not beside it.
+        self.assertIn('<button class="command-copy"', page)
+
     def test_an_old_installed_shell_lands_somewhere_useful(self):
         """The hosted PWA's start_url was app.html. One may still be installed,
         so that path redirects to the preview instead of returning a 404."""
