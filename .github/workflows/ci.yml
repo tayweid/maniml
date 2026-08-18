@@ -51,8 +51,8 @@ jobs:
           uv run --locked python -m unittest
           tests.test_ce_extractor
           tests.test_web_security
-          tests.test_pwa
-          tests.test_desktop
+          tests.test_static_assets
+          tests.test_hosted_site
           tests.test_safe_text_cache
           tests.test_headless_import
           tests.test_app_protocol

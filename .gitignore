@@ -106,8 +106,8 @@ ENV/
 env.bak/
 venv.bak/
 
-# mkdocs documentation
-/site
+# mkdocs documentation — but /site is now the published preview (see
+# .github/workflows/site.yml), so it is tracked deliberately.
 
 # mypy
 .mypy_cache/
