@@ -43,6 +43,32 @@
     display: flex; align-items: center; justify-content: center;
     gap: 10px; padding: 72px 22px 78px;
   }
+  /* Full screen: the stage padding is what reserves room for the chrome, so
+     dropping it lets the frame fill the display. The pods stay in the DOM and
+     fade, but `visibility` has to go too — an invisible pod would still eat
+     clicks meant for the canvas. */
+  body.fullscreen #stage { padding: 0; }
+  body.fullscreen #stage canvas { border-radius: 0; box-shadow: none; }
+  body.fullscreen #toolbar,
+  body.fullscreen #timeline-shell {
+    opacity: 0; visibility: hidden;
+    transition: opacity 180ms ease, transform 180ms ease, visibility 180ms;
+  }
+  body.fullscreen #toolbar { transform: translateY(-12px); }
+  body.fullscreen #timeline-shell { transform: translateX(-50%) translateY(14px); }
+  body.fullscreen.chrome #toolbar {
+    opacity: 1; visibility: visible; transform: none;
+  }
+  body.fullscreen.chrome #timeline-shell {
+    opacity: 1; visibility: visible; transform: translateX(-50%);
+  }
+  body.fullscreen.idle, body.fullscreen.idle #view, body.fullscreen.idle .altview {
+    cursor: none;
+  }
+  #fullscreen .fs-exit { display: none; }
+  body.fullscreen #fullscreen .fs-enter { display: none; }
+  body.fullscreen #fullscreen .fs-exit { display: block; }
+
   #stage canvas {
     border-radius: 5px;
     box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035);
@@ -309,6 +335,11 @@
     <div id="position"><span class="position-word">Pausepoint </span><strong>1 / &mdash;</strong></div>
     <button id="next" class="icon-button" aria-label="Play next animation" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; →</span>
+    </button>
+    <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
+      <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
+      <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
+      <span class="control-label">Full screen&nbsp; F</span>
     </button>
   </div>
 
@@ -777,17 +808,104 @@ document.getElementById("export-frame").onclick = () => {
   canvas.focus();
 };
 
+// -- Full screen --
+// The stage fills the display and the chrome recedes, coming back when the
+// pointer nears an edge. The frame itself is a fixed size the engine chose
+// (the camera FBO is never resized and the protocol carries no viewport), so
+// this upscales rather than re-renders; smooth scaling is the right default,
+// which is why image-rendering is left alone.
+const REVEAL_EDGE = 88;
+const HIDE_DELAY = 2200;
+const fullscreenButton = document.getElementById("fullscreen");
+const toolbar = document.getElementById("toolbar");
+const timelineShell = document.getElementById("timeline-shell");
+let chromeTimer = null;
+
+const inFullscreen = () => !!document.fullscreenElement;
+
+function chromeHeld() {
+  // Never yank the chrome out from under a pointer that is using it.
+  return toolbar.matches(":hover")
+    || timelineShell.matches(":hover")
+    || toolbar.contains(document.activeElement)
+    || !sceneMenu.hidden
+    || !!document.querySelector(".flyover:hover");
+}
+
+function showChrome() {
+  document.body.classList.add("chrome");
+  document.body.classList.remove("idle");
+  clearTimeout(chromeTimer);
+  chromeTimer = setTimeout(hideChrome, HIDE_DELAY);
+}
+
+function hideChrome() {
+  if (!inFullscreen()) return;
+  if (chromeHeld()) {
+    chromeTimer = setTimeout(hideChrome, HIDE_DELAY);
+    return;
+  }
+  document.body.classList.remove("chrome");
+  document.body.classList.add("idle");
+}
+
+async function toggleFullscreen() {
+  try {
+    if (inFullscreen()) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+  } catch (error) {
+    // Denied (no user gesture, or policy): leave the UI as it is.
+  }
+}
+
+document.addEventListener("fullscreenchange", () => {
+  const on = inFullscreen();
+  document.body.classList.toggle("fullscreen", on);
+  fullscreenButton.setAttribute("aria-pressed", String(on));
+  clearTimeout(chromeTimer);
+  if (on) showChrome();  // announce the chrome once, then let it recede
+  else document.body.classList.remove("chrome", "idle");
+  canvas.focus();
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!inFullscreen()) return;
+  if (event.clientY < REVEAL_EDGE || event.clientY > innerHeight - REVEAL_EDGE) {
+    showChrome();
+  } else {
+    document.body.classList.remove("idle");
+    if (document.body.classList.contains("chrome")) showChrome();
+  }
+});
+
+if (document.fullscreenEnabled) {
+  fullscreenButton.hidden = false;
+  fullscreenButton.onclick = () => { toggleFullscreen(); canvas.focus(); };
+}
+
 // -- Keyboard --
 const FORWARDED = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "]);
+// Keys handled here rather than by the scene. Tracked so the keyup below does
+// not hand the engine a release for a press it never saw.
+const claimed = new Set();
 function mods(e) { return { shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey }; }
 document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
+  // Claim it here, in the one place keys reach the engine, so nothing leaks.
+  if ((e.key === "f" || e.key === "F")
+      && !e.metaKey && !e.ctrlKey && !e.altKey && document.fullscreenEnabled) {
+    e.preventDefault();
+    claimed.add(e.key);
+    toggleFullscreen();
+    return;
+  }
   if (FORWARDED.has(e.key)) e.preventDefault();
   if (e.key.length === 1 || FORWARDED.has(e.key) || e.key === "Escape") {
     send({ type: "key", action: "down", key: e.key, ...mods(e) });
   }
 });
 document.addEventListener("keyup", (e) => {
+  if (claimed.delete(e.key)) return;
   send({ type: "key", action: "up", key: e.key, ...mods(e) });
 });
 

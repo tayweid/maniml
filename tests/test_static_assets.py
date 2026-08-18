@@ -118,6 +118,32 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("function send(obj)", viewer)
         self.assertIn("Pyodide", viewer)
 
+    def test_full_screen_never_leaks_its_key_to_the_scene(self):
+        """Every single-character key is forwarded to the engine, so the
+        shortcut is claimed inside the forwarder itself — the one place keys
+        reach the scene — rather than by a second listener that might not win."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("requestFullscreen", viewer)
+        # Scope to the forwarder specifically: the toolbar's pulseKey() also
+        # sends key events, and the scene menu registers its own earlier
+        # keydown listener — neither is the path a real keypress takes.
+        start = viewer.index("// -- Keyboard --")
+        handler = viewer[start:viewer.index('document.addEventListener("keyup"', start)]
+        self.assertLess(
+            handler.index("toggleFullscreen();"),
+            handler.index('send({ type: "key"'),
+            "the key is forwarded before it is claimed")
+        # A claimed keydown must not leave a dangling keyup for the engine.
+        self.assertIn("claimed.delete(e.key)", viewer)
+
+    def test_full_screen_hides_the_chrome_without_leaving_it_clickable(self):
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("body.fullscreen #stage { padding: 0; }", viewer)
+        # opacity alone would leave invisible pods eating canvas clicks.
+        self.assertIn("opacity: 0; visibility: hidden;", viewer)
+        self.assertIn("body.fullscreen.chrome #toolbar", viewer)
+        self.assertIn("body.fullscreen.chrome #timeline-shell", viewer)
+
     def test_viewer_controls_are_present(self):
         viewer = (STATIC / "viewer.html").read_text()
         for element in (
