@@ -332,13 +332,9 @@ document.getElementById("openbtn").onclick = async () => {
     const data = await request("choose");
     if (data.cancelled) return;
     if (data.error) throw new Error(data.error);
-    const file = data.file;
-    if (file.scenes.length === 1) {
-      await openScene(file.path, file.scenes[0], null);
-      return;
-    }
-    document.getElementById("picked").replaceChildren(fileCard(file));
-    document.getElementById("picked-section").hidden = false;
+    // Let the engine pick: a file opens at its first scene, and the viewer's
+    // scene picker switches from there.
+    await openScene(data.file.path, null, null);
   } catch (error) {
     errorEl.textContent = String(error);
     errorEl.style.display = "block";

@@ -364,8 +364,13 @@ class AppServer:
         scenes = find_scene_classes(path)
         scene = request.get("scene") or None
         if scene is None:
-            if len(scenes) != 1:
-                return {"error": "specify exactly one discovered scene"}
+            if not scenes:
+                return {"error": "no Manim scene classes were discovered in this file"}
+            # A file with several scenes opens at its first one; the viewer's
+            # own picker switches between them without another process, so
+            # refusing to open at all only ever meant an extra click.
+            # find_scene_classes walks breadth-first, so top-level classes come
+            # out in file order and this really is the first scene in the file.
             scene = scenes[0]
         if (
             not isinstance(scene, str)

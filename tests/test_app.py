@@ -309,9 +309,20 @@ class DesktopOpenFallbackTests(unittest.TestCase):
         self.server = AppServer(self.tmpdir.name, port=0)
         self.addCleanup(self.server.shutdown)
 
-    def test_multi_scene_file_reports_why_it_did_not_open(self):
+    def test_multi_scene_file_opens_at_its_first_scene(self):
+        """Most course files hold a dozen scenes. Refusing to open them meant
+        an extra click for nothing, since the viewer's own picker switches
+        scenes in the same process."""
         result = self.server.open_payload({"path": self.multi})
-        self.assertIn("error", result)
+        self.assertIn("viewer_url", result, result.get("error"))
+        self.assertIn((self.multi, "AlphaScene"), self.server.processes)
+
+    def test_a_file_with_no_scenes_still_says_so(self):
+        empty = os.path.join(self.tmpdir.name, "no_scenes.py")
+        with open(empty, "w") as f:
+            f.write("value = 1\n")
+        result = self.server.open_payload({"path": empty})
+        self.assertIn("no Manim scene classes", result.get("error", ""))
         self.assertNotIn("viewer_url", result)
 
     def test_granted_file_is_listed_with_every_scene(self):
