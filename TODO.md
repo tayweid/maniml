@@ -153,51 +153,49 @@ native renderer, in priority order; checked = done):
   unavailable. Remaining: broaden course-scene dogfooding, then retire
   gl.js/glsl, followed by the geometry-shader pipeline and pyglet.
 
-**Stage 3b — the hosted PWA (2026-08-14, Knuth's architecture).**
-The frontend deploys to GitHub Pages on push (.github/workflows/
-deploy.yml uploads web/static verbatim — no build step; enablement:
-true like knuth's) and installs from Chrome via manifest.webmanifest.
-The installable shell now has a network-first service worker, an explicit
-browser-install prompt, and a copyable one-time engine/desktop install step. The
-wire handshake is versioned so a newer hosted UI fails with an actionable
-engine-update message instead of speaking an incompatible protocol.
-The hosted landing (app.html) talks to the local `maniml app` process over a
-loopback control WebSocket (fixed port 8686 for the CLI fallback, OS-assigned
-for desktop-open sessions). The launcher pairs each daemon session through a
-URL-fragment capability and optional port; the socket also requires an exact
-Origin match. It opens scenes at
-viewer.html?ws=<port>, which uses a separate viewer capability to connect
-straight to the scene process's socket. If the local app isn't running
-or the PWA has not been paired, the page shows the one-time setup
-(pip install git+…, `maniml install-desktop`).
-Push to main → the installed app updates everywhere on next load — no
-wheel roundtrip; pip update only needed when the local/protocol side
-changes. Enable after pushing: the workflow creates the Pages site
-itself. The viewer file is now viewer.html (index.html redirects to
-the landing; scene processes serve viewer.html at their root).
+**Stage 3b — the hosted PWA. TRIED, THEN DELETED (2026-08-17).** The
+frontend deployed to GitHub Pages and talked *across* origins to the local
+engine. Everything that seam needed — a service worker and manifest, a
+versioned wire handshake, URL-fragment pairing per daemon session, an
+AppleScript launcher, a `maniml://` URL scheme, Launch Services
+registration, Chrome PWA shim discovery, a public-origin allowlist — cost
+roughly 1,400 lines and produced essentially every delivery bug this
+project has had. "Collapse to a local, pip-only app" removed all of it,
+along with the macOS desktop launch bridge built on top of it
+(`install-desktop`, `maniml open FILE`, the `.py` Finder association) and
+its public-release gates. The engine that runs the scenes now serves the
+interface, from the same pip install, so they cannot drift. **Do not
+reintroduce a public origin that talks to loopback.**
 
-**Desktop launch bridge (macOS developer preview, 2026-08-16).** Daily use no
-longer needs a terminal after the one-time engine install. `maniml
-install-desktop` generates `~/Applications/ManimLive Desktop.app`, bound to the exact
-Python environment used for installation, and registers `.py` as an alternate
-Finder document type. Opening the app presents a native picker; Finder's Open
-With starts `maniml open FILE`, which launches an isolated hosted session on a
-dynamic authenticated control port. The landing toolbar's Open button also
-invokes the bridge through the path-free `maniml://open` URL when cold, then
-uses a native dialog; its explicit selection grants only that canonical file
-outside the configured root. The existing `maniml app` flow is unchanged as a
-fallback.
+Knuth spent 2026-08-17 arriving at the same architecture from the same
+starting point; its findings are recorded in `SAME_ORIGIN_NOTES.md` and two
+of them landed here:
 
-Public-release gates for this bridge:
-- Replace the locally generated AppleScript bundle with a signed/notarized
-  macOS artifact and installer; retain `install-desktop` for source checkouts.
-- Add equivalent Windows file association/installer and Linux `.desktop` +
-  MIME packaging. The picker protocol already has platform implementations.
-- Add lifecycle management (reuse or retire idle launch daemons) and an app UI
-  for choosing the Python interpreter when a project-specific `.venv` should
-  override the environment captured at installation.
-- Give the desktop launcher branded `.icns`/Windows icon assets and exercise
-  the packaged artifacts on clean machines.
+- **One port, not two (2026-08-17).** The page was served on N and its
+  socket lived on N+1, so "same-origin" was two origins bridged by an
+  allowlist — paying for a port-pair search, a `?ws=` parameter, a
+  `#control=` fragment, and a parent origin threaded into every scene
+  subprocess. Both servers now answer plain GETs on their WebSocket port
+  (`web/assets.py` via `process_request`), the client says
+  `ws://${location.host}/`, and `connect-src 'self'` became a real
+  restriction. The app's `/api/*` endpoints went with it — the page had
+  spoken only over the control socket since the hosted UI died.
+- **No capability token (2026-08-17).** It defended only against another
+  program running as you, which can forge any header and can equally run
+  `python` itself; keeping it meaningful meant delivering it out of band,
+  which made launching a delivery problem and left a refused page needing a
+  terminal to recover. The Origin check is now the whole boundary, and
+  `http://localhost:8685/` is an address worth bookmarking. The attacker
+  table is in `SECURITY.md`. Note the trap named in the notes: *embedding a
+  token and keeping a token are different decisions.*
+
+Still open from those notes, if a double-click workflow is ever wanted
+back: a PWA installed **from the loopback origin itself** can register OS
+file handlers and receive a double-clicked file through `launchQueue`, even
+with the server stopped (measured on Chrome 151/macOS 26). That is not a
+public origin talking to loopback — it is the engine's own origin — so it
+does not violate the rule above. It needs a manifest and service worker
+again, both deliberately deleted; weigh that before starting.
 
 **Stage 3 — the app (started 2026-08-14).** `maniml app [dir]`
 (`web/app.py` + `static/app.html`): persistent local server, landing
@@ -217,15 +215,13 @@ remain available in a compact flyover. Later: console panel in the viewer
 (stdout is already captured), process controls on the landing page, and
 multi-scene tabs.
 
-Security baseline (2026-08-16): the app control socket and each viewer
-socket now require independent process-local capability tokens plus exact
-browser Origin checks before accepting commands or returning data. Tokens
-travel in launch URL fragments and remain tab-session scoped. Scene paths are
-confined to the selected app root by default; `--allow-outside-root` is the
-explicit compatibility escape hatch, and `--hosted` pairs a fresh daemon
-session with the hosted PWA. See `SECURITY.md` and `web/security.py`.
-The live `maniml.tayweid.io` origin is the launch target and remains allowed
-alongside the legacy Pages origin during migration.
+Security baseline (2026-08-17): each server binds one loopback port, serves
+its page there, and completes a WebSocket handshake only for its own exact
+origin — no tokens, no pairing, nothing carried in a URL. Pages are served
+with `default-src 'self'; connect-src 'self'`. Scene paths stay confined to
+the selected app root by default; `--allow-outside-root` is the explicit
+compatibility escape hatch, and a file chosen in the native dialog grants
+that one file. See `SECURITY.md` and `web/security.py`.
 - The baked-scene web player then falls out for free: the same client
   rendering live WS data renders saved data from a file → `--render`
   grows a `--web` sibling, a self-contained page where students scrub

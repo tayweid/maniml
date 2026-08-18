@@ -5,32 +5,40 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
-### Desktop workflow
+### Delivery
 
-- Added a macOS desktop-launcher preview: one-time `maniml install-desktop`
-  setup registers Finder **Open With**, preserves the selected Python
-  environment, and starts hosted scenes without a terminal.
-- Replaced the landing page's typed absolute-path field with an authenticated
-  native file picker that grants only the selected file outside the app root.
-- Switched locally launched hosted sessions to `maniml.tayweid.io` and added
-  dynamic control ports for concurrent desktop-open sessions.
-- Open hosted desktop sessions in the installed ManimLive PWA or Chrome instead
-  of an arbitrary default browser, avoiding isolated transient-window
-  permission contexts.
-- Deep-link installed Chrome PWAs with their validated app ID so Finder-opened
-  scenes retain the per-session viewer URL instead of reopening the start page.
+- ManimLive is a local application again. The interface is served by the
+  engine that runs your scenes, from the same pip install, so there is nothing
+  to deploy and no way for the two to be out of step. The hosted UI, its
+  service worker and manifest, the versioned wire handshake, and the macOS
+  desktop launch bridge built on them (`install-desktop`, `maniml open FILE`,
+  the `maniml://` URL scheme) are all removed.
+- The app and each scene viewer now serve their page and accept their
+  WebSocket on **one** port, so the page derives its connection from its own
+  address. `maniml app` no longer exposes `/api/files` or `/api/open`.
+- Replaced the landing page's typed absolute-path field with a native file
+  picker that grants only the selected file outside the app root.
 
 ### Security
 
-- Added independent process-local capabilities and browser Origin checks for
-  the app control channel and every scene viewer.
+- **`http://localhost:8685/` is now a plain address with no capability in
+  it.** Each server accepts a WebSocket only from the exact origin it served
+  its own page on — which a website cannot forge — and that Origin check is
+  now the whole browser boundary. The capability token, `~/.maniml/capability`
+  and `maniml agent rotate-token` are gone: a token embedded in the served
+  page defends nothing the Origin check did not, and one delivered out of band
+  made launching a delivery problem. It never defended against another program
+  running as your user, which can forge any header and can run Python
+  directly. See `SECURITY.md` for the full trust model.
+- Served pages now carry `default-src 'self'; connect-src 'self'`, which
+  genuinely confines them now that page and socket share one origin.
 - Confined `maniml app DIR` scene execution to `DIR` by default, including
   protection against symlink escapes.
 - Added bounded, strict JSON parsing for localhost control protocols.
 - Replaced the generated-SVG pickle cache with a bounded, atomic text cache.
-- Made the app accept viewer capabilities only from the child process's exact
-  launch-handshake line, preventing terminal log wrapping from truncating the
-  token.
+- Made the app accept a scene's viewer address only from the child process's
+  exact launch-handshake line, so a wrapped terminal log cannot be mistaken
+  for one.
 - Removed shell-based Windows sound playback and keep filenames out of
   PowerShell source.
 - Restricted URL-backed assets to bounded HTTP(S) downloads with socket and
