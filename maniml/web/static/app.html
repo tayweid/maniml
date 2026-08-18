@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ManimLive</title>
 <link rel="icon" href="icons/maniml-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2b2a2d">
 <style>
   :root {
@@ -43,6 +44,9 @@
   }
   #openbtn:hover { background: rgba(255,255,255,.055); color: var(--text); }
   #openbtn:disabled { cursor: default; opacity: 0.45; color: var(--text); }
+  #installbtn { border: 0; border-radius: 8px; background: none;
+    color: var(--accent); padding: 6px 10px; cursor: pointer; }
+  #installbtn:hover { background: rgba(255,255,255,.055); }
   .header-actions { display: flex; gap: 2px; padding: 4px; }
   #status { display: flex; align-items: center; gap: 7px; color: var(--dim);
     font-size: 11px; }
@@ -113,6 +117,7 @@
       <span id="status-dot"></span><span id="status-text">Connecting…</span>
     </div>
     <div class="header-actions pod">
+      <button id="installbtn" hidden>Install</button>
       <button id="openbtn">Open&hellip;</button>
     </div>
 </header>
@@ -222,6 +227,33 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(connectControl, 1500);
 }
 connectControl();
+
+// Installing gives ManimLive its own icon and a window without a tab strip.
+// It is offered here rather than on the hosted preview because this origin is
+// the engine — the installed app is the one that can actually run a scene.
+// The engine also serves a service worker, so the window still opens (and
+// says the engine is not running) when it is not.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js", { scope: "/" }).catch(() => {});
+  });
+}
+
+let installPrompt = null;
+const installButton = document.getElementById("installbtn");
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  installButton.hidden = false;
+});
+installButton.onclick = async () => {
+  if (!installPrompt) return;
+  installButton.hidden = true;
+  const prompt = installPrompt;
+  installPrompt = null;
+  await prompt.prompt();
+};
+window.addEventListener("appinstalled", () => { installButton.hidden = true; });
 
 async function openScene(path, scene, button) {
   errorEl.style.display = "none";

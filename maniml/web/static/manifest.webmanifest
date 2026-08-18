@@ -1,0 +1,16 @@
+{
+  "name": "ManimLive",
+  "short_name": "ManimLive",
+  "description": "Live manim: checkpoints, hot reload, GPU client rendering",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#2b2a2d",
+  "theme_color": "#2b2a2d",
+  "icons": [
+    { "src": "icons/maniml-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maniml-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maniml-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

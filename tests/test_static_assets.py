@@ -7,8 +7,12 @@ which is exactly what these tests are here to keep true.
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+from maniml.web import assets
 
 STATIC = Path(__file__).resolve().parent.parent / "maniml" / "web" / "static"
 
@@ -25,15 +29,45 @@ class LocalOnlyTests(unittest.TestCase):
                 "tayweid.github.io",      # hosted origins
                 "maniml.tayweid.io",
                 "WEB_PROTOCOL_VERSION",   # engine/frontend skew negotiation
-                "beforeinstallprompt",    # PWA install flow
-                "serviceWorker",
-                "launchQueue",
+                "launchQueue",            # see test_no_file_handlers_yet
             ):
                 self.assertNotIn(forbidden, page, f"{name}: {forbidden}")
 
-    def test_the_pwa_shell_is_gone(self):
-        for name in ("sw.js", "manifest.webmanifest", "index.html"):
-            self.assertFalse((STATIC / name).exists(), name)
+    def test_the_installable_app_is_the_local_one(self):
+        """The manifest and worker are served by the engine, so the app you
+        install is the one that can run a scene. The hosted preview must have
+        neither — tests/check_site.py holds that end."""
+        manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
+        self.assertEqual(manifest["scope"], "/")
+        self.assertEqual(manifest["start_url"], "/")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertTrue((STATIC / "sw.js").is_file())
+        self.assertIn('rel="manifest"', (STATIC / "app.html").read_text())
+        # index.html was the hosted build's redirect stub; the engine serves
+        # app.html at its root directly.
+        self.assertFalse((STATIC / "index.html").exists())
+
+    def test_no_file_handlers_yet(self):
+        """A `.py` double-click would arrive through launchQueue as a browser
+        file handle, which has no filesystem path — and the watcher and the
+        scene's own __file__-relative imports both need a real one. That is
+        why the engine shows the native dialog instead. Registering handlers
+        before that is solved would claim every .py on the machine and then
+        fail to open them."""
+        manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
+        self.assertNotIn("file_handlers", manifest)
+
+    def test_the_worker_is_versioned_by_the_engine_that_serves_it(self):
+        """A browser installs a new worker only when the bytes differ, and the
+        cache is keyed the same way, so an upgraded engine cannot be handed a
+        shell its predecessor cached."""
+        worker = (STATIC / "sw.js").read_text()
+        self.assertIn(assets.VERSION_PLACEHOLDER, worker)
+        self.assertIn(f"maniml-shell-${{VERSION}}", worker)
+        request = SimpleNamespace(method="GET", path="/sw.js", headers={})
+        served = assets.static_response(request, index="app.html").body.decode()
+        self.assertNotIn(assets.VERSION_PLACEHOLDER, served)
+        self.assertIn(assets._package_version(), served)
 
     def test_app_page_talks_only_to_its_own_origin(self):
         page = (STATIC / "app.html").read_text()

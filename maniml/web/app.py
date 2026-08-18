@@ -668,6 +668,17 @@ def run_app(
             atexit.register(lambda: state_file.unlink(missing_ok=True))
         except OSError:
             pass
+    if server.port != DEFAULT_APP_PORT:
+        # The port is the installed app's identity: a PWA installed from
+        # :8685 is scoped to it, so a session that landed elsewhere is a
+        # different app to the browser. Usually this means the login agent
+        # already holds the default, which is fine — but say so rather than
+        # let someone wonder why their installed window is not this one.
+        print(
+            f"note: port {DEFAULT_APP_PORT} was taken, so this session is on "
+            f"{server.port}. An installed ManimLive opens the one on "
+            f"{DEFAULT_APP_PORT}; this one runs in a tab."
+        )
     print(f"maniml app: {launch_url}  (scenes under {server.root})")
     if open_browser:
         webbrowser.open(launch_url)

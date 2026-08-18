@@ -179,6 +179,28 @@ A hosted build would need its own manifest and service worker again — both wer
 deleted rather than kept, because a Pyodide app's would differ anyway (no
 loopback, no file handlers, a different scope).
 
+### The installed app is the local one
+
+`web/static/manifest.webmanifest` + `sw.js` make `http://localhost:8685` an
+installable app: its own icon, a window without a tab strip, and — because the
+worker caches the shell — a window that still opens when the engine is not
+running, says so, and heals itself when it starts (the page reconnects on its
+own). `app.html` offers the install once the browser says it can.
+
+- **The port is the identity.** A PWA is scoped to the origin it was installed
+  from, which is why a scene opened through the app is relayed rather than
+  navigated to (above), and why `run_app` says so out loud when the default
+  port was taken and it landed elsewhere.
+- **The worker is version-stamped as it is served** (`assets.py` replaces
+  `__MANIML_VERSION__`). A browser installs a new worker only when the bytes
+  differ, and the cache name carries the same stamp, so `pip install --upgrade`
+  cannot leave an old shell in front of a new engine.
+- **No `file_handlers` yet, deliberately.** A `.py` double-click arrives
+  through `launchQueue` as a browser file handle, which has no filesystem path
+  — and the watcher and the scene's own `__file__`-relative imports both need a
+  real one (that is why `desktop.py`'s native dialog exists). Registering
+  handlers would claim every `.py` on the machine and then fail to open them.
+
 ### The hosted origin is a preview, and only a preview
 
 `site/` publishes to `maniml.tayweid.io` (`.github/workflows/site.yml`). It

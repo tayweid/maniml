@@ -17,6 +17,10 @@ REQUIRED_ASSETS = {
     "maniml/web/static/player.js",
     "maniml/web/static/gl.js",
     "maniml/web/static/webgpu.js",
+    # The installed app's identity: without these the engine serves a page
+    # that cannot be installed, and the icon and offline shell disappear.
+    "maniml/web/static/manifest.webmanifest",
+    "maniml/web/static/sw.js",
     "maniml/web/static/icons/maniml-192.png",
     "maniml/web/static/icons/maniml-512.png",
     "maniml/utils/safe_text_cache.py",

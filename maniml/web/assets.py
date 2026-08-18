@@ -26,7 +26,24 @@ from websockets.http11 import Request, Response
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # The renderers fetch their shader sources as text; nothing maps these.
-SHADER_CONTENT_TYPES = {".glsl": "text/plain", ".wgsl": "text/plain"}
+SHADER_CONTENT_TYPES = {
+    ".glsl": "text/plain",
+    ".wgsl": "text/plain",
+    ".webmanifest": "application/manifest+json",
+}
+
+VERSION_PLACEHOLDER = "__MANIML_VERSION__"
+
+
+def _package_version() -> str:
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover - importlib.metadata is stdlib
+        return "0"
+    try:
+        return version("maniml")
+    except PackageNotFoundError:
+        return "source"
 
 # The page and its socket are one origin, so 'self' covers the WebSocket as
 # well as the shader files the renderers fetch. Inline script/style is the
@@ -84,6 +101,14 @@ def static_response(request: Request, index: str) -> Response:
         return _response(404, "Not Found", b"not found\n", "text/plain")
 
     body = target.read_bytes()
+    if target.name == "sw.js":
+        # Stamp the worker with the installed version. The browser decides
+        # whether to install a new worker by comparing bytes, so an upgraded
+        # engine must not serve a byte-identical file — and the stamp is what
+        # keys the shell cache, so a new engine cannot be served an old shell.
+        body = body.replace(
+            VERSION_PLACEHOLDER.encode(), _package_version().encode()
+        )
     content_type = (
         SHADER_CONTENT_TYPES.get(target.suffix.lower())
         or mimetypes.guess_type(target.name)[0]
