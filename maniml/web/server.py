@@ -18,9 +18,7 @@ import asyncio
 import json
 import socket
 import threading
-import time
 from collections import deque
-from collections.abc import Callable
 
 from maniml.logger import log
 from maniml.web.assets import is_websocket_upgrade, static_response
@@ -28,63 +26,31 @@ from maniml.web.security import MAX_CONTROL_MESSAGE, parse_json_object
 
 DEFAULT_PORT = 8687
 MAX_EVENT_QUEUE = 1024
-VIEWER_STARTUP_TIMEOUT = 120.0
-VIEWER_DISCONNECT_GRACE = 30.0
 
 
 class ClientLease:
-    """Track authenticated clients and bound an unattended session.
+    """Thread-safe count of connected clients.
 
-    A startup timeout prevents a viewer that never connected (for example,
-    because local-network access was denied) from living forever.  Once a
-    client has connected, a shorter grace period tolerates page reloads and
-    brief browser restarts before the session is considered abandoned.
+    The scene thread reads `has_clients()` to skip frame readback and
+    encoding entirely while no browser is attached.
     """
 
-    def __init__(
-        self,
-        startup_timeout: float = VIEWER_STARTUP_TIMEOUT,
-        disconnect_grace: float = VIEWER_DISCONNECT_GRACE,
-        clock: Callable[[], float] = time.monotonic,
-    ):
-        self.startup_timeout = startup_timeout
-        self.disconnect_grace = disconnect_grace
-        self._clock = clock
-        self._created_at = clock()
-        self._last_disconnect: float | None = None
+    def __init__(self):
         self._client_count = 0
-        self._ever_connected = False
         self._lock = threading.Lock()
 
     def connected(self) -> None:
         with self._lock:
             self._client_count += 1
-            self._ever_connected = True
-            self._last_disconnect = None
 
     def disconnected(self) -> None:
         with self._lock:
-            if self._client_count == 0:
-                return
-            self._client_count -= 1
-            if self._client_count == 0:
-                self._last_disconnect = self._clock()
+            if self._client_count > 0:
+                self._client_count -= 1
 
     def has_clients(self) -> bool:
         with self._lock:
             return self._client_count > 0
-
-    def expired(self) -> bool:
-        with self._lock:
-            if self._client_count > 0:
-                return False
-            now = self._clock()
-            if not self._ever_connected:
-                return now - self._created_at >= self.startup_timeout
-            return (
-                self._last_disconnect is not None
-                and now - self._last_disconnect >= self.disconnect_grace
-            )
 
 
 def bind_loopback(preferred: int, scan: int = 1) -> socket.socket:
@@ -212,9 +178,6 @@ class WebServer:
 
     def has_clients(self) -> bool:
         return self._client_lease.has_clients()
-
-    def client_lease_expired(self) -> bool:
-        return self._client_lease.expired()
 
     def broadcast(self, data: bytes | str, droppable: bool = False) -> None:
         """Send to every client. `droppable` marks per-frame data that a

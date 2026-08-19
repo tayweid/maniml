@@ -140,7 +140,6 @@ class WebViewer:
     def __init__(self, open_browser: bool = True):
         self.scene: Optional[Scene] = None
         self.server = WebServer(capabilities=("export", "restart"))
-        self._transient_session = os.environ.get("MANIML_TRANSIENT_VIEWER") == "1"
         self.pressed_keys: set[int] = set()
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
@@ -188,9 +187,7 @@ class WebViewer:
 
     @property
     def is_closing(self) -> bool:
-        if self._pending_scene is not None:
-            return True
-        return self._transient_session and self.server.client_lease_expired()
+        return self._pending_scene is not None
 
     def take_pending_scene(self) -> str | None:
         """Consume a requested scene switch, if any."""

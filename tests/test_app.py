@@ -18,7 +18,6 @@ import unittest
 import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from websockets.sync.client import connect as ws_connect
 
@@ -291,10 +290,10 @@ class PortFallbackTests(unittest.TestCase):
         self.assertEqual(DEFAULT_APP_PORT, 8685)
 
 
-class DesktopOpenFallbackTests(unittest.TestCase):
-    """`maniml open FILE` hands over a file the user picked in Finder or a
-    native dialog. A file with several scenes cannot be opened directly, so
-    it must still be reachable from the landing page it falls back to."""
+class NativeDialogGrantTests(unittest.TestCase):
+    """The Open action hands over a file the user picked in the native
+    dialog. A file with several scenes cannot be opened directly, so it
+    must still be reachable from the landing page as a granted recent."""
 
     def setUp(self):
         import tempfile

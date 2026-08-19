@@ -46,7 +46,7 @@ from maniml.web.security import (
     parse_json_object,
     resolve_authorized_file,
 )
-from maniml.web.server import ClientLease, bind_loopback
+from maniml.web.server import bind_loopback
 
 RECENTS_PATH = os.environ.get(
     "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
@@ -138,7 +138,6 @@ class SceneProcess:
         self,
         path: str,
         scene: str | None,
-        transient: bool = False,
         identifier: str = "",
     ):
         self.path = path
@@ -153,8 +152,6 @@ class SceneProcess:
         # The scene serves its own page on its own port, so it needs to know
         # nothing about the app that spawned it.
         child_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-        if transient:
-            child_env["MANIML_TRANSIENT_VIEWER"] = "1"
         self.proc = subprocess.Popen(
             command,
             cwd=os.path.dirname(path) or None,
@@ -225,14 +222,12 @@ class AppServer:
         root: str,
         port: int | None = None,
         allow_outside_root: bool = False,
-        transient: bool = False,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
         if not self._root_path.is_dir():
             raise ValueError(f"app root is not a directory: {self.root}")
         self.allow_outside_root = allow_outside_root
-        self.transient = transient
         # A file you picked through the OS dialog stays openable in later
         # sessions: recents are the landing page's only discovery surface, and
         # an entry you cannot click is worse than no entry. See SECURITY.md —
@@ -247,13 +242,10 @@ class AppServer:
         self._lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._shutdown_complete = False
-        self._shutdown_event = threading.Event()
-        self._serving = threading.Event()
         self._ready = threading.Event()
         self._stopped = threading.Event()
         self._loop = None
         self._closing = None
-        self._session_lease = ClientLease()
         atexit.register(self.shutdown)
 
         # Bind before starting the server: the origin allowlist needs the
@@ -283,8 +275,7 @@ class AppServer:
             if process is None:
                 self._next_scene_id += 1
                 process = SceneProcess(
-                    path, scene, transient=self.transient,
-                    identifier=str(self._next_scene_id),
+                    path, scene, identifier=str(self._next_scene_id),
                 )
                 self.processes[key] = process
                 self._scenes_by_id[process.id] = process
@@ -508,26 +499,22 @@ class AppServer:
             if path.startswith("/scene/"):
                 await relay(ws, path[len("/scene/"):])
                 return
-            self._session_lease.connected()
-            try:
-                await ws.send(json.dumps({"type": "ready"}))
-                async for message in ws:
-                    request = parse_json_object(message)
-                    if request is None:
-                        continue
-                    op = request.get("op")
-                    if op == "recents":
-                        response = self.recents_payload()
-                    elif op == "choose":
-                        response = await asyncio.to_thread(self.choose_payload)
-                    elif op == "open":
-                        response = await asyncio.to_thread(self.open_payload, request)
-                    else:
-                        response = {"error": f"unknown op {op}"}
-                    response["id"] = request.get("id")
-                    await ws.send(json.dumps(response))
-            finally:
-                self._session_lease.disconnected()
+            await ws.send(json.dumps({"type": "ready"}))
+            async for message in ws:
+                request = parse_json_object(message)
+                if request is None:
+                    continue
+                op = request.get("op")
+                if op == "recents":
+                    response = self.recents_payload()
+                elif op == "choose":
+                    response = await asyncio.to_thread(self.choose_payload)
+                elif op == "open":
+                    response = await asyncio.to_thread(self.open_payload, request)
+                else:
+                    response = {"error": f"unknown op {op}"}
+                response["id"] = request.get("id")
+                await ws.send(json.dumps(response))
 
         async def main():
             self._loop = asyncio.get_running_loop()
@@ -558,8 +545,7 @@ class AppServer:
             raise RuntimeError("app server failed to start")
 
     def serve_forever(self):
-        """Block until the server stops (Ctrl-C, SIGTERM, or the idle monitor)."""
-        self._serving.set()
+        """Block until the server stops (Ctrl-C or SIGTERM)."""
         self._stopped.wait()
 
     def stop_serving(self):
@@ -572,39 +558,11 @@ class AppServer:
                 pass  # the loop is already gone
         self._stopped.set()
 
-    def start_exit_when_idle(
-        self,
-        exit_when_children_finish: bool,
-        poll_interval: float = 0.2,
-    ) -> threading.Thread:
-        """Stop a transient desktop-open server after its session ends."""
-
-        def monitor():
-            if not self._serving.wait(timeout=5):
-                return
-            while not self._shutdown_event.wait(poll_interval):
-                with self._lock:
-                    processes = list(self.processes.values())
-                if (
-                    exit_when_children_finish
-                    and processes
-                    and all(not process.alive() for process in processes)
-                ) or (not processes and self._session_lease.expired()):
-                    self.stop_serving()
-                    return
-
-        thread = threading.Thread(
-            target=monitor, name="maniml-app-session", daemon=True
-        )
-        thread.start()
-        return thread
-
     def shutdown(self):
         with self._shutdown_lock:
             if self._shutdown_complete:
                 return
             self._shutdown_complete = True
-            self._shutdown_event.set()
             self.stop_serving()
             with self._lock:
                 processes = list(self.processes.values())
@@ -682,7 +640,6 @@ def run_app(
     root: str = ".",
     open_browser: bool = True,
     allow_outside_root: bool = False,
-    initial_file: str | None = None,
     port: int | None = None,
     state_path: str | os.PathLike[str] | None = None,
     offer_agent: bool = False,
@@ -693,7 +650,6 @@ def run_app(
         root,
         port=port,
         allow_outside_root=allow_outside_root,
-        transient=initial_file is not None,
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
@@ -703,20 +659,6 @@ def run_app(
             raise SystemExit(128 + signum)
 
         signal.signal(signal.SIGTERM, exit_on_sigterm)
-    launch_url = server.url
-    if initial_file is not None:
-        opened = server.open_payload({"path": initial_file})
-        if opened.get("viewer_url"):
-            launch_url = opened["viewer_url"]
-        elif opened.get("error"):
-            # A desktop open has no UI of its own: without this the launcher
-            # log is silent and the landing page gives no hint why the file
-            # the user just picked did not open.
-            print(f"maniml open: {initial_file}: {opened['error']}")
-            # Fall back to the landing page, and make sure the file is
-            # listed and openable there even though the direct open failed
-            # (a multi-scene file is the common case — pick a scene).
-            server.grant_file(initial_file)
     # A supervised agent is not the one printing to a terminal, and it may not
     # have got the default port. Publish where it actually landed.
     if state_path is not None:
@@ -741,13 +683,9 @@ def run_app(
             f"{server.port}. An installed ManimLive opens the one on "
             f"{DEFAULT_APP_PORT}; this one runs in a tab."
         )
-    print(f"maniml app: {launch_url}  (scenes under {server.root})")
+    print(f"maniml app: {server.url}  (scenes under {server.root})")
     if open_browser:
-        webbrowser.open(launch_url)
-    if initial_file is not None:
-        server.start_exit_when_idle(
-            exit_when_children_finish=bool(opened.get("viewer_url"))
-        )
+        webbrowser.open(server.url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
