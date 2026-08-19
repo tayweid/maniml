@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE install. Unmodified CE scene files still work: the CLI installs a process-local import alias (`_CEAliasFinder` in `maniml/__main__.py`) mapping `manim`/`manim.*` to maniml, so `from manim import *` resolves correctly under the `maniml` command while leaving any installed ManimCE untouched elsewhere.
 
+The forward roadmap is `TODO.md`; the record of what was decided, shipped, or tried-and-deleted — with reasoning — is `DECISIONS.md`.
+
 ### Names, and the install trap
 
 Three names for one project, and they do not move together: **ManimLive** is the product (page titles) and the name of the local checkout directory; **maniml** is the Python package (`import maniml`) and the GitHub repo (`tayweid/maniml`). Renaming the checkout renames neither the package nor the remote.
@@ -45,6 +47,10 @@ maniml script.py SceneName --present
 # checkpoint under ./media/SceneName_checkpoints/
 maniml script.py SceneName --render
 
+# Baked web export (headless): records the geometry stream into
+# ./media/SceneName_web/, a self-contained static player folder
+maniml script.py SceneName --export
+
 # Browser viewer: same interactive development (checkpoints, watcher,
 # click-to-inspect), viewed in a browser tab instead of the pyglet
 # window; combines with --present. --no-browser skips the auto-open.
@@ -64,9 +70,10 @@ maniml app [dir]
 # second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
-# Unit tests (stdlib unittest; test_web_viewer is a headless end-to-end
-# drive of --web over a real WebSocket)
-python -m unittest tests.test_source_map tests.test_checkpoint_reload tests.test_modes tests.test_ce_conformance tests.test_web_viewer tests.test_gl_port
+# Full display-independent suite (~98s; test_web_viewer is a headless
+# end-to-end drive of --web over a real WebSocket). CI's job definitions
+# in .github/workflows/ci.yml are the canonical module lists.
+python -m unittest discover -s tests -t .
 
 # Windowed interactive tests (real OpenGL window; drives actual key/mouse
 # handlers; needs a display, so opt-in)
@@ -102,11 +109,43 @@ All of this lives in `maniml/`:
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame, timeline, fixed-in-frame excluded). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`).
 
-6. **Browser viewer** (`maniml/web/`, `--web` flag): an additive frontend that stands in for the pyglet window; the pyglet path is unchanged and remains the default. `viewer.py`'s `WebViewer` duck-types the small Window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`) and gives the camera `window=None` — rendering happens on the standalone (windowless) GL context, the same tested path `--render` uses. `server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location` (server→client: binary frames — 1 header byte, 0x01 JPEG / 0x02 PNG, image GL-bottom-up so the client flips via canvas transform — plus state JSON `{current, count, lines}`; client→server: key/pointer/chip JSON, pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping). The WebSocket handshake requires the server's exact Origin — the page it served — before it sends frames or accepts events (`web/security.py`); there is no token and no authentication message, so the first thing a connected client receives is `{"type": "ready", "capabilities": [...]}`. Console output rides the same socket: `OutputTap` tees `sys.stdout`/`sys.stderr` in the scene process (writes still reach the real stream, so the app can scrape the launch line) into a bounded `LogBuffer`, and `_broadcast_logs` sends new lines as `{"type": "log", "lines": [{"stream", "text"}]}` — deliberately *before* the "has anything changed" test, since an idle scene can still be printing, and with the full backlog on connect. This is the only way to see a running scene's output in app mode at all: the child's stdout is a pipe into the app process, read only when a scene fails to start. The panel is toggle-only (`C`), never automatic — stepping a scene prints on every arrow key — and hidden in full screen. Streaming policy in `WebViewer.on_frame_rendered` (hooked after every `camera.capture`): JPEG while animating / input events arriving / any top-level mobject `has_updaters()`, one lossless PNG once quiet, a forced PNG on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events), nothing when no client is connected. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain. End-to-end tested headlessly in `tests/test_web_viewer.py`.
+6. **File watcher** (`scene/file_watcher.py` + `_handle_file_change` in `scene/checkpoints.py`): polling thread diffs the file on save and reports the earliest changed line. The handler re-anchors against the new source map: checkpoints from units before the edited unit survive; later ones are discarded and replayed — fast-forwarded via `temp_skip()`, with the edited unit played at real speed (`_replay_to_unit`). Edits **outside** construct() (imports, constants, helpers, other methods) trigger `_restart_from_source()`: reload the module (bypassing the bytecode cache — see `load_scene_module`), rebuild checkpoint 0, fast-forward back to where the user was. Integration-tested headlessly in `tests/test_checkpoint_reload.py`.
 
-7. **Client-side rendering experiment** (Stage 2, `maniml/web/geometry.py` + `static/glsl/` + `static/gl.js` + `reference_renderer.py`): the client's "GL" toggle requests a geometry snapshot (message 0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) and renders it with WebGL2 next to the pixel stream. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `gl_VertexID` picks the strip vertex); shader sources are shared between the browser and `reference_renderer.py`, a desktop-GL mirror of gl.js that `tests/test_gl_port.py` pixel-diffs against the native renderer — **edit gl.js and reference_renderer.py together**. 2D VMobjects only; depth-tested/triangulated fill, images, surfaces, dot clouds are listed `unsupported` and stay on the pixel stream.
+## The web layer (`maniml/web/`)
 
-8. **File watcher** (`scene/file_watcher.py` + `_handle_file_change` in `scene/checkpoints.py`): polling thread diffs the file on save and reports the earliest changed line. The handler re-anchors against the new source map: checkpoints from units before the edited unit survive; later ones are discarded and replayed — fast-forwarded via `temp_skip()`, with the edited unit played at real speed (`_replay_to_unit`). Edits **outside** construct() (imports, constants, helpers, other methods) trigger `_restart_from_source()`: reload the module (bypassing the bytecode cache — see `load_scene_module`), rebuild checkpoint 0, fast-forward back to where the user was. Integration-tested headlessly in `tests/test_checkpoint_reload.py`.
+The browser viewer (`--web`) is an additive frontend that stands in for
+the pyglet window; the pyglet path is unchanged and remains the default
+until the WebGPU transition retires it (`TODO.md`). Module map:
+
+- `server.py` — the one-port server (WebSocket + plain GETs) and `ClientLease`.
+- `viewer.py` — `WebViewer`, the Window stand-in; streaming policy; the console tap.
+- `app.py` — `AppServer` and its `SceneProcess` children: the relay, the control protocol.
+- `library.py` — what the app knows about scene files: the AST scene scan, the recents list. Pure filesystem functions; `viewer.py`'s scene picker imports from here without touching the app machinery.
+- `cli.py` — `run_app`, `running_engine`, and the handoff to an engine already on the port. What `maniml app` runs.
+- `assets.py` — static serving from `web/static/`, the CSP, version-stamping.
+- `security.py` — the Origin check, scene-root confinement, bounded JSON parsing.
+- `geometry.py`, `reference_renderer.py`, `wgpu_renderer.py`, `export.py` — Stage 2 client rendering and the baked player (below).
+- `static/` — `viewer.html` and `app.html` (each one file; shared tokens in `shell.css`), `gl.js`/`glsl/` (WebGL2), `webgpu.js`/`wgsl/` (WebGPU), `player.*` (the baked player, deliberately standalone — no `shell.css`), `manifest.webmanifest` + `sw.js` (the installable local app).
+
+### The viewer
+
+`viewer.py`'s `WebViewer` duck-types the small Window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`) and gives the camera `window=None` — rendering happens on the standalone (windowless) GL context, the same tested path `--render` uses.
+
+`server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location`. The WebSocket handshake requires the server's exact Origin — the page it served — before it sends frames or accepts events (`web/security.py`); there is no token and no authentication message, so the first thing a connected client receives is `{"type": "ready", "capabilities": [...]}`.
+
+**Wire protocol.** Server→client: binary frames — 1 header byte, 0x01 JPEG / 0x02 PNG (image GL-bottom-up, so the client flips via canvas transform), 0x03 geometry — plus state JSON `{current, count, lines}`. Client→server: key/pointer/chip JSON, pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping.
+
+**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every `camera.capture`): JPEG while animating / input events arriving / any top-level mobject `has_updaters()`; one lossless PNG once quiet; a forced PNG on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
+
+**The console.** Output rides the same socket: `OutputTap` tees `sys.stdout`/`sys.stderr` in the scene process (writes still reach the real stream, so the app can scrape the launch line) into a bounded `LogBuffer`, and `_broadcast_logs` sends new lines as `{"type": "log", "lines": [...]}` — deliberately *before* the "has anything changed" test, since an idle scene can still be printing, and with the full backlog on connect. This is the only way to see a running scene's output in app mode at all: the child's stdout is a pipe into the app process, read only when a scene fails to start. The panel is toggle-only (`C`), never automatic — stepping a scene prints on every arrow key — and hidden in full screen.
+
+End-to-end tested headlessly in `tests/test_web_viewer.py`.
+
+### Client-side rendering (Stage 2)
+
+The client's renderer toggles request a geometry snapshot (message 0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) and render it with the browser's own GPU beside — or instead of — the pixel stream. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `gl_VertexID` picks the strip vertex).
+
+Two backends against the same payload: WebGL2 (`static/gl.js` + `static/glsl/`, mirrored on desktop GL by `web/reference_renderer.py` — **edit gl.js and reference_renderer.py together**, pixel-diffed in `tests/test_gl_port.py`) and WebGPU (`static/webgpu.js` + `static/wgsl/`, mirrored natively by `web/wgpu_renderer.py` — **keep all three in sync**, pixel-diffed in `tests/test_wgpu_port.py`). The live viewer starts on WebGPU and falls back visibly to Pixel. WebGPU is the decided endgame; the WebGL2 path retires after dogfooding (`TODO.md`). Anything unsupported is declared in the payload's `unsupported` list and stays on the pixel stream.
 
 ## Delivery: one artifact, local only
 
@@ -116,31 +155,28 @@ installed package, and accepts the page's control WebSocket on that same port.
 There is no hosted origin, no deployment step, and no version negotiation:
 frontend and engine are the same pip install, so they cannot drift.
 
-**One port, one origin — including scenes.** A scene runs in its own
-subprocess (crash isolation: scene files are arbitrary code) and that process
-is a complete server in its own right, which is what `maniml file.py Scene
---web` uses. But a scene opened *through the app* must not move the browser to
-that process's port, because **the port is the installed app's identity**: a
-PWA installed from `http://localhost:8685` is scoped to it, and navigating to
-8687 would pop the browser out of the app window. So `app.py` serves the
-viewer page itself and relays `/scene/<id>` to the process backing it,
-connecting as an ordinary client. The browser only ever sees one port.
+**One port, one origin — including scenes.** The page and its socket share an
+origin exactly, so the client says `ws://${location.host}/` and is told
+nothing at launch — no port parameter, no allowlist of a second origin, no
+port-pair arithmetic. That is also what makes the `connect-src 'self'` in
+`web/assets.py`'s CSP a real restriction rather than a comment.
+`bind_loopback()` (in `server.py`) binds before the server is configured,
+because the Origin allowlist needs the resolved port at that moment. A scene
+runs in its own subprocess (crash isolation: scene files are arbitrary code)
+and that process is a complete server in its own right — which is what
+`maniml file.py Scene --web` uses — but a scene opened *through the app* must
+not move the browser to that process's port, because **the port is the
+installed app's identity**: a PWA installed from `http://localhost:8685` is
+scoped to it, and navigating elsewhere would pop the browser out of the app
+window. So `app.py` serves the viewer page itself and relays `/scene/<id>` to
+the process backing it, connecting as an ordinary client. The browser only
+ever sees one port.
 
-**One port, one origin.** The page and its socket share an origin exactly, so
-the client says `ws://${location.host}/` and is told nothing at launch — no
-port parameter, no allowlist of a second origin, no port-pair arithmetic. That
-is also what makes the `connect-src 'self'` in `web/assets.py`'s CSP a real
-restriction rather than a comment. `bind_loopback()` (in `server.py`) binds
-before the server is configured, because the Origin allowlist needs the
-resolved port at that moment.
-
-This replaced an architecture where the UI was a PWA on GitHub Pages talking to
-localhost. Everything that existed to bridge that gap is gone — a generated
-AppleScript launcher, a `maniml://` URL scheme, Launch Services registration,
-Chrome PWA shim discovery, an Origin allowlist, a service worker, and
-`WEB_PROTOCOL_VERSION`. Roughly 1,400 lines, none of which animated anything.
-**Do not reintroduce a public origin that talks to loopback**; that seam caused
-essentially every delivery bug in this project's history.
+This replaced an architecture where the UI was a PWA on GitHub Pages talking
+to localhost; everything that bridged that gap — roughly 1,400 lines — is
+gone. **Do not reintroduce a public origin that talks to loopback**; that seam
+caused essentially every delivery bug in this project's history. The full
+story and the Knuth-convergence notes are in `DECISIONS.md`.
 
 What remains, and why:
 
@@ -149,12 +185,12 @@ What remains, and why:
   cannot forge it, so no website can drive the engine. There is **no capability
   token**: one that reaches the page through the served HTML is readable by any
   local program with a `GET /`, so it defends nothing the Origin check did not
-  already cover, and one delivered out of band (the URL fragment it used to
-  ride in) makes launching a delivery problem and recovery a terminal command —
-  against an attacker who could just run `python` anyway. Do not reintroduce a
-  token without first re-reading `SECURITY.md`'s table: *embedding a token and
-  keeping a token are different decisions, and doing the first without noticing
-  turns the second into decoration.*
+  already cover, and one delivered out of band makes launching a delivery
+  problem and recovery a terminal command — against an attacker who could just
+  run `python` anyway. Do not reintroduce a token without first re-reading
+  `SECURITY.md`'s table: *embedding a token and keeping a token are different
+  decisions, and doing the first without noticing turns the second into
+  decoration.*
 - **The launchd agent** (`maniml/agent.py`) keeps `http://localhost:8685` up
   without a terminal. It owns the default port for the login session, so a
   foreground `maniml app` started alongside it lands on an OS-assigned port and
@@ -164,24 +200,6 @@ What remains, and why:
   `choose_python_file`). The engine shows the platform dialog and gets a real
   path, which the watcher and the scene's `__file__`-relative imports both need.
   A browser file handle cannot provide one.
-
-### Roadmap constraint: a zero-install browser build
-
-A future Pyodide target would run the engine in the page with no local process.
-Two things are kept deliberately intact for it, and should not be entangled with
-the local transport:
-
-- **The client-side renderers** — `static/gl.js`, `static/webgpu.js`,
-  `static/glsl/`, `static/wgsl/`, `web/geometry.py`, `web/reference_renderer.py`,
-  and the baked player (`web/export.py`, `static/player.*`). These already draw
-  scenes with no Python in the loop; they are the basis of a browser-only build.
-- **The transport seam in `viewer.html`.** The WebSocket is confined to `wsUrl`,
-  `send()`, and the message pump; everything else speaks only in protocol
-  messages. An in-page engine should be able to replace those three things.
-
-A hosted build would need its own manifest and service worker again — both were
-deleted rather than kept, because a Pyodide app's would differ anyway (no
-loopback, no file handlers, a different scope).
 
 ### The installed app is the local one
 
@@ -223,14 +241,34 @@ running it until a replacement at the same URL unregisters it. It must keep
 existing. `site/app.html` redirects for the same reason — an old installed
 shell still opens that path.
 
-### Known weak spots (as of 2026-08)
+### Roadmap constraint: a zero-install browser build
+
+A future Pyodide target would run the engine in the page with no local process.
+Two things are kept deliberately intact for it, and should not be entangled with
+the local transport:
+
+- **The client-side renderers** — `static/gl.js`, `static/webgpu.js`,
+  `static/glsl/`, `static/wgsl/`, `web/geometry.py`, `web/reference_renderer.py`,
+  and the baked player (`web/export.py`, `static/player.*`). These already draw
+  scenes with no Python in the loop; they are the basis of a browser-only build.
+- **The transport seam in `viewer.html`.** The WebSocket is confined to `wsUrl`,
+  `send()`, and the message pump; everything else speaks only in protocol
+  messages. An in-page engine should be able to replace those three things.
+  This is also why `viewer.html` stays a single file, and why
+  `tests/test_static_assets.py` pins its source shape.
+
+A hosted build would need its own manifest and service worker again — both were
+deleted rather than kept, because a Pyodide app's would differ anyway (no
+loopback, no file handlers, a different scope).
+
+## Known weak spots (as of 2026-08)
 
 - `deepcopy_namespace` falls back to per-value copies with a shared memo when batch deepcopy fails, and keeps live references (with a named warning) for values that cannot copy at all; a scene holding non-picklable state degrades checkpoint isolation.
 - LEFT-arrow reverse is a per-object morph, not a true reversal of the original animation; complex changes blend rather than retrace. (It filters out `CameraFrame` before morphing — the frame lives in `self.mobjects` but can't be Transformed.)
 - CE `color=` kwarg compatibility was fixed piecemeal (2026-08): classes must not pin `stroke_color=`/`fill_color=` defaults in `__init__` — that silently overrides a user's `color=` (VMobject resolves `stroke_color or color`, `fill_color or color`). Circle, Dot, Arrow, ArrowTip, StrokeArrow, AnnularSector, Annulus, and StringMobject (all Tex/Text) were converted; other classes may still have the pattern.
 - `z_index` is CE-compatible via a stable draw-order sort of top-level mobjects (`assemble_render_groups`); within-family z_index is not sorted.
 
-ManimGL's IPython embed mode (`scene_embed.py`, comment-keyed `checkpoint_paste`) was **removed** in 2026-07 — the checkpoint system is its replacement. `self.embed()` remains as a stub that logs a warning. If a live REPL is ever wanted again, build it on the arrow-key checkpoint history rather than reviving the old module.
+ManimGL's IPython embed mode was removed in 2026-07 (see `DECISIONS.md`); `self.embed()` remains as a stub that logs a warning.
 
 ## 3D Scenes
 
