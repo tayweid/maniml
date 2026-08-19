@@ -812,8 +812,12 @@ class DashedLine(Line):
         end: Vect3 = RIGHT,
         dash_length: float = DEFAULT_DASH_LENGTH,
         positive_space_ratio: float = 0.5,
+        dashed_ratio: float | None = None,
         **kwargs
     ):
+        # CE calls this parameter dashed_ratio
+        if dashed_ratio is not None:
+            positive_space_ratio = dashed_ratio
         super().__init__(start, end, **kwargs)
 
         num_dashes = self.calculate_num_dashes(dash_length, positive_space_ratio)

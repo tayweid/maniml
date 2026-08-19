@@ -20,18 +20,32 @@
     color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif; }
   input { font: inherit; }
-  main { position: relative; max-width: 820px; margin: 0 auto; padding: 88px 24px 72px; }
+  /* The page holds one thing at a time — an invitation to open a scene, or
+     the reason the engine cannot be reached — so it sits in the middle of
+     the window rather than under the bar with the rest of the height left
+     empty. `margin-block: auto` rather than `justify-content: center`: auto
+     margins collapse to zero once the content is taller than the window, so
+     a long recents list scrolls from its top instead of being centred past
+     the top edge where it cannot be reached. The padding is symmetric so
+     that centring inside it is also centring in the window; it stays as
+     large as the bar because it is what keeps the two from meeting when
+     the window is short. */
+  main { position: relative; max-width: 820px; margin: 0 auto;
+    padding: 88px 24px; min-height: 100vh;
+    display: flex; flex-direction: column; }
+  #offline, #workspace { margin-block: auto; }
   header { position: fixed; z-index: 20; top: 0; left: 0; right: 0; height: 60px;
     display: flex; justify-content: center; align-items: center; gap: 5px;
     padding: 0 14px; pointer-events: none; }
   .pod { gap: 2px; padding: 0 6px; }
   .brand { gap: 9px; padding: 0 6px 0 16px; }
   h1 { font: inherit; font-size: 15px; letter-spacing: .075em; margin: 0; }
-  .tagline { color: var(--dim); margin: 0; font-size: 12px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    letter-spacing: normal; }
   #installbtn { color: var(--accent); }
-  #status { gap: 7px; padding: 0 11px 0 6px; color: var(--dim); font-size: 11px; }
+  /* The status closes the slug behind a hairline, as it does on the viewer's
+     tools pod. */
+  #status { display: inline-flex; align-items: center; gap: 7px;
+    padding: 0 6px 0 8px; margin-left: 2px; border-left: 1px solid var(--line);
+    color: var(--dim); font-size: 11px; }
   #status-dot { width: 7px; height: 7px; border-radius: 50%;
     background: var(--dim); }
   body[data-connection="connecting"] #status-dot { background: var(--warn); }
@@ -55,9 +69,16 @@
 
   #workspace { display: none; }
   body[data-connection="connected"] #workspace { display: block; }
+  /* An element with `display: none` still resolves its auto margins, which
+     would leave the offline panel centred on the space the workspace would
+     have taken. Only the visible one gets them. */
+  #workspace[hidden], body[data-connection="connected"] #offline { margin-block: 0; }
   .section-title { font-size: 12px; font-weight: 600; color: var(--dim);
     text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 10px; }
-  #hero { text-align: center; padding: 40px 0 34px; }
+  /* No padding above: it was the gap under the bar when this sat at the top
+     of the page, and now it is dead space inside a centred box — which
+     centres the box while leaving the words themselves sitting low. */
+  #hero { text-align: center; padding: 0 0 34px; }
   #hero .lede { font: 500 21px/1.3 Georgia, "Times New Roman", serif;
     letter-spacing: .015em; margin: 0 0 18px; }
   #open-hero { border: 1px solid var(--line-strong); border-radius: 11px;
@@ -85,11 +106,12 @@
     white-space: pre-wrap; display: none; }
   #empty { color: var(--dim); }
   @media (max-width: 520px) {
-    main { padding: 74px 12px 48px; }
+    main { padding: 74px 12px; }
     header { padding: 0 7px; gap: 4px; }
     .pod { height: 38px; padding: 0 4px; }
     .brand { padding-left: 12px; }
-    .tagline, .slug-separator, #status-text { display: none; }
+    #status { border-left: 0; }
+    #status-text { display: none; }
     .command { display: block; }
     .command code { display: block; }
   }
@@ -98,23 +120,26 @@
 <body data-connection="connecting">
 <!-- The same bar as the viewer's, holding this room's equivalents: the app
      is what is open here, so it takes the document slug, and its one action
-     rides at the slug's end exactly as the scene's File button does. -->
+     rides at the slug's end exactly as the scene's File button does. The
+     status sits after a hairline, where the viewer puts it too — one slug
+     rather than two, because this page has no other tools to fill a second
+     one and a pod holding a single dot reads as a broken-off piece. -->
 <header class="pod-run">
     <div class="brand pod">
       <div class="document-slug">
-        <h1>ManimLive</h1><span class="slug-separator">&middot;</span><span class="tagline">Live Manim development in the browser.</span>
+        <h1>ManimLive</h1>
       </div>
       <button id="openbtn" class="icon-button" aria-label="Open a scene file">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <span class="control-label">Open</span>
       </button>
-    </div>
-    <div id="status" class="pod" role="status" aria-live="polite">
       <button id="installbtn" class="icon-button" hidden aria-label="Install ManimLive as an app">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M12 6v7M8.5 9.5 12 13l3.5-3.5"/></svg>
         <span class="control-label">Install</span>
       </button>
-      <span id="status-dot"></span><span id="status-text">Connecting&hellip;</span>
+      <span id="status" role="status" aria-live="polite">
+        <span id="status-dot"></span><span id="status-text">Connecting&hellip;</span>
+      </span>
     </div>
 </header>
 

@@ -27,7 +27,9 @@ interfaces may still change before the first public release.
   per pausepoint and shifting everything downstream of it.
 - The landing page's bar is now the viewer's: ManimLive takes the document
   slug, Open rides at its end as the scene's File button does, and the
-  connection status is a slug of its own.
+  connection status closes the slug behind a hairline. The tagline is gone.
+- The landing page's contents sit in the middle of the window rather than
+  under the bar with the height below them left empty.
 - The session panel now sits between the two bars instead of running under
   the timeline, and it stays available in full screen, receding and returning
   with the rest of the chrome.

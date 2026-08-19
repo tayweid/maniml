@@ -162,15 +162,16 @@ class CoordinateSystem(ABC):
         return self.axis_labels
 
     def get_line_from_axis_to_point(
-        self, 
+        self,
         index: int,
         point: Vect3,
         line_func: Type[T] = DashedLine,
+        line_config: dict | None = None,
         color: ManimColor = GREY_A,
         stroke_width: float = 2
     ) -> T:
         axis = self.get_axis(index)
-        line = line_func(axis.get_projection(point), point)
+        line = line_func(axis.get_projection(point), point, **(line_config or {}))
         line.set_stroke(color, stroke_width)
         return line
 
@@ -178,6 +179,13 @@ class CoordinateSystem(ABC):
         return self.get_line_from_axis_to_point(0, point, **kwargs)
 
     def get_h_line(self, point: Vect3, **kwargs):
+        return self.get_line_from_axis_to_point(1, point, **kwargs)
+
+    # CE names for the same helpers
+    def get_vertical_line(self, point: Vect3, **kwargs):
+        return self.get_line_from_axis_to_point(0, point, **kwargs)
+
+    def get_horizontal_line(self, point: Vect3, **kwargs):
         return self.get_line_from_axis_to_point(1, point, **kwargs)
 
     # Useful for graphing
