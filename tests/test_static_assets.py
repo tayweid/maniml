@@ -231,7 +231,30 @@ class ViewerTests(unittest.TestCase):
         the rail draws a stack rather than implying a count it lacks."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn(".chip.many", viewer)
-        self.assertIn("unit.many", viewer)
+        self.assertIn("group.many", viewer)
+
+    def test_a_statement_keeps_one_chip_after_it_runs(self):
+        """A chip is a source statement, not a checkpoint: a loop that turns
+        into four checkpoints must not become four chips, or the rail swells
+        as you step through it and every chip you were aiming at moves."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("function buildGroups(", viewer)
+        # Consecutive checkpoints from the same unit merge into one chip.
+        self.assertIn("last.unit === unit", viewer)
+        # And the move can still find its destination while that chip's next
+        # checkpoint does not exist yet.
+        self.assertIn("function destinationGroup(", viewer)
+
+    def test_the_two_pages_share_their_controls(self):
+        """The landing page is the same bar as the viewer's, so the slug and
+        the icon button are defined once rather than resembling each other."""
+        shell = (STATIC / "shell.css").read_text()
+        for shared in (".document-slug", ".slug-separator", ".icon-button",
+                       ".control-label"):
+            self.assertIn(shared, shell, shared)
+        app = (STATIC / "app.html").read_text()
+        self.assertIn('class="document-slug"', app)
+        self.assertIn('id="openbtn" class="icon-button"', app)
 
     def test_scene_picker_switches_within_a_file(self):
         viewer = (STATIC / "viewer.html").read_text()

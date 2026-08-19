@@ -12,6 +12,7 @@ from maniml.constants import DL, UL, DOWN, DR, LEFT, ORIGIN, OUT, RIGHT, UP
 from maniml.constants import FRAME_X_RADIUS, FRAME_Y_RADIUS
 from maniml.constants import MED_SMALL_BUFF, SMALL_BUFF
 from maniml.mobject.functions import ParametricCurve
+from maniml.mobject.mobject import Mobject
 from maniml.mobject.geometry import Arrow
 from maniml.mobject.geometry import DashedLine
 from maniml.mobject.geometry import Line
@@ -139,7 +140,8 @@ class CoordinateSystem(ABC):
         buff: float = MED_SMALL_BUFF,
         ensure_on_screen: bool = False
     ) -> Tex:
-        label = Tex(label_tex)
+        # CE also accepts a ready-made Mobject (or a number) as the label
+        label = label_tex if isinstance(label_tex, Mobject) else Tex(str(label_tex))
         label.next_to(
             axis.get_edge_center(edge), direction,
             buff=buff
@@ -150,12 +152,12 @@ class CoordinateSystem(ABC):
 
     def get_axis_labels(
         self,
-        x_label_tex: str = "x",
-        y_label_tex: str = "y"
+        x_label: str | Mobject = "x",
+        y_label: str | Mobject = "y"
     ) -> VGroup:
         self.axis_labels = VGroup(
-            self.get_x_axis_label(x_label_tex),
-            self.get_y_axis_label(y_label_tex),
+            self.get_x_axis_label(x_label),
+            self.get_y_axis_label(y_label),
         )
         return self.axis_labels
 
@@ -219,6 +221,14 @@ class CoordinateSystem(ABC):
         """CE-compatible alias for get_graph."""
         z_index = kwargs.pop('z_index', None)
         kwargs.pop('use_smoothing', None)
+        # CE samples at exactly x_range's step, while get_graph treats it as a
+        # tick frequency and subdivides it; pre-multiply so the division in
+        # get_graph lands back on the caller's step.
+        if x_range is not None and len(x_range) > 2:
+            x_range = [
+                x_range[0], x_range[1],
+                x_range[2] * self.num_sampled_graph_points_per_tick,
+            ]
         graph = self.get_graph(function, x_range=x_range, **kwargs)
         if z_index is not None:
             graph.z_index = z_index

@@ -24,24 +24,14 @@
   header { position: fixed; z-index: 20; top: 0; left: 0; right: 0; height: 60px;
     display: flex; justify-content: center; align-items: center; gap: 5px;
     padding: 0 14px; pointer-events: none; }
-  .pod { gap: 7px; padding: 0 10px; }
-  .brand { padding-inline: 16px; }
-  h1 { font: 500 15px/1.1 Georgia, "Times New Roman", serif;
-    letter-spacing: .075em; margin: 0; }
-  .tagline { color: var(--dim); margin: 0 0 0 7px; font-size: 11px;
-    padding-left: 12px; border-left: 1px solid var(--line-strong); }
-  #openbtn {
-    border: 0; border-radius: 8px; background: none;
-    color: var(--dim); padding: 6px 10px; cursor: pointer;
-  }
-  #openbtn:hover { background: rgba(255,255,255,.055); color: var(--text); }
-  #openbtn:disabled { cursor: default; opacity: 0.45; color: var(--text); }
-  #installbtn { border: 0; border-radius: 8px; background: none;
-    color: var(--accent); padding: 6px 10px; cursor: pointer; }
-  #installbtn:hover { background: rgba(255,255,255,.055); }
-  .header-actions { display: flex; gap: 2px; padding: 0 4px; }
-  #status { display: flex; align-items: center; gap: 7px; color: var(--dim);
-    font-size: 11px; }
+  .pod { gap: 2px; padding: 0 6px; }
+  .brand { gap: 9px; padding: 0 6px 0 16px; }
+  h1 { font: inherit; font-size: 15px; letter-spacing: .075em; margin: 0; }
+  .tagline { color: var(--dim); margin: 0; font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: normal; }
+  #installbtn { color: var(--accent); }
+  #status { gap: 7px; padding: 0 11px 0 6px; color: var(--dim); font-size: 11px; }
   #status-dot { width: 7px; height: 7px; border-radius: 50%;
     background: var(--dim); }
   body[data-connection="connecting"] #status-dot { background: var(--warn); }
@@ -97,25 +87,34 @@
   @media (max-width: 520px) {
     main { padding: 74px 12px 48px; }
     header { padding: 0 7px; gap: 4px; }
-    .pod { height: 38px; padding: 0 7px; }
-    .tagline, #status-text { display: none; }
+    .pod { height: 38px; padding: 0 4px; }
+    .brand { padding-left: 12px; }
+    .tagline, .slug-separator, #status-text { display: none; }
     .command { display: block; }
     .command code { display: block; }
   }
 </style>
 </head>
 <body data-connection="connecting">
+<!-- The same bar as the viewer's, holding this room's equivalents: the app
+     is what is open here, so it takes the document slug, and its one action
+     rides at the slug's end exactly as the scene's File button does. -->
 <header class="pod-run">
     <div class="brand pod">
-      <h1>ManimLive</h1>
-      <p class="tagline">Live Manim development in the browser.</p>
+      <div class="document-slug">
+        <h1>ManimLive</h1><span class="slug-separator">&middot;</span><span class="tagline">Live Manim development in the browser.</span>
+      </div>
+      <button id="openbtn" class="icon-button" aria-label="Open a scene file">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span class="control-label">Open</span>
+      </button>
     </div>
     <div id="status" class="pod" role="status" aria-live="polite">
-      <span id="status-dot"></span><span id="status-text">Connecting…</span>
-    </div>
-    <div class="header-actions pod">
-      <button id="installbtn" hidden>Install</button>
-      <button id="openbtn">Open&hellip;</button>
+      <button id="installbtn" class="icon-button" hidden aria-label="Install ManimLive as an app">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M12 6v7M8.5 9.5 12 13l3.5-3.5"/></svg>
+        <span class="control-label">Install</span>
+      </button>
+      <span id="status-dot"></span><span id="status-text">Connecting&hellip;</span>
     </div>
 </header>
 

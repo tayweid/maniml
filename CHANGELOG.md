@@ -22,7 +22,12 @@ interfaces may still change before the first public release.
   leaves the pausepoint it is departing.
 - **A loop of plays no longer claims to be one pausepoint.** A loop or a
   branch produces a number of pausepoints that is not knowable until it runs,
-  so the timeline draws those as a stack rather than as a single dot.
+  so the timeline draws those as a stack rather than as a single dot — and
+  the stack stays closed once it has run, rather than unpacking into a chip
+  per pausepoint and shifting everything downstream of it.
+- The landing page's bar is now the viewer's: ManimLive takes the document
+  slug, Open rides at its end as the scene's File button does, and the
+  connection status is a slug of its own.
 - The session panel now sits between the two bars instead of running under
   the timeline, and it stays available in full screen, receding and returning
   with the rest of the chrome.

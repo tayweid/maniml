@@ -18,6 +18,7 @@
   --warn: #dfa95c;
   --bad: #da7777;
   --shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
+  --glass-light: rgba(235, 232, 225, 0.94);
 }
 * { box-sizing: border-box; }
 body::before {
@@ -54,3 +55,51 @@ button { font: inherit; }
    gesture for the whole cluster, not a button lighting up under the cursor. */
 .pod-run .icon-button { opacity: .4; }
 .pod-run:hover .icon-button, .pod-run:focus-within .icon-button { opacity: 1; }
+
+/* ---------- the controls a pod holds ---------- */
+
+/* The document slug: the thing being worked on, named in serif, with a
+   quiet second part after the separator — a scene inside a file on the
+   viewer, the tagline under the name on the landing page. */
+.document-slug {
+  display: flex; align-items: baseline; min-width: 0;
+  font-family: Georgia, "Times New Roman", serif; letter-spacing: .055em;
+}
+.slug-separator { color: #bb6e70; margin: 0 7px; }
+
+/* Icon buttons and the word tags that name them on hover: light glass
+   chips with dark ink, below the control on a top bar and above it on a
+   bottom one (each page positions its own). */
+.icon-button {
+  position: relative; display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text); cursor: pointer;
+  transition: opacity 250ms ease, color 140ms ease, background 140ms ease,
+    transform 140ms ease;
+}
+.icon-button:hover, .icon-button:focus-visible {
+  outline: none; background: rgba(255,255,255,.12);
+}
+.icon-button[hidden] { display: none; }
+/* A disabled control stays asleep even when its bar wakes. */
+.pod-run .icon-button:disabled,
+.pod-run:hover .icon-button:disabled { opacity: .16; cursor: default; }
+.icon-button:disabled:hover { background: transparent; }
+.icon-button svg {
+  width: 19px; height: 19px; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.control-label {
+  position: absolute; top: calc(100% + 10px); left: 50%;
+  transform: translate(-50%, -3px); padding: 3px 7px; border-radius: 6px;
+  background: var(--glass-light); color: var(--ink);
+  box-shadow: 0 7px 20px rgba(0,0,0,.2);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 10px; font-weight: 650; letter-spacing: .025em;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+}
+.icon-button:hover .control-label, .icon-button:focus-visible .control-label {
+  opacity: 1; visibility: visible; transform: translate(-50%, 0);
+}
+.icon-button:disabled .control-label { display: none; }

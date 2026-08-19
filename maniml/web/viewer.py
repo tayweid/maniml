@@ -243,11 +243,12 @@ class WebViewer:
         # so both directions light the same stretch; only which end it grows
         # from differs.
         self._broadcast_move(
-            index, index + 1, bool(getattr(self.scene, "_reversing", False)))
+            index, index + 1, bool(getattr(self.scene, "_reversing", False)),
+            getattr(self.scene, "_playing_unit", None))
 
     def end_animation(self):
         self._animating = False
-        self._broadcast_move(None, None, False)
+        self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
         """Called after every camera.capture(): pump input, stream output."""
@@ -618,6 +619,10 @@ class WebViewer:
             "current": scene.current_animation_index,
             "count": len(checkpoints),
             "lines": [c.get("line_number") for c in checkpoints],
+            # Which source statement each checkpoint came from, so the rail
+            # can keep a loop's checkpoints collapsed into the one chip that
+            # stood for them before it ran.
+            "units": [c.get("unit_index") for c in checkpoints],
             "future": self._future_units(),
         }
 
@@ -641,7 +646,7 @@ class WebViewer:
             for u in units if u.has_play and u.index > last_unit
         ]
 
-    def _broadcast_move(self, frm, to, back: bool) -> None:
+    def _broadcast_move(self, frm, to, back: bool, unit) -> None:
         """Say which stretch of the timeline an animation is crossing.
 
         Its own message rather than a field on the state, for two reasons: a
@@ -649,6 +654,11 @@ class WebViewer:
         one per play would be a full-frame send at the worst moment; and this
         must reach the rail when the play *starts*, not on whatever frame the
         streaming policy sends next.
+
+        ``unit`` is the source statement being played, which the destination
+        checkpoint cannot supply because it does not exist yet: it is what
+        tells the rail whether this play stays inside a collapsed stack or
+        crosses to the next chip.
 
         Nothing is said about progress through the animation. The animation
         itself is on screen at full size, and any claim would have to hold up
@@ -660,12 +670,13 @@ class WebViewer:
             # Present-mode prep and watcher replays fast-forward whole runs
             # of units; a lit rail flickering through them says nothing.
             return
-        move = (frm, to, back)
+        move = (frm, to, back, unit)
         if move == self._last_move:
             return
         self._last_move = move
         self.server.broadcast_json(
-            {"type": "move", "from": frm, "to": to, "back": back})
+            {"type": "move", "from": frm, "to": to, "back": back,
+             "unit": unit})
 
     def _broadcast_state(self):
         state = self._current_state()

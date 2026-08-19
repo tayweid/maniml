@@ -365,7 +365,37 @@ class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
             # The stretch is all it says: an animation's progress is on
             # screen already, and a claim would have to survive reverse
             # morphs and fast-forwards too.
-            self.assertEqual(set(moves[0]), {"type", "from", "to", "back"})
+            self.assertEqual(set(moves[0]),
+                             {"type", "from", "to", "back", "unit"})
+
+    def test_state_says_which_statement_each_checkpoint_came_from(self):
+        """Without it the rail cannot keep a loop's checkpoints in the one
+        chip that stood for them before it ran — it would only see a run of
+        new checkpoints and draw a chip each."""
+        with self._connect() as ws:
+            # State is sent only when it changes, so keep the latest one seen
+            # rather than expecting the last collect to carry it.
+            latest = None
+
+            def drive(seconds):
+                nonlocal latest
+                _, messages = self._collect(ws, seconds)
+                for message in messages:
+                    if message.get("type") == "state":
+                        latest = message
+
+            drive(2)
+            # Run forward until the loop unit has been through, wherever the
+            # tests sharing this scene process left it.
+            for _ in range(4):
+                self._press(ws, "ArrowRight")
+                drive(8)
+            state = latest
+            self.assertIsNotNone(state, "no state seen")
+            self.assertEqual(len(state["units"]), state["count"])
+            runs = [u for u in state["units"] if u is not None]
+            self.assertNotEqual(len(runs), len(set(runs)),
+                                "the loop's checkpoints must share a unit")
 
     def test_a_reverse_morph_lights_the_same_stretch_the_other_way(self):
         """The index has already landed on the destination by the time the

@@ -698,6 +698,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             line_no, unit_index = None, None
         else:
             line_no, unit_index = self._find_animation_anchor()
+        # Which statement is playing, for anything watching the animation
+        # rather than its result: the checkpoint this will save does not
+        # exist yet, so it cannot be asked.
+        self._playing_unit = unit_index
 
         # Play the animation
         self.pre_play()
