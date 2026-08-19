@@ -12,6 +12,7 @@ from zipfile import ZipFile
 # impossible, so a wheel missing any of it is broken rather than merely thin.
 REQUIRED_ASSETS = {
     "maniml/web/static/app.html",
+    "maniml/web/static/shell.css",
     "maniml/web/static/viewer.html",
     "maniml/web/static/player.html",
     "maniml/web/static/player.js",

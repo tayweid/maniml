@@ -6,38 +6,18 @@
 <title>maniml</title>
 <link rel="icon" href="icons/maniml-192.png">
 <meta name="theme-color" content="#2b2a2d">
+<link rel="stylesheet" href="shell.css">
 <style>
   :root {
-    color-scheme: dark;
-    --bg: #2b2a2d;
-    --glass: rgba(22, 21, 25, 0.84);
     --glass-solid: #1b1a1e;
     --glass-light: rgba(235, 232, 225, 0.94);
-    --line: rgba(255, 255, 255, 0.085);
-    --line-strong: rgba(255, 255, 255, 0.16);
-    --text: #ebe7e1;
-    --ink: #252428;
-    --dim: #969199;
-    --accent: #58c4dd;
-    --good: #79bf8b;
-    --warn: #dfa95c;
-    --bad: #da7777;
-    --shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
   }
-  * { box-sizing: border-box; }
   html, body {
     margin: 0; height: 100%;
     background: var(--bg); color: var(--text);
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: hidden;
   }
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    background:
-      radial-gradient(circle at 50% -15%, rgba(255,255,255,.035), transparent 44%),
-      linear-gradient(180deg, rgba(255,255,255,.012), transparent 25%);
-  }
-  button { font: inherit; }
   #stage {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
@@ -156,13 +136,7 @@
     display: flex; justify-content: center; align-items: flex-start;
     gap: 8px; pointer-events: none;
   }
-  .pod {
-    min-height: 42px; display: flex; align-items: center; gap: 2px;
-    padding: 4px 6px; border: 1px solid var(--line); border-radius: 13px;
-    background: var(--glass); box-shadow: var(--shadow);
-    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-    pointer-events: auto; white-space: nowrap;
-  }
+  .pod { gap: 2px; padding: 4px 6px; }
   .document-slug {
     display: flex; align-items: baseline; min-width: 0; padding: 0 7px 0 10px;
     font-family: Georgia, "Times New Roman", serif; letter-spacing: .055em;

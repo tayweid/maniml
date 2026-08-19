@@ -98,6 +98,7 @@ maniml = [
     "rendering/shaders/*.glsl",
     "rendering/shaders/**/*.glsl",
     "web/static/*.html",
+    "web/static/*.css",
     "web/static/*.js",
     "web/static/*.webmanifest",
     "web/static/icons/*",

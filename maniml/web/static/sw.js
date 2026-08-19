@@ -15,7 +15,7 @@
 // shell cached by the old one.
 const VERSION = "__MANIML_VERSION__";
 const CACHE = `maniml-shell-${VERSION}`;
-const SHELL = ["/", "/app.html", "/viewer.html"];
+const SHELL = ["/", "/app.html", "/viewer.html", "/shell.css"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {

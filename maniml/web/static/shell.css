@@ -1,0 +1,39 @@
+/* The shared visual language of the app shell: the landing page and the
+   viewer are two rooms of one app, so the design tokens, the canvas
+   treatment, and the glass slug live here once. player.html deliberately
+   does NOT link this file — a baked export must stay a self-contained
+   folder with no dependency on the app it came from. */
+
+:root {
+  color-scheme: dark;
+  --bg: #2b2a2d;
+  --glass: rgba(22, 21, 25, 0.84);
+  --line: rgba(255, 255, 255, 0.085);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #ebe7e1;
+  --ink: #252428;
+  --dim: #969199;
+  --accent: #58c4dd;
+  --good: #79bf8b;
+  --warn: #dfa95c;
+  --bad: #da7777;
+  --shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
+}
+* { box-sizing: border-box; }
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(255,255,255,.035), transparent 44%),
+    linear-gradient(180deg, rgba(255,255,255,.012), transparent 25%);
+}
+button { font: inherit; }
+
+/* The floating glass slug both pages build their chrome from. Each page
+   sets its own gap and padding; the identity is shared. */
+.pod {
+  min-height: 42px; display: flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 13px;
+  background: var(--glass); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  pointer-events: auto; white-space: nowrap;
+}
