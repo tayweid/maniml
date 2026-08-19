@@ -60,7 +60,8 @@ class FirstRunOfferTests(unittest.TestCase):
     def test_a_run_nobody_is_watching_is_never_asked(self):
         """The launchd agent runs `maniml agent serve`, and a blocked input()
         there would hang the engine on every login."""
-        with patch.object(agent.sys, "stdin", None):
+        with patch.object(agent.sys, "stdin", None), \
+                patch.object(agent, "is_installed", return_value=False):
             self.assertFalse(agent.offer_at_first_run(self.tmpdir.name))
         self.assertFalse(agent.OFFERED_PATH.exists())
 
