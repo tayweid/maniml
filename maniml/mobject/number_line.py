@@ -29,6 +29,7 @@ class NumberLine(Line):
         # How big is one one unit of this number line in terms of absolute spacial distance
         unit_size: float = 1.0,
         width: Optional[float] = None,
+        length: Optional[float] = None,  # CE name for width
         include_ticks: bool = True,
         tick_size: float = 0.1,
         longer_tick_multiple: float = 1.5,
@@ -38,6 +39,7 @@ class NumberLine(Line):
         big_tick_numbers: list[float] = [],
         include_numbers: bool = False,
         line_to_number_direction: Vect3 = DOWN,
+        label_direction: Optional[Vect3] = None,  # CE name for line_to_number_direction
         line_to_number_buff: float = MED_SMALL_BUFF,
         include_tip: bool = False,
         tip_config: dict = dict(
@@ -51,6 +53,10 @@ class NumberLine(Line):
         numbers_to_exclude: list | None = None,
         **kwargs,
     ):
+        if length is not None:
+            width = length
+        if label_direction is not None:
+            line_to_number_direction = label_direction
         self.x_range = x_range
         self.tick_size = tick_size
         self.longer_tick_multiple = longer_tick_multiple

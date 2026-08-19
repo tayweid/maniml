@@ -77,7 +77,9 @@ sequence, each step gated on the one before it:
   a scene now opens on an empty frame. Rendering the preamble needs
   `source_map` to split a unit at its play statement, and checkpoint 0
   re-baked to match — doable, but it must not let the preamble run
-  twice, or it reproduces the duplicate-mobject bug above.
+  twice, or it reproduces the duplicate-mobject bug above. See
+  "Cell-marked scene files" below for the version of this that stops
+  being a bug rather than getting fixed.
 
 - **Presentation timeline: window the scrubber for large scenes.** The
   bar packs all N rings into a fixed 60% span, so past ~50 checkpoints
@@ -167,6 +169,61 @@ only when that code is being touched anyway.
 
 (LEFT-arrow reverse being an approximate morph rather than true
 reversal is a design property, documented in CLAUDE.md's weak spots.)
+
+## Cell-marked scene files (a format question, not a viewer one)
+
+Raised 2026-08-19, from writing scenes rather than reading code: every
+scene here is one `class X(Scene)` with one `construct()` and the whole
+animation inside it, so what is the class doing? In CE it earns its
+keep three ways — the body must not run at import (flags are read and
+the camera and file writer are built before `construct()` is called),
+the class name is how `manim file.py SceneName` addresses one render
+out of a file, and subclassing is how `ThreeDScene` and friends swap
+the environment underneath you. Only the third applies to a plain
+`Scene`, where the class is a container for a single method and `self`
+is a handle to the renderer.
+
+**In maniml it is already vestigial.** The engine never calls
+`construct()`. Checkpoint 0 is built from `vars(module)` — the module
+namespace, not a method's locals (`_create_checkpoint_zero`,
+`checkpoints.py`) — and each unit is `exec`'d flat against that
+namespace with `self` planted as an ordinary variable, from source
+`_unit_source` produced by taking the raw lines and wrapping them in
+`if True:`. No class, no method, no frame. `_find_construct` exists to
+see *through* the wrapper to the statements inside it.
+
+So the interesting move is not "drop the class" but **`# %%` cell
+markers**, which is Knuth's percent format — the two suites would share
+one file format, and Plass's convergence argument for Typst applies
+here for the same reason. What makes it worth more than tidiness:
+**it dissolves the whole-unit stepping bug above rather than fixing
+it.** Animation units stop being an AST heuristic that guesses
+boundaries from where `.play()` appears and cannot see inside a `for`
+loop; the author marks where each pausepoint is. The `many` stacked
+chip on the rail becomes unnecessary, because the count stops being
+unknowable. It also gives the preamble somewhere to live — its own
+cell before the first play — which is the other half of that bug.
+
+What blocks it, specifically:
+
+- **A script-style file runs itself on import.** `load_scene_module`
+  gets checkpoint 0 by importing the file; for a class-based file that
+  merely defines a class, but a file whose animation is at module level
+  would play the whole scene during the import. The fix is contained
+  but real: exec only the preamble (up to the first play or the first
+  cell marker) and hand the rest to the unit machinery.
+- **CE compatibility is the spine.** Unmodified CE files working is
+  what `_CEAliasFinder` and the conformance suite are for, so this can
+  only ever be a *second* front door — never a replacement, and never a
+  reason to make the class path second-class.
+- **One file would be one scene**, which costs the viewer's scene
+  picker and `library.py`'s AST scan. Unless a cell marker can also
+  name a scene, in which case it does not — worth deciding early,
+  because it changes the format.
+
+Not now: course production is running on the checkpoint engine, which
+is the riskiest code here. But this is a better milestone than the
+per-play stepping item under "Known bugs", because it subsumes it.
 
 ## Typst text backend (independent of the viewer; do whenever)
 

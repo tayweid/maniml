@@ -47,9 +47,11 @@ class Tex(StringMobject):
 
         tex_string = (" ".join(tex_strings)).strip()
 
-        # Prevent from passing an empty string.
+        # Prevent from passing an empty string. A bare "\\" errors in text
+        # environments ("There's no line here to end"); \quad compiles in
+        # both text and math mode and draws nothing, matching CE's empty Tex.
         if not tex_string.strip():
-            tex_string = R"\\"
+            tex_string = R"\quad"
 
         self.tex_string = tex_string
         self.alignment = alignment
