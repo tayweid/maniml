@@ -27,14 +27,45 @@ class AnimationUnit:
     end_line: int     # 1-based last line of the unit's last statement
     has_play: bool    # False only for a trailing unit with no play call
     source: str       # exec-ready source for this unit
+    plays: int = 1    # play calls written in the unit's source
+    loops: bool = False   # at least one of them sits inside a loop
+
+    @property
+    def indeterminate(self) -> bool:
+        """Whether the unit's pausepoint count is knowable before it runs.
+
+        A loop's trip count usually isn't known statically, and only one arm
+        of an if/else runs, so in both cases the written play calls are not a
+        count of the checkpoints the unit will produce. A viewer's timeline
+        can say so instead of drawing a number it made up.
+        """
+        return self.loops or self.plays > 1
+
+
+def _count_plays(node: ast.AST) -> int:
+    return sum(
+        1 for sub in ast.walk(node)
+        if isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and sub.func.attr == 'play'
+    )
 
 
 def _contains_play(node: ast.AST) -> bool:
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
-            if sub.func.attr == 'play':
-                return True
-    return False
+    return _count_plays(node) > 0
+
+
+def _play_in_loop(node: ast.AST) -> bool:
+    """Whether any play call in this statement sits inside a loop.
+
+    ``ast.walk`` yields the statement itself, so a ``for`` loop that is the
+    unit's whole statement is caught along with nested ones.
+    """
+    return any(
+        isinstance(sub, (ast.For, ast.AsyncFor, ast.While))
+        and _contains_play(sub)
+        for sub in ast.walk(node)
+    )
 
 
 def _find_construct(tree: ast.Module, scene_name: str | None) -> ast.FunctionDef:
@@ -87,13 +118,16 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
     for stmt in construct.body:
         if pending_start is None:
             pending_start = stmt.lineno
-        if _contains_play(stmt):
+        plays = _count_plays(stmt)
+        if plays:
             units.append(AnimationUnit(
                 index=len(units),
                 start_line=pending_start,
                 end_line=stmt.end_lineno,
                 has_play=True,
                 source=_unit_source(lines, pending_start, stmt.end_lineno),
+                plays=plays,
+                loops=_play_in_loop(stmt),
             ))
             pending_start = None
 
@@ -105,6 +139,7 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
             end_line=end,
             has_play=False,
             source=_unit_source(lines, pending_start, end),
+            plays=0,
         ))
     return units
 

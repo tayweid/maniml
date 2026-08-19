@@ -131,8 +131,10 @@ class ViewerTests(unittest.TestCase):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('id="console-toggle"', viewer)
         self.assertIn("body.console #console { display: flex; }", viewer)
-        # Presenting gets the whole window back.
-        self.assertIn("body.fullscreen #console { display: none; }", viewer)
+        # In full screen it rides with the rest of the chrome rather than
+        # being suppressed: presenting is when a scene's own output matters
+        # most, and it recedes with the toolbar when the pointer settles.
+        self.assertIn("body.fullscreen.chrome #console", viewer)
         # setConsole(true) is reachable only from the toggle, the shortcut, and
         # the remembered per-tab preference — never from a log arriving.
         opens = viewer.count("setConsole(true)")
@@ -165,7 +167,7 @@ class ViewerTests(unittest.TestCase):
         # opacity alone would leave invisible pods eating canvas clicks.
         self.assertIn("opacity: 0; visibility: hidden;", viewer)
         self.assertIn("body.fullscreen.chrome #toolbar", viewer)
-        self.assertIn("body.fullscreen.chrome #timeline-shell", viewer)
+        self.assertIn("body.fullscreen.chrome #navbar", viewer)
 
     def test_viewer_controls_are_present(self):
         viewer = (STATIC / "viewer.html").read_text()
@@ -176,6 +178,60 @@ class ViewerTests(unittest.TestCase):
             'aria-label="Scene pausepoints"',
         ):
             self.assertIn(element, viewer, element)
+
+    def test_presenter_controls_share_one_bar_with_the_rail(self):
+        """Everything touched while showing a scene is on the bottom bar, and
+        the rail it moves along is part of the same run of pods."""
+        viewer = (STATIC / "viewer.html").read_text()
+        navbar = viewer[viewer.index('<div id="navbar"'):viewer.index("<script src=")]
+        for control in ('id="previous"', 'id="next"', 'id="position"',
+                        'id="rail"', 'id="fullscreen"'):
+            self.assertIn(control, navbar, control)
+        # The top bar keeps the file and the tools, and nothing else.
+        toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index('<aside id="console"')]
+        for moved in ('id="previous"', 'id="next"', 'id="fullscreen"'):
+            self.assertNotIn(moved, toolbar, moved)
+
+    def test_chrome_is_a_run_of_pods(self):
+        """The seams and stadium ends come from shell.css, so both bars and
+        the landing page's header stay one visual family."""
+        shell = (STATIC / "shell.css").read_text()
+        self.assertIn(".pod-run > .pod:first-child", shell)
+        self.assertIn(".pod-run > .pod:last-child", shell)
+        for name in ("viewer.html", "app.html"):
+            self.assertIn('class="pod-run"', (STATIC / name).read_text(), name)
+
+    def test_the_rail_can_light_a_single_stretch(self):
+        """A link between two chips is a real element precisely so one of
+        them can light while its animation plays; a line drawn behind the
+        whole rail could only ever be lit end to end."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("function makeLink(", viewer)
+        self.assertIn(".link.lit .fill", viewer)
+        self.assertIn(".link.lit.back .fill", viewer)
+        # The ring must leave the chip being departed, or the rail keeps
+        # claiming a position it is on its way out of — the lag that made
+        # stepping feel like a jump.
+        self.assertIn("body.moving .chip.current", viewer)
+
+    def test_a_move_says_which_stretch_and_not_how_far(self):
+        """Progress through an animation is on screen at full size already,
+        and any claim would have to hold through reverse morphs and
+        fast-forwards too."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('data.type === "move"', viewer)
+        move = viewer[viewer.index("function handleMove("):viewer.index("// -- Toolbar actions --")]
+        for absent in ("alpha", "progress", "run_time"):
+            self.assertNotIn(absent, move, absent)
+        # A short play must stay lit long enough to be seen.
+        self.assertIn("MIN_LIT_MS", viewer)
+
+    def test_an_unknowable_pausepoint_count_is_drawn_as_one(self):
+        """A loop or a branch does not have a chip per play until it runs, so
+        the rail draws a stack rather than implying a count it lacks."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn(".chip.many", viewer)
+        self.assertIn("unit.many", viewer)
 
     def test_scene_picker_switches_within_a_file(self):
         viewer = (STATIC / "viewer.html").read_text()

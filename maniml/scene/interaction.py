@@ -228,8 +228,16 @@ class InteractionMixin:
                 FadeIn(tgt) for tgt in target_mobs if id(tgt) not in matched
             )
             if anims:
-                with self._no_checkpoints():
-                    self.play(*anims, run_time=0.7)
+                # Flagged so a viewer's timeline can light the stretch from
+                # the end being returned to: the index has already landed on
+                # the destination, so the play alone can't tell which way
+                # this is going.
+                self._reversing = True
+                try:
+                    with self._no_checkpoints():
+                        self.play(*anims, run_time=0.7)
+                finally:
+                    self._reversing = False
         except Exception as e:
             log.warning(f"Reverse transition failed ({e}); jumping instead")
         # Land exactly on the checkpoint state regardless of how the

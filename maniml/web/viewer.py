@@ -150,6 +150,7 @@ class WebViewer:
         self._last_send_time = 0.0
         self._last_send_lossy = False
         self._last_state = None
+        self._last_move = None
         # Set when a client picks another scene from the same file. The run
         # loop in __main__ reads it after Scene.run() returns and builds the
         # next scene against this same viewer, so the server and the open
@@ -237,9 +238,16 @@ class WebViewer:
 
     def begin_animation(self):
         self._animating = True
+        index = self.scene.current_animation_index
+        # A reverse morph has already landed the index on its destination,
+        # so both directions light the same stretch; only which end it grows
+        # from differs.
+        self._broadcast_move(
+            index, index + 1, bool(getattr(self.scene, "_reversing", False)))
 
     def end_animation(self):
         self._animating = False
+        self._broadcast_move(None, None, False)
 
     def on_frame_rendered(self):
         """Called after every camera.capture(): pump input, stream output."""
@@ -616,7 +624,9 @@ class WebViewer:
     def _future_units(self) -> list[dict]:
         """Play-units not yet checkpointed, so the timeline can show the
         whole scene up front. One chip per unit — a loop's repeated plays
-        only become individual chips once the unit runs."""
+        only become individual chips once the unit runs, which is what
+        ``many`` warns about: the chip stands for an unknown number of
+        pausepoints rather than exactly one."""
         scene = self.scene
         units = scene._get_source_units()  # cached by (path, mtime)
         if not units:
@@ -627,9 +637,35 @@ class WebViewer:
             if unit_index is not None:
                 last_unit = max(last_unit, unit_index)
         return [
-            {"unit": u.index, "line": u.start_line}
+            {"unit": u.index, "line": u.start_line, "many": u.indeterminate}
             for u in units if u.has_play and u.index > last_unit
         ]
+
+    def _broadcast_move(self, frm, to, back: bool) -> None:
+        """Say which stretch of the timeline an animation is crossing.
+
+        Its own message rather than a field on the state, for two reasons: a
+        state change forces a lossless PNG (see ``on_frame_rendered``), and
+        one per play would be a full-frame send at the worst moment; and this
+        must reach the rail when the play *starts*, not on whatever frame the
+        streaming policy sends next.
+
+        Nothing is said about progress through the animation. The animation
+        itself is on screen at full size, and any claim would have to hold up
+        through reverse morphs and watcher replays as well as forward plays.
+        """
+        if not self.server.has_clients():
+            return
+        if getattr(self.scene, "skip_animations", False):
+            # Present-mode prep and watcher replays fast-forward whole runs
+            # of units; a lit rail flickering through them says nothing.
+            return
+        move = (frm, to, back)
+        if move == self._last_move:
+            return
+        self._last_move = move
+        self.server.broadcast_json(
+            {"type": "move", "from": frm, "to": to, "back": back})
 
     def _broadcast_state(self):
         state = self._current_state()

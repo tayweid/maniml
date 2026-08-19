@@ -173,5 +173,53 @@ class TestLookups(unittest.TestCase):
         self.assertIsNone(unit_for_line(self.units, 999))
 
 
+class IndeterminateUnitTests(unittest.TestCase):
+    """A unit's play calls are not always a count of the pausepoints it will
+    produce, and a timeline that draws one chip per play would be lying about
+    scenes that loop."""
+
+    SOURCE = textwrap.dedent("""
+        from manim import *
+
+        class Demo(Scene):
+            def construct(self):
+                dot = Dot()
+                self.play(FadeIn(dot))
+                for _ in range(4):
+                    self.play(dot.animate.shift(RIGHT))
+                if dot.get_x() > 0:
+                    self.play(FadeOut(dot))
+                else:
+                    self.play(dot.animate.scale(2))
+                self.wait()
+    """)
+
+    def setUp(self):
+        self.units = build_units(self.SOURCE, 'Demo')
+
+    def test_a_lone_play_is_exactly_one_pausepoint(self):
+        self.assertEqual(self.units[0].plays, 1)
+        self.assertFalse(self.units[0].loops)
+        self.assertFalse(self.units[0].indeterminate)
+
+    def test_a_loop_of_plays_has_no_knowable_count(self):
+        """The trip count is a runtime value, so the unit can only say that
+        it holds more than it shows."""
+        self.assertTrue(self.units[1].loops)
+        self.assertTrue(self.units[1].indeterminate)
+
+    def test_branches_do_not_add_up(self):
+        """Two written plays, one of which runs — a count of 2 would be as
+        wrong as a count of 1."""
+        self.assertEqual(self.units[2].plays, 2)
+        self.assertFalse(self.units[2].loops)
+        self.assertTrue(self.units[2].indeterminate)
+
+    def test_a_tail_unit_plays_nothing(self):
+        self.assertFalse(self.units[3].has_play)
+        self.assertEqual(self.units[3].plays, 0)
+        self.assertFalse(self.units[3].indeterminate)
+
+
 if __name__ == '__main__':
     unittest.main()

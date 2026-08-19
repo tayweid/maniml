@@ -5,6 +5,28 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### The viewer
+
+- The chrome is now Plass and Knuth's toolbar rather than a resemblance of
+  it: one 60px bar of glass pods pressed into a run with stadium ends, their
+  contents asleep until the pointer comes near, and flyouts that lay a group's
+  labelled icons over their trigger in a pill. The landing page's header
+  shares it, so the three apps read as one family.
+- Everything you touch while presenting is on one bar at the bottom — step
+  back and forward, the pausepoint readout, the timeline, full screen — and
+  the top bar is down to two slugs: the file, and the tools.
+- **The timeline shows the animation it is playing.** Moving between
+  pausepoints used to jump only once the animation had finished, because the
+  position advances when a checkpoint is saved. The stretch between the two
+  pausepoints now lights as the animation starts, and the position marker
+  leaves the pausepoint it is departing.
+- **A loop of plays no longer claims to be one pausepoint.** A loop or a
+  branch produces a number of pausepoints that is not knowable until it runs,
+  so the timeline draws those as a stack rather than as a single dot.
+- The session panel now sits between the two bars instead of running under
+  the timeline, and it stays available in full screen, receding and returning
+  with the rest of the chrome.
+
 ### Delivery
 
 - ManimLive is a local application again. The interface is served by the

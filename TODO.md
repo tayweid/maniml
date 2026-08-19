@@ -65,9 +65,12 @@ sequence, each step gated on the one before it:
 
 - **Stepping forward runs a whole unit, not a whole pausepoint.** A
   unit ends at the statement containing a `play()`, so a `for` loop of
-  plays is one unit: the rail may show 16 pausepoints while a single
-  forward press fires all of them. Opening no longer auto-runs
-  (2026-08-18), which removed the worst of it, but per-play stepping
+  plays is one unit: a single forward press fires all of them. Opening
+  no longer auto-runs (2026-08-18), which removed the worst of it, and
+  the rail no longer misrepresents it (2026-08-19): such a unit is drawn
+  as a stack of chips rather than one, because `AnimationUnit` now
+  reports `plays`/`loops` and the viewer sends `many` with each future
+  unit. That is an honest label, not a fix — per-play stepping
   inside a loop would mean running a unit as something suspendable — a
   coroutine or a thread that parks at each `play()`. Related: a scene's
   `self.add(...)` preamble lives in the same unit as its first play, so
@@ -109,7 +112,11 @@ sequence, each step gated on the one before it:
   share no styling with the viewer. They deliberately do not link
   `shell.css` (an export must stay self-contained), so this is a
   restyle in place: warm graphite, glass slugs, the viewer's transport
-  idiom.
+  idiom. Now the only part of the frontend still off the shared
+  language — the viewer and the landing page moved onto Plass's pod run
+  on 2026-08-19, and the player's bottom bar is the same shape as the
+  viewer's new presenter bar, so it is a copy job with the pod styles
+  inlined.
 - Later: process controls on the landing page, multi-scene tabs.
 
 ## Test debt (from the 2026-08-18 review)

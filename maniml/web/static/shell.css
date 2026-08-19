@@ -7,7 +7,7 @@
 :root {
   color-scheme: dark;
   --bg: #2b2a2d;
-  --glass: rgba(22, 21, 25, 0.84);
+  --glass: color-mix(in srgb, #17161a 80%, transparent);
   --line: rgba(255, 255, 255, 0.085);
   --line-strong: rgba(255, 255, 255, 0.16);
   --text: #ebe7e1;
@@ -28,12 +28,29 @@ body::before {
 }
 button { font: inherit; }
 
-/* The floating glass slug both pages build their chrome from. Each page
-   sets its own gap and padding; the identity is shared. */
+/* The floating glass slug both pages build their chrome from — Plass's
+   pod, with its metrics rather than an approximation of them, so the three
+   apps read as one family. Each page sets its own gap and padding; the
+   identity is shared. */
 .pod {
-  min-height: 42px; display: flex; align-items: center;
-  border: 1px solid var(--line); border-radius: 13px;
+  height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 6px;
+  border: 1px solid var(--line); border-radius: 12px;
   background: var(--glass); box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   pointer-events: auto; white-space: nowrap;
 }
+
+/* A run of pods reads as one object: facing sides keep a flat contact patch
+   and turn away through small circular corners, and the run rounds back out
+   to stadium ends. (Explicit 21px rather than 999px — an overflowing radius
+   makes CSS scale every corner down by one global factor, which would round
+   the flat seams too.) */
+.pod-run > .pod:first-child { border-radius: 21px 12px 12px 21px; }
+.pod-run > .pod:last-child { border-radius: 12px 21px 21px 12px; }
+.pod-run > .pod:only-child { border-radius: 21px; }
+
+/* Sleep/wake, the tier Plass sets: a pod's contents are soft at rest and
+   wake together when the pointer comes near the bar they sit on — one
+   gesture for the whole cluster, not a button lighting up under the cursor. */
+.pod-run .icon-button { opacity: .4; }
+.pod-run:hover .icon-button, .pod-run:focus-within .icon-button { opacity: 1; }

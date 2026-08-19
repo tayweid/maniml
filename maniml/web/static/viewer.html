@@ -27,7 +27,7 @@
      scene prints on every arrow key, so a panel that opened on output would
      be opening constantly — and it must never appear mid-presentation. */
   #console {
-    position: fixed; z-index: 19; top: 62px; right: 12px; bottom: 12px;
+    position: fixed; z-index: 19; top: 66px; right: 12px; bottom: 74px;
     width: 340px; display: none; flex-direction: column;
     border: 1px solid var(--line); border-radius: 13px;
     background: var(--glass); box-shadow: var(--shadow);
@@ -36,9 +36,15 @@
   }
   body.console #console { display: flex; }
   body.console #stage { padding-right: 366px; }
-  /* Presenting wants the whole window; the console is chrome like the rest. */
-  body.fullscreen #console { display: none; }
+  /* The panel is a column between the two bars, so the bars give up its
+     width rather than running underneath it. */
+  body.console #toolbar, body.console #navbar { padding-right: 366px; }
+  /* Presenting is where a scene's own output matters most, so the console
+     keeps its place in full screen — it rides with the rest of the chrome,
+     receding when the chrome does. It overlays there rather than reflowing:
+     the frame must not resize every time the pointer nears an edge. */
   body.fullscreen #stage { padding-right: 0; }
+  body.fullscreen #toolbar, body.fullscreen #navbar { padding-right: 14px; }
   #console-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 12px; border-bottom: 1px solid var(--line);
@@ -71,17 +77,18 @@
   body.fullscreen #stage { padding: 0; }
   body.fullscreen #stage canvas { border-radius: 0; box-shadow: none; }
   body.fullscreen #toolbar,
-  body.fullscreen #timeline-shell {
+  body.fullscreen #navbar,
+  body.fullscreen #console {
     opacity: 0; visibility: hidden;
     transition: opacity 180ms ease, transform 180ms ease, visibility 180ms;
   }
   body.fullscreen #toolbar { transform: translateY(-12px); }
-  body.fullscreen #timeline-shell { transform: translateX(-50%) translateY(14px); }
-  body.fullscreen.chrome #toolbar {
+  body.fullscreen #navbar { transform: translateY(14px); }
+  body.fullscreen #console { transform: translateX(12px); }
+  body.fullscreen.chrome #toolbar,
+  body.fullscreen.chrome #navbar,
+  body.fullscreen.chrome #console {
     opacity: 1; visibility: visible; transform: none;
-  }
-  body.fullscreen.chrome #timeline-shell {
-    opacity: 1; visibility: visible; transform: translateX(-50%);
   }
   body.fullscreen.idle, body.fullscreen.idle #view, body.fullscreen.idle .altview {
     cursor: none;
@@ -130,15 +137,29 @@
   body.alt.compare #view { display: block; max-width: 49.5%; }
   body.alt.compare .altview.current { max-width: 49.5%; }
 
-  /* Plass/Knuth-style chrome: dark glass slugs that recede until used. */
+  /* The chrome is Plass's, and deliberately its metrics rather than an
+     imitation of them: a 60px bar, 42px pods pressed into a run, contents
+     asleep until the pointer nears the bar, and flyouts that lay the group's
+     labelled icons OVER their trigger so the cursor never crosses a gap. */
   #toolbar {
-    position: fixed; z-index: 20; top: 10px; left: 12px; right: 12px;
-    display: flex; justify-content: center; align-items: flex-start;
-    gap: 8px; pointer-events: none;
+    position: fixed; z-index: 20; top: 0; left: 0; right: 0; height: 60px;
+    display: flex; justify-content: center; align-items: center;
+    gap: 5px; padding: 0 14px; pointer-events: none;
   }
-  .pod { gap: 2px; padding: 4px 6px; }
+  /* Both a pod and a flyout carry backdrop-filter, which is a stacking
+     context — so a flyout's z-index is trapped inside its own pod and a
+     LATER sibling paints over it. Lift whichever pod the cursor is in.
+     (Plass learned this one the hard way; it is not decoration.) */
+  #toolbar > *, #navbar > * { position: relative; }
+  #toolbar > *:hover, #toolbar > *:focus-within,
+  #navbar > *:hover, #navbar > *:focus-within { z-index: 20; }
+
+  .doc-pod { gap: 9px; padding: 0 6px 0 16px; }
+  .tools-pod { gap: 4px; }
+  /* A group inside a pod: related controls plus the quiet text they own. */
+  .tool-group { display: inline-flex; align-items: center; gap: 2px; }
   .document-slug {
-    display: flex; align-items: baseline; min-width: 0; padding: 0 7px 0 10px;
+    display: flex; align-items: baseline; min-width: 0;
     font-family: Georgia, "Times New Roman", serif; letter-spacing: .055em;
   }
   #file-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
@@ -173,21 +194,27 @@
     background: rgba(20,19,22,.08); opacity: 1; outline: none;
   }
   .scene-option[aria-current="true"] { font-weight: 650; opacity: 1; }
+
   .icon-button, .fly-action {
     position: relative; display: grid; place-items: center; width: 32px; height: 32px;
-    padding: 0; border: 0; border-radius: 9px; background: transparent;
-    color: var(--text); opacity: .43; cursor: pointer;
-    transition: opacity 140ms ease, color 140ms ease, background 140ms ease,
+    padding: 0; border: 0; border-radius: 8px; background: transparent;
+    color: var(--text); cursor: pointer;
+    transition: opacity 250ms ease, color 140ms ease, background 140ms ease,
       transform 140ms ease;
   }
-  .icon-button:hover, .icon-button:focus-visible,
-  .fly-action:hover, .fly-action:focus-visible { opacity: 1; outline: none; }
-  .icon-button:disabled { opacity: .16; cursor: default; background: transparent; }
-  .icon-button:hover, .icon-button:focus-visible { background: rgba(255,255,255,.055); }
+  /* The sleep/wake tier lives in shell.css, on .pod-run; a disabled control
+     stays asleep even when the bar wakes. */
+  .pod-run .icon-button:disabled,
+  .pod-run:hover .icon-button:disabled { opacity: .16; cursor: default; }
+  .icon-button:hover, .icon-button:focus-visible { outline: none;
+    background: rgba(255,255,255,.12); }
+  .icon-button:disabled:hover { background: transparent; }
   .icon-button svg, .fly-action svg {
-    width: 17px; height: 17px; fill: none; stroke: currentColor;
+    width: 19px; height: 19px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
   }
+  /* Word tags: light glass chips, dark ink, revealed on hover. Below the
+     control on the top bar, above it on the bottom one. */
   .control-label {
     position: absolute; top: calc(100% + 10px); left: 50%;
     transform: translate(-50%, -3px); padding: 3px 7px; border-radius: 6px;
@@ -196,29 +223,37 @@
     opacity: 0; visibility: hidden; pointer-events: none;
     transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
   }
+  #navbar .control-label { top: auto; bottom: calc(100% + 10px);
+    transform: translate(-50%, 3px); }
   .icon-button:hover .control-label, .icon-button:focus-visible .control-label,
   .fly-action:hover .control-label, .fly-action:focus-visible .control-label {
     opacity: 1; visibility: visible; transform: translate(-50%, 0);
   }
-  .flyover { position: relative; height: 32px; }
+  .icon-button:disabled .control-label { display: none; }
+
+  /* The flyout: a pill a step lighter than the pod it covers, centred on its
+     trigger so it reads as a card sitting ON TOP of the bar. Its buttons are
+     the full rail size — the open state is the bigger object. */
+  .flyover { position: relative; display: inline-flex; }
   .flyout {
-    position: absolute; z-index: 30; top: 0; left: 50%;
-    display: flex; gap: 1px; padding: 3px; border-radius: 11px;
-    background: var(--glass-light); border: 1px solid rgba(255,255,255,.5);
-    box-shadow: 0 10px 28px rgba(0,0,0,.3);
-    opacity: 0; visibility: hidden; transform: translateX(-50%) scale(.96);
-    transform-origin: center; transition: opacity 120ms ease, transform 120ms ease,
-      visibility 120ms; pointer-events: none;
+    position: absolute; z-index: 30; left: 50%; top: 50%;
+    display: flex; align-items: center; gap: 2px; padding: 5px 8px;
+    background: color-mix(in srgb, #3a3840 94%, transparent);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+    box-shadow: 0 5px 18px rgba(0,0,0,.45);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    opacity: 0; visibility: hidden; transform: translate(-50%, -50%);
+    transition: opacity 140ms ease, visibility 140ms; pointer-events: none;
   }
   .flyover:hover .flyout, .flyover:focus-within .flyout {
-    opacity: 1; visibility: visible; transform: translateX(-50%) scale(1);
-    pointer-events: auto;
+    opacity: 1; visibility: visible; pointer-events: auto;
   }
-  .fly-action { color: var(--ink); opacity: .58; }
+  .fly-action { width: 40px; height: 40px; opacity: 1; font-size: 11px;
+    letter-spacing: .02em; }
+  .fly-action svg { width: 22px; height: 22px; }
   .fly-action[hidden] { display: none; }
-  .fly-action:hover, .fly-action:focus-visible { background: rgba(20,19,22,.08); }
-  .fly-action .control-label { top: calc(100% + 8px); }
-  .transport-pod { padding-inline: 5px; }
+  .fly-action:hover, .fly-action:focus-visible { background: rgba(255,255,255,.13); }
+
   #position {
     min-width: 84px; padding: 0 8px; text-align: center; color: var(--dim);
     font-size: 11px; letter-spacing: .045em; text-transform: uppercase;
@@ -226,20 +261,21 @@
   #position strong { color: var(--text); font-weight: 550; }
   #job-status {
     display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-    padding: 0 8px 0 5px; color: var(--dim); font-size: 11px;
+    padding: 0 6px; color: var(--dim); font-size: 11px;
   }
   #export-pod.active #job-status { display: block; }
   #export-pod.working .export-icon { color: var(--warn); opacity: 1; }
   #export-pod.success .export-icon { color: var(--good); opacity: 1; }
   #export-pod.failed .export-icon { color: var(--bad); opacity: 1; }
-  #renderer-name { padding: 0 7px 0 2px; color: var(--dim); font-size: 11px; }
-  .seg.selected { color: #047a92; opacity: 1; background: rgba(88,196,221,.13); }
+  #renderer-name { padding: 0 5px 0 1px; color: var(--dim); font-size: 11px; }
+  .seg.selected { color: var(--accent); opacity: 1; background: rgba(88,196,221,.16); }
   .seg.failed { opacity: .24; pointer-events: none; }
-  #split.on { color: #047a92; opacity: 1; background: rgba(88,196,221,.13); }
+  #split.on { color: var(--accent); opacity: 1; background: rgba(88,196,221,.16); }
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-    color: var(--warn); font-size: 11px; padding: 0 8px 0 2px; }
+    color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
-  #connection-pod { padding: 4px 11px; gap: 7px; color: var(--dim); font-size: 11px; }
+  #connection-pod { padding: 0 6px 0 8px; gap: 7px; color: var(--dim); font-size: 11px;
+    border-left: 1px solid var(--line); margin-left: 2px; }
   #conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good);
     box-shadow: 0 0 0 3px rgba(121,191,139,.08); }
   #conn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
@@ -249,58 +285,103 @@
     opacity: .16; pointer-events: none;
   }
 
-  #timeline-shell {
-    position: fixed; z-index: 18; left: 50%; bottom: 12px;
-    width: min(880px, calc(100% - 32px)); height: 52px;
-    transform: translateX(-50%); padding: 5px 11px 5px 13px; gap: 12px;
+  /* ---------- the presenter's bar ---------- */
+  #navbar {
+    position: fixed; z-index: 18; left: 0; right: 0; bottom: 12px;
+    display: flex; justify-content: center; align-items: center;
+    gap: 5px; padding: 0 14px; pointer-events: none;
   }
+  .transport-pod { padding: 0 5px; }
+  .rail-pod { flex: 1 1 auto; max-width: 620px; min-width: 0;
+    gap: 12px; padding: 0 12px 0 13px; }
+  .view-pod { padding: 0 5px; }
   #pausepoint-summary { width: 100px; flex: none; line-height: 1.15; }
-  #pausepoint-title { display: block; color: var(--text); font-size: 11px; }
+  #pausepoint-title { display: block; color: var(--text); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; }
   #pausepoint-line { color: var(--dim); font-size: 10px; }
-  #chips {
-    position: relative; flex: 1; min-width: 0; height: 30px;
-    display: flex; align-items: center; gap: 12px; overflow-x: auto;
-    padding: 5px 6px; scrollbar-width: none;
+
+  /* The rail is chips and the links between them, in one row: a link is the
+     stretch of scene an animation crosses, so it is a real element that can
+     light up while that animation plays — rather than one line drawn behind
+     everything, which could only ever be lit end to end. */
+  #rail {
+    flex: 1; min-width: 0; height: 30px;
+    display: flex; align-items: center; overflow-x: auto;
+    padding: 5px 2px; scrollbar-width: none;
   }
-  #chips::-webkit-scrollbar { display: none; }
-  #chips::before {
-    content: ""; position: absolute; left: 7px; right: 7px; top: 50%; height: 1px;
-    background: var(--line-strong); transform: translateY(-.5px);
+  #rail::-webkit-scrollbar { display: none; }
+  .link {
+    position: relative; flex: 1 1 26px; min-width: 13px; height: 1px;
+    margin: 0 5px; background: var(--line-strong);
   }
+  .link.past { background: #77727a; }
+  .link.future { background: none; border-top: 1px dashed #5e5a62; }
+  /* The lit fill grows out of the chip the move started from — its own
+     easing, on its own clock. It says WHICH stretch is being crossed, and
+     deliberately not how far along it is: the animation itself is on screen
+     at full size, and a claim about progress would have to be honest through
+     reverse morphs and fast-forwards too. */
+  .link .fill {
+    position: absolute; left: 0; right: 0; top: -1px; height: 3px;
+    border-radius: 2px; background: var(--accent);
+    box-shadow: 0 0 9px rgba(88,196,221,.45);
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 200ms ease, opacity 200ms ease; opacity: 0;
+  }
+  .link.lit .fill { transform: scaleX(1); opacity: 1; }
+  .link.lit.back .fill { transform-origin: right center; }
   .chip {
     position: relative; z-index: 1; width: 11px; height: 11px; padding: 0;
     border-radius: 50%; flex: none; background: var(--glass-solid);
     border: 1px solid #5e5a62; cursor: pointer;
-    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease,
+      box-shadow 200ms ease;
   }
   .chip:hover, .chip:focus-visible { border-color: var(--accent); transform: scale(1.35); outline: none; }
   .chip.past { background: #77727a; border-color: #77727a; }
   .chip.current { background: var(--accent); border-color: var(--accent);
     transform: scale(1.35); box-shadow: 0 0 0 4px rgba(88,196,221,.12); }
   .chip.future { background: var(--glass-solid); border-style: dashed; border-color: #5e5a62; }
+  /* A unit whose pausepoint count is not knowable until it runs — a loop of
+     plays, or a branch — is drawn as a stack rather than as one dot, so the
+     rail stops implying a count it does not have. */
+  /* Stacked with box-shadow, which paints behind the chip's own background,
+     so the copies recede to the right. It keeps the dashed future border:
+     these are the same kind of thing as its neighbours, and there are simply
+     more of them than the rail can count. */
+  .chip.many {
+    box-shadow: 4px 0 0 -1px var(--glass-solid), 4px 0 0 0 rgba(94,90,98,.6),
+                8px 0 0 -2px var(--glass-solid), 8px 0 0 -1px rgba(94,90,98,.38);
+    margin-right: 9px;
+  }
+  /* While a move is in flight the rail shows the STRETCH, not a point: the
+     ring lifts off the chip being left so the position readout stops
+     claiming to be somewhere it is on its way out of. */
+  body.moving .chip.current { box-shadow: none; transform: scale(1); }
+  body.moving .chip.arriving { border-color: var(--accent); transform: scale(1.2); }
   #key-hint { flex: none; color: var(--dim); font-size: 10px; letter-spacing: .025em; }
   .keycap { display: inline-grid; place-items: center; min-width: 19px; height: 19px;
     margin-left: 3px; border: 1px solid var(--line-strong); border-radius: 5px;
     background: rgba(255,255,255,.035); color: var(--text); }
 
   @media (max-width: 860px) {
-    #toolbar { justify-content: flex-start; }
-    #connection-pod { margin-left: auto; }
     #renderer-name, #key-hint, #glwarn { display: none !important; }
     #file-name { max-width: 125px; }
     #stage { padding-inline: 12px; }
   }
   @media (max-width: 620px) {
-    #toolbar { gap: 5px; left: 7px; right: 7px; }
-    .pod { min-height: 38px; border-radius: 12px; padding: 2px 4px; }
-    .icon-button, .fly-action { width: 31px; height: 31px; }
+    #toolbar, #navbar { gap: 4px; padding-inline: 7px; }
+    .pod { height: 38px; padding-inline: 4px; }
+    .doc-pod { padding-left: 12px; }
+    .icon-button { width: 31px; height: 31px; }
     #scene-name, .slug-separator, #connection-pod #conn { display: none; }
+    #connection-pod { border-left: 0; }
     #file-name { max-width: 104px; }
     #position { min-width: 54px; padding-inline: 3px; }
     #position .position-word { display: none; }
     #job-status { max-width: 95px; }
-    #timeline-shell { bottom: 8px; width: calc(100% - 14px); }
-    #pausepoint-summary { width: 72px; }
+    #navbar { bottom: 8px; }
+    #pausepoint-summary { display: none; }
     #stage { padding: 62px 8px 72px; }
   }
 </style>
@@ -322,14 +403,14 @@
   </section>
 </div>
 
-<header id="toolbar" aria-label="Scene controls">
-  <div class="pod file-pod">
+<header id="toolbar" class="pod-run" aria-label="Scene controls">
+  <div class="pod doc-pod">
     <div class="document-slug" title="Current scene file">
       <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
     </div>
     <div class="flyover">
       <button id="file-menu" class="icon-button" aria-label="File options" aria-haspopup="menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v9.5a2 2 0 0 1-2 2h-15z"/><path d="M3.5 8.5v-3a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <span class="control-label">File</span>
       </button>
       <div class="flyout" role="menu" aria-label="File options">
@@ -343,65 +424,53 @@
     </div>
   </div>
 
-  <div class="pod transport-pod">
-    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; ←</span>
-    </button>
-    <div id="position"><span class="position-word">Pausepoint </span><strong>1 / &mdash;</strong></div>
-    <button id="next" class="icon-button" aria-label="Play next animation" disabled>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; →</span>
-    </button>
+  <div class="pod tools-pod">
+    <span id="export-pod" class="tool-group">
+      <div class="flyover">
+        <button id="export-menu" class="icon-button export-icon" aria-label="Export options" aria-haspopup="menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Export</span>
+        </button>
+        <div class="flyout" role="menu" aria-label="Export options">
+          <button id="export-video" class="fly-action" role="menuitem" aria-label="Render video" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="12" height="12" rx="2"/><path d="m16 10 4-2v8l-4-2"/></svg><span class="control-label">Video</span>
+          </button>
+          <button id="export-web" class="fly-action" role="menuitem" aria-label="Export web player" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16"/></svg><span class="control-label">Web</span>
+          </button>
+          <button id="export-frame" class="fly-action" role="menuitem" aria-label="Save current frame">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m6 17 4-4 3 3 2-2 3 3"/></svg><span class="control-label">Frame</span>
+          </button>
+        </div>
+      </div>
+      <span id="job-status" role="status" aria-live="polite"></span>
+    </span>
+
+    <span id="renderer-pod" class="tool-group">
+      <div class="flyover">
+        <button id="renderer-menu" class="icon-button" aria-label="Renderer options" aria-haspopup="menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17M7 6.5h.01M10 6.5h.01"/></svg><span class="control-label">Renderer</span>
+        </button>
+        <div id="renderers" class="flyout" role="menu" aria-label="Renderer options">
+          <button class="fly-action seg selected" data-renderer="pixel" role="menuitem" aria-label="Server pixel renderer"><span>Px</span><span class="control-label">Pixel</span></button>
+          <button class="fly-action seg" data-renderer="gl" role="menuitem" aria-label="WebGL2 renderer"><span>GL</span><span class="control-label">WebGL2</span></button>
+          <button class="fly-action seg" data-renderer="gpu" role="menuitem" aria-label="WebGPU renderer"><span>GPU</span><span class="control-label">WebGPU</span></button>
+          <button id="split" class="fly-action" role="menuitem" aria-label="Compare client renderer with pixel stream">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14"/></svg><span class="control-label">Compare</span>
+          </button>
+        </div>
+      </div>
+      <span id="renderer-name">Pixel</span>
+      <span id="glwarn"></span>
+    </span>
+
     <button id="console-toggle" class="icon-button" aria-label="Console" aria-pressed="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 4 4-4 4M12 16h7"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>
       <span class="control-label">Console&nbsp; C</span>
     </button>
-    <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
-      <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
-      <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
-      <span class="control-label">Full screen&nbsp; F</span>
-    </button>
-  </div>
 
-  <div id="export-pod" class="pod">
-    <div class="flyover">
-      <button id="export-menu" class="icon-button export-icon" aria-label="Export options" aria-haspopup="menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Export</span>
-      </button>
-      <div class="flyout" role="menu" aria-label="Export options">
-        <button id="export-video" class="fly-action" role="menuitem" aria-label="Render video" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="12" height="12" rx="2"/><path d="m16 10 4-2v8l-4-2"/></svg><span class="control-label">Video</span>
-        </button>
-        <button id="export-web" class="fly-action" role="menuitem" aria-label="Export web player" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16"/></svg><span class="control-label">Web</span>
-        </button>
-        <button id="export-frame" class="fly-action" role="menuitem" aria-label="Save current frame">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m6 17 4-4 3 3 2-2 3 3"/></svg><span class="control-label">Frame</span>
-        </button>
-      </div>
-    </div>
-    <span id="job-status" role="status" aria-live="polite"></span>
-  </div>
-
-  <div class="pod renderer-pod">
-    <div class="flyover">
-      <button id="renderer-menu" class="icon-button" aria-label="Renderer options" aria-haspopup="menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17M7 6.5h.01M10 6.5h.01"/></svg><span class="control-label">Renderer</span>
-      </button>
-      <div id="renderers" class="flyout" role="menu" aria-label="Renderer options">
-        <button class="fly-action seg selected" data-renderer="pixel" role="menuitem" aria-label="Server pixel renderer"><span>Px</span><span class="control-label">Pixel</span></button>
-        <button class="fly-action seg" data-renderer="gl" role="menuitem" aria-label="WebGL2 renderer"><span>GL</span><span class="control-label">WebGL2</span></button>
-        <button class="fly-action seg" data-renderer="gpu" role="menuitem" aria-label="WebGPU renderer"><span>GPU</span><span class="control-label">WebGPU</span></button>
-        <button id="split" class="fly-action" role="menuitem" aria-label="Compare client renderer with pixel stream">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14"/></svg><span class="control-label">Compare</span>
-        </button>
-      </div>
-    </div>
-    <span id="renderer-name">Pixel</span>
-    <span id="glwarn"></span>
-  </div>
-
-  <div id="connection-pod" class="pod" title="Connection to the local ManimLive engine">
-    <span id="conn-dot"></span><span id="conn">Connecting</span>
+    <span id="connection-pod" class="tool-group" title="Connection to the local ManimLive engine">
+      <span id="conn-dot"></span><span id="conn">Connecting</span>
+    </span>
   </div>
 </header>
 
@@ -413,13 +482,35 @@
   <div id="console-lines"><div id="console-empty">No output yet.</div></div>
 </aside>
 
-<div id="timeline-shell" class="pod" aria-label="Pausepoint timeline">
-  <div id="pausepoint-summary">
-    <span id="pausepoint-title">Start</span>
-    <span id="pausepoint-line">Scene beginning</span>
+<!-- The presenter's bar: everything you touch while showing a scene is here,
+     and the rail it moves along is one more pod in the same run. -->
+<div id="navbar" class="pod-run" aria-label="Presentation controls">
+  <div class="pod transport-pod">
+    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
+    </button>
+    <div id="position"><span class="position-word">Pausepoint </span><strong>1 / &mdash;</strong></div>
+    <button id="next" class="icon-button" aria-label="Play next animation" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
+    </button>
   </div>
-  <div id="chips" role="list" aria-label="Scene pausepoints"></div>
-  <div id="key-hint">play <span class="keycap">←</span><span class="keycap">→</span></div>
+
+  <div class="pod rail-pod">
+    <div id="pausepoint-summary">
+      <span id="pausepoint-title">Start</span>
+      <span id="pausepoint-line">Scene beginning</span>
+    </div>
+    <div id="rail" role="list" aria-label="Scene pausepoints"></div>
+    <div id="key-hint">play <span class="keycap">&larr;</span><span class="keycap">&rarr;</span></div>
+  </div>
+
+  <div class="pod view-pod">
+    <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
+      <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
+      <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
+      <span class="control-label">Full screen&nbsp; F</span>
+    </button>
+  </div>
 </div>
 <script src="gl.js"></script>
 <script src="webgpu.js"></script>
@@ -427,7 +518,7 @@
 "use strict";
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
-const chipsEl = document.getElementById("chips");
+const railEl = document.getElementById("rail");
 // Transport. Today the engine is a local process reached over a WebSocket on
 // the very port that served this page, so the address is simply where we are.
 // Everything below this line speaks only in protocol messages, so an in-page
@@ -671,6 +762,7 @@ function handleGeometry(arrayBuffer) {
 // -- Scene state and the pausepoint timeline --
 function handleMessage(data) {
   if (data.type === "state") handleState(data);
+  else if (data.type === "move") handleMove(data);
   else if (data.type === "export_status") handleExportStatus(data);
 }
 
@@ -746,35 +838,92 @@ function handleState(state) {
   document.getElementById("pausepoint-line").textContent = currentLine
     ? "Source line " + currentLine : "Scene beginning";
 
-  chipsEl.replaceChildren();
-  for (let i = 0; i < state.count; i++) {
+  railEl.replaceChildren();
+  for (let i = 0; i < total; i++) {
+    if (i > 0) railEl.appendChild(makeLink(i - 1, i, current));
+    const known = i < state.count;
+    const unit = known ? null : future[i - state.count];
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "chip" + (i < current ? " past" : "")
-      + (i === current ? " current" : "");
-    chip.title = i === 0 ? "Start" : "Pausepoint " + i
-      + (state.lines[i] ? " · line " + state.lines[i] : "");
+    chip.dataset.index = String(i);
+    chip.className = "chip"
+      + (known ? (i < current ? " past" : "") : " future")
+      + (i === current ? " current" : "")
+      + (unit && unit.many ? " many" : "");
+    chip.title = known
+      ? (i === 0 ? "Start" : "Pausepoint " + i
+         + (state.lines[i] ? " · line " + state.lines[i] : ""))
+      : (unit.many
+         ? "Runs to line " + unit.line + " · a loop or branch, so how many "
+           + "pausepoints it holds is not known until it runs"
+         : "Pausepoint " + i + " · run to line " + unit.line);
     chip.setAttribute("role", "listitem");
     chip.setAttribute("aria-label", chip.title);
     if (i === current) chip.setAttribute("aria-current", "step");
-    chip.onclick = () => send({ type: "chip", index: i });
-    chipsEl.appendChild(chip);
+    chip.onclick = known
+      ? () => send({ type: "chip", index: i })
+      : () => send({ type: "chip_future", unit: unit.unit });
+    railEl.appendChild(chip);
   }
-  for (let i = 0; i < future.length; i++) {
-    const unit = future[i];
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip future";
-    chip.title = "Pausepoint " + (state.count + i) + " · run to line " + unit.line;
-    chip.setAttribute("role", "listitem");
-    chip.setAttribute("aria-label", chip.title);
-    chip.onclick = () => send({ type: "chip_future", unit: unit.unit });
-    chipsEl.appendChild(chip);
-  }
+  applyMove();
   requestAnimationFrame(() => {
-    const active = chipsEl.querySelector(".current");
+    const active = railEl.querySelector(".current");
     if (active) active.scrollIntoView({ block: "nearest", inline: "center" });
   });
+}
+
+// A link is the stretch between two pausepoints, and the element that lights
+// while an animation crosses it.
+function makeLink(from, to, current) {
+  const link = document.createElement("span");
+  link.className = "link" + (to <= current ? " past" : from >= current ? " future" : "");
+  link.dataset.from = String(from);
+  link.appendChild(document.createElement("i")).className = "fill";
+  return link;
+}
+
+// -- Moving between pausepoints --
+// The engine says which stretch is being crossed, and nothing about how far
+// along it is: an animation's own progress is already on screen at full size,
+// and a rail that claimed a position would have to be right through reverse
+// morphs and fast-forwards too. What it must do is stop claiming the position
+// it is leaving — that lag is what made stepping feel like a jump.
+const MIN_LIT_MS = 250;
+let move = null;
+let moveSince = 0;
+let moveClear = null;
+
+function applyMove() {
+  for (const link of railEl.querySelectorAll(".link")) {
+    link.classList.remove("lit", "back");
+  }
+  for (const chip of railEl.querySelectorAll(".chip")) {
+    chip.classList.remove("arriving");
+  }
+  document.body.classList.toggle("moving", !!move);
+  if (!move) return;
+  const from = Math.min(move.from, move.to);
+  const link = railEl.querySelector('.link[data-from="' + from + '"]');
+  if (link) {
+    link.classList.add("lit");
+    if (move.back) link.classList.add("back");
+  }
+  const arriving = railEl.querySelector('.chip[data-index="' + move.to + '"]');
+  if (arriving) arriving.classList.add("arriving");
+}
+
+function handleMove(data) {
+  clearTimeout(moveClear);
+  if (data.from === null || data.from === undefined) {
+    // Hold a short move lit long enough to be seen: a 0.3s play would
+    // otherwise flicker the link on and off in one blink.
+    const held = Math.max(0, MIN_LIT_MS - (performance.now() - moveSince));
+    moveClear = setTimeout(() => { move = null; applyMove(); }, held);
+    return;
+  }
+  move = { from: data.from, to: data.to, back: !!data.back };
+  moveSince = performance.now();
+  applyMove();
 }
 
 // -- Toolbar actions --
@@ -841,6 +990,7 @@ document.getElementById("export-frame").onclick = () => {
 // Toggle-only, and remembered for the tab: stepping a scene prints on every
 // arrow key, so anything that opened this by itself would be opening it
 // constantly — and never at a worse moment than mid-presentation.
+const consolePanel = document.getElementById("console");
 const consoleLines = document.getElementById("console-lines");
 const consoleEmpty = document.getElementById("console-empty");
 const consoleToggle = document.getElementById("console-toggle");
@@ -898,16 +1048,19 @@ const REVEAL_EDGE = 88;
 const HIDE_DELAY = 2200;
 const fullscreenButton = document.getElementById("fullscreen");
 const toolbar = document.getElementById("toolbar");
-const timelineShell = document.getElementById("timeline-shell");
+const navbar = document.getElementById("navbar");
 let chromeTimer = null;
 
 const inFullscreen = () => !!document.fullscreenElement;
 
 function chromeHeld() {
-  // Never yank the chrome out from under a pointer that is using it.
+  // Never yank the chrome out from under a pointer that is using it — the
+  // console panel included, since reading it is exactly a still pointer.
   return toolbar.matches(":hover")
-    || timelineShell.matches(":hover")
+    || navbar.matches(":hover")
+    || consolePanel.matches(":hover")
     || toolbar.contains(document.activeElement)
+    || navbar.contains(document.activeElement)
     || !sceneMenu.hidden
     || !!document.querySelector(".flyover:hover");
 }

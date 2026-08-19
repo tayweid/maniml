@@ -21,11 +21,11 @@
     "Segoe UI", sans-serif; }
   input { font: inherit; }
   main { position: relative; max-width: 820px; margin: 0 auto; padding: 88px 24px 72px; }
-  header { position: fixed; z-index: 20; top: 10px; left: 12px; right: 12px;
-    display: flex; justify-content: center; align-items: flex-start; gap: 8px;
-    pointer-events: none; }
-  .pod { gap: 7px; padding: 4px 10px; }
-  .brand { padding-inline: 14px; }
+  header { position: fixed; z-index: 20; top: 0; left: 0; right: 0; height: 60px;
+    display: flex; justify-content: center; align-items: center; gap: 5px;
+    padding: 0 14px; pointer-events: none; }
+  .pod { gap: 7px; padding: 0 10px; }
+  .brand { padding-inline: 16px; }
   h1 { font: 500 15px/1.1 Georgia, "Times New Roman", serif;
     letter-spacing: .075em; margin: 0; }
   .tagline { color: var(--dim); margin: 0 0 0 7px; font-size: 11px;
@@ -39,7 +39,7 @@
   #installbtn { border: 0; border-radius: 8px; background: none;
     color: var(--accent); padding: 6px 10px; cursor: pointer; }
   #installbtn:hover { background: rgba(255,255,255,.055); }
-  .header-actions { display: flex; gap: 2px; padding: 4px; }
+  .header-actions { display: flex; gap: 2px; padding: 0 4px; }
   #status { display: flex; align-items: center; gap: 7px; color: var(--dim);
     font-size: 11px; }
   #status-dot { width: 7px; height: 7px; border-radius: 50%;
@@ -96,8 +96,8 @@
   #empty { color: var(--dim); }
   @media (max-width: 520px) {
     main { padding: 74px 12px 48px; }
-    header { left: 7px; right: 7px; gap: 5px; }
-    .pod { min-height: 38px; padding: 2px 7px; border-radius: 12px; }
+    header { padding: 0 7px; gap: 4px; }
+    .pod { height: 38px; padding: 0 7px; }
     .tagline, #status-text { display: none; }
     .command { display: block; }
     .command code { display: block; }
@@ -105,7 +105,7 @@
 </style>
 </head>
 <body data-connection="connecting">
-<header>
+<header class="pod-run">
     <div class="brand pod">
       <h1>ManimLive</h1>
       <p class="tagline">Live Manim development in the browser.</p>

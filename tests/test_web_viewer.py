@@ -298,6 +298,90 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 pass
 
 
+RAIL_SOURCE = """
+from manim import *
+
+class RailDemo(Scene):
+    def construct(self):
+        dot = Dot()
+        self.play(FadeIn(dot))
+
+        for _ in range(3):
+            self.play(dot.animate.shift(RIGHT * 0.5), run_time=0.2)
+
+        self.play(FadeOut(dot))
+"""
+
+
+class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
+    """What the rail is told, over the real socket.
+
+    Two things the timeline needs and used to lack: which stretch an
+    animation is crossing while it crosses it, and an honest answer about
+    units whose pausepoint count is not knowable before they run.
+    """
+
+    SOURCE = RAIL_SOURCE
+    SCENE = "RailDemo"
+    FILENAME = "rail_scene.py"
+
+    @staticmethod
+    def _moves(states):
+        return [m for m in states if m.get("type") == "move"]
+
+    @staticmethod
+    def _press(ws, key):
+        ws.send(json.dumps({"type": "key", "action": "down", "key": key}))
+        ws.send(json.dumps({"type": "key", "action": "up", "key": key}))
+
+    def test_a_loop_unit_says_it_holds_an_unknown_number(self):
+        with self._connect() as ws:
+            _, states = self._collect(ws, 3)
+            future = [s for s in states if s.get("type") == "state"][-1]["future"]
+            if not future:
+                self.skipTest("scene already fully run by test ordering")
+            # Keyed by unit index, so the assertion survives whatever the
+            # tests sharing this scene process have already run.
+            many = {u["unit"]: u["many"] for u in future}
+            self.assertTrue(any(many.values()), "the loop unit is missing")
+            for unit, unknown in many.items():
+                self.assertEqual(unknown, unit == 1,
+                                 f"unit {unit} claims the wrong certainty")
+
+    def test_a_forward_play_lights_the_stretch_it_crosses(self):
+        """The rail must hear about the move when the play starts, not when
+        the checkpoint lands — waiting for the checkpoint is what made
+        stepping read as a jump."""
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            self._press(ws, "ArrowRight")
+            _, states = self._collect(ws, 6)
+            moves = self._moves(states)
+            self.assertTrue(moves, "no move message for a forward play")
+            self.assertEqual(moves[0]["from"], 0)
+            self.assertEqual(moves[0]["to"], 1)
+            self.assertFalse(moves[0]["back"])
+            self.assertIsNone(moves[-1]["from"], "the move was never cleared")
+            # The stretch is all it says: an animation's progress is on
+            # screen already, and a claim would have to survive reverse
+            # morphs and fast-forwards too.
+            self.assertEqual(set(moves[0]), {"type", "from", "to", "back"})
+
+    def test_a_reverse_morph_lights_the_same_stretch_the_other_way(self):
+        """The index has already landed on the destination by the time the
+        morph plays, so the direction has to be carried explicitly."""
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            self._press(ws, "ArrowRight")
+            self._collect(ws, 8)
+            self._press(ws, "ArrowLeft")
+            _, states = self._collect(ws, 8)
+            back = [m for m in self._moves(states) if m["from"] is not None]
+            self.assertTrue(back, "no move message for the reverse morph")
+            self.assertTrue(back[0]["back"],
+                            "the reverse morph must light from the far end")
+
+
 MULTI_SCENE_SOURCE = """
 from manim import *
 
