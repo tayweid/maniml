@@ -16,17 +16,14 @@ share an origin exactly, so the page derives its socket URL from
 
 from __future__ import annotations
 
-import ast
 import atexit
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from collections import deque
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -37,10 +34,10 @@ from maniml.utils.processes import (
 )
 from maniml.desktop import choose_python_file
 from maniml.web.assets import (
-    _package_version,
     is_websocket_upgrade,
     static_response,
 )
+from maniml.web.library import find_scene_classes, load_recents, remember_recent
 from maniml.web.security import (
     MAX_CONTROL_MESSAGE,
     parse_json_object,
@@ -48,10 +45,6 @@ from maniml.web.security import (
 )
 from maniml.web.server import bind_loopback
 
-RECENTS_PATH = os.environ.get(
-    "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
-)
-RECENTS_MAX = 12
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: (?P<url>http://localhost:\d+/)\s*$"
 )
@@ -90,45 +83,6 @@ def parse_viewer_launch_line(line: str) -> str | None:
     """
     match = VIEWER_LAUNCH_PATTERN.fullmatch(line)
     return match.group("url") if match else None
-
-
-def find_scene_classes(path: str) -> list[str]:
-    """Scene classes in a file via AST — no import, no side effects.
-    Heuristic: a class whose base names end with 'Scene'."""
-    try:
-        with open(path) as f:
-            tree = ast.parse(f.read())
-    except (OSError, SyntaxError):
-        return []
-    scenes = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for base in node.bases:
-            name = getattr(base, "id", getattr(base, "attr", ""))
-            if isinstance(name, str) and name.endswith("Scene"):
-                scenes.append(node.name)
-                break
-    return scenes
-
-
-def load_recents() -> list[str]:
-    try:
-        with open(RECENTS_PATH) as f:
-            recents = json.load(f)
-        return [p for p in recents if isinstance(p, str)]
-    except (OSError, ValueError):
-        return []
-
-
-def remember_recent(path: str) -> None:
-    recents = [p for p in load_recents() if p != path]
-    recents.insert(0, path)
-    try:
-        with open(RECENTS_PATH, "w") as f:
-            json.dump(recents[:RECENTS_MAX], f)
-    except OSError:
-        pass
 
 
 class SceneProcess:
@@ -568,129 +522,3 @@ class AppServer:
                 processes = list(self.processes.values())
             for process in processes:
                 process.stop()
-
-
-def running_engine(port: int = DEFAULT_APP_PORT, timeout: float = 1.5) -> str | None:
-    """The version a ManimLive engine on `port` is serving, or None.
-
-    Distinguishes our own engine from anything else that happens to hold the
-    port, and reports what it is *running* rather than what is installed —
-    pip replaces files, it does not restart processes.
-    """
-    import re
-    import urllib.error
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(
-            f"http://localhost:{port}/", timeout=timeout
-        ) as response:
-            head = response.read(4096).decode("utf-8", "replace")
-    except (OSError, urllib.error.URLError, ValueError):
-        return None
-    found = re.search(r'<meta name="maniml" content="([^"]*)"', head)
-    return found.group(1) if found else None
-
-
-def hand_off_to_a_running_engine(root: str, open_browser: bool) -> bool:
-    """Use an engine that is already up, or offer to install one that stays.
-
-    Returns True when this command has nothing left to serve.
-
-    Two things follow from the port being the installed app's identity. An
-    engine already on it should be *used*, not competed with — starting a
-    second one on another port gives you a page the installed app will never
-    open. And an engine still serving pre-upgrade code should be restarted:
-    pip replaces files, it does not restart processes, and the symptoms of
-    that are baffling.
-    """
-    from maniml import agent
-
-    serving = running_engine()
-    if serving is not None:
-        installed = _package_version()
-        if serving != installed and agent.is_installed():
-            print(
-                f"The running engine is serving {serving}, but {installed} is "
-                "installed. Restarting it."
-            )
-            agent.restart()
-        elif serving != installed:
-            print(
-                f"Note: the engine on port {DEFAULT_APP_PORT} is serving "
-                f"{serving}, but {installed} is installed. Restart it to pick "
-                "up the new version."
-            )
-        url = f"http://localhost:{DEFAULT_APP_PORT}/"
-        print(f"maniml app: {url}  (already running)")
-        if open_browser:
-            webbrowser.open(url)
-        return True
-
-    if agent.offer_at_first_run(root):
-        url = f"http://localhost:{DEFAULT_APP_PORT}/"
-        print(f"maniml app: {url}  (running in the background)")
-        if open_browser:
-            webbrowser.open(url)
-        return True
-    return False
-
-
-def run_app(
-    root: str = ".",
-    open_browser: bool = True,
-    allow_outside_root: bool = False,
-    port: int | None = None,
-    state_path: str | os.PathLike[str] | None = None,
-    offer_agent: bool = False,
-) -> None:
-    if offer_agent and hand_off_to_a_running_engine(root, open_browser):
-        return
-    server = AppServer(
-        root,
-        port=port,
-        allow_outside_root=allow_outside_root,
-    )
-    previous_sigterm = None
-    if threading.current_thread() is threading.main_thread():
-        previous_sigterm = signal.getsignal(signal.SIGTERM)
-
-        def exit_on_sigterm(signum, frame):
-            raise SystemExit(128 + signum)
-
-        signal.signal(signal.SIGTERM, exit_on_sigterm)
-    # A supervised agent is not the one printing to a terminal, and it may not
-    # have got the default port. Publish where it actually landed.
-    if state_path is not None:
-        try:
-            state_file = Path(state_path)
-            state_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(
-                state_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-                json.dump({"url": server.url, "port": server.port}, file)
-            atexit.register(lambda: state_file.unlink(missing_ok=True))
-        except OSError:
-            pass
-    if server.port != DEFAULT_APP_PORT:
-        # The port is the installed app's identity: a PWA installed from
-        # :8685 is scoped to it, so a session that landed elsewhere is a
-        # different app to the browser. Usually this means the login agent
-        # already holds the default, which is fine — but say so rather than
-        # let someone wonder why their installed window is not this one.
-        print(
-            f"note: port {DEFAULT_APP_PORT} was taken, so this session is on "
-            f"{server.port}. An installed ManimLive opens the one on "
-            f"{DEFAULT_APP_PORT}; this one runs in a tab."
-        )
-    print(f"maniml app: {server.url}  (scenes under {server.root})")
-    if open_browser:
-        webbrowser.open(server.url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("")
-    finally:
-        server.shutdown()
-        if previous_sigterm is not None:
-            signal.signal(signal.SIGTERM, previous_sigterm)

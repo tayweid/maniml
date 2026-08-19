@@ -92,7 +92,7 @@ def main():
         sys.exit(1)
 
     if args and args[0] == "app":
-        from maniml.web.app import run_app
+        from maniml.web.cli import run_app
 
         run_app(
             root=args[1] if len(args) > 1 else ".",

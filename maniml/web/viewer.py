@@ -39,6 +39,7 @@ from maniml.constants import FRAME_SHAPE
 from maniml.event_constants import MouseButtons as PygletMouseButtons
 from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
+from maniml.web.library import find_scene_classes
 from maniml.web.server import WebServer
 
 from typing import TYPE_CHECKING
@@ -211,8 +212,6 @@ class WebViewer:
             return []
         if self._scene_names_cache and self._scene_names_cache[0] == key:
             return self._scene_names_cache[1]
-        from maniml.web.app import find_scene_classes
-
         names = find_scene_classes(source)
         self._scene_names_cache = (key, names)
         return names

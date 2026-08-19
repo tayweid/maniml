@@ -223,7 +223,7 @@ def open_app(open_browser: bool = True) -> int:
 
 def serve(root: str, port: int = DEFAULT_APP_PORT) -> int:
     """Run the engine in the foreground; this is what launchd supervises."""
-    from maniml.web.app import run_app
+    from maniml.web.cli import run_app
 
     run_app(
         root=root,

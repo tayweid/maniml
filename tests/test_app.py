@@ -249,7 +249,8 @@ class RunningEngineTests(unittest.TestCase):
     another port serves a page the installed app will never open."""
 
     def test_it_reports_what_a_running_engine_serves(self):
-        from maniml.web.app import AppServer, running_engine
+        from maniml.web.app import AppServer
+        from maniml.web.cli import running_engine
         from maniml.web.assets import _package_version
 
         import tempfile
@@ -259,7 +260,7 @@ class RunningEngineTests(unittest.TestCase):
             self.assertEqual(running_engine(server.port), _package_version())
 
     def test_nothing_listening_is_not_an_engine(self):
-        from maniml.web.app import running_engine
+        from maniml.web.cli import running_engine
         # Port 9 (discard) is reserved and never serves HTML.
         self.assertIsNone(running_engine(9, timeout=0.5))
 

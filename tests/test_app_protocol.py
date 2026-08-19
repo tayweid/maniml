@@ -13,7 +13,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import maniml.utils.processes as process_utils
-from maniml.web.app import AppServer, SceneProcess, parse_viewer_launch_line, run_app
+from maniml.web.app import AppServer, SceneProcess, parse_viewer_launch_line
+from maniml.web.cli import run_app
 from maniml.web.server import ClientLease
 from maniml.web.viewer import WebViewer
 
@@ -376,7 +377,7 @@ class AppShutdownTests(unittest.TestCase):
 
         process.stop.assert_called_once_with()
 
-    @patch("maniml.web.app.AppServer")
+    @patch("maniml.web.cli.AppServer")
     def test_sigterm_runs_app_cleanup_and_restores_handler(self, app_server):
         server = app_server.return_value
         server.url = "http://localhost/"
