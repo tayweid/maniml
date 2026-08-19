@@ -109,6 +109,8 @@ In the preview window:
 - `--present` — pre-runs the whole scene and adds a clickable checkpoint
   timeline at the bottom edge of the window
 - `--render` — headless: writes an MP4 plus a PNG per checkpoint
+- `--export` — headless: bakes the scene into a self-contained web player
+  (a static folder that scrubs and plays with no Python anywhere)
 
 The viewer's **Console** button (or `C`) opens a panel showing everything the
 scene prints, including tracebacks — the only place that output is visible when
@@ -134,7 +136,8 @@ source and replays only what changed.
 ## OpenGL Backend and 3D Scenes
 
 All mobjects live in 3D; 2D scenes are simply viewed with a flat camera
-at z=0, and `z_index` (CE-compatible) orders overlapping draws. In
+at z=0, and `z_index` (CE-compatible) orders overlapping draws of
+top-level mobjects (within a family, draw order follows insertion). In
 `ThreeDScene`, filled shapes render as triangulated meshes with real
 depth, so intersections between filled mobjects and surfaces are
 per-pixel correct.
@@ -158,8 +161,8 @@ launches scenes only from `DIR`; a file chosen through the native dialog grants
 access to that file alone. See [SECURITY.md](SECURITY.md) for the trust model
 and vulnerability reporting guidance.
 
-Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-development setup and ManimCE compatibility process.
+Development setup and the ManimCE compatibility process are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project lineage
 

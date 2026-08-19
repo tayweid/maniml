@@ -30,8 +30,9 @@ interfaces may still change before the first public release.
   made launching a delivery problem. It never defended against another program
   running as your user, which can forge any header and can run Python
   directly. See `SECURITY.md` for the full trust model.
-- Served pages now carry `default-src 'self'; connect-src 'self'`, which
-  genuinely confines them now that page and socket share one origin.
+- Served pages now carry `default-src 'self'; connect-src 'self'`, which the
+  one-port move above turns into a real restriction: there is no second
+  origin, host, or port a page is permitted to reach.
 - Confined `maniml app DIR` scene execution to `DIR` by default, including
   protection against symlink escapes.
 - Added bounded, strict JSON parsing for localhost control protocols.

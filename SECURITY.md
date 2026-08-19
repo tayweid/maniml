@@ -1,21 +1,21 @@
 # Security policy
 
-ManimLive is currently alpha software preparing for a wider public release.
-Security-sensitive interfaces and defaults are expected to remain conservative
-even when compatibility escape hatches are available.
+ManimLive is alpha software with a single maintainer and no published release
+yet. Security-sensitive interfaces and defaults are expected to remain
+conservative even when compatibility escape hatches are available.
 
 ## Supported versions
 
-Before the first public release, security fixes are made on `main`; development
-snapshots are not supported as stable releases. The supported release line will
-be documented here when the first version is published.
+Security fixes land on `main`; there is no supported release line until the
+first version is published (enabling GitHub's private vulnerability reporting
+is part of that release gate — see `RELEASING.md`).
 
 ## Reporting a vulnerability
 
-Please use GitHub's private vulnerability-reporting feature for this
-repository when it is available. Do not publish exploit details in a public
-issue before a fix is ready. Include the affected version or commit, platform,
-reproduction steps, impact, and any suggested mitigation.
+Until then: contact the maintainer directly (GitHub `@tayweid`) rather than
+publishing exploit details in a public issue before a fix is ready. Include
+the affected commit, platform, reproduction steps, impact, and any suggested
+mitigation.
 
 ## Trust model
 
