@@ -93,6 +93,7 @@ MED_SMALL_BUFF
 MaintainPositionRelativeTo
 ManimColor
 MarkupText
+MathTable
 MathTex
 Matrix
 Mobject
@@ -148,6 +149,7 @@ Surface
 SurroundingRectangle
 Swap
 TAU
+Table
 TangentLine
 Tex
 Text

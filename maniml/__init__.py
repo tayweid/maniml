@@ -142,6 +142,9 @@ from .mobject.svg.svg_mobject import (
 from .mobject.svg.text_mobject import (
     Code, register_font
 )
+from .mobject.table import (
+    Table, MathTable
+)
 from .mobject.three_dimensions import (
     Dodecahedron
 )
@@ -319,7 +322,7 @@ __all__ += [
     'cycle_animation', 'turn_animation_into_updater', 'NumberLine',
     'UnitInterval', 'Integer', 'BackgroundRectangle', 'Cross', 'Underline',
     'Brace', 'BraceLabel', 'BraceText', 'SVGMobject', 'VMobjectFromSVGPath',
-    'Code', 'register_font', 'Dodecahedron', 'DotCloud', 'TrueDot',
+    'Code', 'register_font', 'Table', 'MathTable', 'Dodecahedron', 'DotCloud', 'TrueDot',
     'ImageMobject', 'PGroup', 'PMobject', 'CurvesAsSubmobjects',
     'DashedVMobject', 'VectorizedPoint', 'ComplexValueTracker',
     'ValueTracker', 'ShaderWrapper', 'Window', 'SceneFileWriter', 'bezier',
