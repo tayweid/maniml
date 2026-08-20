@@ -535,13 +535,27 @@ class Axes(VGroup, CoordinateSystem):
         if elongated is not None:
             axis_config.setdefault('big_tick_numbers', list(elongated))
         axis = NumberLine(range_terms, width=length, **axis_config)
-        axis.shift(-axis.n2p(0))
+        axis.shift(-axis.n2p(self._origin_shift(axis)))
         if numbers_to_include is not None:
             axis.add_numbers(list(numbers_to_include), excluding=[])
         return axis
 
+    @staticmethod
+    def _origin_shift(axis: NumberLine) -> float:
+        """Where the axes cross on this axis: 0, clamped into the range.
+
+        CE keeps the axes on screen when 0 lies outside an axis range by
+        crossing at the nearer range edge instead (CE Axes._origin_shift).
+        """
+        if axis.x_min > 0:
+            return axis.x_min
+        if axis.x_max < 0:
+            return axis.x_max
+        return 0
+
     def coords_to_point(self, *coords: float | VectN) -> Vect3 | Vect3Array:
-        origin = self.x_axis.number_to_point(0)
+        # The crossing point of the axes; every axis passes through it
+        origin = self.x_axis.number_to_point(self._origin_shift(self.x_axis))
         return origin + sum(
             axis.number_to_point(coord) - origin
             for axis, coord in zip(self.get_axes(), coords)

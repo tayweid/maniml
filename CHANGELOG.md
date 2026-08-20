@@ -80,6 +80,19 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- Added CE-compatible `Table` and `MathTable`: entries on a fixed grid,
+  row and column labels joining the grid, separator lines drawn midway
+  between neighbours, and the `get_columns`/`get_rows`/`get_entries`
+  family of accessors.
+- Repeated `Transform`s of the same mobject no longer slow a scene to a
+  crawl. Alignment used to leave its padding (subdivided points,
+  duplicated submobjects) on the source mobject, compounding on every
+  play; a Transform that lands on its target's appearance now adopts the
+  target's clean structure instead.
+- Axes now cross inside their ranges, as in CE: when 0 lies outside an
+  axis range the crossing clamps to the nearer range edge, so an axis no
+  longer renders far off screen — and lines drawn to it no longer grow
+  without bound.
 - Made package imports, star imports, and CLI help safe without a desktop
   display while preserving the existing native Pyglet window backend.
 - Decoupled shared scene and browser input handling from Pyglet imports, with
