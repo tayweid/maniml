@@ -255,6 +255,11 @@ class WebViewer:
 
     def begin_animation(self):
         self._animating = True
+        if not getattr(self.scene, "_is_playing", False):
+            # wait() runs through pre_play/post_play too, but sitting still
+            # is not crossing to the next pausepoint: lighting the rail for
+            # it would say a move is under way through every pause.
+            return
         index = self.scene.current_animation_index
         # A reverse morph has already landed the index on its destination,
         # so both directions light the same stretch; only which end it grows

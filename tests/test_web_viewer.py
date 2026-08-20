@@ -425,6 +425,19 @@ class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
             self.assertNotEqual(len(runs), len(set(runs)),
                                 "the loop's checkpoints must share a unit")
 
+    def test_sitting_still_is_not_moving(self):
+        """wait() runs through the same pre_play/post_play hooks a play does,
+        but a pause is not a crossing to the next pausepoint: lighting the
+        rail for it would say a move was under way through every wait."""
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            self._press(ws, "ArrowRight")
+            _, states = self._collect(ws, 8)
+            starts = [m for m in self._moves(states) if m["from"] is not None]
+            # The fixture's first unit is one play; its wait is a separate
+            # unit, and neither may report more than that play's own move.
+            self.assertLessEqual(len(starts), 1, "a wait reported a move")
+
     def test_a_reverse_morph_lights_the_same_stretch_the_other_way(self):
         """The index has already landed on the destination by the time the
         morph plays, so the direction has to be carried explicitly."""

@@ -634,6 +634,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def post_play(self):
         if self._web_viewer is not None:
             self._web_viewer.end_animation()
+        self._is_playing = False
         if not self.skip_animations:
             self.file_writer.end_animation()
 
@@ -702,6 +703,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # rather than its result: the checkpoint this will save does not
         # exist yet, so it cannot be asked.
         self._playing_unit = unit_index
+        self._is_playing = True
 
         # Play the animation
         self.pre_play()
