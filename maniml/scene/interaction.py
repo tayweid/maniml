@@ -16,6 +16,13 @@ from maniml.logger import log
 from maniml.mobject.mobject import Mobject
 from maniml.scene.checkpoints import deepcopy_namespace
 
+# Stepping back is a whole-scene morph, not a true reversal, so it takes the
+# forward play's own span when one was recorded and a short default when it
+# was not. The cap is because LEFT is also how you move around a scene: a long
+# build is worth watching once, not every time you pass back over it.
+DEFAULT_REVERSE_RUN_TIME = 0.7
+MAX_REVERSE_RUN_TIME = 3.0
+
 
 class InteractionMixin:
     def _inspectable_mobjects(self) -> list[Mobject]:
@@ -175,6 +182,25 @@ class InteractionMixin:
             about_point=point
         )
 
+    def _reverse_run_time(self, index: int) -> float:
+        """How long to take undoing the step that landed on `index` + 1.
+
+        The forward play recorded its own run_time, so stepping back takes
+        the span it took to get here rather than a fixed one — a two-second
+        build coming back in seven-tenths reads as a different animation
+        rather than the same one in reverse. Capped, because navigation is
+        also how you move around: a ten-second build is worth watching once,
+        not every time you pass back over it.
+        """
+        checkpoints = self.animation_checkpoints
+        undoing = index + 1
+        run_time = None
+        if 0 <= undoing < len(checkpoints):
+            run_time = checkpoints[undoing].get('run_time')
+        if not run_time or run_time <= 0:
+            return DEFAULT_REVERSE_RUN_TIME
+        return min(float(run_time), MAX_REVERSE_RUN_TIME)
+
     def _play_reverse_to(self, index: int) -> None:
         """Animate the display back to the checkpoint at `index`.
 
@@ -235,7 +261,7 @@ class InteractionMixin:
                 self._reversing = True
                 try:
                     with self._no_checkpoints():
-                        self.play(*anims, run_time=0.7)
+                        self.play(*anims, run_time=self._reverse_run_time(index))
                 finally:
                     self._reversing = False
         except Exception as e:

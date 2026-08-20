@@ -10,6 +10,7 @@ Headless (offscreen GL only), so it runs un-gated like the other
 integration suites.
 """
 
+import inspect
 import json
 import os
 import subprocess
@@ -296,6 +297,33 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         with self.assertRaises(Exception):
             with ws_connect(self.ws_url, open_timeout=3):
                 pass
+
+
+class StreamPolicyTests(unittest.TestCase):
+    """The streaming policy's one timing invariant, checked by arithmetic
+    rather than by watching a clock — a rate assertion against a real process
+    would be exactly the flaky test nobody trusts."""
+
+    def test_the_throttle_does_not_alias_with_the_frame_rate(self):
+        """A throttle equal to the frame period sits exactly on the boundary
+        each rendered frame arrives at, so jitter decides whether each one
+        passes: about half are skipped and the survivors land one or two
+        frame-periods apart. Constant-velocity motion visibly wobbles and a
+        transition shows its intermediate shapes instead of moving. Measured
+        at 1/30 against a 30fps scene: 16.5fps delivered, gaps averaging
+        62ms with a 12ms deviation; with a margin, 30.6fps and 1.7ms.
+        """
+        from maniml.camera.camera import Camera
+        from maniml.web.viewer import MIN_SEND_INTERVAL
+
+        frame_period = 1 / inspect.signature(Camera).parameters["fps"].default
+        self.assertLess(
+            MIN_SEND_INTERVAL, frame_period,
+            "the throttle would drop rendered frames outright")
+        self.assertLessEqual(
+            MIN_SEND_INTERVAL, frame_period * 0.9,
+            "the throttle is close enough to the frame period to alias "
+            "against it once real timing jitter is involved")
 
 
 RAIL_SOURCE = """

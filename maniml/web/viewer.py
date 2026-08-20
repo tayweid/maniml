@@ -75,7 +75,15 @@ JS_BUTTON_TO_PYGLET = {
 # the 30/s cap — over loopback, to a client on the same machine.
 JPEG_QUALITY = 90
 JPEG_SUBSAMPLING = 0  # 4:4:4, full-resolution colour
-MIN_SEND_INTERVAL = 1 / 30  # global throttle, also caps fast-forward previews
+# Bounds the stream when frames are produced faster than a viewer can use
+# them — fast-forwards, updater loops. It must stay clear of the rate a scene
+# actually renders at (30fps, i.e. one frame every 33.3ms): a throttle of the
+# same period sits exactly on the boundary each frame arrives at, so jitter
+# decides whether each one passes, half of them are skipped, and the survivors
+# land 33ms or 67ms apart. Constant-velocity motion visibly wobbles, and a
+# transition shows its intermediate shapes instead of moving. A margin means
+# every rendered frame passes and the render rate is the only limit.
+MIN_SEND_INTERVAL = 1 / 45
 PNG_AFTER_QUIET = 0.4  # seconds of quiet before the crisp idle frame
 
 

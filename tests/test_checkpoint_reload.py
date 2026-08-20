@@ -141,6 +141,45 @@ class TestNavigation(CheckpointSceneTest):
                         "undo did not restore the pre-mutation state")
 
 
+class TestReverseTiming(CheckpointSceneTest):
+    """Stepping back should take as long as the step forward took. It cannot
+    be worked out at the time — the animation object is gone — so the forward
+    play records its own run_time on the checkpoint it saves."""
+
+    def test_a_checkpoint_records_what_it_took_to_reach(self):
+        self.run_all()
+        recorded = [c.get('run_time') for c in self.scene.animation_checkpoints]
+        # Checkpoint 0 was never played into, and the tail unit is a wait()
+        # rather than a play, so neither has a span to record.
+        self.assertIsNone(recorded[0])
+        self.assertIsNone(recorded[-1], "a wait() recorded a play's span")
+        self.assertEqual(len(recorded[1:-1]), 4, recorded)
+        for run_time in recorded[1:-1]:
+            self.assertAlmostEqual(run_time, 0.05, places=6)
+
+    def test_stepping_back_takes_the_span_it_took_to_get_there(self):
+        self.run_all()
+        # Undoing the step that landed on index 1 means replaying its 0.05s.
+        self.assertAlmostEqual(self.scene._reverse_run_time(0), 0.05, places=6)
+
+    def test_a_checkpoint_with_no_recorded_span_falls_back(self):
+        """Checkpoint 0 was never played into, and a scene saved before this
+        was recorded has None there."""
+        from maniml.scene.interaction import DEFAULT_REVERSE_RUN_TIME
+
+        self.run_all()
+        self.scene.animation_checkpoints[1]['run_time'] = None
+        self.assertEqual(self.scene._reverse_run_time(0), DEFAULT_REVERSE_RUN_TIME)
+
+    def test_a_long_build_is_not_replayed_in_full_every_time(self):
+        """LEFT is also how you move around a scene."""
+        from maniml.scene.interaction import MAX_REVERSE_RUN_TIME
+
+        self.run_all()
+        self.scene.animation_checkpoints[1]['run_time'] = 30.0
+        self.assertEqual(self.scene._reverse_run_time(0), MAX_REVERSE_RUN_TIME)
+
+
 class TestFileChange(CheckpointSceneTest):
     def test_edit_inside_construct_truncates_and_replays(self):
         self.run_all()

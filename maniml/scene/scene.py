@@ -713,7 +713,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # Save checkpoint AFTER animation completes
         if line_no:
             namespace = self._capture_caller_namespace()
-            self._save_checkpoint(line_no, unit_index, namespace)
+            self._save_checkpoint(line_no, unit_index, namespace,
+                                  run_time=self.get_run_time(animations))
             self._remember_scene_filepath()
 
     def wait(

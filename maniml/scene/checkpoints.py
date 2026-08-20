@@ -311,9 +311,14 @@ class CheckpointMixin:
             return namespace
         return {}
 
-    def _save_checkpoint(self, line_no: int, unit_index: int | None, namespace: dict) -> None:
+    def _save_checkpoint(self, line_no: int, unit_index: int | None, namespace: dict,
+                         run_time: float | None = None) -> None:
         """Deep-copy the namespace and scene state into the checkpoint at
-        current_animation_index + 1, replacing any existing one there."""
+        current_animation_index + 1, replacing any existing one there.
+
+        ``run_time`` is how long the play that produced this checkpoint took,
+        kept so that stepping back can undo it over the same span. Nothing
+        else can supply it later: the animation object is gone by then."""
         namespace = dict(namespace)
         namespace.pop('__animation_line_number__', None)
         namespace.pop('__animation_unit_index__', None)
@@ -329,6 +334,7 @@ class CheckpointMixin:
             'index': self.current_animation_index,
             'line_number': line_no,
             'unit_index': unit_index,
+            'run_time': run_time,
             'state': checkpoint_state,
             'namespace': checkpoint_namespace,
         }
