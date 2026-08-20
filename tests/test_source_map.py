@@ -173,6 +173,41 @@ class TestLookups(unittest.TestCase):
         self.assertIsNone(unit_for_line(self.units, 999))
 
 
+class TracebackLineTests(unittest.TestCase):
+    """A unit is compiled with the real filename, so its line numbers have to
+    be the file's. Otherwise Python reports a line counted from the top of the
+    unit and prints the source found at that line in the file — blaming an
+    unrelated statement, usually an import near the top."""
+
+    SOURCE = textwrap.dedent("""
+        from manim import *
+
+        class Demo(Scene):
+            def construct(self):
+                dot = Dot()
+                self.play(FadeIn(dot))
+                boom = 1 / 0
+                self.play(FadeOut(dot))
+    """)
+
+    def test_an_error_reports_the_line_it_is_on(self):
+        import traceback
+
+        unit = build_units(self.SOURCE, 'Demo')[1]
+        # Caught by hand: assertRaises strips the traceback off the exception
+        # it stores, and the traceback is the whole point here.
+        try:
+            exec(compile(unit.source, 'scene.py', 'exec'), {})
+        except ZeroDivisionError as error:
+            frames = traceback.extract_tb(error.__traceback__)
+        else:
+            self.fail("the unit did not raise")
+        self.assertEqual(frames[-1].lineno, unit.start_line)
+        # And the line it names really is the failing statement.
+        lines = self.SOURCE.splitlines()
+        self.assertIn('1 / 0', lines[unit.start_line - 1])
+
+
 class IndeterminateUnitTests(unittest.TestCase):
     """A unit's play calls are not always a count of the pausepoints it will
     produce, and a timeline that draws one chip per play would be lying about

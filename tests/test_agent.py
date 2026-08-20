@@ -138,6 +138,35 @@ class AgentPlistTests(unittest.TestCase):
         self.assertIn("kickstart", [call[0] for call in self.calls])
 
     @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_the_agent_can_find_the_tools_a_scene_shells_out_to(self):
+        """launchd hands a login agent PATH=/usr/bin:/bin:/usr/sbin:/sbin and
+        nothing else, so latex, dvisvgm and ffmpeg are all invisible to a
+        scene run through the app — while the same scene from a terminal
+        works, which makes it read as a maniml bug rather than a search
+        path."""
+        scenes = Path(self.tmpdir.name) / "scenes"
+        scenes.mkdir()
+        self.assertEqual(agent.install(scenes, port=8686), 0)
+
+        plist = plistlib.loads(self.plist.read_bytes())
+        path = plist["EnvironmentVariables"]["PATH"]
+        self.assertIn(os.pathsep, path, "the agent got a single-entry PATH")
+        for directory in os.environ.get("PATH", "").split(os.pathsep):
+            if directory:
+                self.assertIn(directory, path.split(os.pathsep), directory)
+
+    def test_search_path_only_ever_adds_somewhere_to_look(self):
+        """Appended, never reordered or removed: an entry already present
+        keeps the priority it had, so this cannot shadow a chosen toolchain."""
+        base = "/usr/bin:/bin"
+        result = agent.search_path(base).split(os.pathsep)
+        self.assertEqual(result[:2], ["/usr/bin", "/bin"])
+        self.assertEqual(len(result), len(set(result)), "duplicated entries")
+        for directory in result[2:]:
+            self.assertIn(directory, agent.TOOL_DIRS)
+            self.assertTrue(os.path.isdir(directory), directory)
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
     def test_install_rejects_a_root_that_is_not_a_directory(self):
         missing = Path(self.tmpdir.name) / "nope"
         self.assertEqual(agent.install(missing), 1)

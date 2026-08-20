@@ -98,9 +98,17 @@ def _unit_source(lines: list[str], start_line: int, end_line: int) -> str:
     ``if True:`` so it compiles at column zero. This avoids dedent
     pitfalls with multi-line strings that are indented less than the
     surrounding code.
+
+    Blank lines above the wrapper put the block back at the line number it
+    has in the file. The unit is compiled with the real filename, so without
+    them a traceback reports a line counted from the top of the *unit* while
+    Python reads the source at that line from the *file* — and blames some
+    unrelated statement near the top of it, usually an import.
     """
     block = '\n'.join(lines[start_line - 1:end_line])
-    return 'if True:\n' + block
+    # The wrapper takes the line above the block; the padding takes the rest.
+    lead = '\n' * (start_line - 2) if start_line >= 2 else ''
+    return lead + 'if True:\n' + block
 
 
 def build_units(source: str, scene_name: str | None = None) -> list[AnimationUnit]:

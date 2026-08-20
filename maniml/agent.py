@@ -123,6 +123,32 @@ def _mark_offered() -> None:
         pass  # asking twice is a nuisance, not a failure
 
 
+# Where the tools a scene shells out to actually live on macOS. Appended to
+# an inherited PATH rather than replacing it, so this can only ever add
+# somewhere to look.
+TOOL_DIRS = (
+    "/Library/TeX/texbin",      # MacTeX
+    "/usr/local/texlive",
+    "/opt/homebrew/bin",        # Homebrew, Apple silicon
+    "/usr/local/bin",           # Homebrew, Intel; MacPorts
+)
+
+
+def search_path(base: str | None = None) -> str:
+    """A PATH that can find latex and ffmpeg, whatever launchd handed us.
+
+    The install-time PATH is captured into the plist, but it goes stale the
+    moment a TeX distribution is installed afterwards — so the standard
+    locations are appended too, and only if they exist. Nothing is removed
+    and nothing is reordered: an entry already present keeps its priority.
+    """
+    parts = [p for p in (base or os.environ.get("PATH", "")).split(os.pathsep) if p]
+    for directory in TOOL_DIRS:
+        if directory not in parts and os.path.isdir(directory):
+            parts.append(directory)
+    return os.pathsep.join(parts)
+
+
 def install(
     root: str | os.PathLike[str] | None = None, port: int = DEFAULT_APP_PORT
 ) -> int:
@@ -153,6 +179,13 @@ def install(
         "KeepAlive": True,
         "StandardOutPath": str(LOG),
         "StandardErrorPath": str(LOG),
+        # launchd gives a login agent PATH=/usr/bin:/bin:/usr/sbin:/sbin and
+        # nothing else, so a scene run through the app cannot find latex,
+        # dvisvgm or ffmpeg even when they are installed — while the same
+        # scene run from a terminal works, which makes it look like a maniml
+        # bug rather than a missing search path. Carry the installing shell's
+        # PATH: it is the closest thing to "what your terminal sees".
+        "EnvironmentVariables": {"PATH": search_path()},
     }
     with open(PLIST, "wb") as file:
         plistlib.dump(plist, file)
@@ -224,6 +257,12 @@ def open_app(open_browser: bool = True) -> int:
 def serve(root: str, port: int = DEFAULT_APP_PORT) -> int:
     """Run the engine in the foreground; this is what launchd supervises."""
     from maniml.web.cli import run_app
+
+    # Also at run time, not just at install: an agent installed before MacTeX
+    # was would otherwise carry a PATH that cannot find it until it is
+    # reinstalled, and every scene using Tex would fail with a message saying
+    # to install something that is already there.
+    os.environ["PATH"] = search_path()
 
     run_app(
         root=root,
