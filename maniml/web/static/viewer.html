@@ -645,6 +645,9 @@ function applyCapabilities(values) {
 // of it, in arrival order — and only the moment it is applied moves.
 let pendingBitmap = null;      // decoded pixel frame awaiting a refresh
 let geometryQueue = [];        // every geometry payload, in arrival order
+// How far behind the newest state the display may fall before it stops
+// showing every intermediate one and catches up instead.
+const MAX_QUEUED_STATES = 6;
 let presentScheduled = false;
 let decodingFrame = false, queuedFrameBlob = null;
 
@@ -670,10 +673,23 @@ function present() {
     bmp.close();
   }
   if (geometryQueue.length) {
-    const batch = geometryQueue;
-    geometryQueue = [];
-    // glQueue below chains these, so they apply in the order they arrived.
-    for (const payload of batch) handleGeometry(payload);
+    // One scene state per refresh. These payloads are deltas, so every one
+    // has to be applied in order -- but applying several within a single
+    // refresh means only the last is ever seen, and the states between
+    // collapse into one larger jump. That is the same defect as dropping
+    // them, just spelled differently, and it is what a run_time=1/10 play
+    // cannot survive: it only has three states to begin with.
+    //
+    // The engine emits at the scene's frame rate, so on a 60Hz display one
+    // per refresh always drains faster than they arrive. The catch-up is
+    // for when it does not -- a throttled or backgrounded tab, where the
+    // queue would otherwise grow into unbounded latency and memory.
+    const backlog = geometryQueue.length - MAX_QUEUED_STATES;
+    if (backlog > 0) {
+      for (let i = 0; i < backlog; i++) handleGeometry(geometryQueue.shift());
+    }
+    handleGeometry(geometryQueue.shift());
+    if (geometryQueue.length) schedulePresent();
   }
 }
 
