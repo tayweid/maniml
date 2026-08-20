@@ -423,7 +423,16 @@ class AppServer:
                     origin=urlsplit(process.url).scheme
                     + f"://localhost:{urlsplit(process.url).port}",
                     max_size=None,
-                    max_queue=32,
+                    # No buffer of its own. With a queue here the relay
+                    # accepts frames from the scene far faster than it can
+                    # hand them to the browser, so the scene sees a fast
+                    # client, never applies its own send policy, and the
+                    # backlog comes out the far side in clumps: frames
+                    # arriving 5ms apart separated by 100ms stalls, which
+                    # is judder even though not one frame was lost. At 1
+                    # the relay is transparent and the scene's flow control
+                    # measures the browser, which is what it is for.
+                    max_queue=1,
                     compression=None,
                     open_timeout=10,
                 ) as upstream:
