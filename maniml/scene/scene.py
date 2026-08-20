@@ -658,6 +658,18 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                 all_mobjects = all_mobjects.union(animation.mobject.get_family())
 
     def progress_through_animations(self, animations: Iterable[Animation]) -> None:
+        if self.window:
+            # pre_play() stamps the wall clock before begin_animations(), so
+            # the animation's own setup -- one begin() per animation, which
+            # for a few hundred of them is not cheap -- is charged against
+            # the first frame's deadline. Since the pacing sleep in
+            # update_frame can only ever add delay, never recover it, an
+            # animation that starts behind schedule stays behind and its
+            # frames come out compressed: a run_time=1/10 play emitting its
+            # three frames over 55ms rather than 100ms. Start the clock where
+            # the frames actually start.
+            self.virtual_animation_start_time = self.time
+            self.real_animation_start_time = time.time()
         last_t = 0
         for t in self.get_animation_time_progression(animations):
             dt = t - last_t

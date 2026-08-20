@@ -297,7 +297,17 @@ class WebViewer:
         if self._needs_refresh or state_changed:
             kind = "png"
         elif animating or self._dirty:
-            if now - self._last_send_time >= MIN_SEND_INTERVAL:
+            # Inside a play() every rendered frame is one of a small, fixed
+            # number that constitute the animation: run_time=1/10 at 30 fps
+            # is three frames, and the pacing sleep can only add delay, never
+            # recover the time the animation's own setup already spent, so
+            # they arrive unevenly -- the first gap short, the next long.
+            # Throttling there smooths nothing; it deletes a third of the
+            # animation, which reads as a two-step stutter. The throttle is
+            # here to keep the idle loop (~105 fps) off the socket, so it
+            # applies only outside a play.
+            playing = bool(getattr(self.scene, "_is_playing", False))
+            if playing or now - self._last_send_time >= MIN_SEND_INTERVAL:
                 kind = "jpeg"
         elif self._last_send_lossy and now - self._last_send_time >= PNG_AFTER_QUIET:
             kind = "png"
