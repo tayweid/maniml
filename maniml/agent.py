@@ -186,6 +186,16 @@ def install(
         # bug rather than a missing search path. Carry the installing shell's
         # PATH: it is the closest thing to "what your terminal sees".
         "EnvironmentVariables": {"PATH": search_path()},
+        # Without this key launchd "will apply light resource limits to the
+        # job, throttling its CPU usage and I/O bandwidth" (launchd.plist(5)),
+        # and a scene process spawned by the agent inherits them. The engine
+        # then renders around 19fps where the same scene started from a
+        # terminal renders 30, so animations play slow and unevenly in the
+        # installed app while looking perfect everywhere else -- which is a
+        # miserable thing to debug, because every comparison run by hand is
+        # unthrottled. Rendering frames for someone watching is exactly what
+        # Interactive is for.
+        "ProcessType": "Interactive",
     }
     with open(PLIST, "wb") as file:
         plistlib.dump(plist, file)
