@@ -626,14 +626,39 @@ function applyCapabilities(values) {
 
 // -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up.
 //    0x03 is a geometry payload, routed to the selected client renderer) --
-let drawing = false, pendingBlob = null;
-async function handleFrame(blob) {
-  const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
-  if (head === 3) { handleGeometry(await blob.arrayBuffer()); return; }
-  if (drawing) { pendingBlob = blob; return; }  // coalesce to latest
-  drawing = true;
-  try {
-    const bmp = await createImageBitmap(blob.slice(1));
+// Frames arrive on a socket, not on a display clock. Painting one the moment
+// it lands leaves it on screen for one refresh or for two depending on where
+// it happened to fall relative to vsync, so an evenly produced stream is
+// shown unevenly — motion judders and a short transition reads as two steps
+// with a beat between them. Nothing is dropped and nothing is late; the
+// frames are simply presented at the wrong moments. A video player never has
+// this problem because it presents on the display's clock, which is why an
+// exported file looks smooth where this did not.
+//
+// So the socket only ever *decodes*. Presenting happens in
+// requestAnimationFrame: at most one paint per refresh, always the newest
+// thing received, for the pixel stream and the client renderers alike.
+// A pixel frame is a whole picture, so only the newest one is worth keeping.
+// A geometry payload is NOT: the server marks a batch cached once it has sent
+// it, so a dropped payload takes that batch's only transmission with it and
+// the client has to ask for everything again. Geometry therefore queues — all
+// of it, in arrival order — and only the moment it is applied moves.
+let pendingBitmap = null;      // decoded pixel frame awaiting a refresh
+let geometryQueue = [];        // every geometry payload, in arrival order
+let presentScheduled = false;
+let decodingFrame = false, queuedFrameBlob = null;
+
+function schedulePresent() {
+  if (presentScheduled) return;
+  presentScheduled = true;
+  requestAnimationFrame(present);
+}
+
+function present() {
+  presentScheduled = false;
+  if (pendingBitmap) {
+    const bmp = pendingBitmap;
+    pendingBitmap = null;
     if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
       canvas.width = bmp.width; canvas.height = bmp.height;
     }
@@ -643,9 +668,47 @@ async function handleFrame(blob) {
     ctx.drawImage(bmp, 0, 0);
     ctx.restore();
     bmp.close();
+  }
+  if (geometryQueue.length) {
+    const batch = geometryQueue;
+    geometryQueue = [];
+    // glQueue below chains these, so they apply in the order they arrived.
+    for (const payload of batch) handleGeometry(payload);
+  }
+}
+
+async function handleFrame(blob) {
+  const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
+  if (head === 3) {
+    geometryQueue.push(await blob.arrayBuffer());
+    schedulePresent();
+    return;
+  }
+  if (decodingFrame) { queuedFrameBlob = blob; return; }  // newest wins
+  decodingFrame = true;
+  try {
+    let next = blob;
+    while (next) {
+      try {
+        const bmp = await createImageBitmap(next.slice(1));
+        // Superseded before it was ever shown: decoding is faster than the
+        // display, so this is the normal case rather than an error one.
+        if (pendingBitmap) pendingBitmap.close();
+        pendingBitmap = bmp;
+        schedulePresent();
+      } catch (error) {
+        // A frame that will not decode is one frame lost; carrying on with
+        // the queue matters more than the frame does.
+        console.error("frame decode failed:", error);
+      }
+      next = queuedFrameBlob;
+      queuedFrameBlob = null;
+    }
   } finally {
-    drawing = false;
-    if (pendingBlob) { const b = pendingBlob; pendingBlob = null; handleFrame(b); }
+    // Never leave a blob queued behind a decode that threw: the next frame
+    // would decode, then this one after it, and the picture would jump back.
+    decodingFrame = false;
+    queuedFrameBlob = null;
   }
 }
 
