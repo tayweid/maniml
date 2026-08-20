@@ -216,23 +216,47 @@ _MERGE_KEYS = ("kind", "uniforms", "stroke_behind", "depth_test",
 def _merge_records(records):
     """Merge consecutive records with identical draw state — the
     native renderer's batching (batch_by_property over shader-wrapper
-    id). Triangulated fill chunks concatenate with re-based indices."""
+    id). Triangulated fill chunks concatenate with re-based indices.
+
+    Chunks are gathered and joined once per batch rather than folded in
+    one at a time. Concatenating on each step reallocates and recopies
+    everything accumulated so far, which makes merging n records copy
+    O(n**2) vertex bytes — on a scene of a few hundred filled shapes that
+    was the single largest cost in producing a frame, and it grew as the
+    square of how much you had drawn.
+    """
     merged = []
+    chunks = []      # per merged batch: the data arrays still to be joined
+    tri_chunks = []  # per merged batch: (verts, indices) still to be joined
     for record in records:
         prev = merged[-1] if merged else None
         if prev is not None and all(
                 prev[k] == record[k] for k in _MERGE_KEYS):
-            prev["data"] = np.concatenate([prev["data"], record["data"]])
+            chunks[-1].append(record["data"])
             if record["tri"] is not None:
-                if prev["tri"] is None:
-                    prev["tri"] = record["tri"]
-                else:
-                    pv, pi = prev["tri"]
-                    rv, ri = record["tri"]
-                    prev["tri"] = (np.concatenate([pv, rv]),
-                                   np.concatenate([pi, ri + len(pv)]))
+                tri_chunks[-1].append(record["tri"])
         else:
             merged.append(dict(record))
+            chunks.append([record["data"]])
+            tri_chunks.append([record["tri"]] if record["tri"] is not None else [])
+
+    for batch, data_parts, tri_parts in zip(merged, chunks, tri_chunks):
+        if len(data_parts) > 1:
+            batch["data"] = np.concatenate(data_parts)
+        if not tri_parts:
+            batch["tri"] = None
+        elif len(tri_parts) == 1:
+            batch["tri"] = tri_parts[0]
+        else:
+            # Indices are relative to each chunk's own vertices, so they
+            # shift by however many vertices precede that chunk.
+            offset = 0
+            verts, indices = [], []
+            for chunk_verts, chunk_indices in tri_parts:
+                verts.append(chunk_verts)
+                indices.append(chunk_indices + offset)
+                offset += len(chunk_verts)
+            batch["tri"] = (np.concatenate(verts), np.concatenate(indices))
     return merged
 
 
