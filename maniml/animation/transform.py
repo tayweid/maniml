@@ -74,6 +74,48 @@ class Transform(Animation):
     def finish(self) -> None:
         super().finish()
         self.mobject.unlock_data()
+        # align_data_and_family in begin() pads self.mobject with subdivided
+        # points and duplicated submobjects. Left in place, every subsequent
+        # Transform compounds the padding, so a scene that repeatedly
+        # transforms the same mobject slows to a crawl (points can double
+        # every few plays). When the animation actually lands on the target's
+        # appearance, adopt the target's clean structure instead.
+        if (
+            not self.replace_mobject_with_target_in_scene
+            and self.target_mobject is not None
+            and self.mobject is not self.target_mobject
+            and abs(self.rate_func(1) - 1) < 1e-6
+            and not self.mobject.is_aligned_with(self.target_mobject)
+        ):
+            self._adopt_target_structure()
+
+    def _adopt_target_structure(self) -> None:
+        """Give self.mobject the pristine target's data and submobject tree.
+
+        become() cannot shrink a family (align_family only pads), so it
+        would let alignment padding ratchet up across repeated Transforms;
+        adopting a copy of the target's tree wholesale keeps the mobject
+        exactly as small as what is on screen.
+        """
+        mob = self.mobject
+        target = self.target_mobject.copy()
+        if mob.data.dtype != target.data.dtype:
+            return  # different data layouts; leave the aligned form in place
+        mob.set_data(target.data)
+        mob.set_submobjects(list(target.submobjects))
+        mob.set_uniforms(target.uniforms)
+        mob.bounding_box[:] = target.bounding_box
+        mob.shader_folder = target.shader_folder
+        mob.texture_paths = target.texture_paths
+        mob.depth_test = target.depth_test
+        mob.render_primitive = target.render_primitive
+        mob._needs_new_bounding_box = target._needs_new_bounding_box
+        # Carry named family members over (axes.x_axis and the like),
+        # mirroring become()
+        family = target.get_family()
+        for attr, value in list(target.__dict__.items()):
+            if isinstance(value, Mobject) and value is not target and value in family:
+                setattr(mob, attr, value)
 
     def create_target(self) -> Mobject:
         # Has no meaningful effect here, but may be useful
