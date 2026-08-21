@@ -23,6 +23,41 @@ FRAME_Y_RADIUS: float = FRAME_HEIGHT / 2
 FRAME_X_RADIUS: float = FRAME_WIDTH / 2
 
 
+def sync_frame_to_resolution() -> None:
+    """Re-derive the width-dependent frame constants from the current
+    ``manim_config.camera.resolution`` (frame height stays fixed, as in
+    ManimCE, where ``frame_width = frame_height * pixel_width / pixel_height``).
+
+    The constants above are evaluated once at import and copied by
+    ``from maniml.constants import FRAME_X_RADIUS`` in several modules, so a
+    later ``config.pixel_width = 2160`` would otherwise leave the camera frame
+    at the 16:9 width and the GL viewport would stretch it over the 2:1 pixel
+    grid. This refreshes both this module and every loaded module that holds
+    a copy. Called by the CE ``config.pixel_width``/``pixel_height`` setters.
+    """
+    import sys
+    global ASPECT_RATIO, FRAME_WIDTH, FRAME_SHAPE, FRAME_X_RADIUS
+    pw, ph = manim_config.camera.resolution
+    ASPECT_RATIO = pw / ph
+    FRAME_WIDTH = FRAME_HEIGHT * ASPECT_RATIO
+    FRAME_SHAPE = (FRAME_WIDTH, FRAME_HEIGHT)
+    FRAME_X_RADIUS = FRAME_WIDTH / 2
+    updated = {
+        'ASPECT_RATIO': ASPECT_RATIO,
+        'FRAME_WIDTH': FRAME_WIDTH,
+        'FRAME_SHAPE': FRAME_SHAPE,
+        'FRAME_X_RADIUS': FRAME_X_RADIUS,
+    }
+    for name, module in list(sys.modules.items()):
+        if module is None or not name.startswith('maniml'):
+            continue
+        if name == __name__:
+            continue
+        for key, value in updated.items():
+            if key in getattr(module, '__dict__', {}):
+                setattr(module, key, value)
+
+
 # Helpful values for positioning mobjects
 SMALL_BUFF: float = manim_config.sizes.small_buff
 MED_SMALL_BUFF: float = manim_config.sizes.med_small_buff

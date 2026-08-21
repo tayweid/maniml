@@ -17,6 +17,11 @@ from maniml.config import manim_config
 from maniml.logger import log
 
 
+def _sync_frame():
+    from maniml.constants import sync_frame_to_resolution
+    sync_frame_to_resolution()
+
+
 class CEConfig:
     def __init__(self):
         object.__setattr__(self, "_warned", set())
@@ -39,6 +44,7 @@ class CEConfig:
     def pixel_width(self, value):
         resolution = manim_config.camera.resolution
         manim_config.camera.resolution = (int(value), resolution[1])
+        _sync_frame()
 
     @property
     def pixel_height(self) -> int:
@@ -48,6 +54,23 @@ class CEConfig:
     def pixel_height(self, value):
         resolution = manim_config.camera.resolution
         manim_config.camera.resolution = (resolution[0], int(value))
+        _sync_frame()
+
+    # Frame size follows the pixel aspect (CE semantics); read-only here.
+
+    @property
+    def frame_height(self) -> float:
+        return manim_config.sizes.frame_height
+
+    @property
+    def frame_width(self) -> float:
+        pw, ph = manim_config.camera.resolution
+        return manim_config.sizes.frame_height * pw / ph
+
+    @property
+    def aspect_ratio(self) -> float:
+        pw, ph = manim_config.camera.resolution
+        return pw / ph
 
     @property
     def frame_rate(self) -> float:

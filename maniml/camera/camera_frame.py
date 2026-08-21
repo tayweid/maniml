@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from maniml.constants import DEG, RADIANS
-from maniml.constants import FRAME_SHAPE
+from maniml import constants as _constants
 from maniml.constants import DOWN, LEFT, ORIGIN, OUT, RIGHT, UP
 from maniml.constants import PI
 from maniml.mobject.mobject import Mobject
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class CameraFrame(Mobject):
     def __init__(
         self,
-        frame_shape: tuple[float, float] = FRAME_SHAPE,
+        frame_shape: tuple[float, float] | None = None,   # resolved at call time: follows the pixel aspect
         center_point: Vect3 = ORIGIN,
         # Field of view in the y direction
         fovy: float = 45 * DEG,
@@ -33,6 +33,8 @@ class CameraFrame(Mobject):
         **kwargs,
     ):
         super().__init__(z_index=z_index, **kwargs)
+        if frame_shape is None:
+            frame_shape = _constants.FRAME_SHAPE
 
         self.uniforms["orientation"] = Rotation.identity().as_quat()
         self.uniforms["fovy"] = fovy
@@ -60,7 +62,7 @@ class CameraFrame(Mobject):
         return self
 
     def to_default_state(self):
-        self.set_shape(*FRAME_SHAPE)
+        self.set_shape(*_constants.FRAME_SHAPE)
         self.center()
         self.set_orientation(self.default_orientation)
         return self
@@ -92,7 +94,7 @@ class CameraFrame(Mobject):
         return self.get_euler_angles()[2]
 
     def get_scale(self):
-        return self.get_height() / FRAME_SHAPE[1]
+        return self.get_height() / _constants.FRAME_SHAPE[1]
 
     def get_inverse_camera_rotation_matrix(self):
         return self.get_orientation().as_matrix().T
