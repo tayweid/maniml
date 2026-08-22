@@ -240,6 +240,17 @@ class InteractionMixin:
                 n: v for n, v in temp['namespace'].items()
                 if isinstance(v, Mobject)
             }
+            # The morph is a display-only interpolation between two frozen
+            # states, so updaters must not run during it: an always_redraw
+            # rebuilds itself at full opacity every frame, fighting the
+            # fade, and once it changes its point count the Transform
+            # interpolates against stale families and draws garbage. Both
+            # sides are suspended — the incoming target copies would fight
+            # the same way. Whatever the restore puts on screen is resumed
+            # below; the current mobjects are discarded with the morph.
+            for mob in (*current_mobs, *target_mobs):
+                mob.suspend_updating()
+
             target_ids = set(map(id, target_mobs))
             anims = []
             matched = set()
@@ -270,6 +281,11 @@ class InteractionMixin:
         # morph went
         self.clear()
         self.restore_state(target_state)
+        # Wake the landed state's updaters (suspended above, and restore
+        # may have copied that flag); parked checkpoints keep updaters
+        # live, same as UP/DOWN navigation
+        for mob in self.mobjects:
+            mob.resume_updating()
         namespace = temp['namespace']
         namespace['self'] = self
         self._live_namespace = namespace

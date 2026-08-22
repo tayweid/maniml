@@ -424,3 +424,56 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.assert_follows(3.0)
         self.scene.run_next_animation()      # and on through bump()
         self.assert_follows(4.0)
+
+
+class TestReverseMorphWithUpdaters(unittest.TestCase):
+    """The LEFT-arrow morph is a display-only interpolation between two
+    frozen states: updaters must be suspended on both sides while it plays
+    (an always_redraw otherwise rebuilds itself at full opacity every frame,
+    fighting the fade and glitching the geometry once its point count
+    shifts under the Transform), and whatever lands on screen must wake up
+    again."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.scene_file = os.path.join(self.tmpdir.name, 'tracker_scene.py')
+        with open(self.scene_file, 'w') as f:
+            f.write(TRACKER)
+        module = load_scene_module(self.scene_file)
+        self.scene = module.TrackerScene(window=None)
+        self.scene._scene_filepath = self.scene_file
+        self.scene.skip_animations = True
+        self.scene.setup()
+        self.scene._create_checkpoint_zero()
+
+    def tearDown(self):
+        self.scene.camera.ctx.release()
+        self.tmpdir.cleanup()
+
+    def test_morph_suspends_both_sides_and_landing_resumes(self):
+        scene = self.scene
+        scene.run_next_animation()           # dots + square on screen
+        scene.run_next_animation()           # t -> 3, redraws following it
+
+        seen = {}
+
+        def spy_play(*anims, **kwargs):
+            seen['anims'] = [a.mobject.updating_suspended for a in anims]
+            seen['screen'] = [
+                m.updating_suspended for m in scene.mobjects if m.has_updaters()
+            ]
+
+        scene.play = spy_play
+        scene.current_animation_index = 1
+        scene._play_reverse_to(1)
+
+        self.assertTrue(seen['anims'], "morph built no animations")
+        self.assertTrue(all(seen['anims']),
+                        "a morphing mobject still had updaters running")
+        self.assertTrue(all(seen['screen']),
+                        "an on-screen updater survived into the morph")
+        # the landed state's updaters are awake again
+        landed = [m for m in scene.mobjects if m.has_updaters()]
+        self.assertTrue(landed, "restore lost the updaters entirely")
+        self.assertFalse(any(m.updating_suspended for m in landed),
+                         "landed mobjects stayed suspended")
