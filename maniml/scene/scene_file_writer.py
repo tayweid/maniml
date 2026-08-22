@@ -250,6 +250,10 @@ class SceneFileWriter(object):
         ]
         if self.video_codec:
             command += ['-vcodec', self.video_codec]
+            # Keyframe at least once a second: presentation playback scrubs
+            # by seeking, and seeks land on keyframes. Costs a few percent
+            # of size, makes every seek land instantly.
+            command += ['-g', str(fps)]
         if self.pixel_format:
             command += ['-pix_fmt', self.pixel_format]
         command += [self.temp_file_path]

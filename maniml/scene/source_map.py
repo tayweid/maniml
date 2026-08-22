@@ -232,6 +232,26 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
     return units
 
 
+def chip_unit_for(unit_index, units, pause_anchored_mode) -> int | None:
+    """Map a checkpoint's source unit to the chip that stands for it.
+
+    Plain files: the unit itself (every checkpoint is a stop). In a
+    pause-anchored file a chip is a *pausepoint*, so a play checkpoint maps
+    forward to the pause unit that ends its stretch; plays after the last
+    pause keep their own unit. Checkpoint 0 (unit -1) is always its own
+    Start chip. Shared by the live rail (WebViewer) and the present bundle
+    so the two always agree.
+    """
+    if unit_index is None or unit_index < 0:
+        return unit_index
+    if not pause_anchored_mode:
+        return unit_index
+    for unit in units or []:
+        if unit.index >= unit_index and unit.is_pause:
+            return unit.index
+    return unit_index
+
+
 def next_stop_unit(
     units: list[AnimationUnit],
     after_unit_index: int | None = None,

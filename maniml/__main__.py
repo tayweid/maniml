@@ -3,6 +3,7 @@
 import sys
 import os
 import traceback
+from pathlib import Path
 import importlib
 import importlib.abc
 import importlib.machinery
@@ -314,6 +315,19 @@ def run_scene(
 
     scene._scene_filepath = os.path.abspath(script_file)
     scene.run()
+
+    if render:
+        # The present bundle rides on every render: the mp4 plus the
+        # pausepoint table the presenter steps by (web/present_bundle.py).
+        from maniml.web.present_bundle import write_present_bundle
+
+        movie = getattr(scene.file_writer, "final_file_path", None)
+        if movie is not None and Path(movie).is_file():
+            try:
+                bundle = write_present_bundle(scene, movie)
+                print(f"Present bundle: {bundle}")
+            except Exception as e:
+                print(f"Present bundle failed: {e}")
 
 
 if __name__ == "__main__":

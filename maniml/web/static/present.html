@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maniml presentation</title>
+<!-- The standalone presenter: this file, scene.mp4, present_meta.js and
+     presentation.js are the whole bundle. It opens from disk (file://) —
+     the meta rides in as a script, t1-web style, because network APIs do
+     not exist on that origin. If everything else fails in class,
+     double-click this. -->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    background: #131217; color: #d6d2da;
+    font: 12px/1.4 -apple-system, "Helvetica Neue", sans-serif; }
+  #playback-video { max-width: calc(100vw - 48px); max-height: calc(100vh - 90px);
+    border-radius: 5px; background: #000;
+    box-shadow: 0 18px 55px rgba(0,0,0,.4); }
+  body.fullscreen #playback-video { max-width: 100vw; max-height: 100vh;
+    border-radius: 0; }
+  #chips { display: flex; gap: 7px; align-items: center; }
+  body.fullscreen #chips { display: none; }
+  .chip { width: 9px; height: 9px; border-radius: 50%;
+    border: 1px solid #5e5a62; background: transparent; cursor: pointer; }
+  .chip.current { background: #d6d2da; border-color: #d6d2da; }
+  #hint { color: #8d8894; }
+</style>
+</head>
+<body>
+<video id="playback-video" playsinline preload="auto" src="scene.mp4"></video>
+<div id="chips" role="list" aria-label="Pausepoints"></div>
+<div id="hint">&larr; &rarr; play between pausepoints &middot; &uarr; &darr; step &middot; f full screen</div>
+<script src="present_meta.js"></script>
+<script src="presentation.js"></script>
+<script>
+"use strict";
+(() => {
+  const video = document.getElementById("playback-video");
+  const chipsEl = document.getElementById("chips");
+  const meta = window.PRESENT_META;
+  if (!meta || meta.format !== 1) {
+    document.getElementById("hint").textContent =
+      "This recording was made by an older maniml — re-render it.";
+    return;
+  }
+  const stops = meta.checkpoints.filter((c) => c.stop);
+
+  function refresh(index) {
+    const buttons = chipsEl.children;
+    for (let i = 0; i < stops.length; i++) {
+      buttons[i].classList.toggle(
+        "current",
+        stops[i].index <= index
+        && (i + 1 >= stops.length || stops[i + 1].index > index));
+    }
+  }
+  for (const stop of stops) {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.title = stop.name || (stop.line ? "line " + stop.line : "start");
+    chip.onclick = () => ManimlPresentation.seekCheckpoint(stop.index);
+    chipsEl.appendChild(chip);
+  }
+
+  ManimlPresentation.load(video, meta, { onUpdate: refresh });
+  refresh(0);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+    if (e.key === "ArrowRight") ManimlPresentation.playToNextStop();
+    else if (e.key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
+    else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(-1);
+    else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(1);
+    else if (e.key === " ") ManimlPresentation.togglePause();
+    else if (e.key === "f" && document.fullscreenEnabled) {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+      document.body.classList.toggle("fullscreen");
+      return;
+    } else return;
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>
