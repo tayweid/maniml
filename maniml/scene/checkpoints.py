@@ -99,7 +99,6 @@ class CheckpointMixin:
         
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
-        self._stretch_run_time = 0.0
 
 
     def _setup_file_watcher(self) -> None:
@@ -335,17 +334,12 @@ class CheckpointMixin:
         """Deep-copy the namespace and scene state into the checkpoint at
         current_animation_index + 1, replacing any existing one there.
 
-        ``run_time`` is how long the play (or stretch of plays) that produced
-        this checkpoint took, kept so that stepping back can undo it over the
-        same span. Nothing else can supply it later: the animation objects
-        are gone by then. When None, the stretch accumulator — the run time
-        of every play since the last checkpoint — stands in, which is how a
-        pause-anchored checkpoint learns the span of its whole stretch."""
-        if run_time is None:
-            stretch = getattr(self, '_stretch_run_time', 0.0)
-            run_time = stretch if stretch > 0 else None
-        self._stretch_run_time = 0.0
-
+        ``run_time`` is how long the play that produced this checkpoint
+        took, kept so that stepping back can undo it over the same span.
+        Nothing else can supply it later: the animation object is gone by
+        then. A pause's checkpoint has none — nothing played between it
+        and the play before it, which is also how the reverse path knows
+        that hop is an instant one."""
         namespace = dict(namespace)
         namespace.pop('__animation_line_number__', None)
         namespace.pop('__animation_unit_index__', None)
@@ -422,8 +416,9 @@ class CheckpointMixin:
 
     @contextmanager
     def _no_checkpoints(self):
-        """Play animations without saving checkpoints (e.g. the reverse
-        transition, which is display-only and not part of history)."""
+        """Play animations without saving checkpoints, for display-only
+        playback that is not part of history (kept for the recorded-stream
+        layer; currently unused)."""
         prev = getattr(self, '_suppress_checkpoints', False)
         self._suppress_checkpoints = True
         try:
@@ -476,12 +471,9 @@ class CheckpointMixin:
 
         namespace = checkpoint_temporary['namespace']
         namespace['self'] = self
-        # Anchor for the checkpoint(s) saved during exec, and a fresh
-        # stretch: the accumulated run time of this unit's plays, which a
-        # pause-anchored checkpoint records as its span
+        # Anchor for the checkpoint(s) saved during exec
         namespace['__animation_line_number__'] = unit.end_line
         namespace['__animation_unit_index__'] = unit.index
-        self._stretch_run_time = 0.0
 
         if self.skip_animations:
             print(f"⏩ Fast-forwarding animation {next_index}")
@@ -515,6 +507,27 @@ class CheckpointMixin:
         self._live_namespace = namespace
 
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
+
+    def advance_to_next_pausepoint(self) -> None:
+        """RIGHT: run units forward until a checkpoint flagged as a stop.
+
+        Every play still saves its checkpoint on the way — those are the
+        interior states UP/DOWN and the play-by-play reverse navigate —
+        but the run only rests at authored pauses. A file with no pauses
+        treats every checkpoint as a stop: one unit per press, the
+        CE-compatible default.
+        """
+        if not self._pause_anchored():
+            self.run_next_animation()
+            return
+        while True:
+            last = self.current_animation_index
+            self.run_next_animation()
+            now = self.current_animation_index
+            if now == last:
+                return  # end of scene, or an error already reported
+            if self.animation_checkpoints[now].get('stop'):
+                return
 
     def _strict_animation_errors(self) -> bool:
         return any((

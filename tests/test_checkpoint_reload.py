@@ -118,13 +118,16 @@ class TestNavigation(CheckpointSceneTest):
             self.assertTrue(np.allclose(mob.get_center(), pos),
                             "stored checkpoint mobject moved with the live scene")
 
-    def test_left_arrow_reverses_one_checkpoint(self):
+    def test_left_arrow_jumps_back_one_checkpoint(self):
+        """LEFT is an instant jump, deliberately unanimated: a state morph
+        cannot truly reverse an animation, so navigation does not pretend
+        to (see DECISIONS.md, "Backward navigation is a jump")."""
         self.run_all()
         scene = self.scene
         n = len(scene.animation_checkpoints)
         scene.on_key_press(PygletWindowKeys.LEFT, 0)
         self.assertEqual(scene.current_animation_index, 4)
-        # the reverse transition itself must not create checkpoints
+        # navigating back must not create checkpoints
         self.assertEqual(len(scene.animation_checkpoints), n)
         # display landed exactly on (a copy of) the target state
         target = scene.animation_checkpoints[4]['state']
@@ -145,10 +148,10 @@ class TestNavigation(CheckpointSceneTest):
                         "undo did not restore the pre-mutation state")
 
 
-class TestReverseTiming(CheckpointSceneTest):
-    """Stepping back should take as long as the step forward took. It cannot
-    be worked out at the time — the animation object is gone — so the forward
-    play records its own run_time on the checkpoint it saves."""
+class TestRecordedSpans(CheckpointSceneTest):
+    """Every play records its run_time on the checkpoint it saves. Nothing
+    else can supply it later — the animation object is gone by then — and
+    the recorded-stream playback layer (TODO.md) will need the spans."""
 
     def test_a_checkpoint_records_what_it_took_to_reach(self):
         self.run_all()
@@ -160,28 +163,6 @@ class TestReverseTiming(CheckpointSceneTest):
         self.assertEqual(len(recorded[1:-1]), 4, recorded)
         for run_time in recorded[1:-1]:
             self.assertAlmostEqual(run_time, 0.05, places=6)
-
-    def test_stepping_back_takes_the_span_it_took_to_get_there(self):
-        self.run_all()
-        # Undoing the step that landed on index 1 means replaying its 0.05s.
-        self.assertAlmostEqual(self.scene._reverse_run_time(0), 0.05, places=6)
-
-    def test_a_checkpoint_with_no_recorded_span_falls_back(self):
-        """Checkpoint 0 was never played into, and a scene saved before this
-        was recorded has None there."""
-        from maniml.scene.interaction import DEFAULT_REVERSE_RUN_TIME
-
-        self.run_all()
-        self.scene.animation_checkpoints[1]['run_time'] = None
-        self.assertEqual(self.scene._reverse_run_time(0), DEFAULT_REVERSE_RUN_TIME)
-
-    def test_a_long_build_is_not_replayed_in_full_every_time(self):
-        """LEFT is also how you move around a scene."""
-        from maniml.scene.interaction import MAX_REVERSE_RUN_TIME
-
-        self.run_all()
-        self.scene.animation_checkpoints[1]['run_time'] = 30.0
-        self.assertEqual(self.scene._reverse_run_time(0), MAX_REVERSE_RUN_TIME)
 
 
 class TestFileChange(CheckpointSceneTest):
@@ -237,8 +218,9 @@ class TestFileChange(CheckpointSceneTest):
             scene.animation_checkpoints[scene.current_animation_index]['unit_index'], 1)
 
     def test_adding_the_first_pause_rebuilds_pause_anchored(self):
-        """The first authored pause moves every unit boundary at once, so
-        the save rebuilds the scene rather than re-anchoring surgically."""
+        """The first authored pause inserts a unit boundary and flips the
+        anchoring mode, so the save rebuilds the scene rather than
+        re-anchoring surgically."""
         self.run_all()
         edited = BASE.replace(
             "        square = Square()\n",
@@ -248,10 +230,16 @@ class TestFileChange(CheckpointSceneTest):
         self.save(edited, line)
         scene = self.scene
         self.assertTrue(scene._pause_anchored_mode)
-        # One pause unit (everything through the pause), one tail
+        # Units: create-play, loop (two plays), the pause, transform-play,
+        # wait tail. The rebuild replays back to the transform the user
+        # was on; the pause's checkpoint is the one flagged as a stop.
         self.assertEqual(
             [cp['unit_index'] for cp in scene.animation_checkpoints],
-            [-1, 0, 1],
+            [-1, 0, 1, 1, 2, 3],
+        )
+        self.assertEqual(
+            [bool(cp.get('stop')) for cp in scene.animation_checkpoints],
+            [False, False, False, False, True, False],
         )
 
 
@@ -301,30 +289,63 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         self.scene._handle_file_change()
 
     def run_all(self):
-        # pause unit (2 plays), pause unit, tail wait -> index 3
-        for _ in range(3):
+        # play, play, pause, play, pause, tail wait -> index 6
+        for _ in range(6):
             self.scene.run_next_animation()
 
-    def test_checkpoints_save_only_at_pauses(self):
+    def test_every_play_checkpoints_and_pauses_mark_the_stops(self):
         self.run_all()
         scene = self.scene
-        self.assertEqual(scene.current_animation_index, 3)
+        self.assertEqual(scene.current_animation_index, 6)
         self.assertEqual(
             [cp['unit_index'] for cp in scene.animation_checkpoints],
-            [-1, 0, 1, 2],
+            [-1, 0, 1, 2, 3, 4, 5],
+        )
+        self.assertEqual(
+            [bool(cp.get('stop')) for cp in scene.animation_checkpoints],
+            [False, False, False, True, False, True, False],
         )
         self.assertIn('circle', scene.animation_checkpoints[1]['namespace'])
         # past the end is a no-op
         scene.run_next_animation()
-        self.assertEqual(scene.current_animation_index, 3)
+        self.assertEqual(scene.current_animation_index, 6)
 
-    def test_a_stretch_records_its_accumulated_span(self):
+    def test_right_runs_a_stretch_and_rests_at_the_pause(self):
+        scene = self.scene
+        scene.advance_to_next_pausepoint()   # both plays + the pause
+        self.assertEqual(scene.current_animation_index, 3)
+        self.assertTrue(scene.animation_checkpoints[3].get('stop'))
+        scene.advance_to_next_pausepoint()   # the transform + its pause
+        self.assertEqual(scene.current_animation_index, 5)
+        scene.advance_to_next_pausepoint()   # tail runs, then end
+        self.assertEqual(scene.current_animation_index, 6)
+        scene.advance_to_next_pausepoint()   # no-op at the end
+        self.assertEqual(scene.current_animation_index, 6)
+
+    def test_plays_record_their_spans_and_pauses_record_none(self):
         self.run_all()
         recorded = [c.get('run_time') for c in self.scene.animation_checkpoints]
         self.assertIsNone(recorded[0])
-        self.assertAlmostEqual(recorded[1], 0.10, places=6)  # both plays
-        self.assertAlmostEqual(recorded[2], 0.05, places=6)
-        self.assertIsNone(recorded[3], "a wait-only tail recorded a span")
+        for play_index in (1, 2, 4):
+            self.assertAlmostEqual(recorded[play_index], 0.05, places=6)
+        for other in (3, 5, 6):   # pauses and the wait-only tail
+            self.assertIsNone(recorded[other])
+
+    def test_left_jumps_to_the_previous_pausepoint(self):
+        self.run_all()
+        scene = self.scene
+        scene.current_animation_index = 5    # parked at the second pause
+        scene._reverse_to_previous_pausepoint()
+        # one instant jump over the interior play, landing on the exact
+        # state of the previous stop
+        self.assertEqual(scene.current_animation_index, 3)
+        self.assertTrue(scene.animation_checkpoints[3].get('stop'))
+        self.assertIn('circle', scene._live_namespace)
+        # and from a play checkpoint in a pause-less spot of history,
+        # LEFT still rests at the previous stop, not one play back
+        scene.current_animation_index = 6    # the tail checkpoint
+        scene._reverse_to_previous_pausepoint()
+        self.assertEqual(scene.current_animation_index, 5)
 
     def test_edit_replays_from_the_previous_pause(self):
         self.run_all()
@@ -335,10 +356,11 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         line = edited.splitlines().index('        marker = 123') + 1
         self.save(edited, line)
         scene = self.scene
-        # checkpoint 1 (first pause) survived; the edited stretch replayed
-        self.assertEqual(scene.current_animation_index, 2)
-        cp = scene.animation_checkpoints[2]
-        self.assertEqual(cp['unit_index'], 1)
+        # checkpoints through the first pause survived; the edited unit
+        # (the transform play) replayed
+        self.assertEqual(scene.current_animation_index, 4)
+        cp = scene.animation_checkpoints[4]
+        self.assertEqual(cp['unit_index'], 3)
         self.assertEqual(cp['namespace'].get('marker'), 123)
 
 
@@ -426,54 +448,3 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.assert_follows(4.0)
 
 
-class TestReverseMorphWithUpdaters(unittest.TestCase):
-    """The LEFT-arrow morph is a display-only interpolation between two
-    frozen states: updaters must be suspended on both sides while it plays
-    (an always_redraw otherwise rebuilds itself at full opacity every frame,
-    fighting the fade and glitching the geometry once its point count
-    shifts under the Transform), and whatever lands on screen must wake up
-    again."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.scene_file = os.path.join(self.tmpdir.name, 'tracker_scene.py')
-        with open(self.scene_file, 'w') as f:
-            f.write(TRACKER)
-        module = load_scene_module(self.scene_file)
-        self.scene = module.TrackerScene(window=None)
-        self.scene._scene_filepath = self.scene_file
-        self.scene.skip_animations = True
-        self.scene.setup()
-        self.scene._create_checkpoint_zero()
-
-    def tearDown(self):
-        self.scene.camera.ctx.release()
-        self.tmpdir.cleanup()
-
-    def test_morph_suspends_both_sides_and_landing_resumes(self):
-        scene = self.scene
-        scene.run_next_animation()           # dots + square on screen
-        scene.run_next_animation()           # t -> 3, redraws following it
-
-        seen = {}
-
-        def spy_play(*anims, **kwargs):
-            seen['anims'] = [a.mobject.updating_suspended for a in anims]
-            seen['screen'] = [
-                m.updating_suspended for m in scene.mobjects if m.has_updaters()
-            ]
-
-        scene.play = spy_play
-        scene.current_animation_index = 1
-        scene._play_reverse_to(1)
-
-        self.assertTrue(seen['anims'], "morph built no animations")
-        self.assertTrue(all(seen['anims']),
-                        "a morphing mobject still had updaters running")
-        self.assertTrue(all(seen['screen']),
-                        "an on-screen updater survived into the morph")
-        # the landed state's updaters are awake again
-        landed = [m for m in scene.mobjects if m.has_updaters()]
-        self.assertTrue(landed, "restore lost the updaters entirely")
-        self.assertFalse(any(m.updating_suspended for m in landed),
-                         "landed mobjects stayed suspended")

@@ -14,15 +14,6 @@ from maniml.event_handler import EVENT_DISPATCHER
 from maniml.event_handler.event_type import EventType
 from maniml.logger import log
 from maniml.mobject.mobject import Mobject
-from maniml.scene.checkpoints import deepcopy_namespace
-
-# Stepping back is a whole-scene morph, not a true reversal, so it takes the
-# forward play's own span when one was recorded and a short default when it
-# was not. The cap is because LEFT is also how you move around a scene: a long
-# build is worth watching once, not every time you pass back over it.
-DEFAULT_REVERSE_RUN_TIME = 0.7
-MAX_REVERSE_RUN_TIME = 3.0
-
 
 class InteractionMixin:
     def _inspectable_mobjects(self) -> list[Mobject]:
@@ -182,113 +173,37 @@ class InteractionMixin:
             about_point=point
         )
 
-    def _reverse_run_time(self, index: int) -> float:
-        """How long to take undoing the step that landed on `index` + 1.
+    def _reverse_to_previous_pausepoint(self, timeline_visible: bool = False) -> None:
+        """LEFT: jump instantly to the previous pausepoint's exact state
+        (or the scene start; the previous checkpoint in a pause-less file).
 
-        The forward play recorded its own run_time, so stepping back takes
-        the span it took to get here rather than a fixed one — a two-second
-        build coming back in seven-tenths reads as a different animation
-        rather than the same one in reverse. Capped, because navigation is
-        also how you move around: a ten-second build is worth watching once,
-        not every time you pass back over it.
+        Deliberately not animated. A state morph cannot truly reverse an
+        animation — states are photographs, and no photograph contains how
+        it was drawn, so a morph fades what it cannot retrace and misleads
+        exactly when the reverse matters most (see DECISIONS.md,
+        "Backward navigation is a jump"). Honest and instant instead; real
+        backward playback arrives with the recorded-stream layer
+        (TODO.md), which replays what the GPU was actually sent, in
+        reverse, for any content.
         """
         checkpoints = self.animation_checkpoints
-        undoing = index + 1
-        run_time = None
-        if 0 <= undoing < len(checkpoints):
-            run_time = checkpoints[undoing].get('run_time')
-        if not run_time or run_time <= 0:
-            return DEFAULT_REVERSE_RUN_TIME
-        return min(float(run_time), MAX_REVERSE_RUN_TIME)
-
-    def _play_reverse_to(self, index: int) -> None:
-        """Animate the display back to the checkpoint at `index`.
-
-        This is a whole-scene morph between the current display and the
-        target state, not a true reversal of the original animation
-        (source re-execution can't run backwards), so complex changes
-        blend rather than retrace. Lands exactly on a copy of the
-        target state; falls back to an instant jump if the morph fails.
-        """
-        from maniml.animation.transform import Transform
-        from maniml.animation.fading import FadeIn, FadeOut
-
-        temp = deepcopy_namespace(self.animation_checkpoints[index])
-        target_state = temp['state']
-        try:
-            # The camera frame lives in self.mobjects (and in stored
-            # states) but can't be morphed like scene content
-            current_mobs = [
-                mob for mob in self.mobjects
-                if not isinstance(mob, CameraFrame)
-                and mob is not self._timeline_group
-            ]
-            target_mobs = [
-                mob for mob in target_state.mobjects
-                if not isinstance(mob, CameraFrame)
-            ]
-            # Pair each on-screen mobject with its counterpart in the
-            # target checkpoint by variable name (identity can't match
-            # across deep copies). Matched pairs morph one-to-one;
-            # unmatched ones fade, so a mobject that doesn't exist in
-            # the target never blends into an unrelated shape.
-            live = self._live_namespace or {}
-            names_by_id = {
-                id(v): n for n, v in live.items() if isinstance(v, Mobject)
-            }
-            target_by_name = {
-                n: v for n, v in temp['namespace'].items()
-                if isinstance(v, Mobject)
-            }
-            # The morph is a display-only interpolation between two frozen
-            # states, so updaters must not run during it: an always_redraw
-            # rebuilds itself at full opacity every frame, fighting the
-            # fade, and once it changes its point count the Transform
-            # interpolates against stale families and draws garbage. Both
-            # sides are suspended — the incoming target copies would fight
-            # the same way. Whatever the restore puts on screen is resumed
-            # below; the current mobjects are discarded with the morph.
-            for mob in (*current_mobs, *target_mobs):
-                mob.suspend_updating()
-
-            target_ids = set(map(id, target_mobs))
-            anims = []
-            matched = set()
-            for mob in current_mobs:
-                tgt = target_by_name.get(names_by_id.get(id(mob)))
-                if tgt is not None and id(tgt) in target_ids:
-                    anims.append(Transform(mob, tgt))
-                    matched.add(id(tgt))
-                else:
-                    anims.append(FadeOut(mob))
-            anims.extend(
-                FadeIn(tgt) for tgt in target_mobs if id(tgt) not in matched
+        index = self.current_animation_index
+        if index <= 0:
+            print("Already at first animation")
+            return
+        if self._pause_anchored():
+            target = next(
+                (i for i in range(index - 1, -1, -1)
+                 if i == 0 or checkpoints[i].get('stop')),
+                0,
             )
-            if anims:
-                # Flagged so a viewer's timeline can light the stretch from
-                # the end being returned to: the index has already landed on
-                # the destination, so the play alone can't tell which way
-                # this is going.
-                self._reversing = True
-                try:
-                    with self._no_checkpoints():
-                        self.play(*anims, run_time=self._reverse_run_time(index))
-                finally:
-                    self._reversing = False
-        except Exception as e:
-            log.warning(f"Reverse transition failed ({e}); jumping instead")
-        # Land exactly on the checkpoint state regardless of how the
-        # morph went
-        self.clear()
-        self.restore_state(target_state)
-        # Wake the landed state's updaters (suspended above, and restore
-        # may have copied that flag); parked checkpoints keep updaters
-        # live, same as UP/DOWN navigation
-        for mob in self.mobjects:
-            mob.resume_updating()
-        namespace = temp['namespace']
-        namespace['self'] = self
-        self._live_namespace = namespace
+        else:
+            target = index - 1
+        print(f"← Back to animation {target}/{len(checkpoints) - 1}")
+        self._restore_checkpoint_for_display(target)
+        if timeline_visible:
+            self._show_timeline()
+        self.update_frame(dt=0, force_draw=True)
 
     def on_key_release(
         self,
@@ -353,17 +268,7 @@ class InteractionMixin:
                 # Set flag to prevent re-entry
                 self._processing_key = True
                 try:
-                    self.current_animation_index -= 1
-                    print(f"← Reverse to animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1}")
-                    if timeline_visible:
-                        self._show_timeline(active_segment=(
-                            self.current_animation_index,
-                            self.current_animation_index + 1,
-                        ))
-                    self._play_reverse_to(self.current_animation_index)
-                    if timeline_visible:
-                        self._show_timeline()
-                    self.update_frame(dt=0, force_draw=True)
+                    self._reverse_to_previous_pausepoint(timeline_visible)
                 finally:
                     # Clear the flag
                     self._processing_key = False
@@ -385,7 +290,7 @@ class InteractionMixin:
                         self.current_animation_index,
                         self.current_animation_index + 1,
                     ))
-                self.run_next_animation()
+                self.advance_to_next_pausepoint()
                 if timeline_visible:
                     self._show_timeline()
             finally:

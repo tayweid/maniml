@@ -1,19 +1,21 @@
 """AST-based mapping of a scene file's construct() body into animation units.
 
 An *animation unit* is a run of consecutive top-level statements in
-construct() ending with a *stop statement*: one containing a call to the
-method that anchors checkpoints. Which method that is depends on the file
-(see ``pause_anchored``): a file that calls ``self.pause()`` (or CE's
-``self.next_section()``) anywhere is pause-anchored — pauses are the
-stops, and any number of plays between them runs through as one stretch;
-a file with no pauses keeps the legacy anchoring where every
-``.play(...)`` is a stop, which is what lets an unmodified CE file be
-stepped without edits. Statements after the last stop form a trailing
-unit with ``has_stop=False`` (e.g. a final ``self.wait()``).
+construct() ending with a *boundary statement*: one containing a call
+that saves a checkpoint. Every ``.play(...)`` is a boundary — each play
+saves a full checkpoint, which is what makes per-play navigation and
+reverse morphing work. In a *pause-anchored* file (one that calls
+``self.pause()`` or CE's ``self.next_section()`` anywhere — see
+``pause_anchored``) pause statements are boundaries too, and their units
+carry ``is_pause=True``: a pause's checkpoint is a *pausepoint*, the
+authored stop that RIGHT/LEFT and a presentation move between, while the
+play checkpoints between pauses are interior states that run through.
+Statements after the last boundary form a trailing unit with
+``has_stop=False`` (e.g. a final ``self.wait()``).
 
-The checkpoint system executes one unit at a time, so a stop call inside
-a for-loop or if-block re-executes with its full enclosing statement
-instead of a truncated text snippet.
+The checkpoint system executes one unit at a time, so a boundary call
+inside a for-loop or if-block re-executes with its full enclosing
+statement instead of a truncated text snippet.
 """
 
 from __future__ import annotations
@@ -31,10 +33,11 @@ class AnimationUnit:
     index: int        # 0-based position within construct()
     start_line: int   # 1-based first line of the unit's first statement
     end_line: int     # 1-based last line of the unit's last statement
-    has_stop: bool    # False only for a trailing unit with no stop call
+    has_stop: bool    # False only for a trailing unit with no boundary call
     source: str       # exec-ready source for this unit
-    stops: int = 1    # stop calls written in the unit's source
+    stops: int = 1    # boundary calls written in the unit's source
     loops: bool = False   # at least one of them sits inside a loop
+    is_pause: bool = False  # the boundary is a pause: its checkpoint is a pausepoint
 
     @property
     def indeterminate(self) -> bool:
@@ -48,23 +51,32 @@ class AnimationUnit:
         return self.loops or self.stops > 1
 
 
-def _is_stop_call(node: ast.AST, pause_mode: bool) -> bool:
-    """Whether this node is a call to the checkpoint-anchoring method.
+def _is_pause_call(node: ast.AST) -> bool:
+    """Whether this node is a ``self.pause()`` / ``self.next_section()`` call.
 
-    Pauses must be spelled on ``self`` — ``self.pause()`` /
-    ``self.next_section()`` — so that a scene about, say, a media player
-    calling ``player.pause()`` cannot silently flip the whole file into
-    pause-anchored mode. Plays keep the loose ``.play`` match they have
-    always had: a false positive there costs one extra unit boundary,
-    not a mode change.
+    Pauses must be spelled on ``self`` so that a scene about, say, a media
+    player calling ``player.pause()`` cannot silently flip the whole file
+    into pause-anchored mode.
     """
     if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
         return False
     func = node.func
-    if pause_mode:
-        return (func.attr in ('pause', 'next_section')
-                and isinstance(func.value, ast.Name) and func.value.id == 'self')
-    return func.attr == 'play'
+    return (func.attr in ('pause', 'next_section')
+            and isinstance(func.value, ast.Name) and func.value.id == 'self')
+
+
+def _is_stop_call(node: ast.AST, pause_mode: bool) -> bool:
+    """Whether this node is a call that saves a checkpoint.
+
+    Every ``.play(...)`` is one — the loose attribute match it has always
+    had; a false positive costs one extra unit boundary, nothing more. In
+    pause-anchored mode pauses are checkpoint boundaries too.
+    """
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+        return False
+    if node.func.attr == 'play':
+        return True
+    return pause_mode and _is_pause_call(node)
 
 
 def _count_stops(node: ast.AST, pause_mode: bool) -> int:
@@ -107,7 +119,22 @@ def _tree_uses_pauses(tree: ast.Module) -> bool:
     helper fires at runtime all the same, and must put the file in
     pause-anchored mode even though it adds no unit boundary.
     """
-    return any(_is_stop_call(node, pause_mode=True) for node in ast.walk(tree))
+    return any(_is_pause_call(node) for node in ast.walk(tree))
+
+
+def _count_pauses(node: ast.AST) -> int:
+    """Pause calls that run when this statement executes (def/lambda
+    bodies excluded, same as _count_stops)."""
+    count = 0
+    stack = [node]
+    while stack:
+        sub = stack.pop()
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if _is_pause_call(sub):
+            count += 1
+        stack.extend(ast.iter_child_nodes(sub))
+    return count
 
 
 def pause_anchored(source: str) -> bool:
@@ -188,6 +215,7 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
                 source=_unit_source(lines, pending_start, stmt.end_lineno),
                 stops=stops,
                 loops=_stop_in_loop(stmt, pause_mode),
+                is_pause=pause_mode and _count_pauses(stmt) > 0,
             ))
             pending_start = None
 

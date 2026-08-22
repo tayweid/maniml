@@ -316,20 +316,24 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         index = self.current_animation_index
         if not (0 < index < len(checkpoints)) or not checkpoints[index].get('loop'):
             return
-        unit = checkpoints[index].get('unit_index')
+        # Rewind to the previous pausepoint (or the scene start) and run
+        # the whole stretch again. run_next_animation restores each base
+        # checkpoint before exec and the replays re-save the same slots —
+        # the re-executed pause re-raises the flags — so the scene lands
+        # parked here again for the next lap.
         base = next(
             (i for i in range(index - 1, -1, -1)
-             if checkpoints[i].get('unit_index') != unit),
+             if i == 0 or checkpoints[i].get('stop')),
             None,
         )
         if base is None:
             return
-        # run_next_animation restores the base checkpoint itself before
-        # exec, re-runs the unit, and re-saves this same checkpoint slot
-        # (the re-executed pause re-raises the flag) — landing the scene
-        # parked here again for the next lap.
         self.current_animation_index = base
-        self.run_next_animation()
+        while self.current_animation_index < index:
+            last = self.current_animation_index
+            self.run_next_animation()
+            if self.current_animation_index == last:
+                return
 
     def embed(self, *args, **kwargs) -> None:
         """ManimGL's IPython embed mode was removed from maniml.
@@ -756,36 +760,34 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.finish_animations(animations)
         self.post_play()
 
-        # Save checkpoint AFTER animation completes. In a pause-anchored
-        # file only self.pause() saves; the play just extends the current
-        # stretch, whose accumulated span the pause's checkpoint records.
-        self._stretch_run_time = (
-            getattr(self, '_stretch_run_time', 0.0) + self.get_run_time(animations)
-        )
+        # Save checkpoint AFTER animation completes. Every play saves —
+        # the per-play copies are what power UP/DOWN navigation and the
+        # play-by-play reverse morph. Pauses only mark which of these
+        # checkpoints are stops.
         if line_no:
             self._remember_scene_filepath()
-            if not self._pause_anchored():
-                namespace = self._capture_caller_namespace()
-                self._save_checkpoint(line_no, unit_index, namespace,
-                                      run_time=self.get_run_time(animations))
+            namespace = self._capture_caller_namespace()
+            self._save_checkpoint(line_no, unit_index, namespace,
+                                  run_time=self.get_run_time(animations))
 
     def pause(self, name: str | None = None, loop: bool = False) -> None:
-        """Mark a pausepoint: save a checkpoint of the scene right here.
+        """Mark a pausepoint: a checkpoint flagged as a stop.
 
-        A file that calls this anywhere is *pause-anchored*: these calls
-        become the only checkpoints, so any number of plays between two
-        pauses runs through as one stretch — one stop on the timeline, one
-        step of the arrow keys. In a file with no pauses every play saves
-        its own checkpoint (the CE-compatible default) and this is a no-op.
+        Every play saves its own checkpoint regardless; pause() saves one
+        more, flagged, and the flags are what RIGHT/LEFT and a
+        presentation move between — the plays inside a stretch run
+        through, while UP/DOWN still step the per-play states. In a file
+        with no pauses every checkpoint is a stop (the CE-compatible
+        default) and this is a no-op.
 
         Runs anywhere play() does: helpers and loop bodies included, since
         the checkpoint is saved at call time rather than found in source.
 
         ``loop=True`` makes this a looping hold in the live viewer: while
-        parked here, the stretch that led in replays over and over until
-        an arrow key moves elsewhere (see _maybe_replay_loop_pause).
-        Everywhere else — render, export, a scene run to completion — it
-        is an ordinary pausepoint.
+        parked here, the stretch back to the previous pausepoint replays
+        over and over until an arrow key moves elsewhere (see
+        _maybe_replay_loop_pause). Everywhere else — render, export, a
+        scene run to completion — it is an ordinary pausepoint.
         """
         if getattr(self, '_suppress_checkpoints', False):
             return
@@ -796,8 +798,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             namespace = self._capture_caller_namespace()
             self._save_checkpoint(line_no, unit_index, namespace, name=name)
             self._remember_scene_filepath()
+            checkpoint = self.animation_checkpoints[self.current_animation_index]
+            checkpoint['stop'] = True
             if loop:
-                self.animation_checkpoints[self.current_animation_index]['loop'] = True
+                checkpoint['loop'] = True
 
     def next_section(self, name: str = "", type: str | None = None,
                      skip_animations: bool = False) -> None:

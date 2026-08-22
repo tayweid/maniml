@@ -188,11 +188,12 @@ class LiveSoundTests(unittest.TestCase):
 
 
 class LoopPauseTests(unittest.TestCase):
-    """pause(loop=True) makes the live viewer replay the checkpoint's unit
-    while parked on it; everywhere else it is an ordinary pausepoint."""
+    """pause(loop=True) makes the live viewer replay the whole stretch —
+    from the previous pausepoint — while parked on it; everywhere else it
+    is an ordinary pausepoint."""
 
     @staticmethod
-    def parked_scene(index=2, loop=True):
+    def parked_scene(index=4, loop=True, with_earlier_stop=True):
         scene = Scene.__new__(Scene)
         scene.skip_animations = False
         scene._is_playing = False
@@ -200,22 +201,34 @@ class LoopPauseTests(unittest.TestCase):
         scene.animation_checkpoints = [
             {"unit_index": -1},
             {"unit_index": 0},
-            {"unit_index": 1, "loop": loop},
+            {"unit_index": 1, "stop": with_earlier_stop},
+            {"unit_index": 2},
+            {"unit_index": 3, "stop": True, "loop": loop},
         ]
-        scene.run_next_animation = MagicMock()
+
+        def advance():
+            scene.current_animation_index += 1
+        scene.run_next_animation = MagicMock(side_effect=advance)
         return scene
 
-    def test_parked_on_a_loop_pause_replays_its_unit(self):
+    def test_parked_on_a_loop_pause_replays_its_stretch(self):
         scene = self.parked_scene()
         scene._maybe_replay_loop_pause()
-        # rewound to the last checkpoint before the looping unit, then re-run
-        self.assertEqual(scene.current_animation_index, 1)
-        scene.run_next_animation.assert_called_once_with()
+        # rewound to the previous stop (2), then run back up to the loop
+        # pausepoint: two units re-run, parked at 4 again for the next lap
+        self.assertEqual(scene.run_next_animation.call_count, 2)
+        self.assertEqual(scene.current_animation_index, 4)
+
+    def test_without_an_earlier_stop_the_lap_starts_at_the_beginning(self):
+        scene = self.parked_scene(with_earlier_stop=False)
+        scene._maybe_replay_loop_pause()
+        self.assertEqual(scene.run_next_animation.call_count, 4)
+        self.assertEqual(scene.current_animation_index, 4)
 
     def test_an_ordinary_pausepoint_stays_parked(self):
         scene = self.parked_scene(loop=False)
         scene._maybe_replay_loop_pause()
-        self.assertEqual(scene.current_animation_index, 2)
+        self.assertEqual(scene.current_animation_index, 4)
         scene.run_next_animation.assert_not_called()
 
     def test_no_replay_while_playing_or_fast_forwarding(self):
@@ -233,6 +246,12 @@ class LoopPauseTests(unittest.TestCase):
         scene = self.parked_scene(index=0)
         scene._maybe_replay_loop_pause()
         scene.run_next_animation.assert_not_called()
+
+    def test_a_stalled_replay_gives_up_instead_of_spinning(self):
+        scene = self.parked_scene()
+        scene.run_next_animation = MagicMock()   # no progress (error path)
+        scene._maybe_replay_loop_pause()
+        scene.run_next_animation.assert_called_once_with()
 
     def test_interact_only_replays_with_a_client_attached(self):
         """The loop is a live-viewer behavior: the interact loop consults the

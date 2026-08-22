@@ -261,12 +261,13 @@ class WebViewer:
             # it would say a move is under way through every pause.
             return
         index = self.scene.current_animation_index
-        # A reverse morph has already landed the index on its destination,
-        # so both directions light the same stretch; only which end it grows
-        # from differs.
+        # `back` stays in the protocol for the recorded-playback layer,
+        # whose reverse playback will have landed the index on its
+        # destination before the frames run — today it is always false,
+        # since backward navigation is an instant jump.
         self._broadcast_move(
             index, index + 1, bool(getattr(self.scene, "_reversing", False)),
-            getattr(self.scene, "_playing_unit", None))
+            self._chip_unit(getattr(self.scene, "_playing_unit", None)))
 
     def end_animation(self):
         self._animating = False
@@ -653,31 +654,56 @@ class WebViewer:
             "current": scene.current_animation_index,
             "count": len(checkpoints),
             "lines": [c.get("line_number") for c in checkpoints],
-            # Which source statement each checkpoint came from, so the rail
-            # can keep a loop's checkpoints collapsed into the one chip that
-            # stood for them before it ran.
-            "units": [c.get("unit_index") for c in checkpoints],
+            # Which chip each checkpoint belongs to, so the rail can keep
+            # a chip's checkpoints collapsed into it: the source statement
+            # in a plain file, the enclosing pausepoint segment in a
+            # pause-anchored one (interior play checkpoints group under
+            # the pause that ends their stretch).
+            "units": [self._chip_unit(c.get("unit_index")) for c in checkpoints],
             "future": self._future_units(),
         }
 
+    def _chip_unit(self, unit_index):
+        """Map a checkpoint's source unit to the chip that stands for it.
+
+        Plain files: the unit itself (every checkpoint is a stop). In a
+        pause-anchored file a chip is a *pausepoint*, so a play
+        checkpoint maps forward to the pause unit that ends its stretch;
+        plays after the last pause keep their own unit. Checkpoint 0
+        (unit -1) is always its own Start chip.
+        """
+        scene = self.scene
+        if unit_index is None or unit_index < 0:
+            return unit_index
+        if not scene._pause_anchored():
+            return unit_index
+        units = scene._get_source_units() or []
+        for u in units:
+            if u.index >= unit_index and u.is_pause:
+                return u.index
+        return unit_index
+
     def _future_units(self) -> list[dict]:
-        """Stop-units not yet checkpointed, so the timeline can show the
-        whole scene up front. One chip per unit — a loop's repeated stops
-        only become individual chips once the unit runs, which is what
-        ``many`` warns about: the chip stands for an unknown number of
-        pausepoints rather than exactly one."""
+        """Chip-units not yet checkpointed, so the timeline can show the
+        whole scene up front — pause units in a pause-anchored file, every
+        boundary unit otherwise. One chip per unit — a loop's repeated
+        stops only become individual chips once the unit runs, which is
+        what ``many`` warns about: the chip stands for an unknown number
+        of pausepoints rather than exactly one."""
         scene = self.scene
         units = scene._get_source_units()  # cached by (path, mtime)
         if not units:
             return []
-        last_unit = -1
+        pause_mode = scene._pause_anchored()
+        last_chip = -1
         for checkpoint in scene.animation_checkpoints:
-            unit_index = checkpoint.get("unit_index")
-            if unit_index is not None:
-                last_unit = max(last_unit, unit_index)
+            chip = self._chip_unit(checkpoint.get("unit_index"))
+            if chip is not None:
+                last_chip = max(last_chip, chip)
         return [
             {"unit": u.index, "line": u.start_line, "many": u.indeterminate}
-            for u in units if u.has_stop and u.index > last_unit
+            for u in units
+            if (u.is_pause if pause_mode else u.has_stop) and u.index > last_chip
         ]
 
     def _broadcast_move(self, frm, to, back: bool, unit) -> None:

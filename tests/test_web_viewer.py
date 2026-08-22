@@ -234,12 +234,14 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 for b in header["batches"] if not b.get("cached"))
             self.assertEqual(total, len(vertex_bytes))
 
-            # Streaming: with geometry mode on, an animation (LEFT-arrow
-            # reverse works even on a fully-run scene) mirrors every
-            # pixel frame with a geometry payload
+            # Streaming: with geometry mode on, an animation mirrors every
+            # pixel frame with a geometry payload. LEFT is an instant jump
+            # (no frames), so jump back and re-run the unit with RIGHT.
             ws.send(json.dumps({"type": "mode", "geometry": True}))
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowLeft"}))
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
             frames, _ = self._collect(ws, 4)
             geometry_frames = [f for f in frames if f[0] == 0x03]
             jpeg_frames = [f for f in frames if f[0] == 0x01]
@@ -256,6 +258,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self._collect(ws, 1)  # drain the mode-change transition
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowLeft"}))
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
             frames, _ = self._collect(ws, 4)
             solo_geometry = [f for f in frames if f[0] == 0x03]
             solo_pixels = [f for f in frames if f[0] in (0x01, 0x02)]
@@ -438,19 +442,32 @@ class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
             # unit, and neither may report more than that play's own move.
             self.assertLessEqual(len(starts), 1, "a wait reported a move")
 
-    def test_a_reverse_morph_lights_the_same_stretch_the_other_way(self):
-        """The index has already landed on the destination by the time the
-        morph plays, so the direction has to be carried explicitly."""
+    def test_left_is_an_instant_jump_and_announces_no_move(self):
+        """Backward navigation is a jump (DECISIONS.md, "Backward
+        navigation is a jump"): the state lands directly on the target and
+        no move message fires — `back` stays reserved for the
+        recorded-playback layer."""
+        def latest_current(states, fallback):
+            currents = [s.get("current") for s in states
+                        if s.get("type") == "state"]
+            return currents[-1] if currents else fallback
+
         with self._connect() as ws:
-            self._collect(ws, 2)
-            self._press(ws, "ArrowRight")
-            self._collect(ws, 8)
+            _, states = self._collect(ws, 2)
+            current = latest_current(states, 0)
+            if current == 0:
+                # a fresh scene: move off the start so there is somewhere
+                # to jump back to (tests share this scene process, so it
+                # may already be mid-scene)
+                self._press(ws, "ArrowRight")
+                _, states = self._collect(ws, 8)
+                current = latest_current(states, 1)
             self._press(ws, "ArrowLeft")
             _, states = self._collect(ws, 8)
-            back = [m for m in self._moves(states) if m["from"] is not None]
-            self.assertTrue(back, "no move message for the reverse morph")
-            self.assertTrue(back[0]["back"],
-                            "the reverse morph must light from the far end")
+            moves = [m for m in self._moves(states) if m["from"] is not None]
+            self.assertFalse(moves, "a jump must not announce a move")
+            self.assertEqual(latest_current(states, None), current - 1,
+                             "LEFT did not land one checkpoint back")
 
 
 MULTI_SCENE_SOURCE = """

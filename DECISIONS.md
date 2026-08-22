@@ -326,3 +326,63 @@ the only possible mechanism. The shape, respecting existing invariants:
   player would need a start gesture anyway;
 - the baked player additionally needs the sound files copied into the
   export folder and timeline-synced playback in `player.js`.
+
+## Pausepoints are marks on play-checkpoints, not the checkpoints themselves (decided 2026-08-23)
+
+One day of dogfooding overturned the previous entry's core mechanism
+while keeping its purpose. Pause-only checkpointing quietly deleted the thing
+that made LEFT feel like true reversal: with a checkpoint at every play,
+a backward step crossed one small delta and the name-paired morph
+retraced it faithfully; with checkpoints only at pauses, LEFT crossed a
+whole stretch whose target predates everything built inside it, so
+nothing paired and the scene crossfaded wholesale (first seen on
+0_Welcome's unemployment timeseries).
+
+Alternatives considered and rejected: state-only "breadcrumbs" stored
+per play (memory lifecycle for something derivable); re-deriving
+breadcrumbs at LEFT-time by fast-forward re-execution (rejected as
+architecture smell — navigation shouldn't re-run code); recording the
+render/geometry stream and playing it backward (correct and additive —
+converges the live viewer with the baked player — but it is a *playback
+layer* on top of the computation layer, not a substitute; deliberately
+deferred, see the shape in the discussion of segment caches).
+
+So the resolution is the simple hybrid: **every play saves a full
+checkpoint again, exactly as before pause() existed; pause() saves one
+more, flagged `stop`.** What pause() buys is purely the authored rest:
+RIGHT runs play-to-play until the next flag, LEFT morphs back hop by
+hop to the previous one (the pause-hop lands instantly — its checkpoint
+duplicates the play before it), UP/DOWN keep per-play fine navigation,
+and pause(loop=True) laps the stretch from the previous flag. Memory
+returns to pre-pause levels, which a day of use had already shown was
+acceptable — and cheaper navigation was never worth the reverse.
+The rail keeps its wire protocol: the viewer maps each checkpoint to
+its pausepoint chip server-side (`_chip_unit`), so interior play
+checkpoints collapse into the pause chip and the client is untouched.
+
+## Backward navigation is a jump (decided 2026-08-23, ~3am)
+
+The reverse *morph* is gone. It was never a true reversal — from the
+first prototype on, LEFT was a name-paired whole-scene morph between two
+stored states, and states are photographs: nothing in them says how a
+line was drawn, so a Create could only ever fade, and one night of
+pausepoint dogfooding surfaced three separate failure modes (whole-
+stretch crossfades, updater fights, trackers unpaired because they join
+the scene only when first animated). Each was fixable — the last fix
+proved a frame-exact tracker rewind — but the mechanism misleads
+precisely when reverse matters most, and a presenter has to be able to
+trust the key.
+
+So LEFT now jumps: instant restore of the previous pausepoint's exact
+state, the same trusted path UP/DOWN use. What was deleted:
+`_play_reverse_to` (pairing, updater discipline, the ValueTracker
+special case) and `_reverse_run_time` with its constants. What stays:
+per-play checkpoints, `run_time` recorded on each (the playback layer
+needs the spans), and the protocol's `back` field (a reverse *playback*
+will light the rail the same way).
+
+True reversal is a playback problem, not a state problem: it arrives
+with the recorded render-stream layer (TODO.md, "Recorded playback"),
+which replays what the GPU was actually sent, in reverse — exact for
+any content, no heuristics. Until then the honest options were a jump
+or a sometimes-beautiful, sometimes-lying morph; the jump won.
