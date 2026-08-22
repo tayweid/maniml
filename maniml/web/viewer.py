@@ -782,6 +782,15 @@ class WebViewer:
             # pause-anchored one (interior play checkpoints group under
             # the pause that ends their stretch).
             "units": [self._chip_unit(c.get("unit_index")) for c in checkpoints],
+            # Which checkpoints are pausepoints (every one, in a plain
+            # file): a chip stacks only when it holds several of THESE —
+            # interior play steps never make a stack.
+            "stops": [
+                bool(c.get("stop"))
+                or not scene._pause_anchored()
+                or c.get("index") == 0
+                for c in checkpoints
+            ],
             "future": self._future_units(),
         }
 

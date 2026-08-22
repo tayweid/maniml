@@ -48,8 +48,7 @@ const ManimlPresentation = (() => {
     if (loopRange) {
       const [from, to] = loopRange;
       video.currentTime = now + STEP > to ? from : now + STEP;
-      report();
-      return;
+      return;   // the rail holds at the loop pausepoint while lapping
     }
     const delta = target - now;
     if (Math.abs(delta) <= STEP) {
@@ -57,18 +56,19 @@ const ManimlPresentation = (() => {
       arrive();
     } else {
       video.currentTime = now + Math.sign(delta) * STEP;
+      // Deliberately no state report mid-move: the rail keeps the origin
+      // chip current with the link lit, exactly like the live viewer —
+      // the state lands only on arrival.
     }
-    report();
   }
 
   function arrive() {
     const cp = checkpoints()[indexAt(target)];
     if (callbacks.onMove) callbacks.onMove(null);       // stretch crossed
+    if (callbacks.onRest) callbacks.onRest(cp ? cp.index : 0);
     if (cp && cp.loop) {
       const from = prevStop(cp.time);
       loopRange = [from ? from.time : 0, cp.time];
-    } else if (callbacks.onRest) {
-      callbacks.onRest(cp ? cp.index : 0);
     }
   }
 

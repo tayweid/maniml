@@ -971,17 +971,21 @@ let groupOf = [];   // checkpoint index -> chip index
 
 function buildGroups(state, future) {
   const units = state.units || [];
+  const stops = state.stops || [];
   const built = [];
   groupOf = [];
   for (let i = 0; i < state.count; i++) {
     const unit = units[i] === undefined ? null : units[i];
+    const isStop = stops[i] === undefined ? true : !!stops[i];
     const last = built[built.length - 1];
     // A checkpoint with no unit (checkpoint 0, or a play with no anchor)
     // never merges: nothing says it belongs with its neighbour.
     if (last && last.known && unit !== null && last.unit === unit) {
       last.indices.push(i);
+      if (isStop) last.stopCount += 1;
     } else {
-      built.push({ known: true, unit, indices: [i], line: state.lines[i] });
+      built.push({ known: true, unit, indices: [i],
+                   stopCount: isStop ? 1 : 0, line: state.lines[i] });
     }
     groupOf[i] = built.length - 1;
   }
@@ -1003,7 +1007,9 @@ function drawRail(state, future, current) {
 
 function makeChip(group, g, current) {
   const holds = group.known ? group.indices.length : 0;
-  const many = holds > 1 || (!group.known && group.many);
+  // A stack means several PAUSEPOINTS share this chip (a pause in a loop)
+  // — interior play steps between pauses never make one.
+  const many = (group.known ? group.stopCount > 1 : group.many);
   const isCurrent = group.known && group.indices.includes(current);
   const past = group.known && group.indices[holds - 1] < current;
   const chip = document.createElement("button");
@@ -1013,11 +1019,14 @@ function makeChip(group, g, current) {
     + (isCurrent ? " current" : "") + (many ? " many" : "");
   if (group.known) {
     const first = group.indices[0], last = group.indices[holds - 1];
-    chip.title = holds > 1
+    chip.title = many
       ? "Pausepoints " + first + "\u2013" + last + " · line " + group.line
         + " · one statement, stepped through with the arrow keys"
-      : (first === 0 ? "Start" : "Pausepoint " + first
-         + (group.line ? " · line " + group.line : ""));
+      : (first === 0 ? "Start"
+         : "Pausepoint · line " + group.line
+           + (holds > 1
+              ? " · " + (holds - 1) + " play steps inside (\u2191\u2193)"
+              : ""));
   } else {
     chip.title = group.many
       ? "Runs to line " + group.line + " · a loop or branch, so how many "
@@ -1153,6 +1162,7 @@ function synthPlaybackState(index) {
     file: (playbackMeta.source || {}).file || "",
     current: index, count: cps.length,
     lines: cps.map((c) => c.line), units: cps.map((c) => c.chip_unit),
+    stops: cps.map((c) => !!c.stop),
     future: [], present: true,
     baked: !!(lastLiveState && lastLiveState.baked),
     present_bundle: true,
@@ -1186,7 +1196,7 @@ async function enterPlayback() {
     onMove: (from, to, back, unit) => handleMove(
       from === null || from === undefined
         ? { from: null } : { from, to, back, unit }),
-    onRest: () => {},
+    onRest: (index) => handleState(synthPlaybackState(index)),
   });
   const seekStart = () => ManimlPresentation.seekCheckpoint(startIndex);
   if (playbackVideo.readyState >= 1) seekStart();
