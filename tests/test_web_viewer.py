@@ -228,6 +228,48 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                     stale = value
             self.assertFalse(stale, "hash mismatch still reported fresh")
 
+    def test_app_relay_answers_scene_output_folders(self):
+        """Through the app, the page lives on the app's origin and fetches
+        /scene/<id>/present|baked/* — the app must answer those from the
+        scene process backing the id, Range included, or Present cannot
+        find the bundle it is standing next to."""
+        from types import SimpleNamespace
+        from maniml.web.app import AppServer
+
+        bundle = os.path.join(self.tmpdir.name, "media", f"{self.SCENE}_present")
+        os.makedirs(bundle, exist_ok=True)
+        with open(os.path.join(bundle, "present.json"), "w") as f:
+            json.dump({"format": 1, "checkpoints": []}, f)
+        with open(os.path.join(bundle, "scene.mp4"), "wb") as f:
+            f.write(b"0123456789")
+        with self._connect() as ws:
+            self._collect(ws, 3)   # a state broadcast mounts present_dir
+
+        from websockets.datastructures import Headers
+        stub = SimpleNamespace(
+            _scenes_by_id={"abc": SimpleNamespace(
+                url=self.url, alive=lambda: True)},
+            _SCENE_ASSET=AppServer._SCENE_ASSET,
+        )
+
+        def relay(path, headers=()):
+            request = SimpleNamespace(
+                method="GET", path=path, headers=Headers(list(headers)))
+            return AppServer._relay_scene_asset(stub, request)
+
+        answer = relay("/scene/abc/present/present.json")
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(json.loads(answer.body)["format"], 1)
+
+        partial = relay("/scene/abc/present/scene.mp4",
+                        [("Range", "bytes=2-5")])
+        self.assertEqual(partial.status_code, 206)
+        self.assertEqual(partial.body, b"2345")
+
+        missing = relay("/scene/nope/present/present.json")
+        self.assertEqual(missing.status_code, 404)
+        self.assertIsNone(relay("/other/path"))
+
     def test_baked_export_is_served_on_the_same_origin(self):
         """media/<Scene>_web is mounted read-only at /baked/ on the one
         port; escaping the folder is contained."""

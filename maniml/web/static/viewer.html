@@ -535,6 +535,10 @@ const railEl = document.getElementById("rail");
 const sceneParam = new URLSearchParams(location.search).get("scene");
 const wsUrl = "ws://" + location.host
   + (sceneParam ? "/scene/" + encodeURIComponent(sceneParam) : "/");
+// The scene's output folders (/present/, /baked/) take the same detour as
+// the socket: through the app's relay when the page was opened through it.
+const scenePrefix = sceneParam
+  ? "/scene/" + encodeURIComponent(sceneParam) : "";
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 let ws = null;
@@ -1137,6 +1141,7 @@ document.getElementById("restart-scene").onclick = () => {
 // nothing at all until playback exits.
 const playbackVideo = document.getElementById("playback-video");
 const staleBadge = document.getElementById("present-stale");
+document.getElementById("open-baked").href = scenePrefix + "/baked/";
 let stageSource = "live";       // "live" | "playback"
 let lastLiveState = null;       // latest state message from the engine
 let presentPending = false;     // a render for Present is in flight
@@ -1159,7 +1164,7 @@ let playbackMeta = null;
 async function enterPlayback() {
   let meta = null;
   try {
-    meta = await (await fetch("/present/present.json")).json();
+    meta = await (await fetch(scenePrefix + "/present/present.json")).json();
   } catch (err) { /* no bundle */ }
   if (!meta || meta.format !== 1 || !(meta.checkpoints || []).length) {
     showExportStatus("No recording — rendering one", "working");
@@ -1171,7 +1176,7 @@ async function enterPlayback() {
   stageSource = "playback";
   document.body.classList.add("playback");
   send({ type: "mode", geometry: false, pixels: false });  // engine sleeps
-  playbackVideo.src = "/present/scene.mp4";
+  playbackVideo.src = scenePrefix + "/present/scene.mp4";
   staleBadge.hidden = !lastLiveState || !!lastLiveState.present_fresh;
   const startIndex = Math.min(
     lastLiveState ? Math.max(0, lastLiveState.current) : 0,

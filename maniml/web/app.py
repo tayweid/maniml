@@ -270,6 +270,60 @@ class AppServer:
             recents.append({"path": str(recent), "name": recent.name, "dir": shown})
         return {"root": self.root, "recents": recents}
 
+    _SCENE_ASSET = re.compile(r"^/scene/([^/]+)(/(?:present|baked)(?:/.*)?)$")
+
+    def _relay_scene_asset(self, request):
+        """Serve a scene's output folders through the app's own origin.
+
+        The page speaks only to where it came from — the app's port is the
+        installed app's identity — so /scene/<id>/present/* and
+        /scene/<id>/baked/* are fetched here and answered from the scene
+        process backing that id, the same way its socket is relayed. Only
+        those two mounts, only GET, Range passed through for <video>
+        seeking.
+        """
+        from urllib.error import HTTPError, URLError
+        from urllib.request import Request as HttpRequest, urlopen
+
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        if request.method != "GET":
+            return None
+        match = self._SCENE_ASSET.match(urlsplit(request.path).path)
+        if match is None:
+            return None
+        scene_id, subpath = match.groups()
+        process = self._scenes_by_id.get(scene_id)
+        port = urlsplit(process.url).port if process and process.url else None
+        if port is None or not process.alive():
+            return Response(404, "Not Found", Headers(
+                [("Content-Length", "0"), ("Connection", "close")]), b"")
+
+        upstream = HttpRequest(f"http://127.0.0.1:{port}{subpath}")
+        range_header = request.headers.get("Range")
+        if range_header:
+            upstream.add_header("Range", range_header)
+        try:
+            with urlopen(upstream, timeout=30) as answer:
+                body = answer.read()
+                status = answer.status
+                phrase = answer.reason or "OK"
+                passed = Headers([("Connection", "close"),
+                                  ("Content-Length", str(len(body)))])
+                for name in ("Content-Type", "Content-Range",
+                             "Accept-Ranges", "Cache-Control"):
+                    value = answer.headers.get(name)
+                    if value:
+                        passed[name] = value
+                return Response(status, phrase, passed, body)
+        except HTTPError as error:
+            return Response(error.code, error.reason or "Error", Headers(
+                [("Content-Length", "0"), ("Connection", "close")]), b"")
+        except (URLError, OSError):
+            return Response(502, "Bad Gateway", Headers(
+                [("Content-Length", "0"), ("Connection", "close")]), b"")
+
     def open_payload(self, request: dict) -> dict:
         raw_path = request.get("path")
         try:
@@ -397,6 +451,9 @@ class AppServer:
         def process_request(connection, request):
             if is_websocket_upgrade(request):
                 return None
+            relayed = self._relay_scene_asset(request)
+            if relayed is not None:
+                return relayed
             return static_response(request, index="app.html")
 
         async def relay(ws, scene_id):
