@@ -128,6 +128,65 @@ class SceneRunLifecycleTests(unittest.TestCase):
         return scene
 
 
+class LiveSoundTests(unittest.TestCase):
+    """add_sound() plays through the system player exactly when there is a
+    live audience: a pyglet window, or a web viewer with a client. Render,
+    export (whose recorder stands in as _web_viewer without has_clients),
+    and headless runs stay silent."""
+
+    @staticmethod
+    def sounding_scene():
+        scene = Scene.__new__(Scene)
+        scene.skip_animations = False
+        scene.get_time = MagicMock(return_value=0.0)
+        scene.file_writer = MagicMock()
+        scene.window = None
+        scene._web_viewer = None
+        return scene
+
+    @patch("maniml.scene.scene.play_sound")
+    def test_window_mode_plays_live(self, play_sound):
+        scene = self.sounding_scene()
+        scene.window = object()
+        scene.add_sound("click.wav")
+        play_sound.assert_called_once_with("click.wav")
+        scene.file_writer.add_sound.assert_called_once()
+
+    @patch("maniml.scene.scene.play_sound")
+    def test_web_viewer_plays_only_with_a_client(self, play_sound):
+        scene = self.sounding_scene()
+        scene.window = scene._web_viewer = MagicMock()
+        scene._web_viewer.has_clients.return_value = True
+        scene.add_sound("click.wav")
+        play_sound.assert_called_once_with("click.wav")
+
+        play_sound.reset_mock()
+        scene._web_viewer.has_clients.return_value = False
+        scene.add_sound("click.wav")
+        play_sound.assert_not_called()
+
+    @patch("maniml.scene.scene.play_sound")
+    def test_export_recorder_and_headless_stay_silent(self, play_sound):
+        scene = self.sounding_scene()
+        scene.window = scene._web_viewer = SimpleNamespace()  # no has_clients
+        scene.add_sound("click.wav")
+        play_sound.assert_not_called()
+
+        scene = self.sounding_scene()  # headless: no window, no viewer
+        scene.add_sound("click.wav")
+        play_sound.assert_not_called()
+        scene.file_writer.add_sound.assert_called_once()
+
+    @patch("maniml.scene.scene.play_sound")
+    def test_fast_forwards_stay_silent(self, play_sound):
+        scene = self.sounding_scene()
+        scene.window = object()
+        scene.skip_animations = True
+        scene.add_sound("click.wav")
+        play_sound.assert_not_called()
+        scene.file_writer.add_sound.assert_not_called()
+
+
 class LoopPauseTests(unittest.TestCase):
     """pause(loop=True) makes the live viewer replay the checkpoint's unit
     while parked on it; everywhere else it is an ordinary pausepoint."""

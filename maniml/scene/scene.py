@@ -864,6 +864,19 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             return
         time = self.get_time() + time_offset
         self.file_writer.add_sound(sound_file, time, gain, gain_to_background)
+        # Live playback through the system player. The viewer is
+        # loopback-only, so the engine's speaker IS the viewer's speaker —
+        # no browser audio machinery needed (see DECISIONS.md, "Live sound
+        # is the system player"). Plays immediately: time_offset and gain
+        # shape only the rendered mix. Silent without a live audience —
+        # render and headless runs have no window, and export's recorder
+        # stands in as _web_viewer without ever having clients.
+        if self._web_viewer is not None:
+            audible = getattr(self._web_viewer, 'has_clients', lambda: False)()
+        else:
+            audible = self.window is not None
+        if audible:
+            play_sound(sound_file)
 
     # Helpers for interactive development
 

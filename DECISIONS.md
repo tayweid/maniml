@@ -283,3 +283,46 @@ not a hold. The `# %%` cell-marker idea in `TODO.md` is complementary,
 not competing: cells would restructure *execution* units; `pause()`
 decides where playback *holds*, and reaches the loop bodies and
 helpers that comments cannot.
+
+## Live sound is the system player; browser audio is deferred (decided 2026-08-22)
+
+Audio arrived in two halves. The render half was inherited working:
+`add_sound()` mixes pydub segments on the file writer's timeline (per-sound
+gain, timestamp overlay) and ffmpeg muxes them into the mp4; pydub and
+audioop-lts are packaged dependencies. The live half was a stub —
+`utils/sounds.py`'s `play_sound()` (afplay/SoundPlayer/aplay) existed with
+no call site, and the viewer had no audio at all.
+
+**Tier 1 (shipped):** `add_sound()` now also plays the file immediately
+through the system player whenever there is a live audience — a pyglet
+window, or a web viewer with a client attached. The correctness of this
+rests on the delivery decision above: *the viewer is loopback-only, so the
+engine and the browser always share a machine*, and engine-side audio is
+indistinguishable from browser audio to the person sitting there. The
+`skip_animations` guard keeps fast-forwards (present prep, watcher
+replays) silent; real-speed replays — `pause(loop=True)` laps included —
+re-trigger the sound, which is the honest semantic. `time_offset` and
+`gain` shape only the rendered mix; live playback is immediate and at
+file volume. Render and headless runs have no window and stay silent;
+export's `GeometryRecorder` stands in as `_web_viewer` without
+`has_clients`, so it stays silent too — the audience predicate needs no
+mode flags.
+
+**Tier 2 (deferred, design recorded so it need not be rediscovered):**
+browser-native audio, needed only when one of two things becomes real —
+remote viewing (engine and speaker no longer share a machine) or sound in
+the *baked player*, which has no engine at all and for which Tier 2 is
+the only possible mechanism. The shape, respecting existing invariants:
+
+- a `{"type": "sound", ...}` protocol message from `WebViewer`, kept
+  inside the transport seam (`wsUrl`, `send()`, the message pump) so a
+  future in-page Pyodide engine inherits it;
+- the audio file served over the same one-port origin, confined by
+  `security.py`'s scene-root machinery — no second origin, per the
+  delivery rule;
+- client-side `new Audio(url).play()` plus a mute control in the bar;
+  browsers require a prior user gesture, so a sound fired before first
+  interaction is swallowed — acceptable in the live viewer, but the baked
+  player would need a start gesture anyway;
+- the baked player additionally needs the sound files copied into the
+  export folder and timeline-synced playback in `player.js`.
