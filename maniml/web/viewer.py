@@ -387,6 +387,32 @@ class WebViewer:
         if scene is None:
             return
 
+        if kind == "present":
+            # Toggle present mode on the running scene: ON pre-runs every
+            # unit (validating the whole scene, building every checkpoint),
+            # rewinds to the start, and stops the file watcher — nothing
+            # re-parses mid-presentation. OFF re-arms the watcher and stays
+            # parked where it is.
+            if getattr(scene, "_processing_key", False):
+                return
+            scene._processing_key = True
+            try:
+                if getattr(scene, "_present_mode", False):
+                    scene._present_mode = False
+                    scene.auto_reload_enabled = True
+                    if getattr(scene, "_file_watcher", None) is None:
+                        scene._setup_file_watcher()
+                else:
+                    watcher = getattr(scene, "_file_watcher", None)
+                    if watcher is not None:
+                        watcher.stop()
+                        scene._file_watcher = None
+                    scene._present_mode = True
+                    scene._prepare_presentation()
+            finally:
+                scene._processing_key = False
+            return
+
         if kind == "key":
             symbol = self._map_key(event.get("key", ""))
             if symbol is None:
@@ -642,10 +668,22 @@ class WebViewer:
 
     # -- Outbound state --
 
+    def _baked_dir(self) -> Path | None:
+        """Where an export of this scene lands: media/<Scene>_web beside
+        the scene file. The server mounts it at /baked/ (same origin);
+        computed lazily since the filepath arrives after construction."""
+        scene = self.scene
+        raw_source = getattr(scene, "_scene_filepath", None) if scene else None
+        if not raw_source:
+            return None
+        return Path(raw_source).parent / "media" / f"{type(scene).__name__}_web"
+
     def _current_state(self) -> dict:
         scene = self.scene
         checkpoints = scene.animation_checkpoints
         raw_source = getattr(scene, "_scene_filepath", None)
+        baked = self._baked_dir()
+        self.server.baked_dir = baked
         return {
             "type": "state",
             "scene": type(scene).__name__,
@@ -653,6 +691,8 @@ class WebViewer:
             "file": Path(raw_source).name if raw_source else "scene.py",
             "current": scene.current_animation_index,
             "count": len(checkpoints),
+            "present": bool(getattr(scene, "_present_mode", False)),
+            "baked": bool(baked is not None and baked.is_dir()),
             "lines": [c.get("line_number") for c in checkpoints],
             # Which chip each checkpoint belongs to, so the rail can keep
             # a chip's checkpoints collapsed into it: the source statement

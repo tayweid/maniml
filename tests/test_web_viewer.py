@@ -152,6 +152,54 @@ class _ViewerHarness:
 
 
 class WebViewerE2E(_ViewerHarness, unittest.TestCase):
+    def test_present_toggle_prebuilds_and_stops_the_watcher(self):
+        """The Present button flips the running scene into present mode:
+        every unit pre-run, rewound to the start, watcher off — and back."""
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            ws.send(json.dumps({"type": "present"}))
+            deadline = time.time() + 20
+            on_state = None
+            while time.time() < deadline and on_state is None:
+                _, states = self._collect(ws, 2)
+                for s in states:
+                    if s.get("type") == "state" and s.get("present"):
+                        on_state = s
+            self.assertIsNotNone(on_state, "present mode never engaged")
+            self.assertEqual(on_state["current"], 0, "did not rewind to start")
+            self.assertGreaterEqual(on_state["count"], 4,
+                                    "checkpoints were not all pre-built")
+            ws.send(json.dumps({"type": "present"}))   # toggle back off
+            deadline = time.time() + 10
+            off = False
+            while time.time() < deadline and not off:
+                _, states = self._collect(ws, 2)
+                off = any(s.get("type") == "state" and not s.get("present")
+                          for s in states)
+            self.assertTrue(off, "present mode never disengaged")
+
+    def test_baked_export_is_served_on_the_same_origin(self):
+        """media/<Scene>_web is mounted read-only at /baked/ on the one
+        port; escaping the folder is contained."""
+        from urllib.request import urlopen
+        from urllib.error import HTTPError
+
+        baked = os.path.join(self.tmpdir.name, "media", f"{self.SCENE}_web")
+        os.makedirs(baked, exist_ok=True)
+        with open(os.path.join(baked, "index.html"), "w") as f:
+            f.write("<title>baked</title>")
+        with self._connect() as ws:
+            # a state broadcast sets server.baked_dir and carries the flag
+            _, states = self._collect(ws, 3)
+            with urlopen(self.url + "baked/", timeout=5) as response:
+                self.assertIn(b"baked", response.read())
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(self.url + "baked/../" + self.FILENAME, timeout=5)
+            self.assertEqual(caught.exception.code, 404)
+            self.assertTrue(
+                any(s.get("baked") for s in states if s.get("type") == "state"),
+                "state never advertised the baked export")
+
     def test_full_loop(self):
         # The client page is served
         page = urllib.request.urlopen(self.url, timeout=5).read().decode()
