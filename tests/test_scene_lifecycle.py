@@ -128,6 +128,73 @@ class SceneRunLifecycleTests(unittest.TestCase):
         return scene
 
 
+class LoopPauseTests(unittest.TestCase):
+    """pause(loop=True) makes the live viewer replay the checkpoint's unit
+    while parked on it; everywhere else it is an ordinary pausepoint."""
+
+    @staticmethod
+    def parked_scene(index=2, loop=True):
+        scene = Scene.__new__(Scene)
+        scene.skip_animations = False
+        scene._is_playing = False
+        scene.current_animation_index = index
+        scene.animation_checkpoints = [
+            {"unit_index": -1},
+            {"unit_index": 0},
+            {"unit_index": 1, "loop": loop},
+        ]
+        scene.run_next_animation = MagicMock()
+        return scene
+
+    def test_parked_on_a_loop_pause_replays_its_unit(self):
+        scene = self.parked_scene()
+        scene._maybe_replay_loop_pause()
+        # rewound to the last checkpoint before the looping unit, then re-run
+        self.assertEqual(scene.current_animation_index, 1)
+        scene.run_next_animation.assert_called_once_with()
+
+    def test_an_ordinary_pausepoint_stays_parked(self):
+        scene = self.parked_scene(loop=False)
+        scene._maybe_replay_loop_pause()
+        self.assertEqual(scene.current_animation_index, 2)
+        scene.run_next_animation.assert_not_called()
+
+    def test_no_replay_while_playing_or_fast_forwarding(self):
+        scene = self.parked_scene()
+        scene._is_playing = True
+        scene._maybe_replay_loop_pause()
+        scene.run_next_animation.assert_not_called()
+
+        scene = self.parked_scene()
+        scene.skip_animations = True
+        scene._maybe_replay_loop_pause()
+        scene.run_next_animation.assert_not_called()
+
+    def test_checkpoint_zero_never_loops(self):
+        scene = self.parked_scene(index=0)
+        scene._maybe_replay_loop_pause()
+        scene.run_next_animation.assert_not_called()
+
+    def test_interact_only_replays_with_a_client_attached(self):
+        """The loop is a live-viewer behavior: the interact loop consults the
+        driver only on passes where a browser client is connected."""
+        scene = Scene.__new__(Scene)
+        scene.window = object()
+        scene.camera = SimpleNamespace(fps=30)
+        scene.auto_reload_enabled = False
+        scene._file_changed_flag = False
+        scene.skip_animations = True
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.has_clients.return_value = True
+        scene.is_window_closing = MagicMock(side_effect=[False, True])
+        scene.update_frame = MagicMock()
+        scene._maybe_replay_loop_pause = MagicMock()
+
+        scene.interact()
+
+        scene._maybe_replay_loop_pause.assert_called_once_with()
+
+
 class RecordingLifecycleTests(unittest.TestCase):
     def test_export_setup_error_aborts_file_writer(self):
         scene = MagicMock()

@@ -296,8 +296,40 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                     # while condition on every pass.
                     time.sleep(min(frame_interval, 0.1))
                     continue
+                self._maybe_replay_loop_pause()
 
             self.update_frame(frame_interval)
+
+    def _maybe_replay_loop_pause(self) -> None:
+        """Looping hold, live viewer only: while the scene sits parked on a
+        checkpoint saved by pause(loop=True), replay the unit that led into
+        it, over and over, at real speed.
+
+        There is no exit machinery: an arrow key parks the scene on some
+        other checkpoint mid-lap or between laps, the flag check fails, and
+        the looping simply stops. Render and export never enter interact(),
+        so a loop pause is an ordinary pausepoint everywhere but here.
+        """
+        if self.skip_animations or getattr(self, '_is_playing', False):
+            return
+        checkpoints = self.animation_checkpoints
+        index = self.current_animation_index
+        if not (0 < index < len(checkpoints)) or not checkpoints[index].get('loop'):
+            return
+        unit = checkpoints[index].get('unit_index')
+        base = next(
+            (i for i in range(index - 1, -1, -1)
+             if checkpoints[i].get('unit_index') != unit),
+            None,
+        )
+        if base is None:
+            return
+        # run_next_animation restores the base checkpoint itself before
+        # exec, re-runs the unit, and re-saves this same checkpoint slot
+        # (the re-executed pause re-raises the flag) — landing the scene
+        # parked here again for the next lap.
+        self.current_animation_index = base
+        self.run_next_animation()
 
     def embed(self, *args, **kwargs) -> None:
         """ManimGL's IPython embed mode was removed from maniml.
@@ -737,7 +769,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                 self._save_checkpoint(line_no, unit_index, namespace,
                                       run_time=self.get_run_time(animations))
 
-    def pause(self, name: str | None = None) -> None:
+    def pause(self, name: str | None = None, loop: bool = False) -> None:
         """Mark a pausepoint: save a checkpoint of the scene right here.
 
         A file that calls this anywhere is *pause-anchored*: these calls
@@ -748,6 +780,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
         Runs anywhere play() does: helpers and loop bodies included, since
         the checkpoint is saved at call time rather than found in source.
+
+        ``loop=True`` makes this a looping hold in the live viewer: while
+        parked here, the stretch that led in replays over and over until
+        an arrow key moves elsewhere (see _maybe_replay_loop_pause).
+        Everywhere else — render, export, a scene run to completion — it
+        is an ordinary pausepoint.
         """
         if getattr(self, '_suppress_checkpoints', False):
             return
@@ -758,6 +796,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             namespace = self._capture_caller_namespace()
             self._save_checkpoint(line_no, unit_index, namespace, name=name)
             self._remember_scene_filepath()
+            if loop:
+                self.animation_checkpoints[self.current_animation_index]['loop'] = True
 
     def next_section(self, name: str = "", type: str | None = None,
                      skip_animations: bool = False) -> None:
