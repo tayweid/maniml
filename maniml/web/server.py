@@ -21,6 +21,7 @@ import threading
 from collections import deque
 
 from maniml.logger import log
+from maniml.web.assets import BOOT_ID
 from maniml.web.assets import folder_response, is_websocket_upgrade, static_response
 from maniml.web.security import MAX_CONTROL_MESSAGE, parse_json_object
 
@@ -152,6 +153,11 @@ class WebServer:
             await ws.send(json.dumps({
                 "type": "ready",
                 "capabilities": self.capabilities,
+                # The serving process's boot id: a page stamped by an
+                # earlier process is running older JS (a pip upgrade, or
+                # any restart under an editable install) and reloads
+                # itself rather than driving a newer engine.
+                "boot": BOOT_ID,
             }))
             async for message in ws:
                 event = parse_json_object(message)

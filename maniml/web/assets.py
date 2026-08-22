@@ -17,6 +17,7 @@ from __future__ import annotations
 import email.utils
 import mimetypes
 import os
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -33,6 +34,14 @@ SHADER_CONTENT_TYPES = {
 }
 
 VERSION_PLACEHOLDER = "__MANIML_VERSION__"
+
+# One id per engine process, announced in the socket's ready message. A
+# page that sees the id change within its lifetime knows the engine
+# restarted (a pip upgrade, or any restart under an editable install) and
+# reloads itself once, so stale page JS never drives a newer engine.
+# Deliberately not the package version: that never changes between dev
+# restarts, which is exactly when staleness bites.
+BOOT_ID = uuid.uuid4().hex[:12]
 
 
 def _package_version() -> str:

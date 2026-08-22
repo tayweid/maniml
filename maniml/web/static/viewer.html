@@ -539,6 +539,7 @@ const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 let ws = null;
 let reconnectCount = 0;
+let connectedBoot = null;   // engine boot id first seen by this page
 let reconnectTimer = null;
 const MAX_RECONNECTS = 3;
 const connectionOverlay = document.getElementById("connection-overlay");
@@ -605,6 +606,21 @@ function connect(manualRetry = false) {
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
       if (data.type === "ready") {
+        // A page keeps the JS it loaded until reloaded — stale handlers
+        // driving a newer engine is a whole class of confusion. Every
+        // engine process announces a fresh boot id; if the id CHANGES
+        // within one page's lifetime, the engine restarted (a pip
+        // upgrade, or any dev restart under an editable install) and this
+        // page's JS may predate it: reload once to match. Compared to the
+        // first-seen id rather than a page stamp, because under the app
+        // the page and the scene engine are different processes.
+        if (data.boot) {
+          if (connectedBoot === null) connectedBoot = data.boot;
+          else if (data.boot !== connectedBoot) {
+            location.reload();
+            return;
+          }
+        }
         reconnectCount = 0;
         document.body.classList.remove("disconnected");
         document.getElementById("conn").textContent = "Connected";

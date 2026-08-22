@@ -581,6 +581,10 @@ class WebViewer:
                     [sys.executable, "-m", "maniml", str(source), scene_name, mode],
                     cwd=str(source.parent),
                     env=os.environ.copy(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
             except OSError:
                 self.server.broadcast_json(
@@ -601,11 +605,38 @@ class WebViewer:
             }
         )
         threading.Thread(
+            target=self._relay_export_progress,
+            args=(process, export_format),
+            name=f"maniml-{export_format}-export-progress",
+            daemon=True,
+        ).start()
+        threading.Thread(
             target=self._finish_export,
             args=(process, export_format),
             name=f"maniml-{export_format}-export",
             daemon=True,
         ).start()
+
+    def _relay_export_progress(
+        self,
+        process: subprocess.Popen,
+        export_format: str,
+    ) -> None:
+        """Forward the export subprocess's progress into this process's
+        stdout, which the console tap broadcasts to the viewer — a
+        thirteen-minute render with no feedback reads as a hang. Filtered
+        to the lines worth relaying; also drains the pipe so the child
+        never blocks on a full buffer."""
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            if ("Animation" in line or "bundle" in line
+                    or "Error" in line or "error" in line
+                    or "Traceback" in line):
+                print(f"[{export_format} export] {line}")
 
     def _finish_export(
         self,
