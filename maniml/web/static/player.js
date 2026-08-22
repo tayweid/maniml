@@ -83,6 +83,21 @@
     }, 1000 / meta.fps);
   }
 
+  // True reverse: recorded frames rendered newest-to-oldest. What the
+  // live viewer cannot do honestly (a state morph cannot un-draw a
+  // Create), a recording does trivially — this is the same stream that
+  // played forward.
+  function playReverseTo(stopAt) {
+    stop();
+    playBtn.textContent = "⏸";
+    playing = setInterval(async () => {
+      if (current <= stopAt) { stop(); return; }
+      current -= 1;
+      await show(current);
+      refreshChips();
+    }, 1000 / meta.fps);
+  }
+
   function playSegment(k) {
     playFrom(starts[k] ?? 0, ends[k]);
   }
@@ -116,10 +131,18 @@
       }
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      stop();
-      current = Math.max(0, (starts[seg] ?? 1) - 1);
-      await show(current);
-      refreshChips();
+      const segStart = starts[seg] ?? 0;
+      if (e.shiftKey) {
+        // instant jump to just before this segment
+        stop();
+        current = Math.max(0, segStart - 1);
+        await show(current);
+        refreshChips();
+      } else if (current > segStart) {
+        playReverseTo(segStart);        // rewind this segment
+      } else if (seg > 0) {
+        playReverseTo(starts[seg - 1] ?? 0);   // rewind the previous one
+      }
     } else if (e.key === " ") {
       e.preventDefault();
       playBtn.onclick();
