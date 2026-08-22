@@ -867,12 +867,15 @@ function handleGeometry(arrayBuffer) {
 function handleMessage(data) {
   if (data.type === "state") {
     lastLiveState = data;
-    // During playback the recording owns the rail; the engine's states
-    // are kept (freshness, current) but not displayed.
-    if (stageSource !== "playback") handleState(data);
+    // During playback the recording owns the presenter; the engine's
+    // states keep the badges fresh but never touch the rail.
+    if (stageSource !== "playback") presenter.stateChanged(data);
+    else applyEnv(data);
   }
   else if (data.type === "move") {
-    if (stageSource !== "playback") handleMove(data);
+    if (stageSource === "playback") return;   // the video source drives
+    if (data.from === null || data.from === undefined) presenter.moveEnded(null);
+    else presenter.moveStarted(data.from, data.to, data.back, data.unit);
   }
   else if (data.type === "export_status") handleExportStatus(data);
 }
@@ -927,11 +930,44 @@ document.addEventListener("keydown", (event) => {
   }
 }, true);
 
-function handleState(state) {
+// -- The presenter: one navigator, whichever source feeds it --
+// The rail has exactly one author. In live mode the engine's state and
+// move messages are the feed; in playback the video source is. Both
+// funnel through these three methods, so the discipline — hold the
+// position while a stretch is being crossed, light the link (or pulse a
+// true stack), lift the ring, land only on arrival — exists once and
+// cannot drift between the modes.
+const presenter = {
+  moving: false,
+  pending: null,   // a position reported mid-move, adopted on arrival
+  stateChanged(state) {
+    if (this.moving) {
+      this.pending = state;
+      applyEnv(state);    // badges and pickers may refresh mid-move
+      return;
+    }
+    handleState(state);
+  },
+  moveStarted(from, to, back, unit) {
+    this.moving = true;
+    this.pending = null;
+    handleMove({ from, to, back, unit });
+  },
+  moveEnded(landingState) {
+    this.moving = false;
+    handleMove({ from: null });
+    const landing = landingState || this.pending;
+    this.pending = null;
+    if (landing) handleState(landing);
+  },
+};
+
+function applyEnv(state) {
   if (Array.isArray(state.scenes)) sceneNames = state.scenes;
   const presentBtn = document.getElementById("present");
-  presentBtn.setAttribute("aria-pressed", state.present ? "true" : "false");
-  presentBtn.classList.toggle("active", !!state.present);
+  const presenting = stageSource === "playback" || !!state.present;
+  presentBtn.setAttribute("aria-pressed", presenting ? "true" : "false");
+  presentBtn.classList.toggle("active", presenting);
   document.getElementById("open-baked").hidden = !state.baked;
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
@@ -939,6 +975,10 @@ function handleState(state) {
     renderSceneMenu(state.scene);
   }
   if (state.file) document.getElementById("file-name").textContent = state.file;
+}
+
+function handleState(state) {
+  applyEnv(state);
 
   const future = state.future || [];
   const total = state.count + future.length;
@@ -1192,21 +1232,25 @@ async function enterPlayback() {
     lastLiveState ? Math.max(0, lastLiveState.current) : 0,
     meta.checkpoints.length - 1);
   ManimlPresentation.load(playbackVideo, meta, {
-    onUpdate: (index) => handleState(synthPlaybackState(index)),
-    onMove: (from, to, back, unit) => handleMove(
-      from === null || from === undefined
-        ? { from: null } : { from, to, back, unit }),
-    onRest: (index) => handleState(synthPlaybackState(index)),
+    onUpdate: (index) => presenter.stateChanged(synthPlaybackState(index)),
+    onMove: (from, to, back, unit) => {
+      if (from !== null && from !== undefined) {
+        presenter.moveStarted(from, to, back, unit);
+      }
+    },
+    onRest: (index) => presenter.moveEnded(synthPlaybackState(index)),
   });
   const seekStart = () => ManimlPresentation.seekCheckpoint(startIndex);
   if (playbackVideo.readyState >= 1) seekStart();
   else playbackVideo.addEventListener("loadedmetadata", seekStart, { once: true });
-  handleState(synthPlaybackState(startIndex));
+  presenter.stateChanged(synthPlaybackState(startIndex));
 }
 
 function exitPlayback() {
   const parkAt = ManimlPresentation.currentIndex();
   ManimlPresentation.unload();
+  presenter.moving = false;   // a mid-scrub exit must not wedge the rail
+  presenter.pending = null;
   stageSource = "live";
   document.body.classList.remove("playback");
   staleBadge.hidden = true;
