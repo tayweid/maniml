@@ -43,12 +43,24 @@ class AnimationUnit:
 
 
 def _count_plays(node: ast.AST) -> int:
-    return sum(
-        1 for sub in ast.walk(node)
-        if isinstance(sub, ast.Call)
-        and isinstance(sub.func, ast.Attribute)
-        and sub.func.attr == 'play'
-    )
+    """Play calls that *run* when this statement executes.
+
+    A play written inside a nested ``def``/``lambda`` does not fire at
+    definition time -- it fires wherever the helper is later called -- so it
+    must not make the ``def`` statement a unit boundary. (Otherwise the def
+    becomes a unit that saves no checkpoint, and the stepper stalls.)
+    """
+    count = 0
+    stack = [node]
+    while stack:
+        sub = stack.pop()
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue   # the statement itself may be the def: nothing in it runs now
+        if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == 'play'):
+            count += 1
+        stack.extend(ast.iter_child_nodes(sub))
+    return count
 
 
 def _contains_play(node: ast.AST) -> bool:

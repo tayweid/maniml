@@ -35,6 +35,31 @@ class TestBuildUnits(unittest.TestCase):
         self.assertNotIn('Create(circle)', units[1].source)
         self.assertIn('Transform(circle, square)', units[1].source)
 
+    def test_play_inside_nested_def_is_not_a_boundary(self):
+        # A helper defined in construct() with a play in its body: the def
+        # statement runs no animation, so it must fold into the unit of the
+        # call that does. Otherwise the def becomes a unit that saves no
+        # checkpoint and the stepper stalls on it.
+        src = scene_source("""\
+            def fly_in(pieces):
+                row = VGroup()
+                for t in pieces:
+                    self.play(FadeIn(Tex(t)))
+                return row
+            cakes = fly_in(['a', 'b'])
+            self.play(FadeOut(cakes))
+            f = lambda m: self.play(FadeIn(m))
+            self.play(Create(Circle()))
+        """)
+        units = build_units(src, 'MyScene')
+        self.assertEqual(len(units), 2)
+        self.assertIn('def fly_in', units[0].source)
+        self.assertIn('cakes = fly_in', units[0].source)
+        self.assertIn('FadeOut(cakes)', units[0].source)
+        self.assertEqual(units[0].plays, 1)      # the def's plays don't count
+        self.assertIn('lambda', units[1].source)
+        self.assertEqual(units[1].plays, 1)
+
     def test_multiline_play_call(self):
         src = scene_source("""\
             circle = Circle()

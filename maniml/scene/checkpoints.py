@@ -460,9 +460,11 @@ class CheckpointMixin:
             traceback.print_exc()
             return
 
-        if not unit.has_play:
-            # Tail unit: no play() fired to save a checkpoint, save one
-            # here so the tail doesn't re-run on the next RIGHT arrow
+        if self.current_animation_index < next_index:
+            # No play() fired during this unit (a trailing tail, or a unit
+            # whose plays are written in a helper that wasn't reached):
+            # save a checkpoint anyway so the unit counts as done and the
+            # stepper moves on instead of re-running it forever.
             self._save_checkpoint(unit.end_line, unit.index, namespace)
 
         # The exec namespace holds the objects now on screen; keep it
