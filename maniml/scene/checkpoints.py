@@ -520,14 +520,21 @@ class CheckpointMixin:
         if not self._pause_anchored():
             self.run_next_animation()
             return
-        while True:
-            last = self.current_animation_index
-            self.run_next_animation()
-            now = self.current_animation_index
-            if now == last:
-                return  # end of scene, or an error already reported
-            if self.animation_checkpoints[now].get('stop'):
-                return
+        # Flagged so a viewer's rail can hold at the pausepoint being left
+        # for the whole stretch, rather than hopping through the interior
+        # play checkpoints as they save.
+        self._advancing = True
+        try:
+            while True:
+                last = self.current_animation_index
+                self.run_next_animation()
+                now = self.current_animation_index
+                if now == last:
+                    return  # end of scene, or an error already reported
+                if self.animation_checkpoints[now].get('stop'):
+                    return
+        finally:
+            self._advancing = False
 
     def _strict_animation_errors(self) -> bool:
         return any((

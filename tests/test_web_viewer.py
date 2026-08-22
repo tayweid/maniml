@@ -151,6 +151,32 @@ class _ViewerHarness:
         return ws
 
 
+class RailAnchorTests(unittest.TestCase):
+    """While a stretch is crossed, the rail stands at the last stop
+    checkpoint — interior play saves must not walk the position ring."""
+
+    @staticmethod
+    def anchor_fn(pause_anchored, checkpoints):
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+        viewer = SimpleNamespace(scene=SimpleNamespace(
+            _pause_anchored=lambda: pause_anchored,
+            animation_checkpoints=checkpoints))
+        return lambda i: WebViewer._rail_anchor(viewer, i)
+
+    def test_holds_at_the_last_stop(self):
+        anchor = self.anchor_fn(True, [
+            {}, {}, {"stop": True}, {}, {}, {"stop": True}])
+        self.assertEqual(anchor(4), 2)   # mid-stretch -> the stop it left
+        self.assertEqual(anchor(5), 5)   # parked on a stop
+        self.assertEqual(anchor(1), 0)   # before the first stop -> Start
+        self.assertEqual(anchor(0), 0)
+
+    def test_plain_files_anchor_everywhere(self):
+        anchor = self.anchor_fn(False, [{}, {}, {}])
+        self.assertEqual(anchor(2), 2)
+
+
 class WebViewerE2E(_ViewerHarness, unittest.TestCase):
     def test_present_toggle_prebuilds_and_stops_the_watcher(self):
         """The Present button flips the running scene into present mode:

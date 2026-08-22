@@ -329,11 +329,15 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         if base is None:
             return
         self.current_animation_index = base
-        while self.current_animation_index < index:
-            last = self.current_animation_index
-            self.run_next_animation()
-            if self.current_animation_index == last:
-                return
+        self._advancing = True
+        try:
+            while self.current_animation_index < index:
+                last = self.current_animation_index
+                self.run_next_animation()
+                if self.current_animation_index == last:
+                    return
+        finally:
+            self._advancing = False
 
     def embed(self, *args, **kwargs) -> None:
         """ManimGL's IPython embed mode was removed from maniml.

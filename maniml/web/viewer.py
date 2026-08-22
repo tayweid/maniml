@@ -266,7 +266,11 @@ class WebViewer:
             # is not crossing to the next pausepoint: lighting the rail for
             # it would say a move is under way through every pause.
             return
-        index = self.scene.current_animation_index
+        # The move originates at the pausepoint being left, not at
+        # whatever interior checkpoint the stretch has reached — so every
+        # play of a stretch lights the same link instead of pulsing the
+        # destination chip as a within-stack move.
+        index = self._rail_anchor(self.scene.current_animation_index)
         # `back` stays in the protocol for the recorded-playback layer,
         # whose reverse playback will have landed the index on its
         # destination before the frames run — today it is always false,
@@ -764,12 +768,18 @@ class WebViewer:
         present_bundle = bundle_dir_for(scene)
         self.server.present_dir = present_bundle
         present_meta = self._present_meta()
+        # While a stretch is being crossed the rail holds at the pausepoint
+        # being left; the interior checkpoints exist (UP/DOWN reach them at
+        # rest) but must not walk the position ring mid-move.
+        current = scene.current_animation_index
+        if self._scene_moving():
+            current = self._rail_anchor(current)
         return {
             "type": "state",
             "scene": type(scene).__name__,
             "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",
-            "current": scene.current_animation_index,
+            "current": current,
             "count": len(checkpoints),
             "present": bool(getattr(scene, "_present_mode", False)),
             "baked": bool(baked is not None and baked.is_dir()),
@@ -800,6 +810,27 @@ class WebViewer:
         pause_mode = scene._pause_anchored()
         units = scene._get_source_units() if pause_mode else None
         return chip_unit_for(unit_index, units, pause_mode)
+
+    def _rail_anchor(self, index: int) -> int:
+        """Where the rail stands while the scene moves: the last stop
+        checkpoint at or before `index`. Interior play checkpoints save
+        mid-stretch, but the rail must hold at the pausepoint being left
+        — the move message lights the stretch, and the position lands
+        only on arrival. In a plain file every checkpoint is a stop, so
+        this is the index itself."""
+        scene = self.scene
+        if not scene._pause_anchored():
+            return index
+        checkpoints = scene.animation_checkpoints
+        for i in range(min(index, len(checkpoints) - 1), -1, -1):
+            if i == 0 or checkpoints[i].get("stop"):
+                return i
+        return 0
+
+    def _scene_moving(self) -> bool:
+        scene = self.scene
+        return bool(getattr(scene, "_advancing", False)
+                    or getattr(scene, "_is_playing", False))
 
     def _future_units(self) -> list[dict]:
         """Chip-units not yet checkpointed, so the timeline can show the
