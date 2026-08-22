@@ -83,6 +83,39 @@ def _response(status: int, phrase: str, body: bytes, content_type: str) -> Respo
     return Response(status, phrase, headers, body)
 
 
+def folder_response(request: Request, root: Path | str, prefix: str) -> Response:
+    """Answer a GET from an on-disk folder mounted at ``prefix``.
+
+    Read-only, `index.html` at the folder root, same resolve-then-contain
+    discipline as static_response. No version stamping: the folder is user
+    output (a baked scene export), not the packaged shell. `prefix` without
+    a trailing slash redirects to `prefix + '/'` so the page's relative
+    fetches resolve under the mount.
+    """
+    if request.method != "GET":
+        return _response(405, "Method Not Allowed", b"method not allowed\n", "text/plain")
+    request_path = urlsplit(request.path).path
+    if request_path == prefix:
+        headers = Headers([("Location", prefix + "/"), ("Connection", "close"),
+                           ("Content-Length", "0")])
+        return Response(301, "Moved Permanently", headers, b"")
+    relative = request_path[len(prefix):].lstrip("/") or "index.html"
+    try:
+        root_path = Path(root).resolve(strict=True)
+        target = (root_path / relative).resolve()
+    except OSError:
+        return _response(404, "Not Found", b"not found\n", "text/plain")
+    if not target.is_relative_to(root_path) or not target.is_file():
+        return _response(404, "Not Found", b"not found\n", "text/plain")
+    body = target.read_bytes()
+    content_type = (
+        mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    )
+    if content_type.startswith("text/") or content_type == "application/javascript":
+        content_type += "; charset=utf-8"
+    return _response(200, "OK", body, content_type)
+
+
 def static_response(request: Request, index: str) -> Response:
     """Answer a GET from `web/static/`, serving `index` at the root."""
     if request.method != "GET":
