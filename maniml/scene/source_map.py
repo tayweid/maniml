@@ -1,11 +1,17 @@
 """AST-based mapping of a scene file's construct() body into animation units.
 
 An *animation unit* is a run of consecutive top-level statements in
-construct() ending with a statement that contains a ``.play(...)`` call.
-Statements after the last play call form a trailing unit with
-``has_play=False`` (e.g. a final ``self.wait()``).
+construct() ending with a *stop statement*: one containing a call to the
+method that anchors checkpoints. Which method that is depends on the file
+(see ``pause_anchored``): a file that calls ``self.pause()`` (or CE's
+``self.next_section()``) anywhere is pause-anchored — pauses are the
+stops, and any number of plays between them runs through as one stretch;
+a file with no pauses keeps the legacy anchoring where every
+``.play(...)`` is a stop, which is what lets an unmodified CE file be
+stepped without edits. Statements after the last stop form a trailing
+unit with ``has_stop=False`` (e.g. a final ``self.wait()``).
 
-The checkpoint system executes one unit at a time, so a play call inside
+The checkpoint system executes one unit at a time, so a stop call inside
 a for-loop or if-block re-executes with its full enclosing statement
 instead of a truncated text snippet.
 """
@@ -25,9 +31,9 @@ class AnimationUnit:
     index: int        # 0-based position within construct()
     start_line: int   # 1-based first line of the unit's first statement
     end_line: int     # 1-based last line of the unit's last statement
-    has_play: bool    # False only for a trailing unit with no play call
+    has_stop: bool    # False only for a trailing unit with no stop call
     source: str       # exec-ready source for this unit
-    plays: int = 1    # play calls written in the unit's source
+    stops: int = 1    # stop calls written in the unit's source
     loops: bool = False   # at least one of them sits inside a loop
 
     @property
@@ -35,17 +41,36 @@ class AnimationUnit:
         """Whether the unit's pausepoint count is knowable before it runs.
 
         A loop's trip count usually isn't known statically, and only one arm
-        of an if/else runs, so in both cases the written play calls are not a
+        of an if/else runs, so in both cases the written stop calls are not a
         count of the checkpoints the unit will produce. A viewer's timeline
         can say so instead of drawing a number it made up.
         """
-        return self.loops or self.plays > 1
+        return self.loops or self.stops > 1
 
 
-def _count_plays(node: ast.AST) -> int:
-    """Play calls that *run* when this statement executes.
+def _is_stop_call(node: ast.AST, pause_mode: bool) -> bool:
+    """Whether this node is a call to the checkpoint-anchoring method.
 
-    A play written inside a nested ``def``/``lambda`` does not fire at
+    Pauses must be spelled on ``self`` — ``self.pause()`` /
+    ``self.next_section()`` — so that a scene about, say, a media player
+    calling ``player.pause()`` cannot silently flip the whole file into
+    pause-anchored mode. Plays keep the loose ``.play`` match they have
+    always had: a false positive there costs one extra unit boundary,
+    not a mode change.
+    """
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+        return False
+    func = node.func
+    if pause_mode:
+        return (func.attr in ('pause', 'next_section')
+                and isinstance(func.value, ast.Name) and func.value.id == 'self')
+    return func.attr == 'play'
+
+
+def _count_stops(node: ast.AST, pause_mode: bool) -> int:
+    """Stop calls that *run* when this statement executes.
+
+    A stop written inside a nested ``def``/``lambda`` does not fire at
     definition time -- it fires wherever the helper is later called -- so it
     must not make the ``def`` statement a unit boundary. (Otherwise the def
     becomes a unit that saves no checkpoint, and the stepper stalls.)
@@ -56,28 +81,42 @@ def _count_plays(node: ast.AST) -> int:
         sub = stack.pop()
         if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             continue   # the statement itself may be the def: nothing in it runs now
-        if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == 'play'):
+        if _is_stop_call(sub, pause_mode):
             count += 1
         stack.extend(ast.iter_child_nodes(sub))
     return count
 
 
-def _contains_play(node: ast.AST) -> bool:
-    return _count_plays(node) > 0
-
-
-def _play_in_loop(node: ast.AST) -> bool:
-    """Whether any play call in this statement sits inside a loop.
+def _stop_in_loop(node: ast.AST, pause_mode: bool) -> bool:
+    """Whether any stop call in this statement sits inside a loop.
 
     ``ast.walk`` yields the statement itself, so a ``for`` loop that is the
     unit's whole statement is caught along with nested ones.
     """
     return any(
         isinstance(sub, (ast.For, ast.AsyncFor, ast.While))
-        and _contains_play(sub)
+        and _count_stops(sub, pause_mode) > 0
         for sub in ast.walk(node)
     )
+
+
+def _tree_uses_pauses(tree: ast.Module) -> bool:
+    """Whether the file calls self.pause()/self.next_section() anywhere.
+
+    The whole module is scanned, not just construct(): a pause inside a
+    helper fires at runtime all the same, and must put the file in
+    pause-anchored mode even though it adds no unit boundary.
+    """
+    return any(_is_stop_call(node, pause_mode=True) for node in ast.walk(tree))
+
+
+def pause_anchored(source: str) -> bool:
+    """Whether this scene source authors its own pausepoints.
+
+    Propagates SyntaxError if the file doesn't parse, the same way
+    build_units does.
+    """
+    return _tree_uses_pauses(ast.parse(source))
 
 
 def _find_construct(tree: ast.Module, scene_name: str | None) -> ast.FunctionDef:
@@ -130,6 +169,7 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
     propagates SyntaxError if the file doesn't parse.
     """
     tree = ast.parse(source)
+    pause_mode = _tree_uses_pauses(tree)
     construct = _find_construct(tree, scene_name)
     lines = source.splitlines()
 
@@ -138,16 +178,16 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
     for stmt in construct.body:
         if pending_start is None:
             pending_start = stmt.lineno
-        plays = _count_plays(stmt)
-        if plays:
+        stops = _count_stops(stmt, pause_mode)
+        if stops:
             units.append(AnimationUnit(
                 index=len(units),
                 start_line=pending_start,
                 end_line=stmt.end_lineno,
-                has_play=True,
+                has_stop=True,
                 source=_unit_source(lines, pending_start, stmt.end_lineno),
-                plays=plays,
-                loops=_play_in_loop(stmt),
+                stops=stops,
+                loops=_stop_in_loop(stmt, pause_mode),
             ))
             pending_start = None
 
@@ -157,26 +197,26 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
             index=len(units),
             start_line=pending_start,
             end_line=end,
-            has_play=False,
+            has_stop=False,
             source=_unit_source(lines, pending_start, end),
-            plays=0,
+            stops=0,
         ))
     return units
 
 
-def next_play_unit(
+def next_stop_unit(
     units: list[AnimationUnit],
     after_unit_index: int | None = None,
     after_line: int | None = None,
 ) -> AnimationUnit | None:
-    """Find the next unit containing a play call.
+    """Find the next unit containing a stop call.
 
     Prefers unit-index anchoring (robust to line shifts); falls back to
     line-number anchoring for checkpoints created before a source map
     existed.
     """
     for unit in units:
-        if not unit.has_play:
+        if not unit.has_stop:
             continue
         if after_unit_index is not None:
             if unit.index > after_unit_index:

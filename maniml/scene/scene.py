@@ -724,12 +724,45 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.finish_animations(animations)
         self.post_play()
 
-        # Save checkpoint AFTER animation completes
+        # Save checkpoint AFTER animation completes. In a pause-anchored
+        # file only self.pause() saves; the play just extends the current
+        # stretch, whose accumulated span the pause's checkpoint records.
+        self._stretch_run_time = (
+            getattr(self, '_stretch_run_time', 0.0) + self.get_run_time(animations)
+        )
+        if line_no:
+            self._remember_scene_filepath()
+            if not self._pause_anchored():
+                namespace = self._capture_caller_namespace()
+                self._save_checkpoint(line_no, unit_index, namespace,
+                                      run_time=self.get_run_time(animations))
+
+    def pause(self, name: str | None = None) -> None:
+        """Mark a pausepoint: save a checkpoint of the scene right here.
+
+        A file that calls this anywhere is *pause-anchored*: these calls
+        become the only checkpoints, so any number of plays between two
+        pauses runs through as one stretch — one stop on the timeline, one
+        step of the arrow keys. In a file with no pauses every play saves
+        its own checkpoint (the CE-compatible default) and this is a no-op.
+
+        Runs anywhere play() does: helpers and loop bodies included, since
+        the checkpoint is saved at call time rather than found in source.
+        """
+        if getattr(self, '_suppress_checkpoints', False):
+            return
+        if not self._pause_anchored():
+            return
+        line_no, unit_index = self._find_animation_anchor()
         if line_no:
             namespace = self._capture_caller_namespace()
-            self._save_checkpoint(line_no, unit_index, namespace,
-                                  run_time=self.get_run_time(animations))
+            self._save_checkpoint(line_no, unit_index, namespace, name=name)
             self._remember_scene_filepath()
+
+    def next_section(self, name: str = "", type: str | None = None,
+                     skip_animations: bool = False) -> None:
+        """CE-compatible section boundary, treated as a pausepoint."""
+        self.pause(name=name or None)
 
     def wait(
         self,

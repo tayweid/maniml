@@ -259,3 +259,27 @@ the source-shape contract tests in `tests/test_static_assets.py` pin
 its text. A shared websocket-bootstrap helper between `server.py` and
 `app.py` was considered and deferred: real duplication, but the
 abstraction only pays if that code is being touched anyway.
+
+## Pausepoints are authored, not implied by play() (decided 2026-08-21)
+
+Dogfooding surfaced the mismatch: a pause after every play makes live
+presenting feel like clicking through bullets, and deriving
+presentation structure from source structure (which plays live where —
+helpers, loops) kept demanding smarter AST inference. The resolution
+separates the two granularities the checkpoint had been serving at
+once. A file that calls `self.pause()` (or CE's `next_section`)
+anywhere becomes **pause-anchored**: pauses are the only checkpoint
+savers and the only unit boundaries, plays between them run as one
+stretch, and a pause works from a helper or a loop body because it
+saves at call time — no call-graph inference needed. Files with no
+pauses keep the per-play anchoring, which is what lets an unmodified CE
+file be opened and stepped; that legacy path is one clearly-marked
+branch, kept for CE compatibility and deletable later if the superset
+argument wins. History note: the pre-repo prototype (preserved in the
+early trees' `scene_backup.py`) checkpointed at *both* play and wait;
+the 2025-07-14 rewrite cut wait when checkpoints grew namespaces.
+Wait-as-pause stays rejected — `wait(0.5)` is rhythm inside a stretch,
+not a hold. The `# %%` cell-marker idea in `TODO.md` is complementary,
+not competing: cells would restructure *execution* units; `pause()`
+decides where playback *holds*, and reaches the loop bodies and
+helpers that comments cannot.

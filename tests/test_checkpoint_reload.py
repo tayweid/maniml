@@ -46,6 +46,10 @@ class CheckpointSceneTest(unittest.TestCase):
         self.scene._create_checkpoint_zero()
 
     def tearDown(self):
+        # Each headless scene owns a standalone GL context; macOS caps
+        # them per process, so a suite that leaks one per test starves
+        # the GPU tests that run after it.
+        self.scene.camera.ctx.release()
         self.tmpdir.cleanup()
 
     def write_scene(self, content):
@@ -231,6 +235,111 @@ class TestFileChange(CheckpointSceneTest):
         self.assertEqual(scene.current_animation_index, 3)
         self.assertEqual(
             scene.animation_checkpoints[scene.current_animation_index]['unit_index'], 1)
+
+    def test_adding_the_first_pause_rebuilds_pause_anchored(self):
+        """The first authored pause moves every unit boundary at once, so
+        the save rebuilds the scene rather than re-anchoring surgically."""
+        self.run_all()
+        edited = BASE.replace(
+            "        square = Square()\n",
+            "        self.pause()\n        square = Square()\n",
+        )
+        line = edited.splitlines().index('        self.pause()') + 1
+        self.save(edited, line)
+        scene = self.scene
+        self.assertTrue(scene._pause_anchored_mode)
+        # One pause unit (everything through the pause), one tail
+        self.assertEqual(
+            [cp['unit_index'] for cp in scene.animation_checkpoints],
+            [-1, 0, 1],
+        )
+
+
+PAUSE_BASE = textwrap.dedent('''\
+    from maniml import *
+
+    class PauseScene(Scene):
+        def construct(self):
+            circle = Circle()
+            self.play(Create(circle), run_time=0.05)
+            self.play(circle.animate.shift(RIGHT), run_time=0.05)
+            self.pause()
+            square = Square()
+            self.play(Transform(circle, square), run_time=0.05)
+            self.pause()
+            self.wait(0.05)
+''')
+
+
+class PauseAnchoredSceneTest(unittest.TestCase):
+    """The checkpoint system in a pause-anchored file: plays extend the
+    current stretch, only self.pause() saves."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.scene_file = os.path.join(self.tmpdir.name, 'pause_scene.py')
+        self.write_scene(PAUSE_BASE)
+        module = load_scene_module(self.scene_file)
+        self.scene = module.PauseScene(window=None)
+        self.scene._scene_filepath = self.scene_file
+        self.scene.skip_animations = True
+        self.scene.setup()
+        self.scene._create_checkpoint_zero()
+
+    def tearDown(self):
+        self.scene.camera.ctx.release()
+        self.tmpdir.cleanup()
+
+    def write_scene(self, content):
+        with open(self.scene_file, 'w') as f:
+            f.write(content)
+
+    def save(self, content, earliest_changed_line):
+        self.write_scene(content)
+        self.scene._on_file_changed({'earliest_changed_line': earliest_changed_line})
+        self.scene._file_changed_flag = False
+        self.scene._handle_file_change()
+
+    def run_all(self):
+        # pause unit (2 plays), pause unit, tail wait -> index 3
+        for _ in range(3):
+            self.scene.run_next_animation()
+
+    def test_checkpoints_save_only_at_pauses(self):
+        self.run_all()
+        scene = self.scene
+        self.assertEqual(scene.current_animation_index, 3)
+        self.assertEqual(
+            [cp['unit_index'] for cp in scene.animation_checkpoints],
+            [-1, 0, 1, 2],
+        )
+        self.assertIn('circle', scene.animation_checkpoints[1]['namespace'])
+        # past the end is a no-op
+        scene.run_next_animation()
+        self.assertEqual(scene.current_animation_index, 3)
+
+    def test_a_stretch_records_its_accumulated_span(self):
+        self.run_all()
+        recorded = [c.get('run_time') for c in self.scene.animation_checkpoints]
+        self.assertIsNone(recorded[0])
+        self.assertAlmostEqual(recorded[1], 0.10, places=6)  # both plays
+        self.assertAlmostEqual(recorded[2], 0.05, places=6)
+        self.assertIsNone(recorded[3], "a wait-only tail recorded a span")
+
+    def test_edit_replays_from_the_previous_pause(self):
+        self.run_all()
+        edited = PAUSE_BASE.replace(
+            "        square = Square()\n",
+            "        marker = 123\n        square = Square()\n",
+        )
+        line = edited.splitlines().index('        marker = 123') + 1
+        self.save(edited, line)
+        scene = self.scene
+        # checkpoint 1 (first pause) survived; the edited stretch replayed
+        self.assertEqual(scene.current_animation_index, 2)
+        cp = scene.animation_checkpoints[2]
+        self.assertEqual(cp['unit_index'], 1)
+        self.assertEqual(cp['namespace'].get('marker'), 123)
 
 
 if __name__ == '__main__':

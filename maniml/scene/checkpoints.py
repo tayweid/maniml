@@ -1,10 +1,12 @@
 """Checkpoint system for maniml scenes.
 
-Saving/restoring deep-copied (state, namespace) snapshots around each
-play() call, re-executing animation units from source, and replaying
-after file-watcher edits. The copy discipline lives here: state and
-namespace are deep-copied *together* so variable-to-mobject references
-survive (see deepcopy_namespace at the bottom).
+Saving/restoring deep-copied (state, namespace) snapshots at each
+checkpoint anchor — every play() call in a plain file, only the authored
+self.pause() calls in a pause-anchored one (see source_map.pause_anchored)
+— re-executing animation units from source, and replaying after
+file-watcher edits. The copy discipline lives here: state and namespace
+are deep-copied *together* so variable-to-mobject references survive
+(see deepcopy_namespace at the bottom).
 """
 from __future__ import annotations
 
@@ -18,7 +20,8 @@ from maniml.mobject.mobject import Mobject
 from maniml.scene.file_watcher import FileWatcher
 from maniml.scene.source_map import SourceMapError
 from maniml.scene.source_map import build_units
-from maniml.scene.source_map import next_play_unit
+from maniml.scene.source_map import next_stop_unit
+from maniml.scene.source_map import pause_anchored
 from maniml.scene.source_map import unit_for_line
 
 
@@ -90,6 +93,7 @@ class CheckpointMixin:
         
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
+        self._stretch_run_time = 0.0
 
 
     def _setup_file_watcher(self) -> None:
@@ -130,10 +134,19 @@ class CheckpointMixin:
         earliest_change = change_info['earliest_changed_line']
         log.info(f"Handling file change at line {earliest_change}")
 
+        previous_mode = getattr(self, '_pause_anchored_mode', None)
         self._source_units_cache = None
         units = self._get_source_units()
         if units is None:
             print("Scene file has errors; fix them and save again")
+            return
+
+        if previous_mode is not None and self._pause_anchored_mode != previous_mode:
+            # The first pause was added or the last one removed: every
+            # stored unit index belongs to the other anchoring regime,
+            # so surgical re-anchoring has nothing valid to keep.
+            print("Pause anchoring changed: rebuilding scene")
+            self._restart_from_source()
             return
 
         if not (units and units[0].start_line <= earliest_change <= units[-1].end_line):
@@ -181,7 +194,7 @@ class CheckpointMixin:
             if current_unit >= target_unit_index:
                 return
             last_index = self.current_animation_index
-            next_unit = next_play_unit(units, after_unit_index=current_unit)
+            next_unit = next_stop_unit(units, after_unit_index=current_unit)
             if next_unit is None or next_unit.index >= target_unit_index:
                 # The edited unit itself (or a trailing no-play unit):
                 # play at real speed and stop
@@ -312,13 +325,21 @@ class CheckpointMixin:
         return {}
 
     def _save_checkpoint(self, line_no: int, unit_index: int | None, namespace: dict,
-                         run_time: float | None = None) -> None:
+                         run_time: float | None = None, name: str | None = None) -> None:
         """Deep-copy the namespace and scene state into the checkpoint at
         current_animation_index + 1, replacing any existing one there.
 
-        ``run_time`` is how long the play that produced this checkpoint took,
-        kept so that stepping back can undo it over the same span. Nothing
-        else can supply it later: the animation object is gone by then."""
+        ``run_time`` is how long the play (or stretch of plays) that produced
+        this checkpoint took, kept so that stepping back can undo it over the
+        same span. Nothing else can supply it later: the animation objects
+        are gone by then. When None, the stretch accumulator — the run time
+        of every play since the last checkpoint — stands in, which is how a
+        pause-anchored checkpoint learns the span of its whole stretch."""
+        if run_time is None:
+            stretch = getattr(self, '_stretch_run_time', 0.0)
+            run_time = stretch if stretch > 0 else None
+        self._stretch_run_time = 0.0
+
         namespace = dict(namespace)
         namespace.pop('__animation_line_number__', None)
         namespace.pop('__animation_unit_index__', None)
@@ -335,6 +356,7 @@ class CheckpointMixin:
             'line_number': line_no,
             'unit_index': unit_index,
             'run_time': run_time,
+            'name': name,
             'state': checkpoint_state,
             'namespace': checkpoint_namespace,
         }
@@ -374,11 +396,23 @@ class CheckpointMixin:
             with open(path) as f:
                 source = f.read()
             units = build_units(source, self.__class__.__name__)
+            self._pause_anchored_mode = pause_anchored(source)
         except (OSError, SyntaxError, SourceMapError) as e:
             log.warning(f"Could not map scene source: {e}")
             return None
         self._source_units_cache = ((path, mtime), units)
         return units
+
+    def _pause_anchored(self) -> bool:
+        """Whether this scene's file authors its own pausepoints.
+
+        True when the source calls self.pause()/self.next_section()
+        anywhere: checkpoints then save only at pauses, and plays between
+        them run through as one stretch. A file with no pauses keeps the
+        legacy per-play anchoring, so unmodified CE files stay steppable.
+        """
+        self._get_source_units()
+        return getattr(self, '_pause_anchored_mode', False)
 
     @contextmanager
     def _no_checkpoints(self):
@@ -411,15 +445,15 @@ class CheckpointMixin:
         current_checkpoint = self.animation_checkpoints[self.current_animation_index]
         next_index = self.current_animation_index + 1
 
-        unit = next_play_unit(
+        unit = next_stop_unit(
             units,
             after_unit_index=current_checkpoint.get('unit_index'),
             after_line=current_checkpoint['line_number'],
         )
         if unit is None:
-            # Past the last play call: run any trailing statements
+            # Past the last stop call: run any trailing statements
             # (e.g. a final self.wait()) exactly once
-            tail = units[-1] if units and not units[-1].has_play else None
+            tail = units[-1] if units and not units[-1].has_stop else None
             current_unit = current_checkpoint.get('unit_index')
             if tail is None or (current_unit is not None and current_unit >= tail.index):
                 print("Already at last animation")
@@ -436,9 +470,12 @@ class CheckpointMixin:
 
         namespace = checkpoint_temporary['namespace']
         namespace['self'] = self
-        # Anchor for the checkpoint(s) that play() will save during exec
+        # Anchor for the checkpoint(s) saved during exec, and a fresh
+        # stretch: the accumulated run time of this unit's plays, which a
+        # pause-anchored checkpoint records as its span
         namespace['__animation_line_number__'] = unit.end_line
         namespace['__animation_unit_index__'] = unit.index
+        self._stretch_run_time = 0.0
 
         if self.skip_animations:
             print(f"⏩ Fast-forwarding animation {next_index}")
@@ -461,9 +498,9 @@ class CheckpointMixin:
             return
 
         if self.current_animation_index < next_index:
-            # No play() fired during this unit (a trailing tail, or a unit
-            # whose plays are written in a helper that wasn't reached):
-            # save a checkpoint anyway so the unit counts as done and the
+            # No checkpoint was saved during this unit (a trailing tail, or
+            # a unit whose stop is written in a branch or helper that wasn't
+            # reached): save one anyway so the unit counts as done and the
             # stepper moves on instead of re-running it forever.
             self._save_checkpoint(unit.end_line, unit.index, namespace)
 

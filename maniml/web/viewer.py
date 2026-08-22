@@ -661,8 +661,8 @@ class WebViewer:
         }
 
     def _future_units(self) -> list[dict]:
-        """Play-units not yet checkpointed, so the timeline can show the
-        whole scene up front. One chip per unit — a loop's repeated plays
+        """Stop-units not yet checkpointed, so the timeline can show the
+        whole scene up front. One chip per unit — a loop's repeated stops
         only become individual chips once the unit runs, which is what
         ``many`` warns about: the chip stands for an unknown number of
         pausepoints rather than exactly one."""
@@ -677,7 +677,7 @@ class WebViewer:
                 last_unit = max(last_unit, unit_index)
         return [
             {"unit": u.index, "line": u.start_line, "many": u.indeterminate}
-            for u in units if u.has_play and u.index > last_unit
+            for u in units if u.has_stop and u.index > last_unit
         ]
 
     def _broadcast_move(self, frm, to, back: bool, unit) -> None:

@@ -117,7 +117,7 @@ class SceneRunLifecycleTests(unittest.TestCase):
         unit = SimpleNamespace(
             index=0,
             end_line=1,
-            has_play=True,
+            has_stop=True,
             source="raise ValueError('animation failed')",
         )
         scene._get_source_units = MagicMock(return_value=[unit])

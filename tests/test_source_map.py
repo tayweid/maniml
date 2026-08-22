@@ -6,7 +6,8 @@ import unittest
 from maniml.scene.source_map import (
     SourceMapError,
     build_units,
-    next_play_unit,
+    next_stop_unit,
+    pause_anchored,
     unit_for_line,
 )
 
@@ -27,7 +28,7 @@ class TestBuildUnits(unittest.TestCase):
         """)
         units = build_units(src, 'MyScene')
         self.assertEqual(len(units), 2)
-        self.assertTrue(all(u.has_play for u in units))
+        self.assertTrue(all(u.has_stop for u in units))
         # First unit spans the setup line and the play line
         self.assertIn('circle = Circle()', units[0].source)
         self.assertIn('self.play(Create(circle))', units[0].source)
@@ -56,9 +57,9 @@ class TestBuildUnits(unittest.TestCase):
         self.assertIn('def fly_in', units[0].source)
         self.assertIn('cakes = fly_in', units[0].source)
         self.assertIn('FadeOut(cakes)', units[0].source)
-        self.assertEqual(units[0].plays, 1)      # the def's plays don't count
+        self.assertEqual(units[0].stops, 1)      # the def's plays don't count
         self.assertIn('lambda', units[1].source)
-        self.assertEqual(units[1].plays, 1)
+        self.assertEqual(units[1].stops, 1)
 
     def test_multiline_play_call(self):
         src = scene_source("""\
@@ -112,8 +113,8 @@ class TestBuildUnits(unittest.TestCase):
         """)
         units = build_units(src, 'MyScene')
         self.assertEqual(len(units), 2)
-        self.assertTrue(units[0].has_play)
-        self.assertFalse(units[1].has_play)
+        self.assertTrue(units[0].has_stop)
+        self.assertFalse(units[1].has_stop)
         self.assertIn('self.wait(2)', units[1].source)
 
     def test_strings_and_comments_do_not_confuse_parser(self):
@@ -181,16 +182,16 @@ class TestLookups(unittest.TestCase):
         self.units = build_units(src, 'MyScene')
 
     def test_next_by_unit_index(self):
-        self.assertEqual(next_play_unit(self.units, after_unit_index=-1).index, 0)
-        self.assertEqual(next_play_unit(self.units, after_unit_index=0).index, 1)
-        self.assertIsNone(next_play_unit(self.units, after_unit_index=1))
+        self.assertEqual(next_stop_unit(self.units, after_unit_index=-1).index, 0)
+        self.assertEqual(next_stop_unit(self.units, after_unit_index=0).index, 1)
+        self.assertIsNone(next_stop_unit(self.units, after_unit_index=1))
 
     def test_next_by_line_fallback(self):
-        first = next_play_unit(self.units, after_line=0)
+        first = next_stop_unit(self.units, after_line=0)
         self.assertEqual(first.index, 0)
-        second = next_play_unit(self.units, after_line=first.end_line)
+        second = next_stop_unit(self.units, after_line=first.end_line)
         self.assertEqual(second.index, 1)
-        self.assertIsNone(next_play_unit(self.units, after_line=second.end_line))
+        self.assertIsNone(next_stop_unit(self.units, after_line=second.end_line))
 
     def test_unit_for_line(self):
         unit = unit_for_line(self.units, self.units[1].start_line)
@@ -258,7 +259,7 @@ class IndeterminateUnitTests(unittest.TestCase):
         self.units = build_units(self.SOURCE, 'Demo')
 
     def test_a_lone_play_is_exactly_one_pausepoint(self):
-        self.assertEqual(self.units[0].plays, 1)
+        self.assertEqual(self.units[0].stops, 1)
         self.assertFalse(self.units[0].loops)
         self.assertFalse(self.units[0].indeterminate)
 
@@ -271,14 +272,107 @@ class IndeterminateUnitTests(unittest.TestCase):
     def test_branches_do_not_add_up(self):
         """Two written plays, one of which runs — a count of 2 would be as
         wrong as a count of 1."""
-        self.assertEqual(self.units[2].plays, 2)
+        self.assertEqual(self.units[2].stops, 2)
         self.assertFalse(self.units[2].loops)
         self.assertTrue(self.units[2].indeterminate)
 
     def test_a_tail_unit_plays_nothing(self):
-        self.assertFalse(self.units[3].has_play)
-        self.assertEqual(self.units[3].plays, 0)
+        self.assertFalse(self.units[3].has_stop)
+        self.assertEqual(self.units[3].stops, 0)
         self.assertFalse(self.units[3].indeterminate)
+
+
+class PauseAnchoredUnitTests(unittest.TestCase):
+    """A file that calls self.pause() anywhere authors its own stops:
+    pauses are the unit boundaries and plays run through."""
+
+    def test_pauses_are_the_boundaries_when_present(self):
+        src = scene_source("""\
+            circle = Circle()
+            self.play(Create(circle))
+            self.play(circle.animate.shift(RIGHT))
+            self.pause()
+            self.play(FadeOut(circle))
+            self.pause()
+        """)
+        self.assertTrue(pause_anchored(src))
+        units = build_units(src, 'MyScene')
+        self.assertEqual(len(units), 2)
+        # Both plays fold into the first pause's unit
+        self.assertIn('Create(circle)', units[0].source)
+        self.assertIn('shift(RIGHT)', units[0].source)
+        self.assertEqual(units[0].stops, 1)
+        self.assertFalse(units[0].indeterminate)
+        self.assertIn('FadeOut(circle)', units[1].source)
+
+    def test_a_file_without_pauses_stays_play_anchored(self):
+        src = scene_source("""\
+            self.play(Create(Circle()))
+            self.play(Create(Square()))
+        """)
+        self.assertFalse(pause_anchored(src))
+        self.assertEqual(len(build_units(src, 'MyScene')), 2)
+
+    def test_next_section_is_a_pause(self):
+        src = scene_source("""\
+            self.play(Create(Circle()))
+            self.next_section("shapes")
+            self.play(Create(Square()))
+            self.next_section()
+        """)
+        self.assertTrue(pause_anchored(src))
+        self.assertEqual(len(build_units(src, 'MyScene')), 2)
+
+    def test_pause_on_another_object_does_not_flip_the_mode(self):
+        # A scene about a media player must not become pause-anchored
+        # because its subject happens to have a pause() method.
+        src = scene_source("""\
+            player.pause()
+            self.play(Create(Circle()))
+            self.play(Create(Square()))
+        """)
+        self.assertFalse(pause_anchored(src))
+        self.assertEqual(len(build_units(src, 'MyScene')), 2)
+
+    def test_pause_in_helper_flips_mode_without_adding_a_boundary(self):
+        # The pause fires at runtime inside the helper, so the file is
+        # pause-anchored, but construct() shows no textual pause: its whole
+        # body is one unit, and the runtime pause checkpoints mid-unit.
+        src = scene_source("""\
+            def beat(self):
+                self.pause()
+            self.play(Create(Circle()))
+            beat(self)
+            self.play(Create(Square()))
+        """)
+        self.assertTrue(pause_anchored(src))
+        units = build_units(src, 'MyScene')
+        self.assertEqual(len(units), 1)
+        self.assertFalse(units[0].has_stop)
+        self.assertEqual(units[0].stops, 0)
+
+    def test_pause_in_loop_is_indeterminate(self):
+        src = scene_source("""\
+            for i in range(3):
+                self.play(Create(Circle()))
+                self.pause()
+        """)
+        units = build_units(src, 'MyScene')
+        self.assertEqual(len(units), 1)
+        self.assertTrue(units[0].loops)
+        self.assertTrue(units[0].indeterminate)
+
+    def test_statements_after_the_last_pause_form_the_tail(self):
+        src = scene_source("""\
+            self.play(Create(Circle()))
+            self.pause()
+            self.play(Create(Square()))
+            self.wait(0.1)
+        """)
+        units = build_units(src, 'MyScene')
+        self.assertEqual(len(units), 2)
+        self.assertFalse(units[1].has_stop)
+        self.assertIn('Square', units[1].source)
 
 
 if __name__ == '__main__':
