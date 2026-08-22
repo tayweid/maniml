@@ -109,14 +109,15 @@ class WebServer:
             return None
         from urllib.parse import urlsplit
         path = urlsplit(request.path).path
-        if path == "/baked" or path.startswith("/baked/"):
-            # The scene's baked export (media/<Scene>_web), mounted on this
-            # same one-port origin — no second server, no second origin.
-            # `baked_dir` is set by the viewer once the scene is known;
-            # 404 until the folder exists.
-            baked = getattr(self, "baked_dir", None)
-            if baked is not None:
-                return folder_response(request, baked, "/baked")
+        # Per-scene output folders, mounted on this same one-port origin —
+        # no second server, no second origin. The dirs are set by the
+        # viewer once the scene is known; 404 until a folder exists.
+        for prefix, attr in (("/baked", "baked_dir"),
+                             ("/present", "present_dir")):
+            if path == prefix or path.startswith(prefix + "/"):
+                root = getattr(self, attr, None)
+                if root is not None:
+                    return folder_response(request, root, prefix)
         return static_response(request, index="viewer.html")
 
     def _run_loop(self):

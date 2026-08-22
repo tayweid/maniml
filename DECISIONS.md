@@ -386,3 +386,40 @@ with the recorded render-stream layer (TODO.md, "Recorded playback"),
 which replays what the GPU was actually sent, in reverse — exact for
 any content, no heuristics. Until then the honest options were a jump
 or a sometimes-beautiful, sometimes-lying morph; the jump won.
+
+## The presentation cache is the mp4 (decided 2026-08-22)
+
+The plan was to present from the baked geometry stream; a byte-level audit
+killed it. Episode0 (~4 min) baked to 772 MB: the whole 2D scene merges
+into one delta batch (`_MERGE_KEYS` carries no per-mobject identity), so
+any motion re-ships every visible vertex; 99.5% of shipped bytes repeat
+between consecutive frames but gzip's 32 KB window cannot see across
+150-800 KB frames (measured: zstd 327x, XOR-delta+gzip 35x, shipped gzip
+7.2x); 52 of 68 bytes per vertex are replicated constants; a 1.5x index
+expansion on top. The best dependency-free re-format lands near 20 MB.
+**The H.264 mp4 of the same scene is 7.7 MB.** A codec team has spent
+twenty years on temporal compression; presenting is exactly its use case.
+
+So Present runs off the video. The model is Taylor's own t1-web
+(`t1-web/js/Present.js`): a <video>, an array of pausepoint timestamps,
+and stepped scrubbing toward a target time — which plays **both
+directions** with one file, no reversed encode. maniml generates the
+inputs that t1-web hand-marked: every checkpoint already stores its
+timestamp (`SceneState.time`), pause() supplies stop/loop flags and
+names, and `chip_unit_for` (extracted to source_map.py) keeps the
+presenter's rail identical to the live one. `--render` now always writes
+`media/<Scene>_present/` — scene.mp4 (encoded with `-g fps`, a keyframe
+per second, so every scrub seek lands instantly), present.json for the
+viewer, present_meta.js + index.html + presentation.js for a standalone
+page that opens from disk (fetch() does not exist under file://, which is
+why the meta ships as a script — the same reason t1-web used a .js data
+file). The viewer's Present button enters playback on the bundle, tells
+the engine to send nothing ({"type":"mode", geometry:false, pixels:false}),
+and shows a "stale" badge with one-click re-render when the source hash
+no longer matches; a missing bundle renders first. Reverse is finally
+honest: LEFT scrubs the recording backward, exactly.
+
+The geometry-stream export stays for what only it can do — vector-crisp
+zoom, the WebGPU endgame, Pyodide — and its size problem stays documented
+in TODO.md with the audit numbers; revisit after the performance track's
+per-submobject chunking changes the math.

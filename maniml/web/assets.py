@@ -113,7 +113,32 @@ def folder_response(request: Request, root: Path | str, prefix: str) -> Response
     )
     if content_type.startswith("text/") or content_type == "application/javascript":
         content_type += "; charset=utf-8"
-    return _response(200, "OK", body, content_type)
+
+    # Single-range requests, for <video> seeking: browsers ask for byte
+    # ranges when scrubbing. Anything unparseable falls back to a full 200.
+    range_header = request.headers.get("Range", "")
+    if range_header.startswith("bytes=") and "," not in range_header:
+        raw_start, _, raw_end = range_header[len("bytes="):].partition("-")
+        try:
+            start = int(raw_start) if raw_start else None
+            end = int(raw_end) if raw_end else None
+        except ValueError:
+            start = end = None
+        if start is None and end is not None:      # suffix: last N bytes
+            start = max(0, len(body) - end)
+            end = len(body) - 1
+        elif start is not None:
+            end = len(body) - 1 if end is None else min(end, len(body) - 1)
+        if start is not None and start <= end and start < len(body):
+            part = body[start:end + 1]
+            response = _response(206, "Partial Content", part, content_type)
+            response.headers["Content-Range"] = f"bytes {start}-{end}/{len(body)}"
+            response.headers["Accept-Ranges"] = "bytes"
+            return response
+
+    response = _response(200, "OK", body, content_type)
+    response.headers["Accept-Ranges"] = "bytes"
+    return response
 
 
 def static_response(request: Request, index: str) -> Response:

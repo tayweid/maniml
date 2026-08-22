@@ -178,6 +178,56 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                           for s in states)
             self.assertTrue(off, "present mode never disengaged")
 
+    def test_present_bundle_serving_freshness_and_ranges(self):
+        """media/<Scene>_present is mounted at /present/ with single-range
+        support (video seeking), and the state reports whether the bundle
+        matches the scene file as it is now."""
+        import hashlib
+        from urllib.request import Request, urlopen
+
+        scene_file = os.path.join(self.tmpdir.name, self.FILENAME)
+        with open(scene_file, "rb") as f:
+            good_hash = hashlib.blake2b(f.read(), digest_size=16).hexdigest()
+        bundle = os.path.join(self.tmpdir.name, "media", f"{self.SCENE}_present")
+        os.makedirs(bundle, exist_ok=True)
+        with open(os.path.join(bundle, "scene.mp4"), "wb") as f:
+            f.write(b"0123456789abcdef")
+        meta = {"format": 1, "source": {"hash": good_hash}, "checkpoints": []}
+        with open(os.path.join(bundle, "present.json"), "w") as f:
+            json.dump(meta, f)
+
+        def latest(states, field):
+            values = [s.get(field) for s in states if s.get("type") == "state"]
+            return values[-1] if values else None
+
+        with self._connect() as ws:
+            _, states = self._collect(ws, 3)
+            self.assertTrue(latest(states, "present_bundle"),
+                            "state never advertised the bundle")
+            self.assertTrue(latest(states, "present_fresh"),
+                            "matching hash reported stale")
+
+            request = Request(self.url + "present/scene.mp4",
+                              headers={"Range": "bytes=4-7"})
+            with urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 206)
+                self.assertEqual(response.read(), b"4567")
+                self.assertEqual(response.headers["Content-Range"],
+                                 "bytes 4-7/16")
+
+            # a bundle baked from different source reports stale
+            meta["source"]["hash"] = "0" * 32
+            with open(os.path.join(bundle, "present.json"), "w") as f:
+                json.dump(meta, f)
+            deadline = time.time() + 10
+            stale = None
+            while time.time() < deadline and stale is not False:
+                _, states = self._collect(ws, 2)
+                value = latest(states, "present_fresh")
+                if value is not None:
+                    stale = value
+            self.assertFalse(stale, "hash mismatch still reported fresh")
+
     def test_baked_export_is_served_on_the_same_origin(self):
         """media/<Scene>_web is mounted read-only at /baked/ on the one
         port; escaping the folder is contained."""

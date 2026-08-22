@@ -283,6 +283,27 @@ class ViewerTests(unittest.TestCase):
         self.assertTrue(list((STATIC / "glsl").glob("*.glsl")))
         self.assertTrue(list((STATIC / "wgsl").glob("*.wgsl")))
 
+    def test_presentation_playback_is_wired(self):
+        """Present-from-video: the standalone presenter ships whole, and
+        the viewer's playback branch claims its keys before anything is
+        forwarded to the engine."""
+        for name in ("presentation.js", "present.html"):
+            self.assertTrue((STATIC / name).is_file(), name)
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('<script src="presentation.js"></script>', viewer)
+        self.assertIn('stageSource === "playback"', viewer)
+        # the playback key branch claims-and-returns BEFORE the forwarder
+        keyboard = viewer[viewer.index("// -- Keyboard --"):]
+        playback_claim = keyboard.index('stageSource === "playback"')
+        forward = keyboard.index('send({ type: "key"')
+        self.assertLess(playback_claim, forward,
+                        "playback must intercept keys before the engine")
+        # the standalone page reads its meta from a script, never fetch():
+        # it must open from file://
+        present = (STATIC / "present.html").read_text()
+        self.assertIn("present_meta.js", present)
+        self.assertNotIn("fetch(", present)
+
 
 if __name__ == "__main__":
     unittest.main()

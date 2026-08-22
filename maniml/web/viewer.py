@@ -22,7 +22,9 @@ frame ([0,1], y-up), so no window-size bookkeeping is needed.
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -39,6 +41,10 @@ from maniml.constants import FRAME_SHAPE
 from maniml.event_constants import MouseButtons as PygletMouseButtons
 from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
+from maniml.scene.source_map import chip_unit_for
+from maniml.web.present_bundle import BUNDLE_META
+from maniml.web.present_bundle import FORMAT as PRESENT_FORMAT
+from maniml.web.present_bundle import bundle_dir_for
 from maniml.web.library import find_scene_classes
 from maniml.web.server import WebServer
 
@@ -678,12 +684,55 @@ class WebViewer:
             return None
         return Path(raw_source).parent / "media" / f"{type(scene).__name__}_web"
 
+    def _present_meta(self) -> dict | None:
+        """The present bundle's meta, cached by its file mtime."""
+        bundle = bundle_dir_for(self.scene) if self.scene else None
+        if bundle is None:
+            return None
+        meta_path = bundle / BUNDLE_META
+        try:
+            mtime = meta_path.stat().st_mtime
+        except OSError:
+            self._present_meta_cache = None
+            return None
+        cached = getattr(self, "_present_meta_cache", None)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, ValueError):
+            meta = None
+        self._present_meta_cache = (mtime, meta)
+        return meta
+
+    def _present_fresh(self, meta: dict | None) -> bool:
+        """Whether the bundle was baked from the scene file as it is now."""
+        if not meta or meta.get("format") != PRESENT_FORMAT:
+            return False
+        raw_source = getattr(self.scene, "_scene_filepath", None)
+        if not raw_source:
+            return False
+        try:
+            source_mtime = os.path.getmtime(raw_source)
+        except OSError:
+            return False
+        cached = getattr(self, "_source_hash_cache", None)
+        key = (raw_source, source_mtime)
+        if cached is None or cached[0] != key:
+            digest = hashlib.blake2b(
+                Path(raw_source).read_bytes(), digest_size=16).hexdigest()
+            self._source_hash_cache = (key, digest)
+        return self._source_hash_cache[1] == (meta.get("source") or {}).get("hash")
+
     def _current_state(self) -> dict:
         scene = self.scene
         checkpoints = scene.animation_checkpoints
         raw_source = getattr(scene, "_scene_filepath", None)
         baked = self._baked_dir()
         self.server.baked_dir = baked
+        present_bundle = bundle_dir_for(scene)
+        self.server.present_dir = present_bundle
+        present_meta = self._present_meta()
         return {
             "type": "state",
             "scene": type(scene).__name__,
@@ -693,6 +742,8 @@ class WebViewer:
             "count": len(checkpoints),
             "present": bool(getattr(scene, "_present_mode", False)),
             "baked": bool(baked is not None and baked.is_dir()),
+            "present_bundle": bool(present_meta),
+            "present_fresh": self._present_fresh(present_meta),
             "lines": [c.get("line_number") for c in checkpoints],
             # Which chip each checkpoint belongs to, so the rail can keep
             # a chip's checkpoints collapsed into it: the source statement
@@ -704,24 +755,11 @@ class WebViewer:
         }
 
     def _chip_unit(self, unit_index):
-        """Map a checkpoint's source unit to the chip that stands for it.
-
-        Plain files: the unit itself (every checkpoint is a stop). In a
-        pause-anchored file a chip is a *pausepoint*, so a play
-        checkpoint maps forward to the pause unit that ends its stretch;
-        plays after the last pause keep their own unit. Checkpoint 0
-        (unit -1) is always its own Start chip.
-        """
+        """Checkpoint's source unit → its chip, via the shared rule."""
         scene = self.scene
-        if unit_index is None or unit_index < 0:
-            return unit_index
-        if not scene._pause_anchored():
-            return unit_index
-        units = scene._get_source_units() or []
-        for u in units:
-            if u.index >= unit_index and u.is_pause:
-                return u.index
-        return unit_index
+        pause_mode = scene._pause_anchored()
+        units = scene._get_source_units() if pause_mode else None
+        return chip_unit_for(unit_index, units, pause_mode)
 
     def _future_units(self) -> list[dict]:
         """Chip-units not yet checkpointed, so the timeline can show the

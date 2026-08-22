@@ -130,6 +130,16 @@
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
+  /* Present-from-video: the recording replaces the live stage wholesale */
+  #playback-video { display: none; max-width: 100%; max-height: 100%;
+    border-radius: 5px; background: #000;
+    box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035); }
+  body.playback #playback-video { display: block; }
+  body.playback #view, body.playback .altview { display: none !important; }
+  #present-stale { margin-left: 4px; padding: 2px 7px; border-radius: 9px;
+    border: 1px solid var(--warn); color: var(--warn); font-size: 10px;
+    background: transparent; cursor: pointer; }
+  #present-stale[hidden] { display: none; }
   .altview { display: none; cursor: crosshair; }
   body.alt #view { display: none; }
   body.alt .altview.current { display: block; max-width: 100%; max-height: 100%; }
@@ -375,6 +385,7 @@
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
   <canvas id="glview" class="altview" title="WebGL2 client render"></canvas>
   <canvas id="gpuview" class="altview" title="WebGPU client render"></canvas>
+  <video id="playback-video" playsinline preload="auto"></video>
   <section id="connection-overlay" role="alert" hidden>
     <div class="connection-mark" aria-hidden="true"><span></span><span></span></div>
     <h2 id="connection-title">Can&rsquo;t reach the local engine</h2>
@@ -497,6 +508,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM12 15v4M8 21l4-2 4 2"/></svg>
       <span class="control-label">Present</span>
     </button>
+    <button id="present-stale" title="The recording predates the current file — click to re-render" hidden>stale</button>
     <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
       <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
       <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
@@ -506,6 +518,7 @@
 </div>
 <script src="gl.js"></script>
 <script src="webgpu.js"></script>
+<script src="presentation.js"></script>
 <script>
 "use strict";
 const canvas = document.getElementById("view");
@@ -832,8 +845,15 @@ function handleGeometry(arrayBuffer) {
 
 // -- Scene state and the pausepoint timeline --
 function handleMessage(data) {
-  if (data.type === "state") handleState(data);
-  else if (data.type === "move") handleMove(data);
+  if (data.type === "state") {
+    lastLiveState = data;
+    // During playback the recording owns the rail; the engine's states
+    // are kept (freshness, current) but not displayed.
+    if (stageSource !== "playback") handleState(data);
+  }
+  else if (data.type === "move") {
+    if (stageSource !== "playback") handleMove(data);
+  }
   else if (data.type === "export_status") handleExportStatus(data);
 }
 
@@ -988,7 +1008,9 @@ function makeChip(group, g, current) {
   chip.setAttribute("aria-label", chip.title);
   if (isCurrent) chip.setAttribute("aria-current", "step");
   chip.onclick = group.known
-    ? () => send({ type: "chip", index: group.indices[0] })
+    ? () => (stageSource === "playback"
+        ? ManimlPresentation.seekCheckpoint(group.indices[0])
+        : send({ type: "chip", index: group.indices[0] }))
     : () => send({ type: "chip_future", unit: group.unit });
   return chip;
 }
@@ -1076,6 +1098,12 @@ function handleMove(data) {
 
 // -- Toolbar actions --
 function pulseKey(key) {
+  if (stageSource === "playback") {
+    if (key === "ArrowRight") ManimlPresentation.playToNextStop();
+    else if (key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
+    canvas.focus();
+    return;
+  }
   send({ type: "key", action: "down", key });
   send({ type: "key", action: "up", key });
   canvas.focus();
@@ -1086,8 +1114,86 @@ document.getElementById("restart-scene").onclick = () => {
   send({ type: "restart" });
   canvas.focus();
 };
+// -- Present-from-video playback --
+// The t1-web model hosted in the viewer: the recording (media/<Scene>_present,
+// mounted at /present/) replaces the live stage, arrows scrub it forward and
+// backward by pausepoints (presentation.js), and the engine is told to send
+// nothing at all until playback exits.
+const playbackVideo = document.getElementById("playback-video");
+const staleBadge = document.getElementById("present-stale");
+let stageSource = "live";       // "live" | "playback"
+let lastLiveState = null;       // latest state message from the engine
+let presentPending = false;     // a render for Present is in flight
+
+function synthPlaybackState(index) {
+  const cps = playbackMeta.checkpoints;
+  return {
+    type: "state", scene: playbackMeta.scene, scenes: [],
+    file: (playbackMeta.source || {}).file || "",
+    current: index, count: cps.length,
+    lines: cps.map((c) => c.line), units: cps.map((c) => c.chip_unit),
+    future: [], present: true,
+    baked: !!(lastLiveState && lastLiveState.baked),
+    present_bundle: true,
+    present_fresh: !!(lastLiveState && lastLiveState.present_fresh),
+  };
+}
+let playbackMeta = null;
+
+async function enterPlayback() {
+  let meta = null;
+  try {
+    meta = await (await fetch("/present/present.json")).json();
+  } catch (err) { /* no bundle */ }
+  if (!meta || meta.format !== 1 || !(meta.checkpoints || []).length) {
+    showExportStatus("No recording — rendering one", "working");
+    presentPending = true;
+    send({ type: "export", format: "video" });
+    return;
+  }
+  playbackMeta = meta;
+  stageSource = "playback";
+  document.body.classList.add("playback");
+  send({ type: "mode", geometry: false, pixels: false });  // engine sleeps
+  playbackVideo.src = "/present/scene.mp4";
+  staleBadge.hidden = !lastLiveState || !!lastLiveState.present_fresh;
+  const startIndex = Math.min(
+    lastLiveState ? Math.max(0, lastLiveState.current) : 0,
+    meta.checkpoints.length - 1);
+  ManimlPresentation.load(playbackVideo, meta, {
+    onUpdate: (index) => handleState(synthPlaybackState(index)),
+    onMove: (from, to, back, unit) => handleMove(
+      from === null || from === undefined
+        ? { from: null } : { from, to, back, unit }),
+    onRest: () => {},
+  });
+  const seekStart = () => ManimlPresentation.seekCheckpoint(startIndex);
+  if (playbackVideo.readyState >= 1) seekStart();
+  else playbackVideo.addEventListener("loadedmetadata", seekStart, { once: true });
+  handleState(synthPlaybackState(startIndex));
+}
+
+function exitPlayback() {
+  const parkAt = ManimlPresentation.currentIndex();
+  ManimlPresentation.unload();
+  stageSource = "live";
+  document.body.classList.remove("playback");
+  staleBadge.hidden = true;
+  playbackVideo.removeAttribute("src");
+  playbackVideo.load();
+  sendRendererMode();                     // the live stream resumes
+  send({ type: "chip", index: parkAt }); // park the engine where we stopped
+}
+
 document.getElementById("present").onclick = () => {
-  send({ type: "present" });
+  if (stageSource === "playback") exitPlayback();
+  else void enterPlayback();
+  canvas.focus();
+};
+staleBadge.onclick = () => {
+  presentPending = true;
+  send({ type: "export", format: "video" });
+  showExportStatus("Re-rendering the recording…", "working");
   canvas.focus();
 };
 document.getElementById("export-video").onclick = () => {
@@ -1119,6 +1225,16 @@ function handleExportStatus(data) {
   else if (data.status === "busy") showExportStatus("Export already running", "failed", 4000);
   else if (data.status === "complete") showExportStatus(noun + " saved in media/", "success", 6000);
   else showExportStatus(noun + " export failed", "failed", 6000);
+  // A render requested by Present: enter (or re-enter) playback on the
+  // fresh recording the render just wrote.
+  if (presentPending && data.format === "video"
+      && data.status !== "running" && data.status !== "busy") {
+    presentPending = false;
+    if (data.status === "complete") {
+      if (stageSource === "playback") exitPlayback();
+      void enterPlayback();
+    }
+  }
 }
 document.getElementById("export-frame").onclick = () => {
   const source = renderer === "pixel" ? canvas : backends[renderer].canvas;
@@ -1288,6 +1404,19 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     claimed.add(e.key);
     setConsole(!document.body.classList.contains("console"));
+    return;
+  }
+  if (stageSource === "playback" && (FORWARDED.has(e.key) || e.key === "Escape")) {
+    // Playback owns navigation: the recording is stepped locally and the
+    // engine hears nothing (claimed, so no stray keyup reaches it either).
+    e.preventDefault();
+    claimed.add(e.key);
+    if (e.key === "ArrowRight") ManimlPresentation.playToNextStop();
+    else if (e.key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
+    else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(-1);
+    else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(1);
+    else if (e.key === " ") ManimlPresentation.togglePause();
+    else if (e.key === "Escape") exitPlayback();
     return;
   }
   if (FORWARDED.has(e.key)) e.preventDefault();
