@@ -59,6 +59,12 @@ class CheckpointMixin:
                     namespace.update(frame.f_globals)
                     break
                 frame = frame.f_back
+
+        # Marks every scene-namespace dict, through every dict.copy() and
+        # deepcopy that follows: _rebind_functions tells "a function written
+        # in a unit" from "a function from some module" by this key, not by
+        # dict identity (which the copies break).
+        namespace[SCENE_NS_MARKER] = True
         
         # Ensure we have manim imports
         if 'Circle' not in namespace:
@@ -595,6 +601,112 @@ def _is_likely_copyable(value):
     return classification != 'can_skip'
 
 
+SCENE_NS_MARKER = '__maniml_scene_ns__'
+
+
+def _rebind_functions(old_namespace: dict, new_namespace: dict, memo: dict) -> None:
+    """Point functions at the copies the snapshot just made.
+
+    deepcopy copies objects, not the functions that read them: a function
+    written in a unit keeps ``__globals__`` bound to that unit's namespace
+    dict, and closures / default args / bound methods hold the *original*
+    mobjects. After a snapshot, the next unit animates the copied tracker
+    while ``always_redraw`` callbacks still read the original one, so the
+    drawing never moves. (``always_redraw`` itself closes over the original
+    ``mob`` and ``func``, so even the copy's own updater redraws the
+    original.)
+
+    This walks every function the copy can reach -- namespace values and the
+    updaters of every copied mobject -- and re-creates it as code + the new
+    environment: ``__globals__`` -> the new namespace (when the old one was
+    a scene namespace, recognised by SCENE_NS_MARKER -- identity won't do,
+    the save path hands over a dict.copy()), closure cells / defaults /
+    ``__self__`` -> the copy recorded in ``memo`` where one exists. Functions
+    from other modules keep their globals; only their cells are remapped.
+    Rebinding chains across generations: save (live exec dict -> stored
+    copy) and replay (stored copy -> fresh exec dict) both re-point it.
+
+    It is a corrective pass over the copy rather than a property of the
+    copy; see TODO.md "Open questions" for the design discussion.
+    """
+    import types
+
+    fmap: dict[int, object] = {}
+
+    def remap(value):
+        copied = memo.get(id(value))
+        if copied is not None and copied is not memo:
+            return copied
+        if isinstance(value, (types.FunctionType, types.MethodType)):
+            return rebind(value)
+        return value
+
+    def rebind(f):
+        if id(f) in fmap:
+            return fmap[id(f)]
+        if isinstance(f, types.MethodType):
+            new_self = remap(f.__self__)
+            new_func = rebind(f.__func__)
+            if new_self is f.__self__ and new_func is f.__func__:
+                fmap[id(f)] = f
+                return f
+            m = types.MethodType(new_func, new_self)
+            fmap[id(f)] = m
+            return m
+        if not isinstance(f, types.FunctionType):
+            return f
+        fmap[id(f)] = f   # provisional: guards self-referential closures
+
+        new_globals = new_namespace if SCENE_NS_MARKER in f.__globals__ else f.__globals__
+        changed = new_globals is not f.__globals__
+
+        new_closure = None
+        if f.__closure__:
+            cells = []
+            for cell in f.__closure__:
+                try:
+                    val = cell.cell_contents
+                except ValueError:          # empty cell
+                    cells.append(cell)
+                    continue
+                new_val = remap(val)
+                if new_val is not val:
+                    changed = True
+                    cells.append(types.CellType(new_val))
+                else:
+                    cells.append(cell)
+            new_closure = tuple(cells)
+
+        new_defaults = None
+        if f.__defaults__:
+            new_defaults = tuple(remap(d) for d in f.__defaults__)
+            changed = changed or any(a is not b for a, b in zip(new_defaults, f.__defaults__))
+
+        new_kwdefaults = None
+        if f.__kwdefaults__:
+            new_kwdefaults = {k: remap(v) for k, v in f.__kwdefaults__.items()}
+            changed = changed or any(new_kwdefaults[k] is not v for k, v in f.__kwdefaults__.items())
+
+        if not changed:
+            return f
+        g = types.FunctionType(f.__code__, new_globals, f.__name__, new_defaults, new_closure)
+        g.__kwdefaults__ = new_kwdefaults
+        g.__qualname__ = f.__qualname__
+        g.__doc__ = f.__doc__
+        g.__module__ = f.__module__
+        g.__dict__.update(f.__dict__)
+        fmap[id(f)] = g
+        return g
+
+    for name, value in list(new_namespace.items()):
+        if isinstance(value, (types.FunctionType, types.MethodType)):
+            new_namespace[name] = rebind(value)
+
+    for value in list(memo.values()):
+        if isinstance(value, Mobject) and getattr(value, 'updaters', None):
+            value.updaters = [rebind(u) for u in value.updaters]
+
+
 def deepcopy_namespace(namespace_or_checkpoint):
     """
     Deep copy a namespace or checkpoint, using selective copying.
@@ -633,7 +745,8 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
         # Single deepcopy call for items that need it
         try:
-            copied_items = copy.deepcopy(must_copy)
+            memo = {}
+            copied_items = copy.deepcopy(must_copy, memo)
 
             # Extract the state
             state = copied_items.pop('__checkpoint_state__', checkpoint['state'])
@@ -641,6 +754,9 @@ def deepcopy_namespace(namespace_or_checkpoint):
             # Add references (no copying needed)
             for name, value in references.items():
                 copied_items[name] = value
+
+            # Functions must read the copies, not the originals
+            _rebind_functions(checkpoint['namespace'], copied_items, memo)
 
             # Return checkpoint structure
             return {
@@ -674,12 +790,14 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
     # Single deepcopy call for items that need it
     try:
-        copied_items = copy.deepcopy(must_copy)
+        memo = {}
+        copied_items = copy.deepcopy(must_copy, memo)
 
         # Add references (no copying needed)
         for name, value in references.items():
             copied_items[name] = value
 
+        _rebind_functions(namespace, copied_items, memo)
         return copied_items
 
     except Exception as e:
@@ -714,4 +832,5 @@ def deepcopy_namespace(namespace_or_checkpoint):
         for name, value in references.items():
             new_namespace[name] = value
 
+        _rebind_functions(namespace, new_namespace, memo)
         return new_namespace

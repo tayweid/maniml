@@ -344,3 +344,83 @@ class PauseAnchoredSceneTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+TRACKER = textwrap.dedent('''\
+    from maniml import *
+
+    class TrackerScene(Scene):
+        def construct(self):
+            t = ValueTracker(0)
+            dot = always_redraw(lambda: Dot([t.get_value(), 0, 0]))
+            def reader(tr=t):                      # captured by default arg
+                return Dot([tr.get_value(), 1, 0])
+            dot2 = always_redraw(reader)
+            self.add(dot, dot2)
+            counter = [0]
+            def bump():                            # writes a namespace variable
+                counter[0] += 1
+                t.set_value(t.get_value() + 1)
+            self.play(FadeIn(Square()), run_time=0.05)
+            self.play(t.animate.set_value(3), run_time=0.05)
+            bump()
+            self.play(FadeIn(Circle()), run_time=0.05)
+            self.wait(0.05)
+''')
+
+
+class TestTrackerAcrossUnits(unittest.TestCase):
+    """A ValueTracker read by always_redraw callbacks defined in an earlier
+    unit must still drive the drawing after a checkpoint snapshot: the
+    snapshot copies the tracker, so the callbacks have to read the copy."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.scene_file = os.path.join(self.tmpdir.name, 'tracker_scene.py')
+        with open(self.scene_file, 'w') as f:
+            f.write(TRACKER)
+        module = load_scene_module(self.scene_file)
+        self.scene = module.TrackerScene(window=None)
+        self.scene._scene_filepath = self.scene_file
+        self.scene.skip_animations = True
+        self.scene.setup()
+        self.scene._create_checkpoint_zero()
+
+    def tearDown(self):
+        self.scene.camera.ctx.release()
+        self.tmpdir.cleanup()
+
+    def assert_follows(self, x):
+        ns = self.scene._live_namespace
+        self.assertAlmostEqual(ns['t'].get_value(), x)
+        for name in ('dot', 'dot2'):
+            mob = ns[name]
+            mob.update(0)                    # run the updater once more
+            self.assertAlmostEqual(mob.get_center()[0], x, places=3, msg=name)
+            # and it is the on-screen one, not a detached original
+            self.assertTrue(any(m is mob for m in self.scene.mobjects), name)
+
+    def test_redraw_follows_the_copied_tracker(self):
+        self.scene.run_next_animation()      # unit 0: build + FadeIn(Square)
+        self.scene.run_next_animation()      # unit 1: t -> 3 across a snapshot
+        self.assert_follows(3.0)
+
+    def test_helper_writes_reach_the_live_namespace(self):
+        for _ in range(3):                   # through the unit with bump()
+            self.scene.run_next_animation()
+        ns = self.scene._live_namespace
+        self.assertEqual(ns['counter'], [1])
+        self.assert_follows(4.0)
+
+    def test_two_generations_back_and_forward(self):
+        # forward, jump back, forward again: the rebinding must chain across
+        # save (live -> stored) and replay (stored -> fresh) generations
+        self.scene.run_next_animation()
+        self.scene.run_next_animation()
+        self.assert_follows(3.0)
+        self.scene.current_animation_index = 1
+        self.scene.restore_state(self.scene.animation_checkpoints[1]['state'])
+        self.scene.run_next_animation()      # re-run unit 1 from the stored copy
+        self.assert_follows(3.0)
+        self.scene.run_next_animation()      # and on through bump()
+        self.assert_follows(4.0)
