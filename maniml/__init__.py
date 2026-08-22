@@ -64,7 +64,8 @@ from .animation.transform import (
 )
 from .animation.fading import (
     Fade, FadeIn, FadeOut, FadeInFromPoint, FadeOutToPoint,
-    FadeTransform, FadeTransformPieces, VFadeIn, VFadeOut, VFadeInThenOut
+    FadeTransform, FadeTransformPieces, FlickerIn,
+    VFadeIn, VFadeOut, VFadeInThenOut
 )
 from .animation.composition import AnimationGroup, Succession, LaggedStart, LaggedStartMap
 from .animation.growing import GrowFromPoint, GrowFromCenter, GrowFromEdge, GrowArrow

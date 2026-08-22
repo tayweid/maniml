@@ -60,6 +60,7 @@ jobs:
           tests.test_external_processes
           tests.test_remote_assets
           tests.test_scene_lifecycle
+          tests.test_animations
 
       - name: Audit locked dependencies
         if: matrix.python == '3.14'

@@ -8,6 +8,7 @@ from maniml.constants import ORIGIN
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.mobject import Group
 from maniml.utils.bezier import interpolate
+from maniml.utils.rate_functions import linear
 from maniml.utils.rate_functions import there_and_back
 
 from typing import TYPE_CHECKING
@@ -215,6 +216,63 @@ class VFadeInThenOut(VFadeIn):
             final_alpha_value=final_alpha_value,
             **kwargs
         )
+
+def _flicker_schedule(flickers: int, seed: int) -> list[tuple[float, float]]:
+    """Brightness steps for FlickerIn: (start_alpha, level) pairs, level
+    holding until the next pair. Dark at 0, a sputter per slot across the
+    first ~60% of the run, then steadily lit. Deterministic for a given
+    seed, so a checkpoint replay sputters exactly like the first run."""
+    import random
+
+    rng = random.Random(seed)
+    settle = 0.62
+    segments = [(0.0, 0.0)]
+    if flickers > 0:
+        slot = settle / flickers
+        for i in range(flickers):
+            t0 = i * slot
+            on_at = t0 + rng.uniform(0.15, 0.45) * slot
+            off_at = t0 + rng.uniform(0.6, 0.9) * slot
+            segments.append((on_at, rng.uniform(0.3, 1.0)))
+            segments.append((off_at, 0.0))
+    segments.append((settle, 1.0))
+    return segments
+
+
+class FlickerIn(FadeIn):
+    """Switch a mobject on like an old tube light: dark, a few irregular
+    sputters at varying brightness, then steadily lit — the "flicker on"
+    preset familiar from video editors.
+
+    The sputter pattern is a step function laid over FadeIn's dark-to-lit
+    interpolation, so it works on anything FadeIn does. ``flickers`` sets
+    how many sputters, ``seed`` picks a different pattern; the default is
+    deterministic. A ``lag_ratio`` staggers the sputters across
+    submobjects (letters of a Text light up out of step).
+    """
+
+    def __init__(
+        self,
+        *mobjects: Mobject,
+        flickers: int = 4,
+        seed: int = 0,
+        rate_func: Callable[[float], float] = linear,
+        **kwargs
+    ):
+        self.schedule = _flicker_schedule(flickers, seed)
+        super().__init__(*mobjects, rate_func=rate_func, **kwargs)
+
+    def get_sub_alpha(self, alpha: float, index: int, num_submobjects: int) -> float:
+        return self._level_at(super().get_sub_alpha(alpha, index, num_submobjects))
+
+    def _level_at(self, alpha: float) -> float:
+        level = 0.0
+        for start, brightness in self.schedule:
+            if alpha < start:
+                break
+            level = brightness
+        return level
+
 
 # CE Compatibility Mappings (simplified)
 FadeOutAndShift = FadeOut  # Simplified CE compatibility
