@@ -355,9 +355,12 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(jpegs[0][1:3] == b"\xff\xd8", "JPEG magic")
             # ...capped by a crisp PNG once the animation settles
             self.assertEqual(frames[-1][0], 0x02, "quiet-time PNG follow-up")
-            self.assertTrue(states, "no state update after RIGHT")
+            # The move-close trails the landing state on the wire, so take
+            # the last STATE message, not the last JSON message.
+            landed = [s for s in states if s.get("type") == "state"]
+            self.assertTrue(landed, "no state update after RIGHT")
             self.assertEqual(
-                states[-1]["current"], start_state["current"] + 1)
+                landed[-1]["current"], start_state["current"] + 1)
 
             # Click on the label: inspect prints its variable name
             ws.send(json.dumps({"type": "pointer", "action": "down",
@@ -372,9 +375,10 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowDown"}))
             frames, states = self._collect(ws, 3)
-            self.assertTrue(states, "no state update after UP")
+            retreated = [s for s in states if s.get("type") == "state"]
+            self.assertTrue(retreated, "no state update after DOWN")
             self.assertEqual(
-                states[-1]["current"], start_state["current"])
+                retreated[-1]["current"], start_state["current"])
 
     def test_geometry_snapshot(self):
         from maniml.web.geometry import parse_geometry_message
@@ -566,6 +570,19 @@ class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
             # morphs and fast-forwards too.
             self.assertEqual(set(moves[0]),
                              {"type", "from", "to", "back", "unit"})
+            # The landing state must be on the wire BEFORE the close: the
+            # client pends states while the move is open and lands the last
+            # one when the close arrives. A close that outruns the landing
+            # sends the ring back to the chip being left, which then
+            # visibly hops dot-to-dot instead of the dash handing off to
+            # the new pausepoint's dot.
+            close_at = max(i for i, m in enumerate(states)
+                           if m.get("type") == "move" and m["from"] is None)
+            landed_at = [i for i, m in enumerate(states)
+                         if m.get("type") == "state" and m.get("current", 0) > 0]
+            self.assertTrue(landed_at, "no landing state seen")
+            self.assertLess(min(landed_at), close_at,
+                            "the move closed before the landing state")
 
     def test_state_says_which_statement_each_checkpoint_came_from(self):
         """Without it the rail cannot keep a loop's checkpoints in the one

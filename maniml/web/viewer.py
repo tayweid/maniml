@@ -310,7 +310,6 @@ class WebViewer:
         if not self.server.has_clients():
             return
         self._broadcast_logs()
-        self._close_move_if_settled()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
         # input event (present-mode prep, watcher replays, programmatic
@@ -339,6 +338,11 @@ class WebViewer:
         elif self._last_send_lossy and now - self._last_send_time >= PNG_AFTER_QUIET:
             kind = "png"
         if kind is None:
+            # Even a frame with nothing to stream must still close a
+            # settled move: an exec error rolls the scene back to the
+            # checkpoint it left, so no state change follows — without
+            # this the rail would hold its lit dash forever.
+            self._close_move_if_settled()
             return
 
         if self._pixel_mode:
@@ -371,6 +375,13 @@ class WebViewer:
             self.server.broadcast(
                 serialize_scene(self.scene, self._geometry_cache))
         self._broadcast_state()
+        # The landing state must be on the wire BEFORE the move-close:
+        # the client pends states while a move is open and lands the last
+        # one when the close arrives. In the other order the close finds
+        # only the stale anchored position, the ring falls back onto the
+        # chip being left for a frame, and then visibly hops to the new
+        # pausepoint — instead of the dash handing off to its dot.
+        self._close_move_if_settled()
 
     def _broadcast_logs(self, replace: bool = False) -> None:
         """Send whatever the scene has printed since the last frame.
