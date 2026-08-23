@@ -18,6 +18,7 @@ import asyncio
 import json
 import socket
 import threading
+import time
 from collections import deque
 
 from maniml.logger import log
@@ -177,6 +178,11 @@ class WebServer:
                 if len(self._events) >= MAX_EVENT_QUEUE:
                     await ws.close(code=1013, reason="event queue full")
                     return
+                # Arrival stamp: the drain runs only between animations, so
+                # this is how the viewer can tell a key pressed while the
+                # scene was moving (stale — it must die, not fire late)
+                # from one pressed after it settled.
+                event["_received"] = time.monotonic()
                 self._events.append(event)
         except Exception:
             pass

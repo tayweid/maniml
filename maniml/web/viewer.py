@@ -168,6 +168,7 @@ class WebViewer:
         self._dirty = False  # input arrived since the last sent frame
         self._animating = False
         self._move_open = False  # a stretch's move is lit on the rail
+        self._keys_settled_at = 0.0  # keys stamped before this are stale
         self._needs_refresh = True  # a client wants a full PNG + state
         self._dispatching = False
         self._last_send_time = 0.0
@@ -296,6 +297,11 @@ class WebViewer:
     def _close_move_if_settled(self) -> None:
         if self._move_open and not self._scene_moving():
             self._move_open = False
+            # Keys received before this instant were pressed while the
+            # scene was moving (the drain only runs between animations):
+            # they are stale and must die, not fire late. The next
+            # dispatch compares each key's arrival stamp against this.
+            self._keys_settled_at = time.monotonic()
             self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
@@ -456,6 +462,13 @@ class WebViewer:
                 return
             mods = self._map_mods(event)
             if event.get("action") == "down":
+                # A key pressed while an animation was running is stale
+                # input, not queued intent: it dies here instead of firing
+                # after the animation lands. Key-ups still pass so
+                # pressed_keys cannot wedge on a dropped press.
+                received = event.get("_received")
+                if received is not None and received <= self._keys_settled_at:
+                    return
                 self.pressed_keys.add(symbol)
                 scene.on_key_press(symbol, mods)
             else:

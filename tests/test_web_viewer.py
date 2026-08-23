@@ -177,6 +177,61 @@ class RailAnchorTests(unittest.TestCase):
         self.assertEqual(anchor(2), 2)
 
 
+class StaleKeyTests(unittest.TestCase):
+    """A key pressed while an animation runs dies instead of firing late.
+
+    The drain only runs between animations, so every key event carries an
+    arrival stamp (set by the server thread) and the viewer records the
+    instant the last move settled: a press stamped before the settle was
+    made at a scene that no longer exists.
+    """
+
+    @staticmethod
+    def make_viewer():
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+        pressed = []
+        viewer = SimpleNamespace(
+            scene=SimpleNamespace(
+                on_key_press=lambda s, m: pressed.append(s),
+                on_key_release=lambda s, m: None,
+            ),
+            pressed_keys=set(), _keys_settled_at=0.0,
+            _dirty=False, _has_undrawn_event=False,
+            _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
+        )
+        return viewer, (lambda e: WebViewer._handle_event(viewer, e)), pressed
+
+    def test_a_press_stamped_before_the_settle_dies(self):
+        viewer, handle, pressed = self.make_viewer()
+        viewer._keys_settled_at = 100.0
+        handle({"type": "key", "action": "down",
+                "key": "ArrowRight", "_received": 99.0})
+        self.assertEqual(pressed, [], "a stale press fired after the settle")
+        handle({"type": "key", "action": "down",
+                "key": "ArrowRight", "_received": 101.0})
+        self.assertEqual(len(pressed), 1, "a fresh press must still fire")
+
+    def test_a_stale_release_still_clears_the_key(self):
+        """Down before the animation, up during it: dropping the release
+        would wedge pressed_keys with a key that is no longer held."""
+        viewer, handle, pressed = self.make_viewer()
+        handle({"type": "key", "action": "down",
+                "key": "ArrowRight", "_received": 99.0})
+        viewer._keys_settled_at = 100.0
+        handle({"type": "key", "action": "up",
+                "key": "ArrowRight", "_received": 99.5})
+        self.assertEqual(viewer.pressed_keys, set())
+
+    def test_an_unstamped_event_passes(self):
+        """Events without an arrival stamp (tests, other frontends) keep
+        the old behavior rather than being silently swallowed."""
+        viewer, handle, pressed = self.make_viewer()
+        viewer._keys_settled_at = 100.0
+        handle({"type": "key", "action": "down", "key": "ArrowRight"})
+        self.assertEqual(len(pressed), 1)
+
+
 class WebViewerE2E(_ViewerHarness, unittest.TestCase):
     def test_present_toggle_prebuilds_and_stops_the_watcher(self):
         """The Present button flips the running scene into present mode:
