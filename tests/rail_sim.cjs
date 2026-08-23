@@ -154,6 +154,20 @@ function railState(dom) {
         + "chip identity changed across handleState calls");
     }
 
+    // Parked between pausepoints (UP/DOWN lands on an interior play
+    // checkpoint): the dash entering the chip lights, no dot claims the
+    // ring — the position is a place on the stretch, not a pausepoint.
+    rail.presenter.stateChanged({ ...table, current: 2 });
+    check("park mid-stretch: the dash lights, no dot claims the ring",
+      { current: railState(dom).current,
+        mid: dom.railEl.querySelectorAll(".link").map((l) => l.cls.has("mid")) },
+      { current: -1, mid: [true] });
+    rail.presenter.stateChanged({ ...table, current: 4 });
+    check("park mid-stretch: back at the pausepoint the dot returns",
+      { current: railState(dom).current,
+        mid: dom.railEl.querySelectorAll(".link").map((l) => l.cls.has("mid")) },
+      { current: 1, mid: [false] });
+
     // In-place updates mean a clicked chip's node — and the browser focus a
     // click parks on it — survives every later paint, so the handler must
     // drop focus itself or the chip wears the focus ring forever.

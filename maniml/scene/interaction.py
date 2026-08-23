@@ -226,14 +226,29 @@ class InteractionMixin:
         # traversed segment emphasized while a unit plays
         timeline_visible = self._present_mode and self._timeline_group is not None
 
-        # Handle UP arrow - jump to previous animation
+        # Handle UP arrow - jump to next animation
         if symbol == PygletWindowKeys.UP:
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
 
+            if self.current_animation_index < len(self.animation_checkpoints) - 1:
+                print(f"↑ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints) - 1}")
+                self._restore_checkpoint_for_display(self.current_animation_index + 1)
+                if timeline_visible:
+                    self._show_timeline()
+                self.update_frame(dt=0, force_draw=True)
+            else:
+                print("Already at last animation")
+
+        # Handle DOWN arrow - jump to previous animation
+        elif symbol == PygletWindowKeys.DOWN:
+            # Prevent if we're processing another key
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+
             if self.current_animation_index > 0:
-                print(f"↑ Jump to animation {self.current_animation_index - 1}/{len(self.animation_checkpoints) - 1}")
+                print(f"↓ Jump to animation {self.current_animation_index - 1}/{len(self.animation_checkpoints) - 1}")
                 # Restores a copy: putting the stored mobjects on screen
                 # would let later mutation corrupt the checkpoint
                 self._restore_checkpoint_for_display(self.current_animation_index - 1)
@@ -242,21 +257,6 @@ class InteractionMixin:
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at first animation")
-
-        # Handle DOWN arrow - jump to next animation
-        elif symbol == PygletWindowKeys.DOWN:
-            # Prevent if we're processing another key
-            if hasattr(self, '_processing_key') and self._processing_key:
-                return
-
-            if self.current_animation_index < len(self.animation_checkpoints) - 1:
-                print(f"↓ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints) - 1}")
-                self._restore_checkpoint_for_display(self.current_animation_index + 1)
-                if timeline_visible:
-                    self._show_timeline()
-                self.update_frame(dt=0, force_draw=True)
-            else:
-                print("Already at last animation")
 
         # Handle LEFT arrow - play animation in reverse
         elif symbol == PygletWindowKeys.LEFT:

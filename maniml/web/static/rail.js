@@ -30,6 +30,7 @@ function create(config) {
   let moveClear = null;
   let groups = [];
   let groupOf = [];   // checkpoint index -> chip index
+  let midGroup = null; // chip whose entering dash is lit: parked mid-stretch
 
   // -- The presenter --
   // hold the position while a stretch is being crossed (mid-move states
@@ -75,7 +76,8 @@ function create(config) {
     drawRail(state, future, current);
     applyMove();
     raf(() => {
-      const active = railEl.querySelector(".current");
+      const active = railEl.querySelector(".current")
+        || railEl.querySelector(".mid");
       if (active && active.scrollIntoView) {
         active.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
       }
@@ -116,7 +118,8 @@ function create(config) {
   function chipFlags(group, current) {
     const holds = group.known ? group.indices.length : 0;
     const many = (group.known ? group.stopCount > 1 : group.many);
-    const isCurrent = group.known && group.indices.includes(current);
+    const isCurrent = group.known && group.indices.includes(current)
+      && midGroup === null;
     const past = group.known && group.indices[holds - 1] < current;
     return { holds, many, isCurrent, past };
   }
@@ -150,7 +153,8 @@ function create(config) {
     const before = groups[from], after = groups[to];
     const past = before.known && after.known
       && after.indices[after.indices.length - 1] <= current;
-    return "link" + (past ? " past" : !before.known ? " future" : "");
+    return "link" + (past ? " past" : !before.known ? " future" : "")
+      + (to === midGroup ? " mid" : "");
   }
 
   // Refresh everything about a chip that can change from one draw to the
@@ -219,6 +223,14 @@ function create(config) {
   function drawRail(state, future, current) {
     const prevGroups = groups;
     groups = buildGroups(state, future);
+    // Parked between pausepoints (UP/DOWN): the position is a place ON a
+    // stretch, not a pausepoint, so the dash entering the chip lights and
+    // no dot claims the ring. In a plain file every checkpoint is a stop
+    // and this never engages.
+    const stops = state.stops || [];
+    const atStop = stops[current] === undefined ? true : !!stops[current];
+    midGroup = (atStop || groupOf[current] === undefined)
+      ? null : groupOf[current];
     if (canUpdateInPlace(prevGroups, groups)) {
       updateRailInPlace(current);
       return;

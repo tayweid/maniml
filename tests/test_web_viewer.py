@@ -368,9 +368,9 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 lambda: any("label" in l for l in self.stdout_lines),
                 MESSAGE_TIMEOUT, "click-to-inspect output")
 
-            # UP arrow: jump back; state should retreat
+            # DOWN arrow: jump back; state should retreat
             ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowUp"}))
+                {"type": "key", "action": "down", "key": "ArrowDown"}))
             frames, states = self._collect(ws, 3)
             self.assertTrue(states, "no state update after UP")
             self.assertEqual(

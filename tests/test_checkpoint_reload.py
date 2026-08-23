@@ -105,7 +105,7 @@ class TestNavigation(CheckpointSceneTest):
         checkpoint = scene.animation_checkpoints[4]
         stored = [m.get_center().copy() for m in checkpoint['state'].mobjects]
 
-        scene.on_key_press(PygletWindowKeys.UP, 0)  # index 5 -> 4
+        scene.on_key_press(PygletWindowKeys.DOWN, 0)  # index 5 -> 4
         self.assertEqual(scene.current_animation_index, 4)
         # the on-screen mobjects must be copies, not the stored ones
         for live in scene.mobjects:

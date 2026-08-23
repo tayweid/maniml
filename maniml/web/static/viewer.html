@@ -327,6 +327,10 @@
   }
   .link.lit .fill { transform: scaleX(1); opacity: 1; }
   .link.lit.back .fill { transform-origin: right center; }
+  /* Parked between pausepoints (UP/DOWN): the same fill stands lit — the
+     position is a place ON the stretch, so the dash is highlighted and no
+     dot claims the ring. */
+  .link.mid .fill { transform: scaleX(1); opacity: 1; }
   .chip {
     position: relative; z-index: 1; width: 11px; height: 11px; padding: 0;
     border-radius: 50%; flex: none; background: var(--glass-solid);
@@ -1208,8 +1212,8 @@ document.addEventListener("keydown", (e) => {
     claimed.add(e.key);
     if (e.key === "ArrowRight") ManimlPresentation.playToNextStop();
     else if (e.key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
-    else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(-1);
-    else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(1);
+    else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(1);
+    else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(-1);
     else if (e.key === " ") ManimlPresentation.togglePause();
     else if (e.key === "Escape") exitPlayback();
     return;
