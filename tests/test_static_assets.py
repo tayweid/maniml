@@ -169,11 +169,19 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("body.fullscreen.chrome #toolbar", viewer)
         self.assertIn("body.fullscreen.chrome #navbar", viewer)
 
+    def test_the_position_slug_and_stale_dot_are_styled(self):
+        """The word tag ("Pausepoint") is gone from the transport pod, so the
+        total half of the slug is pinned on its own color; the stale badge
+        became a corner dot on the Present button."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('#position-total { color: var(--dim); }', viewer)
+        self.assertIn('#present.stale::after', viewer)
+
     def test_viewer_controls_are_present(self):
         viewer = (STATIC / "viewer.html").read_text()
         for element in (
             'id="open-file"', 'id="file-menu"', 'id="previous"', 'id="next"',
-            'id="export-video"', 'id="export-web"', 'id="export-frame"',
+            'id="export-video"',
             'id="connection-overlay"', 'id="retry-connection"',
             'aria-label="Scene pausepoints"',
         ):

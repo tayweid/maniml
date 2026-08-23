@@ -67,22 +67,17 @@ function create(config) {
     const future = state.future || [];
     const total = state.count + future.length;
     const current = Math.max(0, state.current);
-    doc.querySelector("#position strong").textContent =
-      (current + 1) + " / " + Math.max(1, total);
+    get("position-now").textContent = String(current + 1);
+    get("position-total").textContent = " / " + Math.max(1, total);
     get("previous").disabled = current <= 0;
     get("next").disabled = current >= total - 1;
-    const currentLine = state.lines[current];
-    get("pausepoint-title").textContent =
-      current === 0 ? "Start" : "Pausepoint " + current;
-    get("pausepoint-line").textContent = currentLine
-      ? "Source line " + currentLine : "Scene beginning";
 
     drawRail(state, future, current);
     applyMove();
     raf(() => {
       const active = railEl.querySelector(".current");
       if (active && active.scrollIntoView) {
-        active.scrollIntoView({ block: "nearest", inline: "center" });
+        active.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
       }
     });
   }
@@ -116,30 +111,27 @@ function create(config) {
     return built;
   }
 
-  function drawRail(state, future, current) {
-    groups = buildGroups(state, future);
-    railEl.replaceChildren();
-    groups.forEach((group, g) => {
-      if (g > 0) railEl.appendChild(makeLink(g - 1, g, current));
-      railEl.appendChild(makeChip(group, g, current));
-    });
-  }
-
-  function makeChip(group, g, current) {
+  // A stack means several PAUSEPOINTS share this chip (a pause in a
+  // loop) — interior play steps between pauses never make one.
+  function chipFlags(group, current) {
     const holds = group.known ? group.indices.length : 0;
-    // A stack means several PAUSEPOINTS share this chip (a pause in a
-    // loop) — interior play steps between pauses never make one.
     const many = (group.known ? group.stopCount > 1 : group.many);
     const isCurrent = group.known && group.indices.includes(current);
     const past = group.known && group.indices[holds - 1] < current;
-    const chip = doc.createElement("button");
-    chip.type = "button";
-    chip.dataset.group = String(g);
-    chip.className = "chip" + (group.known ? (past ? " past" : "") : " future")
+    return { holds, many, isCurrent, past };
+  }
+
+  function chipClassName(group, current) {
+    const { many, isCurrent, past } = chipFlags(group, current);
+    return "chip" + (group.known ? (past ? " past" : "") : " future")
       + (isCurrent ? " current" : "") + (many ? " many" : "");
+  }
+
+  function chipTitle(group, flags) {
+    const { holds, many } = flags;
     if (group.known) {
       const first = group.indices[0], last = group.indices[holds - 1];
-      chip.title = many
+      return many
         ? "Pausepoints " + first + "–" + last + " · line " + group.line
           + " · one statement, stepped through with the arrow keys"
         : (first === 0 ? "Start"
@@ -147,30 +139,90 @@ function create(config) {
              + (holds > 1
                 ? " · " + (holds - 1) + " play steps inside (↑↓)"
                 : ""));
-    } else {
-      chip.title = group.many
-        ? "Runs to line " + group.line + " · a loop or branch, so how many "
-          + "pausepoints it holds is not known until it runs"
-        : "Runs to line " + group.line;
     }
-    chip.setAttribute("role", "listitem");
+    return group.many
+      ? "Runs to line " + group.line + " · a loop or branch, so how many "
+        + "pausepoints it holds is not known until it runs"
+      : "Runs to line " + group.line;
+  }
+
+  function linkClassName(from, to, current) {
+    const before = groups[from], after = groups[to];
+    const past = before.known && after.known
+      && after.indices[after.indices.length - 1] <= current;
+    return "link" + (past ? " past" : !before.known ? " future" : "");
+  }
+
+  // Refresh everything about a chip that can change from one draw to the
+  // next: class, title, aria state, and the click closure (cheap, and
+  // keeps it bound to the current group/current values).
+  function updateChip(chip, group, current) {
+    const flags = chipFlags(group, current);
+    chip.className = chipClassName(group, current);
+    chip.title = chipTitle(group, flags);
     chip.setAttribute("aria-label", chip.title);
-    if (isCurrent) chip.setAttribute("aria-current", "step");
+    if (flags.isCurrent) chip.setAttribute("aria-current", "step");
+    else chip.removeAttribute("aria-current");
     chip.onclick = group.known
       ? () => config.onChipClick(group.indices[0])
       : () => config.onFutureChipClick(group.unit);
+  }
+
+  function makeChip(group, g, current) {
+    const chip = doc.createElement("button");
+    chip.type = "button";
+    chip.dataset.group = String(g);
+    chip.setAttribute("role", "listitem");
+    updateChip(chip, group, current);
     return chip;
   }
 
   function makeLink(from, to, current) {
-    const before = groups[from], after = groups[to];
-    const past = before.known && after.known
-      && after.indices[after.indices.length - 1] <= current;
     const link = doc.createElement("span");
-    link.className = "link" + (past ? " past" : !before.known ? " future" : "");
+    link.className = linkClassName(from, to, current);
     link.dataset.from = String(from);
     link.appendChild(doc.createElement("i")).className = "fill";
     return link;
+  }
+
+  // True when the rail's existing DOM has exactly the shape the new
+  // groups need: same chip/link count, and each chip already known vs.
+  // future the way the corresponding new group is. When it holds, drawRail
+  // updates classes/labels in place instead of tearing the DOM down —
+  // that's what lets CSS transitions run instead of teleporting.
+  function canUpdateInPlace(prevGroups, newGroups) {
+    if (prevGroups.length !== newGroups.length) return false;
+    if (railEl.children.length !== 2 * newGroups.length - 1) return false;
+    for (let g = 0; g < newGroups.length; g++) {
+      const chip = railEl.children[2 * g];
+      if (!chip) return false;
+      const isFuture = chip.classList.contains("future");
+      if (newGroups[g].known === isFuture) return false;
+    }
+    return true;
+  }
+
+  function updateRailInPlace(current) {
+    groups.forEach((group, g) => {
+      updateChip(railEl.children[2 * g], group, current);
+      if (g > 0) {
+        railEl.children[2 * g - 1].className = linkClassName(g - 1, g, current);
+      }
+    });
+  }
+
+  function drawRail(state, future, current) {
+    const prevGroups = groups;
+    groups = buildGroups(state, future);
+    if (canUpdateInPlace(prevGroups, groups)) {
+      updateRailInPlace(current);
+      return;
+    }
+    railEl.replaceChildren();
+    groups.forEach((group, g) => {
+      if (g > 0) railEl.appendChild(makeLink(g - 1, g, current));
+      railEl.appendChild(makeChip(group, g, current));
+    });
   }
 
   // Where a move lands, in chips. The destination checkpoint may not exist

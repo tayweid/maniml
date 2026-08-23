@@ -136,10 +136,6 @@
     box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035); }
   body.playback #playback-video { display: block; }
   body.playback #view, body.playback .altview { display: none !important; }
-  #present-stale { margin-left: 4px; padding: 2px 7px; border-radius: 9px;
-    border: 1px solid var(--warn); color: var(--warn); font-size: 10px;
-    background: transparent; cursor: pointer; }
-  #present-stale[hidden] { display: none; }
   .altview { display: none; cursor: crosshair; }
   body.alt #view { display: none; }
   body.alt .altview.current { display: block; max-width: 100%; max-height: 100%; }
@@ -243,10 +239,11 @@
   .fly-action:hover, .fly-action:focus-visible { background: rgba(255,255,255,.13); }
 
   #position {
-    min-width: 84px; padding: 0 8px; text-align: center; color: var(--dim);
+    min-width: 54px; padding: 0 8px; text-align: center; color: var(--dim);
     font-size: 11px; letter-spacing: .045em; text-transform: uppercase;
   }
   #position strong { color: var(--text); font-weight: 550; }
+  #position-total { color: var(--dim); }
   #job-status {
     display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
     padding: 0 6px; color: var(--dim); font-size: 11px;
@@ -255,10 +252,6 @@
   #export-pod.working .export-icon { color: var(--warn); opacity: 1; }
   #export-pod.success .export-icon { color: var(--good); opacity: 1; }
   #export-pod.failed .export-icon { color: var(--bad); opacity: 1; }
-  #renderer-name { padding: 0 5px 0 1px; color: var(--dim); font-size: 11px; }
-  .seg.selected { color: var(--accent); opacity: 1; background: rgba(88,196,221,.16); }
-  .seg.failed { opacity: .24; pointer-events: none; }
-  #split.on { color: var(--accent); opacity: 1; background: rgba(88,196,221,.16); }
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
     color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
@@ -269,7 +262,7 @@
   #conn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   body.disconnected #conn-dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(218,119,119,.08); }
   body.disconnected #conn { color: #cf9494; }
-  body.disconnected #export-menu, body.disconnected #renderer-menu {
+  body.disconnected #export-menu {
     opacity: .16; pointer-events: none;
   }
 
@@ -284,10 +277,9 @@
     gap: 12px; padding: 0 12px 0 13px; }
   .view-pod { padding: 0 5px; }
   #present.active { color: var(--good); opacity: 1; }
-  #pausepoint-summary { width: 100px; flex: none; line-height: 1.15; }
-  #pausepoint-title { display: block; color: var(--text); font-size: 11px;
-    overflow: hidden; text-overflow: ellipsis; }
-  #pausepoint-line { color: var(--dim); font-size: 10px; }
+  #present { position: relative; }
+  #present.stale::after { content: ""; position: absolute; top: 6px; right: 6px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--warn); opacity: .7; }
 
   /* The rail is chips and the links between them, in one row: a link is the
      stretch of scene an animation crosses, so it is a real element that can
@@ -357,13 +349,8 @@
     border-color: var(--accent);
     animation: chip-working 900ms ease-in-out infinite;
   }
-  #key-hint { flex: none; color: var(--dim); font-size: 10px; letter-spacing: .025em; }
-  .keycap { display: inline-grid; place-items: center; min-width: 19px; height: 19px;
-    margin-left: 3px; border: 1px solid var(--line-strong); border-radius: 5px;
-    background: rgba(255,255,255,.035); color: var(--text); }
 
   @media (max-width: 860px) {
-    #renderer-name, #key-hint, #glwarn { display: none !important; }
     #file-name { max-width: 125px; }
     #stage { padding-inline: 12px; }
   }
@@ -376,10 +363,8 @@
     #connection-pod { border-left: 0; }
     #file-name { max-width: 104px; }
     #position { min-width: 54px; padding-inline: 3px; }
-    #position .position-word { display: none; }
     #job-status { max-width: 95px; }
     #navbar { bottom: 8px; }
-    #pausepoint-summary { display: none; }
     #stage { padding: 62px 8px 72px; }
   }
 </style>
@@ -416,55 +401,22 @@
         <button id="open-file" class="fly-action" role="menuitem" aria-label="Open another scene">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="control-label">Open</span>
         </button>
-        <button id="restart-scene" class="fly-action" role="menuitem" aria-label="Reload scene from source" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg><span class="control-label">Restart</span>
-        </button>
       </div>
     </div>
   </div>
 
   <div class="pod tools-pod">
     <span id="export-pod" class="tool-group">
-      <div class="flyover">
-        <button id="export-menu" class="icon-button export-icon" aria-label="Export options" aria-haspopup="menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Export</span>
-        </button>
-        <div class="flyout" role="menu" aria-label="Export options">
-          <button id="export-video" class="fly-action" role="menuitem" aria-label="Render video" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="12" height="12" rx="2"/><path d="m16 10 4-2v8l-4-2"/></svg><span class="control-label">Video</span>
-          </button>
-          <a id="open-baked" class="fly-action" role="menuitem" aria-label="Open baked web player"
-             href="/baked/" target="_blank" rel="noopener" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4l14 8-14 8z"/></svg><span class="control-label">Play baked</span>
-          </a>
-          <button id="export-web" class="fly-action" role="menuitem" aria-label="Export web player" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16"/></svg><span class="control-label">Web</span>
-          </button>
-          <button id="export-frame" class="fly-action" role="menuitem" aria-label="Save current frame">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m6 17 4-4 3 3 2-2 3 3"/></svg><span class="control-label">Frame</span>
-          </button>
-        </div>
-      </div>
+      <button id="export-video" class="icon-button export-icon" aria-label="Render video and pausepoints" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
+      </button>
       <span id="job-status" role="status" aria-live="polite"></span>
     </span>
 
-    <span id="renderer-pod" class="tool-group">
-      <div class="flyover">
-        <button id="renderer-menu" class="icon-button" aria-label="Renderer options" aria-haspopup="menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17M7 6.5h.01M10 6.5h.01"/></svg><span class="control-label">Renderer</span>
-        </button>
-        <div id="renderers" class="flyout" role="menu" aria-label="Renderer options">
-          <button class="fly-action seg selected" data-renderer="pixel" role="menuitem" aria-label="Server pixel renderer"><span>Px</span><span class="control-label">Pixel</span></button>
-          <button class="fly-action seg" data-renderer="gl" role="menuitem" aria-label="WebGL2 renderer"><span>GL</span><span class="control-label">WebGL2</span></button>
-          <button class="fly-action seg" data-renderer="gpu" role="menuitem" aria-label="WebGPU renderer"><span>GPU</span><span class="control-label">WebGPU</span></button>
-          <button id="split" class="fly-action" role="menuitem" aria-label="Compare client renderer with pixel stream">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14"/></svg><span class="control-label">Compare</span>
-          </button>
-        </div>
-      </div>
-      <span id="renderer-name">Pixel</span>
-      <span id="glwarn"></span>
-    </span>
+    <button id="restart-scene" class="icon-button" aria-label="Reload scene from source" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg>
+      <span class="control-label">Restart</span>
+    </button>
 
     <button id="console-toggle" class="icon-button" aria-label="Console" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>
@@ -474,6 +426,7 @@
     <span id="connection-pod" class="tool-group" title="Connection to the local ManimLive engine">
       <span id="conn-dot"></span><span id="conn">Connecting</span>
     </span>
+    <span id="glwarn"></span>
   </div>
 </header>
 
@@ -492,19 +445,14 @@
     <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
     </button>
-    <div id="position"><span class="position-word">Pausepoint </span><strong>1 / &mdash;</strong></div>
+    <div id="position"><strong id="position-now">1</strong><span id="position-total"> / &mdash;</span></div>
     <button id="next" class="icon-button" aria-label="Play next animation" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
     </button>
   </div>
 
   <div class="pod rail-pod">
-    <div id="pausepoint-summary">
-      <span id="pausepoint-title">Start</span>
-      <span id="pausepoint-line">Scene beginning</span>
-    </div>
     <div id="rail" role="list" aria-label="Scene pausepoints"></div>
-    <div id="key-hint">play <span class="keycap">&larr;</span><span class="keycap">&rarr;</span></div>
   </div>
 
   <div class="pod view-pod">
@@ -512,7 +460,6 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM12 15v4M8 21l4-2 4 2"/></svg>
       <span class="control-label">Present</span>
     </button>
-    <button id="present-stale" title="The recording predates the current file — click to re-render" hidden>stale</button>
     <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
       <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
       <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
@@ -668,7 +615,6 @@ function applyCapabilities(values) {
   const capabilities = new Set(values);
   document.getElementById("restart-scene").hidden = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
-  document.getElementById("export-web").hidden = !capabilities.has("export");
 }
 
 // -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up.
@@ -779,7 +725,6 @@ async function handleFrame(blob) {
 //    render geometry payloads in the browser. "split" shows the pixel
 //    stream beside the client render for comparison. --
 const glWarn = document.getElementById("glwarn");
-const splitEl = document.getElementById("split");
 const backends = {
   gl: { module: ManimlGL, canvas: document.getElementById("glview"),
         ready: false },
@@ -793,17 +738,10 @@ let split = false;
 function applyRendererUI() {
   document.body.classList.toggle("alt", renderer !== "pixel");
   document.body.classList.toggle("compare", renderer !== "pixel" && split);
-  splitEl.classList.toggle("on", split);
-  for (const seg of document.querySelectorAll("#renderers .seg")) {
-    seg.classList.toggle("selected", seg.dataset.renderer === renderer);
-  }
   for (const [name, backend] of Object.entries(backends)) {
     backend.canvas.classList.toggle("current", renderer === name);
   }
-  document.getElementById("renderer-name").textContent = {
-    pixel: "Pixel", gl: "WebGL2", gpu: "WebGPU",
-  }[renderer];
-  if (renderer === "pixel") glWarn.classList.remove("on");
+  if (renderer === "pixel" && glWarn) glWarn.classList.remove("on");
 }
 
 function sendRendererMode() {
@@ -842,15 +780,7 @@ async function selectRenderer(name, seg) {
   return true;
 }
 
-for (const seg of document.querySelectorAll("#renderers .seg")) {
-  seg.onclick = () => selectRenderer(seg.dataset.renderer, seg);
-}
 applyRendererUI();
-splitEl.onclick = () => {
-  split = !split;
-  applyRendererUI();
-  sendRendererMode();
-};
 
 let glQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
@@ -941,7 +871,7 @@ function applyEnv(state) {
   const presenting = stageSource === "playback" || !!state.present;
   presentBtn.setAttribute("aria-pressed", presenting ? "true" : "false");
   presentBtn.classList.toggle("active", presenting);
-  document.getElementById("open-baked").hidden = !state.baked;
+  presentBtn.classList.toggle("stale", !!state.present_bundle && !state.present_fresh);
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
     document.title = state.scene + " — maniml";
@@ -991,8 +921,6 @@ document.getElementById("restart-scene").onclick = () => {
 // backward by pausepoints (presentation.js), and the engine is told to send
 // nothing at all until playback exits.
 const playbackVideo = document.getElementById("playback-video");
-const staleBadge = document.getElementById("present-stale");
-document.getElementById("open-baked").href = scenePrefix + "/baked/";
 let stageSource = "live";       // "live" | "playback"
 let lastLiveState = null;       // latest state message from the engine
 let presentPending = false;     // a render for Present is in flight
@@ -1029,7 +957,6 @@ async function enterPlayback() {
   document.body.classList.add("playback");
   send({ type: "mode", geometry: false, pixels: false });  // engine sleeps
   playbackVideo.src = scenePrefix + "/present/scene.mp4";
-  staleBadge.hidden = !lastLiveState || !!lastLiveState.present_fresh;
   const startIndex = Math.min(
     lastLiveState ? Math.max(0, lastLiveState.current) : 0,
     meta.checkpoints.length - 1);
@@ -1055,7 +982,6 @@ function exitPlayback() {
   presenter.pending = null;
   stageSource = "live";
   document.body.classList.remove("playback");
-  staleBadge.hidden = true;
   playbackVideo.removeAttribute("src");
   playbackVideo.load();
   sendRendererMode();                     // the live stream resumes
@@ -1067,18 +993,8 @@ document.getElementById("present").onclick = () => {
   else void enterPlayback();
   canvas.focus();
 };
-staleBadge.onclick = () => {
-  presentPending = true;
-  send({ type: "export", format: "video" });
-  showExportStatus("Re-rendering the recording…", "working");
-  canvas.focus();
-};
 document.getElementById("export-video").onclick = () => {
   send({ type: "export", format: "video" });
-  canvas.focus();
-};
-document.getElementById("export-web").onclick = () => {
-  send({ type: "export", format: "web" });
   canvas.focus();
 };
 
@@ -1113,23 +1029,6 @@ function handleExportStatus(data) {
     }
   }
 }
-document.getElementById("export-frame").onclick = () => {
-  const source = renderer === "pixel" ? canvas : backends[renderer].canvas;
-  source.toBlob((blob) => {
-    if (!blob) {
-      showExportStatus("Frame export failed", "failed", 5000);
-      return;
-    }
-    const link = document.createElement("a");
-    link.download = (document.getElementById("scene-name").textContent || "scene")
-      .replace(/[^A-Za-z0-9._-]+/g, "-") + "-frame.png";
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    showExportStatus("Frame saved", "success", 4000);
-  }, "image/png");
-  canvas.focus();
-};
 
 // -- Console --
 // Toggle-only, and remembered for the tab: stepping a scene prints on every

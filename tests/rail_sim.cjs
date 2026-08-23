@@ -33,6 +33,7 @@ class El {
   get className() { return [...this.cls].join(" "); }
   set className(v) { this.cls = new Set(v.split(/\s+/).filter(Boolean)); }
   setAttribute(k, v) { this.attrs[k] = v; }
+  removeAttribute(k) { delete this.attrs[k]; }
   appendChild(c) { this.children.push(c); return c; }
   replaceChildren() { this.children = []; }
   walk(out = []) {
@@ -53,20 +54,18 @@ class El {
 
 function makeDom() {
   const byId = {};
-  for (const id of ["previous", "next", "pausepoint-title", "pausepoint-line"]) {
+  for (const id of ["previous", "next", "position-now", "position-total"]) {
     byId[id] = new El("div");
   }
-  const positionStrong = new El("strong");
   const doc = {
     createElement: (tag) => new El(tag),
     getElementById: (id) => byId[id],
-    querySelector: (sel) => (sel === "#position strong" ? positionStrong : null),
+    querySelector: (sel) => null,
   };
   return {
     doc,
     railEl: new El("div"),
     body: new El("body"),
-    position: positionStrong,
     byId,
   };
 }
@@ -88,7 +87,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function railState(dom) {
   const chips = dom.railEl.querySelectorAll(".chip");
   return {
-    position: dom.position.textContent,
+    position: dom.byId["position-now"].textContent + dom.byId["position-total"].textContent,
     moving: dom.body.classList.contains("moving"),
     current: chips.findIndex((c) => c.cls.has("current")),
     lit: dom.railEl.querySelectorAll(".link").map(
@@ -121,6 +120,7 @@ function railState(dom) {
       railState(dom),
       { position: "1 / 5", moving: false, current: 0, lit: ["-"],
         working: -1, arriving: -1, stacks: [false, false] });
+    const firstChip = dom.railEl.querySelectorAll(".chip")[0];
 
     rail.presenter.moveStarted(0, 1, false, 2);
     check("stretch: move opens — link lit, ring held, no pulse",
@@ -144,6 +144,15 @@ function railState(dom) {
       railState(dom),
       { position: "5 / 5", moving: false, current: 1, lit: ["-"],
         working: -1, arriving: -1, stacks: [false, false] });
+
+    const sameChip = dom.railEl.querySelectorAll(".chip")[0] === firstChip;
+    if (sameChip) {
+      console.log("ok   stretch: chips are updated in place (transitions possible)");
+    } else {
+      failures += 1;
+      console.error("FAIL stretch: chips are updated in place (transitions possible): "
+        + "chip identity changed across handleState calls");
+    }
   }
 
   // ---- Scene 2: a true stack (pause in a loop) pulses, no link ----
