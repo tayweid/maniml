@@ -153,6 +153,14 @@ function railState(dom) {
       console.error("FAIL stretch: chips are updated in place (transitions possible): "
         + "chip identity changed across handleState calls");
     }
+
+    // In-place updates mean a clicked chip's node — and the browser focus a
+    // click parks on it — survives every later paint, so the handler must
+    // drop focus itself or the chip wears the focus ring forever.
+    let blurred = false;
+    firstChip.blur = () => { blurred = true; };
+    firstChip.onclick();
+    check("stretch: a click drops focus (no stuck ring)", blurred, true);
   }
 
   // ---- Scene 2: a true stack (pause in a loop) pulses, no link ----

@@ -163,9 +163,14 @@ function create(config) {
     chip.setAttribute("aria-label", chip.title);
     if (flags.isCurrent) chip.setAttribute("aria-current", "step");
     else chip.removeAttribute("aria-current");
-    chip.onclick = group.known
-      ? () => config.onChipClick(group.indices[0])
-      : () => config.onFutureChipClick(group.unit);
+    // A click parks browser focus on the button, and since the rail stopped
+    // rebuilding on every paint the node — and its focus ring — now survives
+    // navigation. Position feedback is the presenter's job, so drop it.
+    chip.onclick = () => {
+      if (chip.blur) chip.blur();
+      if (group.known) config.onChipClick(group.indices[0]);
+      else config.onFutureChipClick(group.unit);
+    };
   }
 
   function makeChip(group, g, current) {

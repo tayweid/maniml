@@ -130,6 +130,10 @@ class ViewerTests(unittest.TestCase):
         mid-presentation. Nothing may open it but the toggle."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('id="console-toggle"', viewer)
+        # The toggle is a fixed corner pill above the panel it opens — the way
+        # in and the way out are the same spot — and it sits outside the
+        # toolbar so it cannot recede with the chrome in full screen.
+        self.assertIn("#console-toggle {\n    position: fixed; top: 14px; right: 12px;", viewer)
         self.assertIn("body.console #console { display: flex; }", viewer)
         # In full screen it rides with the rest of the chrome rather than
         # being suppressed: presenting is when a scene's own output matters
