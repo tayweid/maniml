@@ -260,7 +260,7 @@ function create(config) {
       link.classList.remove("lit", "back");
     }
     for (const chip of railEl.querySelectorAll(".chip")) {
-      chip.classList.remove("arriving", "working");
+      chip.classList.remove("working");
     }
     body.classList.toggle("moving", !!move);
     if (!move) return;
@@ -275,14 +275,14 @@ function create(config) {
       if (stack) stack.classList.add("working");
       return;
     }
+    // The lit dash is the whole story of a crossing: no outline on the
+    // destination chip — its dot lights only on arrival.
     const link = railEl.querySelector(
       '.link[data-from="' + Math.min(from, to) + '"]');
     if (link) {
       link.classList.add("lit");
       if (move.back) link.classList.add("back");
     }
-    const arriving = chip(to);
-    if (arriving) arriving.classList.add("arriving");
   }
 
   function handleMove(data) {

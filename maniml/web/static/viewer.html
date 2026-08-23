@@ -338,7 +338,9 @@
     transition: transform 120ms ease, border-color 120ms ease, background 120ms ease,
       box-shadow 200ms ease;
   }
-  .chip:hover, .chip:focus-visible { border-color: var(--accent); transform: scale(1.35); outline: none; }
+  /* Hover grows the chip but never paints the accent ring: the accent
+     outline is reserved for nothing — a dot is lit or it isn't. */
+  .chip:hover, .chip:focus-visible { transform: scale(1.35); outline: none; }
   .chip.past { background: #77727a; border-color: #77727a; }
   .chip.current { background: var(--accent); border-color: var(--accent);
     transform: scale(1.35); box-shadow: 0 0 0 4px rgba(88,196,221,.12); }
@@ -357,16 +359,16 @@
   }
   /* While a move is in flight the rail shows the STRETCH, not a point: the
      ring lifts off the chip being left — it renders as an ordinary passed
-     chip, so the lit link (and the outlined arriving chip) are the only
-     things that read as active. */
+     chip — and the lit dash is the ONLY thing that reads as active. The
+     destination chip stays plain; its dot lights on arrival. */
   body.moving .chip.current {
     box-shadow: none; transform: scale(1);
     background: #77727a; border-color: #77727a;
   }
-  body.moving .chip.arriving { border-color: var(--accent); transform: scale(1.2); }
+  /* A within-stack move has no dash between two chips to light, so the
+     stack breathes instead — size only, no accent outline. */
   @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.45); } }
   body.moving .chip.working {
-    border-color: var(--accent);
     animation: chip-working 900ms ease-in-out infinite;
   }
 

@@ -93,7 +93,6 @@ function railState(dom) {
     lit: dom.railEl.querySelectorAll(".link").map(
       (l) => l.cls.has("lit") ? (l.cls.has("back") ? "back" : "lit") : "-"),
     working: chips.findIndex((c) => c.cls.has("working")),
-    arriving: chips.findIndex((c) => c.cls.has("arriving")),
     stacks: chips.map((c) => c.cls.has("many")),
   };
 }
@@ -119,14 +118,19 @@ function railState(dom) {
     check("stretch: at rest on Start",
       railState(dom),
       { position: "1 / 5", moving: false, current: 0, lit: ["-"],
-        working: -1, arriving: -1, stacks: [false, false] });
+        working: -1, stacks: [false, false] });
     const firstChip = dom.railEl.querySelectorAll(".chip")[0];
 
     rail.presenter.moveStarted(0, 1, false, 2);
-    check("stretch: move opens — link lit, ring held, no pulse",
+    check("stretch: move opens — the dash alone lights, ring held, no pulse",
       railState(dom),
       { position: "1 / 5", moving: true, current: 0, lit: ["lit"],
-        working: -1, arriving: 1, stacks: [false, false] });
+        working: -1, stacks: [false, false] });
+    // The accent outline is reserved for nothing: no chip may wear the
+    // ring while a move is in flight — the dash is the whole story.
+    check("stretch: no chip outlined mid-move",
+      dom.railEl.querySelectorAll(".chip").map((c) => c.cls.has("arriving")),
+      [false, false]);
 
     // interior checkpoints save mid-stretch: display must not change
     rail.presenter.stateChanged({ ...table, current: 2 });
@@ -134,7 +138,7 @@ function railState(dom) {
     check("stretch: interior states pend — display unchanged",
       railState(dom),
       { position: "1 / 5", moving: true, current: 0, lit: ["lit"],
-        working: -1, arriving: 1, stacks: [false, false] });
+        working: -1, stacks: [false, false] });
 
     // arrival: landing state pends, then the move closes and lands it
     rail.presenter.stateChanged({ ...table, current: 4 });
@@ -143,7 +147,7 @@ function railState(dom) {
     check("stretch: landing — position advances, link cleared",
       railState(dom),
       { position: "5 / 5", moving: false, current: 1, lit: ["-"],
-        working: -1, arriving: -1, stacks: [false, false] });
+        working: -1, stacks: [false, false] });
 
     const sameChip = dom.railEl.querySelectorAll(".chip")[0] === firstChip;
     if (sameChip) {
