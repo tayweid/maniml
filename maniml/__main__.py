@@ -317,17 +317,17 @@ def run_scene(
     scene.run()
 
     if render:
-        # The present bundle rides on every render: the mp4 plus the
-        # pausepoint table the presenter steps by (web/present_bundle.py).
-        from maniml.web.present_bundle import write_present_bundle
+        # The pausepoints table rides on every render: with the mp4 it is
+        # the whole presentation cache (web/present_bundle.py).
+        from maniml.web.present_bundle import write_pausepoints
 
         movie = getattr(scene.file_writer, "final_file_path", None)
         if movie is not None and Path(movie).is_file():
             try:
-                bundle = write_present_bundle(scene, movie)
-                print(f"Present bundle: {bundle}")
+                table = write_pausepoints(scene)
+                print(f"Pausepoints: {table}")
             except Exception as e:
-                print(f"Present bundle failed: {e}")
+                print(f"Pausepoints table failed: {e}")
 
 
 if __name__ == "__main__":

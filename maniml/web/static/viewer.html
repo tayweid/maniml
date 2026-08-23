@@ -344,9 +344,13 @@
     margin-right: 9px;
   }
   /* While a move is in flight the rail shows the STRETCH, not a point: the
-     ring lifts off the chip being left so the position readout stops
-     claiming to be somewhere it is on its way out of. */
-  body.moving .chip.current { box-shadow: none; transform: scale(1); }
+     ring lifts off the chip being left — it renders as an ordinary passed
+     chip, so the lit link (and the outlined arriving chip) are the only
+     things that read as active. */
+  body.moving .chip.current {
+    box-shadow: none; transform: scale(1);
+    background: #77727a; border-color: #77727a;
+  }
   body.moving .chip.arriving { border-color: var(--accent); transform: scale(1.2); }
   @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.45); } }
   body.moving .chip.working {
@@ -519,6 +523,7 @@
 <script src="gl.js"></script>
 <script src="webgpu.js"></script>
 <script src="presentation.js"></script>
+<script src="rail.js"></script>
 <script>
 "use strict";
 const canvas = document.getElementById("view");
@@ -930,38 +935,6 @@ document.addEventListener("keydown", (event) => {
   }
 }, true);
 
-// -- The presenter: one navigator, whichever source feeds it --
-// The rail has exactly one author. In live mode the engine's state and
-// move messages are the feed; in playback the video source is. Both
-// funnel through these three methods, so the discipline — hold the
-// position while a stretch is being crossed, light the link (or pulse a
-// true stack), lift the ring, land only on arrival — exists once and
-// cannot drift between the modes.
-const presenter = {
-  moving: false,
-  pending: null,   // a position reported mid-move, adopted on arrival
-  stateChanged(state) {
-    if (this.moving) {
-      this.pending = state;
-      applyEnv(state);    // badges and pickers may refresh mid-move
-      return;
-    }
-    handleState(state);
-  },
-  moveStarted(from, to, back, unit) {
-    this.moving = true;
-    this.pending = null;
-    handleMove({ from, to, back, unit });
-  },
-  moveEnded(landingState) {
-    this.moving = false;
-    handleMove({ from: null });
-    const landing = landingState || this.pending;
-    this.pending = null;
-    if (landing) handleState(landing);
-  },
-};
-
 function applyEnv(state) {
   if (Array.isArray(state.scenes)) sceneNames = state.scenes;
   const presentBtn = document.getElementById("present");
@@ -977,193 +950,22 @@ function applyEnv(state) {
   if (state.file) document.getElementById("file-name").textContent = state.file;
 }
 
-function handleState(state) {
-  applyEnv(state);
-
-  const future = state.future || [];
-  const total = state.count + future.length;
-  const current = Math.max(0, state.current);
-  document.querySelector("#position strong").textContent =
-    (current + 1) + " / " + Math.max(1, total);
-  document.getElementById("previous").disabled = current <= 0;
-  document.getElementById("next").disabled = current >= total - 1;
-  const currentLine = state.lines[current];
-  document.getElementById("pausepoint-title").textContent =
-    current === 0 ? "Start" : "Pausepoint " + current;
-  document.getElementById("pausepoint-line").textContent = currentLine
-    ? "Source line " + currentLine : "Scene beginning";
-
-  drawRail(state, future, current);
-  applyMove();
-  requestAnimationFrame(() => {
-    const active = railEl.querySelector(".current");
-    if (active) active.scrollIntoView({ block: "nearest", inline: "center" });
-  });
-}
-
-// -- The rail --
-// A chip is one source statement's worth of scene, not one checkpoint. A
-// loop of plays is one thing you wrote, and it stands on the rail as one
-// stacked chip both before and after it runs — the alternative is a rail
-// that swells as you step through it, moving every chip you were aiming at.
-let groups = [];
-let groupOf = [];   // checkpoint index -> chip index
-
-function buildGroups(state, future) {
-  const units = state.units || [];
-  const stops = state.stops || [];
-  const built = [];
-  groupOf = [];
-  for (let i = 0; i < state.count; i++) {
-    const unit = units[i] === undefined ? null : units[i];
-    const isStop = stops[i] === undefined ? true : !!stops[i];
-    const last = built[built.length - 1];
-    // A checkpoint with no unit (checkpoint 0, or a play with no anchor)
-    // never merges: nothing says it belongs with its neighbour.
-    if (last && last.known && unit !== null && last.unit === unit) {
-      last.indices.push(i);
-      if (isStop) last.stopCount += 1;
-    } else {
-      built.push({ known: true, unit, indices: [i],
-                   stopCount: isStop ? 1 : 0, line: state.lines[i] });
-    }
-    groupOf[i] = built.length - 1;
-  }
-  for (const unit of future) {
-    built.push({ known: false, unit: unit.unit, indices: [],
-                 line: unit.line, many: unit.many });
-  }
-  return built;
-}
-
-function drawRail(state, future, current) {
-  groups = buildGroups(state, future);
-  railEl.replaceChildren();
-  groups.forEach((group, g) => {
-    if (g > 0) railEl.appendChild(makeLink(g - 1, g, current));
-    railEl.appendChild(makeChip(group, g, current));
-  });
-}
-
-function makeChip(group, g, current) {
-  const holds = group.known ? group.indices.length : 0;
-  // A stack means several PAUSEPOINTS share this chip (a pause in a loop)
-  // — interior play steps between pauses never make one.
-  const many = (group.known ? group.stopCount > 1 : group.many);
-  const isCurrent = group.known && group.indices.includes(current);
-  const past = group.known && group.indices[holds - 1] < current;
-  const chip = document.createElement("button");
-  chip.type = "button";
-  chip.dataset.group = String(g);
-  chip.className = "chip" + (group.known ? (past ? " past" : "") : " future")
-    + (isCurrent ? " current" : "") + (many ? " many" : "");
-  if (group.known) {
-    const first = group.indices[0], last = group.indices[holds - 1];
-    chip.title = many
-      ? "Pausepoints " + first + "\u2013" + last + " · line " + group.line
-        + " · one statement, stepped through with the arrow keys"
-      : (first === 0 ? "Start"
-         : "Pausepoint · line " + group.line
-           + (holds > 1
-              ? " · " + (holds - 1) + " play steps inside (\u2191\u2193)"
-              : ""));
-  } else {
-    chip.title = group.many
-      ? "Runs to line " + group.line + " · a loop or branch, so how many "
-        + "pausepoints it holds is not known until it runs"
-      : "Runs to line " + group.line;
-  }
-  chip.setAttribute("role", "listitem");
-  chip.setAttribute("aria-label", chip.title);
-  if (isCurrent) chip.setAttribute("aria-current", "step");
-  chip.onclick = group.known
-    ? () => (stageSource === "playback"
-        ? ManimlPresentation.seekCheckpoint(group.indices[0])
-        : send({ type: "chip", index: group.indices[0] }))
-    : () => send({ type: "chip_future", unit: group.unit });
-  return chip;
-}
-
-// A link is the stretch between two chips, and the element that lights
-// while an animation crosses it.
-function makeLink(from, to, current) {
-  const before = groups[from], after = groups[to];
-  const past = before.known && after.known
-    && after.indices[after.indices.length - 1] <= current;
-  const link = document.createElement("span");
-  link.className = "link" + (past ? " past" : !before.known ? " future" : "");
-  link.dataset.from = String(from);
-  link.appendChild(document.createElement("i")).className = "fill";
-  return link;
-}
-
-// -- Moving between pausepoints --
-// The engine says which stretch is being crossed, and nothing about how far
-// along it is: an animation's own progress is already on screen at full size,
-// and a rail that claimed a position would have to be right through reverse
-// morphs and fast-forwards too. What it must do is stop claiming the position
-// it is leaving — that lag is what made stepping feel like a jump.
-const MIN_LIT_MS = 250;
-let move = null;
-let moveSince = 0;
-let moveClear = null;
-
-// Where a move lands, in chips. The destination checkpoint may not exist
-// yet, which is exactly the case the unit index answers: a play from the
-// same statement stays inside its stack, anything else crosses to the chip
-// standing for that statement.
-function destinationGroup(from) {
-  if (groupOf[move.to] !== undefined) return groupOf[move.to];
-  if (groups[from] && groups[from].unit === move.unit) return from;
-  for (let g = from + 1; g < groups.length; g++) {
-    if (groups[g].unit === move.unit) return g;
-  }
-  return from + 1;
-}
-
-function applyMove() {
-  for (const link of railEl.querySelectorAll(".link")) {
-    link.classList.remove("lit", "back");
-  }
-  for (const chip of railEl.querySelectorAll(".chip")) {
-    chip.classList.remove("arriving", "working");
-  }
-  document.body.classList.toggle("moving", !!move);
-  if (!move) return;
-  const from = groupOf[move.from];
-  if (from === undefined) return;
-  const to = destinationGroup(from);
-  const chip = (g) => railEl.querySelector('.chip[data-group="' + g + '"]');
-  if (to === from) {
-    // Moving inside a collapsed stack: there is no stretch between two
-    // chips to light, so the stack itself shows that it is working.
-    const stack = chip(from);
-    if (stack) stack.classList.add("working");
-    return;
-  }
-  const link = railEl.querySelector(
-    '.link[data-from="' + Math.min(from, to) + '"]');
-  if (link) {
-    link.classList.add("lit");
-    if (move.back) link.classList.add("back");
-  }
-  const arriving = chip(to);
-  if (arriving) arriving.classList.add("arriving");
-}
-
-function handleMove(data) {
-  clearTimeout(moveClear);
-  if (data.from === null || data.from === undefined) {
-    // Hold a short move lit long enough to be seen: a 0.3s play would
-    // otherwise flicker the link on and off in one blink.
-    const held = Math.max(0, MIN_LIT_MS - (performance.now() - moveSince));
-    moveClear = setTimeout(() => { move = null; applyMove(); }, held);
-    return;
-  }
-  move = { from: data.from, to: data.to, back: !!data.back, unit: data.unit };
-  moveSince = performance.now();
-  applyMove();
-}
+// The rail and its presenter live in rail.js so a Node simulation can
+// replay message sequences against them (tests/rail_sim.mjs): the
+// discipline is a test, not a claim. One author for both modes; the
+// chip-click behavior branches on the active source here.
+const rail = ManimlRail.create({
+  document,
+  railEl,
+  body: document.body,
+  raf: (fn) => requestAnimationFrame(fn),
+  env: applyEnv,
+  onChipClick: (index) => (stageSource === "playback"
+      ? ManimlPresentation.seekCheckpoint(index)
+      : send({ type: "chip", index })),
+  onFutureChipClick: (unit) => send({ type: "chip_future", unit }),
+});
+const presenter = rail.presenter;
 
 // -- Toolbar actions --
 function pulseKey(key) {

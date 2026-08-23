@@ -188,6 +188,13 @@ class CheckpointMixin:
         so each costs only its state evaluation); the target unit itself
         plays at real speed.
         """
+        self._advancing = True  # one rail move for the whole replay
+        try:
+            self._replay_to_unit_inner(target_unit_index)
+        finally:
+            self._advancing = False
+
+    def _replay_to_unit_inner(self, target_unit_index: int) -> None:
         for _ in range(10000):  # bound against non-advancing loops
             units = self._get_source_units()
             if units is None:

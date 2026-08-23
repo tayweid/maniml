@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from maniml.web.present_bundle import build_meta, write_present_bundle
+from maniml.web.present_bundle import build_meta, write_pausepoints
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -66,22 +66,17 @@ class BuildMetaTests(unittest.TestCase):
             meta = build_meta(stub_scene(d, pause_anchored=False))
         self.assertTrue(all(c["stop"] for c in meta["checkpoints"]))
 
-    def test_bundle_is_self_contained(self):
+    def test_table_lands_beside_the_movie_and_nothing_else(self):
+        """The presentation cache is the rendered mp4 plus ONE json — no
+        folder, no page, no copies."""
         with tempfile.TemporaryDirectory() as d:
             scene = stub_scene(d)
-            movie = Path(d) / "out.mp4"
-            movie.write_bytes(b"fake movie")
-            dest = write_present_bundle(scene, movie)
-            self.assertEqual(dest.name, "FakeScene_present")
-            self.assertEqual((dest / "scene.mp4").read_bytes(), b"fake movie")
-            meta = json.loads((dest / "present.json").read_text())
+            dest = write_pausepoints(scene)
+            self.assertEqual(dest, Path(d) / "media"
+                             / "FakeScene.pausepoints.json")
+            meta = json.loads(dest.read_text())
             self.assertEqual(meta["scene"], "FakeScene")
-            # the standalone presenter opens from disk: page, engine, and
-            # the meta as a script (fetch() does not exist under file://)
-            self.assertTrue((dest / "index.html").is_file())
-            self.assertTrue((dest / "presentation.js").is_file())
-            meta_js = (dest / "present_meta.js").read_text()
-            self.assertTrue(meta_js.startswith("window.PRESENT_META = "))
+            self.assertFalse((Path(d) / "media" / "FakeScene_present").exists())
 
 
 RENDER_SCENE = textwrap.dedent('''\
@@ -120,10 +115,10 @@ class RenderAlignmentE2E(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmpdir.cleanup()
 
-    def test_bundle_exists_with_sane_meta(self):
-        bundle = self.media / "Tiny_present"
-        self.assertTrue((bundle / "scene.mp4").is_file(), self.render_output)
-        meta = json.loads((bundle / "present.json").read_text())
+    def test_table_exists_with_sane_meta(self):
+        self.assertTrue((self.media / "Tiny.mp4").is_file(), self.render_output)
+        self.assertFalse((self.media / "Tiny_present").exists())
+        meta = json.loads((self.media / "Tiny.pausepoints.json").read_text())
         self.assertEqual(meta["format"], 1)
         self.assertGreaterEqual(len(meta["checkpoints"]), 3)
         times = [c["time"] for c in meta["checkpoints"]]
@@ -134,8 +129,7 @@ class RenderAlignmentE2E(unittest.TestCase):
         from PIL import Image
         import numpy as np
 
-        bundle = self.media / "Tiny_present"
-        meta = json.loads((bundle / "present.json").read_text())
+        meta = json.loads((self.media / "Tiny.pausepoints.json").read_text())
         pngs = self.media / "Tiny_checkpoints"
         # compare the post-shift checkpoint (clearly distinct picture)
         checkpoint = meta["checkpoints"][2]
@@ -149,7 +143,7 @@ class RenderAlignmentE2E(unittest.TestCase):
         seek = max(0.0, checkpoint["time"] - 0.5 / meta["fps"])
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error",
-             "-ss", f"{seek:.4f}", "-i", str(bundle / "scene.mp4"),
+             "-ss", f"{seek:.4f}", "-i", str(self.media / "Tiny.mp4"),
              "-frames:v", "1", str(frame_path)],
             check=True, timeout=60,
         )

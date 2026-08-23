@@ -116,6 +116,16 @@ def folder_response(request: Request, root: Path | str, prefix: str) -> Response
         return _response(404, "Not Found", b"not found\n", "text/plain")
     if not target.is_relative_to(root_path) or not target.is_file():
         return _response(404, "Not Found", b"not found\n", "text/plain")
+    return file_response(request, target)
+
+
+def file_response(request: Request, target: Path) -> Response:
+    """Serve one on-disk file, with single-range support for <video>
+    seeking: browsers ask for byte ranges when scrubbing. Anything
+    unparseable falls back to a full 200. The caller has already decided
+    the file may be served — no path inspection happens here."""
+    if not target.is_file():
+        return _response(404, "Not Found", b"not found\n", "text/plain")
     body = target.read_bytes()
     content_type = (
         mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -123,8 +133,6 @@ def folder_response(request: Request, root: Path | str, prefix: str) -> Response
     if content_type.startswith("text/") or content_type == "application/javascript":
         content_type += "; charset=utf-8"
 
-    # Single-range requests, for <video> seeking: browsers ask for byte
-    # ranges when scrubbing. Anything unparseable falls back to a full 200.
     range_header = request.headers.get("Range", "")
     if range_header.startswith("bytes=") and "," not in range_header:
         raw_start, _, raw_end = range_header[len("bytes="):].partition("-")

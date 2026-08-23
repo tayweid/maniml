@@ -42,9 +42,8 @@ from maniml.event_constants import MouseButtons as PygletMouseButtons
 from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
 from maniml.scene.source_map import chip_unit_for
-from maniml.web.present_bundle import BUNDLE_META
 from maniml.web.present_bundle import FORMAT as PRESENT_FORMAT
-from maniml.web.present_bundle import bundle_dir_for
+from maniml.web.present_bundle import movie_path_for, pausepoints_path_for
 from maniml.web.library import find_scene_classes
 from maniml.web.server import WebServer
 
@@ -168,6 +167,7 @@ class WebViewer:
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
         self._animating = False
+        self._move_open = False  # a stretch's move is lit on the rail
         self._needs_refresh = True  # a client wants a full PNG + state
         self._dispatching = False
         self._last_send_time = 0.0
@@ -266,6 +266,12 @@ class WebViewer:
             # is not crossing to the next pausepoint: lighting the rail for
             # it would say a move is under way through every pause.
             return
+        if self._move_open:
+            # The same stretch, still crossing: a stretch's later plays
+            # must not re-open the move — the link lights once, steadily,
+            # from the first play to the arrival, through every interior
+            # play and wait (a flickering bumper is one move, not forty).
+            return
         # The move originates at the pausepoint being left, not at
         # whatever interior checkpoint the stretch has reached — so every
         # play of a stretch lights the same link instead of pulsing the
@@ -275,13 +281,22 @@ class WebViewer:
         # whose reverse playback will have landed the index on its
         # destination before the frames run — today it is always false,
         # since backward navigation is an instant jump.
+        self._move_open = True
         self._broadcast_move(
             index, index + 1, bool(getattr(self.scene, "_reversing", False)),
             self._chip_unit(getattr(self.scene, "_playing_unit", None)))
 
     def end_animation(self):
         self._animating = False
-        self._broadcast_move(None, None, False, None)
+        # Deliberately no move-clear here: the stretch may have more plays
+        # and waits to cross. on_frame_rendered closes the move when the
+        # scene actually stops moving. (post_play also calls this before
+        # clearing _is_playing, so a check here could not tell anyway.)
+
+    def _close_move_if_settled(self) -> None:
+        if self._move_open and not self._scene_moving():
+            self._move_open = False
+            self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
         """Called after every camera.capture(): pump input, stream output."""
@@ -295,6 +310,7 @@ class WebViewer:
         if not self.server.has_clients():
             return
         self._broadcast_logs()
+        self._close_move_if_settled()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
         # input event (present-mode prep, watcher replays, programmatic
@@ -720,11 +736,10 @@ class WebViewer:
         return Path(raw_source).parent / "media" / f"{type(scene).__name__}_web"
 
     def _present_meta(self) -> dict | None:
-        """The present bundle's meta, cached by its file mtime."""
-        bundle = bundle_dir_for(self.scene) if self.scene else None
-        if bundle is None:
+        """The pausepoints table, cached by its file mtime."""
+        meta_path = pausepoints_path_for(self.scene) if self.scene else None
+        if meta_path is None:
             return None
-        meta_path = bundle / BUNDLE_META
         try:
             mtime = meta_path.stat().st_mtime
         except OSError:
@@ -765,8 +780,12 @@ class WebViewer:
         raw_source = getattr(scene, "_scene_filepath", None)
         baked = self._baked_dir()
         self.server.baked_dir = baked
-        present_bundle = bundle_dir_for(scene)
-        self.server.present_dir = present_bundle
+        # The presentation cache is exactly two files, mapped under
+        # /present/ with stable client-side names.
+        self.server.present_files = {
+            "present.json": pausepoints_path_for(scene),
+            "scene.mp4": movie_path_for(scene),
+        }
         present_meta = self._present_meta()
         # While a stretch is being crossed the rail holds at the pausepoint
         # being left; the interior checkpoints exist (UP/DOWN reach them at

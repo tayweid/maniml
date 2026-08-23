@@ -206,7 +206,7 @@ class ViewerTests(unittest.TestCase):
         them can light while its animation plays; a line drawn behind the
         whole rail could only ever be lit end to end."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("function makeLink(", viewer)
+        self.assertIn("function makeLink(", (STATIC / "rail.js").read_text())
         self.assertIn(".link.lit .fill", viewer)
         self.assertIn(".link.lit.back .fill", viewer)
         # The ring must leave the chip being departed, or the rail keeps
@@ -220,30 +220,31 @@ class ViewerTests(unittest.TestCase):
         fast-forwards too."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('data.type === "move"', viewer)
-        move = viewer[viewer.index("function handleMove("):viewer.index("// -- Toolbar actions --")]
+        rail = (STATIC / "rail.js").read_text()
+        move = rail[rail.index("function handleMove("):]
         for absent in ("alpha", "progress", "run_time"):
             self.assertNotIn(absent, move, absent)
         # A short play must stay lit long enough to be seen.
-        self.assertIn("MIN_LIT_MS", viewer)
+        self.assertIn("MIN_LIT_MS", rail)
 
     def test_an_unknowable_pausepoint_count_is_drawn_as_one(self):
         """A loop or a branch does not have a chip per play until it runs, so
         the rail draws a stack rather than implying a count it lacks."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn(".chip.many", viewer)
-        self.assertIn("group.many", viewer)
+        self.assertIn("group.many", (STATIC / "rail.js").read_text())
 
     def test_a_statement_keeps_one_chip_after_it_runs(self):
         """A chip is a source statement, not a checkpoint: a loop that turns
         into four checkpoints must not become four chips, or the rail swells
         as you step through it and every chip you were aiming at moves."""
-        viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("function buildGroups(", viewer)
+        rail = (STATIC / "rail.js").read_text()
+        self.assertIn("function buildGroups(", rail)
         # Consecutive checkpoints from the same unit merge into one chip.
-        self.assertIn("last.unit === unit", viewer)
+        self.assertIn("last.unit === unit", rail)
         # And the move can still find its destination while that chip's next
         # checkpoint does not exist yet.
-        self.assertIn("function destinationGroup(", viewer)
+        self.assertIn("function destinationGroup(", rail)
 
     def test_the_two_pages_share_their_controls(self):
         """The landing page is the same bar as the viewer's, so the slug and
@@ -287,10 +288,11 @@ class ViewerTests(unittest.TestCase):
         """Present-from-video: the standalone presenter ships whole, and
         the viewer's playback branch claims its keys before anything is
         forwarded to the engine."""
-        for name in ("presentation.js", "present.html"):
+        for name in ("presentation.js", "rail.js"):
             self.assertTrue((STATIC / name).is_file(), name)
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('<script src="presentation.js"></script>', viewer)
+        self.assertIn('<script src="rail.js"></script>', viewer)
         self.assertIn('stageSource === "playback"', viewer)
         # the playback key branch claims-and-returns BEFORE the forwarder
         keyboard = viewer[viewer.index("// -- Keyboard --"):]
@@ -298,11 +300,9 @@ class ViewerTests(unittest.TestCase):
         forward = keyboard.index('send({ type: "key"')
         self.assertLess(playback_claim, forward,
                         "playback must intercept keys before the engine")
-        # the standalone page reads its meta from a script, never fetch():
-        # it must open from file://
-        present = (STATIC / "present.html").read_text()
-        self.assertIn("present_meta.js", present)
-        self.assertNotIn("fetch(", present)
+        # The presentation cache is exactly the rendered movie plus its
+        # pausepoints table — no standalone page ships with it.
+        self.assertFalse((STATIC / "present.html").exists())
 
 
 if __name__ == "__main__":
