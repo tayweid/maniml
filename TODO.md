@@ -2,7 +2,8 @@
 
 The forward roadmap. What was decided, shipped, or tried-and-deleted —
 and why — lives in `DECISIONS.md`; the architecture as it stands lives
-in `CLAUDE.md`.
+in `CLAUDE.md`. The large-scene performance audit, measurements, and
+implementation order live in `PERFORMANCE.md`.
 
 ## The milestone: WebGPU as the one canonical renderer
 
@@ -33,6 +34,73 @@ sequence, each step gated on the one before it:
    the checkpoint-ignore plumbing.
 5. After the transition: Windows/Linux CI matrices and cross-platform
    packaging return (scoped out during the macOS developer preview).
+
+## Performance: near-term work and the large-scene gate
+
+The installed small-scene path is healthy after the launchd, relay,
+client-queue, and short-animation fixes: the installed app measured
+33.5 ms median / 45.5 ms p95 frame spacing with no observed bunching or
+queue backup. Do **not** begin a wholesale renderer rewrite merely to
+improve that path. The measurements, evidence, correctness constraints,
+and full implementation sequence live in `PERFORMANCE.md`.
+
+Do these in the near term, in this order:
+
+1. **Preserve the installed-app measurement path.** Promote the working
+   scratch harnesses (`relaycheck.mjs`, `ab.mjs`, `appshot.mjs`,
+   `timeline.py`, `refmp4.py`) into maintained tooling and add a regression
+   assertion for `ProcessType=Interactive`. Keep process origin
+   (shell/launchd) independent from network route (direct/relay); a
+   hand-started process was structurally unable to reproduce the original
+   throttle.
+2. **Make render batches non-owning.** `assemble_render_groups()` currently
+   creates normal semantic parents. Checkpoint/restore can copy those
+   ephemeral parents, after which later mutations traverse and dirty stale
+   groups. The synthetic audit grew one mobject from 1 to 31 parents over
+   30 restores. Fix this before deeper checkpoint optimization and add a
+   100-restore parent-count/mutation-cost regression.
+3. **Stop rendering and encoding identical waits/idle frames.** The measured
+   viewer encoded roughly twelve identical 1080p frames per static `wait()`.
+   Pump events separately, retain clocks for real updaters, and send a hold
+   duration/state change rather than repeatedly rendering a clean scene.
+4. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
+   and byte accounting; exclude render-only/immutable/derived state; avoid
+   retaining full history in modes that do not need navigation; and enforce a
+   replay-backed budget. `_save_checkpoint()` already contributed about
+   19 ms around the measured `play()`. Full copy-on-write/delta checkpoints
+   remain a later architecture project.
+5. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
+   bug, not transport pacing: it groups label/isolate spans rather than words,
+   so ordinary text becomes one 0.2-second chunk before rendering. Add a
+   dedicated word-group path without changing generic `build_groups()`, and
+   cover the separate `MarkupText.isolate` forwarding bug. See the focused
+   diagnosis and tests in `PERFORMANCE.md`.
+
+Then take the contained next milestone:
+
+- Skip native OpenGL capture when WebGPU is the sole renderer and the scene is
+  fully supported.
+- Batch scene-list mutations so a large `play(*animations)` rebuilds render
+  groups once, not repeatedly.
+- Put explicit byte limits and lifecycle cleanup on browser, texture, GL, and
+  scene-process caches.
+- Add stage timers/counters for update, animation setup, checkpointing,
+  serialization, native capture, encoding, queue age, and browser presentation.
+- Re-run the same installed-app fixtures and preserve image/state/navigation
+  correctness alongside the timing result.
+
+Before claiming support for genuinely large scenes, complete the architecture
+gate from `PERFORMANCE.md`: stable resource/revision IDs, bounded geometry
+chunks and dirty uploads, transform/uniform deltas, copy-on-write/delta
+checkpoints, and streaming/keyframed exports. This is mandatory at that scale:
+serializing an unchanged 5,000-object scene already took about 45 ms, and moving
+one object resent the full 4.08 MB merged batch.
+
+An end-to-end timestamped presentation clock belongs in that scale/robustness
+phase, not at the front of the current queue. The shallow relay and rAF-aligned
+client are behaving now, but they still present on arrival and cannot absorb
+future OS/network jitter. Build the clock before remote or variable-latency
+viewing becomes a product promise.
 
 ## Known bugs
 
@@ -246,3 +314,80 @@ eye on it.
   server-authoritative once WebGPU is canonical.
 - Idle-loop updater scenes stream via a per-tick `has_updaters()` scan
   of top-level mobjects; nested-family-only updaters would be missed.
+
+### Snapshots copy objects, not the functions that read them (fixed by a corrective pass; wants a real design)
+
+The checkpoint snapshot deep-copies mobjects and trackers, but a function
+written in a unit keeps reading the *originals*: its `__globals__` is the old
+exec dict, and closures / default args / bound methods hold the old objects.
+So `t = ValueTracker(); dot = always_redraw(lambda: ...t...)` then
+`self.play(t.animate...)` in a later unit animated a copy the drawing never
+read (Episode 0's unemployment scroll froze). The standard tracker idiom,
+so it had to work.
+
+What's in place (`checkpoints._rebind_functions`, 2026-08-22): after every
+deepcopy, walk the functions reachable from the namespace and from copied
+mobjects' updaters, and re-create each as code + new environment --
+`__globals__` -> the new namespace (recognised by the `SCENE_NS_MARKER` key
+planted at checkpoint zero), cells / defaults / `__self__` -> the copy in
+the deepcopy memo. It chains across generations and is covered by
+`TestTrackerAcrossUnits`. Known gaps: functions buried in arbitrary
+containers aren't walked; a self-referential closure keeps the old function
+in its own cell.
+
+Why it's ugly: it is a *repair* of the copy, done after the fact, reaching
+into function internals. It exists because execution happens on copies of
+the world. Ideas for an elegant replacement, not pursued yet:
+- execute forward on the live objects and keep copies only for looking back
+  (rewind + continue = fast-forward replay from source; removes the
+  copy-on-the-execution-path entirely, but makes rewind O(units) and re-rolls
+  nondeterminism);
+- make the snapshot itself identity-preserving (restore *into* the existing
+  objects rather than replacing them), so references never go stale -- the
+  same mapping problem, moved to restore;
+- treat a function as a *pointer to source* and re-evaluate its definition in
+  the new namespace (Taylor's instinct) -- covers globals cleanly; cells and
+  defaults still need the memo.
+Decide when `pause()`-anchored units have settled; the rebinding pass is
+independent of where boundaries fall.
+
+## Recorded playback
+
+**Shipped 2026-08-22 as present-from-video** (see DECISIONS.md, "The
+presentation cache is the mp4"): `--render` writes
+`media/<Scene>_present/` — the mp4 plus the generated pausepoint table —
+and the viewer's Present button plays it with stepped scrubbing both
+directions (t1-web's model), the engine fully silent. True reverse in the
+presenter is done. What remains below is the *geometry-stream* variant of
+the same idea, kept for what only it can do (vector-crisp zoom, Pyodide,
+navigation-as-playback in the live dev viewer) — but its export format
+must first shrink: the 2026-08-22 audit measured Episode0 at 772 MB vs a
+7.7 MB mp4 (one merged batch re-ships the scene on any motion; 99.5%
+inter-frame redundancy invisible to gzip's 32 KB window — zstd measured
+327x, XOR-delta+gzip 35x; 52/68 B/vertex replicated constants; 1.5x index
+expansion; no keyframes, so seeks replay from frame 0; the player buffers
+the stream twice). Revisit after the performance track's per-submobject
+chunking changes that math.
+
+The original sketch — **record what the
+renderer is sent** and treat navigation over visited ground as *playback*:
+
+- During a real forward run, cache the per-frame render payload for each
+  pausepoint stretch — the geometry stream already exists as message 0x03,
+  and `--export`'s `GeometryRecorder` + the baked player already record and
+  replay exactly this format. Segment boundaries are already on the wire as
+  `move` messages.
+- LEFT plays the stretch's frames backward: exact reversal of anything —
+  Creates undraw, tracker sweeps rewind — because it is literally the
+  forward render in reverse. RIGHT over visited ground replays forward
+  without re-executing code; `pause(loop=True)` laps a recording instead of
+  re-running the stretch. Code executes only at the frontier and after
+  edits (restore the pause before the edit, re-run, re-record from there).
+- Prefer the **client-side cache**: the viewer already receives every frame
+  (pixels or geometry); caching per segment in the browser makes playback
+  local, keeps the server out of navigation, and is the shape a Pyodide
+  build and remote viewing both need. It also converges the live viewer
+  with the baked player — export becomes "save the cache".
+- Landing on a pausepoint restores the real checkpoint state, so parked is
+  live (inspectable, updaters running) and motion is film. Sound cues and
+  a memory/disk bound (the export folder is the on-disk format) ride along.

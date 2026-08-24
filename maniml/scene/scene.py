@@ -330,14 +330,33 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             return
         self.current_animation_index = base
         self._advancing = True
+        self._loop_hold_index = index
+        exit_key = None
         try:
             while self.current_animation_index < index:
                 last = self.current_animation_index
                 self.run_next_animation()
                 if self.current_animation_index == last:
                     return
+                if getattr(self, '_loop_exit_key', None) is not None:
+                    break
         finally:
             self._advancing = False
+            self._loop_hold_index = None
+            exit_key = getattr(self, '_loop_exit_key', None)
+            self._loop_exit_key = None
+        if exit_key is None:
+            return
+        # The exit: an arrow pressed during a lap was recorded by
+        # on_key_press rather than run re-entrantly inside the playing
+        # exec. The lap broke at a unit boundary; park on the loop
+        # pausepoint and let the key mean what it always means from a
+        # pausepoint — RIGHT the next stretch, LEFT the previous
+        # pausepoint, UP/DOWN one play. Without this RIGHT could never
+        # leave: from inside the stretch the next stop IS the loop
+        # pausepoint, so advancing re-armed the hold forever.
+        self._restore_checkpoint_for_display(index)
+        self.on_key_press(exit_key, 0)
 
     def embed(self, *args, **kwargs) -> None:
         """ManimGL's IPython embed mode was removed from maniml.

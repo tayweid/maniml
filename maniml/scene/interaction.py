@@ -220,6 +220,18 @@ class InteractionMixin:
         symbol: int,
         modifiers: int
     ) -> None:
+        # A loop hold (pause(loop=True)) replays its stretch until an
+        # arrow. The lap is mid-play when the key arrives, so handling it
+        # here would re-enter run_next_animation inside a running exec —
+        # instead the key is recorded, the lap breaks at its next unit
+        # boundary, and _maybe_replay_loop_pause applies it from the
+        # pausepoint.
+        if getattr(self, '_loop_hold_index', None) is not None and symbol in (
+                PygletWindowKeys.LEFT, PygletWindowKeys.RIGHT,
+                PygletWindowKeys.UP, PygletWindowKeys.DOWN):
+            self._loop_exit_key = symbol
+            return
+
         # In present mode the timeline overlay rides along through
         # navigation: it survives checkpoint restores (see
         # restore_state) and is rebuilt around each move, with the
