@@ -214,6 +214,20 @@ viewing becomes a product promise.
   on 2026-08-19, and the player's bottom bar is the same shape as the
   viewer's new presenter bar, so it is a copy job with the pod styles
   inlined.
+- **Notes track for the student bundle** (not urgent; scoped
+  2026-08-26). Per-pausepoint text beside the `--export-present`
+  player, switching as students step — the lecture narration a course
+  page can't get from a silent recording. The page work is small (a
+  panel driven from `onRest`; the writer folds a notes file into
+  `present_meta.js`, backward-compatibly — old bundles just have no
+  `notes` field). The real design problem is KEYING: which beat a note
+  belongs to. Indices silently shift whenever a `pause()` is added or
+  removed mid-scene; names (`pause(name=...)`) are stable but must be
+  authored for every beat before notes can attach. Decide the key
+  before building anything — a likely shape is names for anchors plus
+  index-order fill between them, with the export warning on notes it
+  could not place. The authoring itself is lecture-prep work and the
+  larger ongoing cost; the tooling should not pretend otherwise.
 - Later: process controls on the landing page, multi-scene tabs.
 
 ## Test debt (from the 2026-08-18 review)
