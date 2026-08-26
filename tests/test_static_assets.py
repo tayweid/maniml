@@ -312,9 +312,18 @@ class ViewerTests(unittest.TestCase):
         forward = keyboard.index('send({ type: "key"')
         self.assertLess(playback_claim, forward,
                         "playback must intercept keys before the engine")
-        # The presentation cache is exactly the rendered movie plus its
-        # pausepoints table — no standalone page ships with it.
-        self.assertFalse((STATIC / "present.html").exists())
+        # The presentation cache stays exactly the rendered movie plus
+        # its pausepoints table. The standalone page exists again as a
+        # separate artifact — the `--export-present` student bundle —
+        # copied into media/<Scene>_present/ as index.html, never part
+        # of the cache the viewer plays.
+        present = (STATIC / "present.html").read_text()
+        self.assertIn('<script src="presentation.js"></script>', present)
+        self.assertIn('<script src="present_meta.js"></script>', present)
+        self.assertIn('src="scene.mp4"', present)
+        # Standalone means standalone: no shell.css, no socket
+        self.assertNotIn("shell.css", present)
+        self.assertNotIn("WebSocket", present)
 
 
 if __name__ == "__main__":

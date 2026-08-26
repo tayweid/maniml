@@ -79,6 +79,63 @@ class BuildMetaTests(unittest.TestCase):
             self.assertFalse((Path(d) / "media" / "FakeScene_present").exists())
 
 
+class PresentBundleTests(unittest.TestCase):
+    """The --export-present student bundle: a standalone folder beside
+    the cache, never part of it."""
+
+    def test_bundle_is_complete_and_standalone(self):
+        from maniml.web.present_bundle import write_present_bundle
+
+        with tempfile.TemporaryDirectory() as d:
+            scene = stub_scene(d)
+            movie = Path(d) / "media" / "FakeScene.mp4"
+            movie.parent.mkdir(parents=True, exist_ok=True)
+            movie.write_bytes(b"fake-mp4-bytes")
+            dest = write_present_bundle(scene, movie)
+            self.assertEqual(dest, Path(d) / "media" / "FakeScene_present")
+            self.assertEqual(
+                sorted(p.name for p in dest.iterdir()),
+                ["index.html", "present_meta.js", "presentation.js",
+                 "scene.mp4"])
+            # The table rides as a script (file:// has no fetch) and
+            # matches build_meta exactly
+            meta_js = (dest / "present_meta.js").read_text()
+            self.assertTrue(meta_js.startswith("window.MANIML_PRESENT = "))
+            embedded = json.loads(
+                meta_js[len("window.MANIML_PRESENT = "):].rstrip().rstrip(";"))
+            self.assertEqual(embedded, build_meta(scene))
+            self.assertEqual((dest / "scene.mp4").read_bytes(),
+                             b"fake-mp4-bytes")
+            self.assertIn('<script src="presentation.js"></script>',
+                          (dest / "index.html").read_text())
+
+    def test_republish_replaces_atomically(self):
+        from maniml.web.present_bundle import write_present_bundle
+
+        with tempfile.TemporaryDirectory() as d:
+            scene = stub_scene(d)
+            movie = Path(d) / "media" / "FakeScene.mp4"
+            movie.parent.mkdir(parents=True, exist_ok=True)
+            movie.write_bytes(b"take-one")
+            dest = write_present_bundle(scene, movie)
+            stale = dest / "leftover.txt"
+            stale.write_text("from an older bundle")
+            movie.write_bytes(b"take-two")
+            write_present_bundle(scene, movie)
+            self.assertEqual((dest / "scene.mp4").read_bytes(), b"take-two")
+            self.assertFalse(stale.exists(),
+                             "a republish must be a clean replacement")
+
+    def test_missing_movie_is_an_error(self):
+        from maniml.web.present_bundle import write_present_bundle
+
+        with tempfile.TemporaryDirectory() as d:
+            scene = stub_scene(d)
+            with self.assertRaises(FileNotFoundError):
+                write_present_bundle(
+                    scene, Path(d) / "media" / "FakeScene.mp4")
+
+
 RENDER_SCENE = textwrap.dedent('''\
     from manim import *
 

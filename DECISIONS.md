@@ -423,3 +423,19 @@ The geometry-stream export stays for what only it can do — vector-crisp
 zoom, the WebGPU endgame, Pyodide — and its size problem stays documented
 in TODO.md with the audit numbers; revisit after the performance track's
 per-submobject chunking changes the math.
+
+**Follow-up (2026-08-26): the standalone page returns, as a different
+artifact.** The 2026-08-22 slimming deleted `present.html` because the
+*presentation cache* — what the viewer's Present button plays — needed
+no page: mp4 + pausepoints.json, the no-engine fallback being the mp4 in
+any video player. That decision stands. What returned is a *student
+bundle*, `--export-present` → `media/<Scene>_present/` (index.html +
+presentation.js + present_meta.js + scene.mp4): a self-contained folder
+a course site hosts so students can click through an episode's
+pausepoints with no engine anywhere — the replacement-for-slides use
+case, where "the mp4 in any video player" loses exactly the thing that
+matters (parking on beats, honest backward). It is opt-in, never written
+by plain `--render`, and the cache the viewer plays is unchanged. The
+table ships as `present_meta.js` because the page must open from
+file://, where fetch() does not exist. Episode-sized reality check: all
+of EpisodeA1 is a 4.3 MB folder.

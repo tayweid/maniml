@@ -36,6 +36,13 @@ interfaces may still change before the first public release.
 
 ### Delivery
 
+- New `--export-present`: renders the scene and writes
+  `media/<Scene>_present/`, a self-contained folder — a page that steps
+  through the episode by pausepoint, both directions, plus the mp4 —
+  for hosting on a course site so students can click through an episode
+  with no engine anywhere. Opens from `file://` too. The viewer's own
+  presentation cache (mp4 + pausepoints table) is unchanged.
+
 - ManimLive is a local application again. The interface is served by the
   engine that runs your scenes, from the same pip install, so there is nothing
   to deploy and no way for the two to be out of step. The hosted UI, its

@@ -41,6 +41,11 @@ Modes:
                    (./media/SceneName_web/) — a static folder anyone
                    can open in a browser with no Python; host it on
                    GitHub Pages to share
+  --export-present Render the scene, then write the standalone
+                   presenter (./media/SceneName_present/): the mp4 and
+                   a page that steps through it by pausepoint, both
+                   directions. A static folder for a course page —
+                   students click through the episode, no Python
   --help, -h       Show this help message
 
 Interactive controls (in the preview window):
@@ -55,6 +60,7 @@ Examples:
   maniml example.py MyScene
   maniml example.py MyScene --present
   maniml example.py MyScene --render
+  maniml example.py MyScene --export-present
 """
 
 
@@ -109,7 +115,8 @@ def main():
         print(USAGE)
         sys.exit(0)
 
-    unknown = flags - {"--present", "--render", "--web", "--no-browser", "--export"}
+    unknown = flags - {"--present", "--render", "--web", "--no-browser",
+                       "--export", "--export-present"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -126,9 +133,10 @@ def main():
         script_file,
         scene_name,
         present="--present" in flags,
-        render="--render" in flags,
+        render="--render" in flags or "--export-present" in flags,
         web="--web" in flags,
         export="--export" in flags,
+        export_present="--export-present" in flags,
         open_browser="--no-browser" not in flags,
     )
 
@@ -243,6 +251,7 @@ def run_scene(
     render=False,
     web=False,
     export=False,
+    export_present=False,
     open_browser=True,
 ):
     module = load_scene_module(script_file)
@@ -328,6 +337,15 @@ def run_scene(
                 print(f"Pausepoints: {table}")
             except Exception as e:
                 print(f"Pausepoints table failed: {e}")
+            if export_present:
+                from maniml.web.present_bundle import write_present_bundle
+
+                bundle = write_present_bundle(scene, Path(movie))
+                print(f"Present bundle: {bundle}")
+                print(
+                    "A static folder — host it anywhere, e.g. "
+                    f"cd {bundle} && python3 -m http.server"
+                )
 
 
 if __name__ == "__main__":

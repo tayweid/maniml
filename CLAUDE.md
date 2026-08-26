@@ -51,6 +51,15 @@ maniml script.py SceneName --render
 # ./media/SceneName_web/, a self-contained static player folder
 maniml script.py SceneName --export
 
+# Student bundle (headless): renders, then writes
+# ./media/SceneName_present/ — index.html + presentation.js +
+# present_meta.js + scene.mp4, a standalone page that steps through the
+# episode by pausepoint (both directions, honest reverse). A static
+# folder for a course site; opens from file:// too. Distinct from the
+# presentation cache (mp4 + pausepoints.json) the viewer's Present
+# button plays — that stays slim, per DECISIONS.md.
+maniml script.py SceneName --export-present
+
 # Browser viewer: same interactive development (checkpoints, watcher,
 # click-to-inspect), viewed in a browser tab instead of the pyglet
 # window; combines with --present. --no-browser skips the auto-open.

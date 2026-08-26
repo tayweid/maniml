@@ -94,3 +94,59 @@ def write_pausepoints(scene) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(build_meta(scene), indent=1))
     return dest
+
+
+# --- The standalone student bundle: `--export-present` ------------------
+#
+# A different artifact from the presentation cache above, for a different
+# audience. The cache (mp4 + table) is what the live viewer's Present
+# button plays; the bundle is a self-contained folder — index.html,
+# presentation.js, present_meta.js, scene.mp4 — that a course site hosts
+# so students can click through the episode with no engine anywhere.
+# The table ships as a script because the page must open from file://,
+# where fetch() does not exist.
+
+PRESENT_DIR_SUFFIX = "_present"
+PRESENT_PAGE_ASSETS = {"present.html": "index.html",
+                       "presentation.js": "presentation.js"}
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def present_dir_for(scene) -> Path | None:
+    media = media_dir_for(scene)
+    return (media / f"{type(scene).__name__}{PRESENT_DIR_SUFFIX}"
+            if media else None)
+
+
+def write_present_bundle(scene, movie_path: Path) -> Path:
+    """Record the finished scene into media/<Scene>_present/, atomically:
+    the previous bundle stays intact until a complete replacement is
+    ready (same discipline as the geometry export's publish)."""
+    import shutil
+    import tempfile
+
+    from maniml.web.export import _publish_export
+
+    destination = present_dir_for(scene)
+    if destination is None:
+        raise ValueError("scene has no source file path")
+    movie_path = Path(movie_path)
+    if not movie_path.is_file():
+        raise FileNotFoundError(f"no rendered movie at {movie_path}")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    transaction = Path(tempfile.mkdtemp(
+        prefix=f".{destination.name}-export-", dir=destination.parent))
+    staging = transaction / "new"
+    backup = transaction / "previous"
+    try:
+        staging.mkdir(mode=0o755)
+        for source_name, target_name in PRESENT_PAGE_ASSETS.items():
+            shutil.copy(STATIC_DIR / source_name, staging / target_name)
+        (staging / "present_meta.js").write_text(
+            "window.MANIML_PRESENT = " + json.dumps(build_meta(scene)) + ";\n")
+        shutil.copy2(movie_path, staging / "scene.mp4")
+        _publish_export(staging, destination, backup)
+    finally:
+        shutil.rmtree(transaction, ignore_errors=True)
+    return destination
