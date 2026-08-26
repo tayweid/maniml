@@ -80,6 +80,14 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- `z_index` now layers correctly in the browser renderers and baked
+  exports. The geometry payload used to merge every same-state mobject
+  into one batch regardless of the scene's z_index draw order, and a
+  batch draws all its fills before any of its strokes — so a raised
+  filled shape (a `Dot` marking a point) rendered behind a lower
+  stroked one (the curve it sits on) in WebGL2/WebGPU, while the pixel
+  stream and `--render` were correct. Batches no longer merge across
+  the native render-group boundaries.
 - Added CE-compatible `Table` and `MathTable`: entries on a fixed grid,
   row and column labels joining the grid, separator lines drawn midway
   between neighbours, and the `get_columns`/`get_rows`/`get_entries`

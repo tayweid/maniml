@@ -205,6 +205,39 @@ class GLPortFidelity(unittest.TestCase):
         self.assertLess(diff.mean(), 1.5, f"dots mean |diff| {diff.mean():.3f}")
         self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
 
+    def test_z_index_layering_matches_native(self):
+        # A pure-fill Dot raised above a pure-stroke line by z_index:
+        # identical draw state, so before batching learned render-group
+        # boundaries these merged into one batch, whose fills all
+        # composite before any stroke draws — the line landed on top of
+        # the dot in the client renderers only.
+        from maniml.mobject.geometry import Dot, Line
+        scene = PortScene(window=None)
+        dot = Dot(np.array([0.0, 0.0, 0.0]), color=YELLOW, z_index=10)
+        scene.add(dot)
+        line = Line(LEFT * 3, RIGHT * 3, color=BLUE, stroke_width=8)
+        scene.add(line)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        # The z_index split must survive into the payload's batches
+        self.assertGreater(len(header["batches"]), 1)
+
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+        h, w = native.shape[:2]
+        center_native = native[h // 2, w // 2]
+        center_ported = ported[h // 2, w // 2]
+        # The dot's yellow must win at the overlap in both renderers
+        self.assertGreater(center_native[0], center_native[2],
+                           f"native center not dot-colored: {center_native}")
+        self.assertGreater(center_ported[0], center_ported[2],
+                           f"ported center not dot-colored: {center_ported}")
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5)
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
+
     def test_delta_encoding(self):
         from maniml.web.geometry import GeometryCache
         from maniml.mobject.types.dot_cloud import DotCloud

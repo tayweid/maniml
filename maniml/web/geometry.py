@@ -14,12 +14,15 @@ camera uniforms from `Camera.refresh_uniforms()` verbatim plus
 per-batch mobject uniforms, so the consumer reproduces the native
 projection arithmetic rather than inventing its own.
 
-Batching mirrors the native renderer: consecutive submobjects with
-identical draw state (kind, uniforms, stroke_behind, depth_test,
-fill_mode) merge into one batch — one buffer, one pass sequence. This
-is not just a draw-call optimization: the winding-number fill blending
-is only native-faithful when a whole batch accumulates in the float
-texture before a single composite.
+Batching mirrors the native renderer: within one render group,
+consecutive submobjects with identical draw state (kind, uniforms,
+stroke_behind, depth_test, fill_mode) merge into one batch — one
+buffer, one pass sequence. This is not just a draw-call optimization:
+the winding-number fill blending is only native-faithful when a whole
+batch accumulates in the float texture before a single composite.
+Merging never crosses a render-group boundary, because the groups are
+the scene's z_index draw order and each batch draws all its fills
+before any of its strokes.
 
 Each vmobject batch also carries `stroke_verts`: the largest strip the
 batch's curves actually need (the same adaptive-subdivision formula the
@@ -152,7 +155,7 @@ def _collect_records(scene, unsupported):
         if len(data) == 0:
             return None
         return {
-            "kind": kind, "stride": stride, "data": data,
+            "kind": kind, "stride": stride, "data": data, "group": group_index,
             "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
             "depth_test": bool(sm.depth_test),
             "stroke_behind": False, "fill_mode": None,
@@ -160,7 +163,7 @@ def _collect_records(scene, unsupported):
         }
 
     records = []
-    for group in scene.render_groups:
+    for group_index, group in enumerate(scene.render_groups):
         for sm in group.family_members_with_points():
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
@@ -198,6 +201,7 @@ def _collect_records(scene, unsupported):
                 continue
             records.append({
                 "kind": "vmobject", "stride": 68, "data": data,
+                "group": group_index,
                 "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
                 "stroke_behind": bool(sm.stroke_behind),
                 "depth_test": bool(sm.depth_test),
@@ -209,7 +213,12 @@ def _collect_records(scene, unsupported):
     return records
 
 
-_MERGE_KEYS = ("kind", "uniforms", "stroke_behind", "depth_test",
+# "group" keeps merging inside one native render group: the groups are
+# the z_index/draw-order sort (Scene.assemble_render_groups), and a
+# batch is the unit of the fill-accumulate-then-stroke pass sequence,
+# so merging across groups would draw one group's strokes over a later
+# group's fills (e.g. a z_index=10 Dot behind a z_index=0 line).
+_MERGE_KEYS = ("group", "kind", "uniforms", "stroke_behind", "depth_test",
                "fill_mode", "textures")
 
 
