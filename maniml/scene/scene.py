@@ -923,6 +923,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         group = self._timeline_group
         if group is not None and group not in self.mobjects:
             self.add(group)
+        # Rebuild draw batches for the restored (and re-sorted) mobject list;
+        # without this a restore renders with the previous unit's groups
+        self.assemble_render_groups()
 
     def save_state(self) -> None:
         # Store a copy: a reference snapshot aliases the live mobjects
@@ -1066,6 +1069,10 @@ class SceneState():
         scene.num_plays = self.num_plays
         # Use the stored mobjects directly (they're references now, not copies)
         scene.mobjects = list(self.mobjects)
+        # Re-apply the z_index order Scene.add maintains: a direct assignment
+        # would otherwise draw in snapshot order and ignore any z_index set
+        # since the snapshot (stable sort, so equal z keeps snapshot order)
+        scene.mobjects.sort(key=lambda m: m.z_index)
         # Restore camera frame state
         if self.camera_frame_points is not None and hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
             scene.camera.frame.set_points(self.camera_frame_points)
