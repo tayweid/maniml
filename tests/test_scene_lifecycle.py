@@ -8,6 +8,28 @@ from maniml.scene.scene import Scene
 from maniml.web.export import record_scene
 
 
+class PacingClockTests(unittest.TestCase):
+    @patch("maniml.scene.scene.time.monotonic", return_value=250.0)
+    def test_restore_rebases_pacing_on_restored_scene_time(self, monotonic):
+        """A restore can move scene time backward or forward; neither
+        direction may leak into the next wall-clock sleep deadline."""
+        scene = Scene.__new__(Scene)
+        scene.time = 100.0
+        scene.virtual_animation_start_time = 20.0
+        scene.real_animation_start_time = 40.0
+        scene._timeline_group = None
+        scene.assemble_render_groups = MagicMock()
+
+        state = MagicMock()
+        state.restore_scene.side_effect = lambda target: setattr(target, "time", 7.0)
+
+        scene.restore_state(state)
+
+        self.assertEqual(scene.virtual_animation_start_time, 7.0)
+        self.assertEqual(scene.real_animation_start_time, 250.0)
+        monotonic.assert_called_once_with()
+
+
 class SceneRunLifecycleTests(unittest.TestCase):
     @patch("maniml.scene.scene.time.sleep")
     def test_web_interaction_pauses_without_clients(self, sleep):

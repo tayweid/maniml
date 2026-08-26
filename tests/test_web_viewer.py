@@ -439,6 +439,12 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         from maniml.web.geometry import parse_geometry_message
         with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
+            # Make the test self-contained: when run alone this executes the
+            # first frontier unit; after test_full_loop it restores that
+            # already-retained endpoint without re-executing Python.
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
+            self._collect(ws, 3)
             ws.send(json.dumps({"type": "geometry_request"}))
             deadline = time.time() + 8
             message = None
@@ -460,12 +466,11 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 for b in header["batches"] if not b.get("cached"))
             self.assertEqual(total, len(vertex_bytes))
 
-            # Streaming: with geometry mode on, an animation mirrors every
-            # pixel frame with a geometry payload. LEFT is an instant jump
-            # (no frames), so jump back and re-run the unit with RIGHT.
+            # Streaming: with geometry mode on, a newly executed frontier
+            # animation mirrors every pixel frame with a geometry payload.
+            # Visited RIGHT navigation is an endpoint restore and correctly
+            # produces no animation frames.
             ws.send(json.dumps({"type": "mode", "geometry": True}))
-            ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowLeft"}))
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             frames, _ = self._collect(ws, 4)
@@ -482,8 +487,6 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             ws.send(json.dumps(
                 {"type": "mode", "geometry": True, "pixels": False}))
             self._collect(ws, 1)  # drain the mode-change transition
-            ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowLeft"}))
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             frames, _ = self._collect(ws, 4)

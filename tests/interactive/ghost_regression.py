@@ -31,6 +31,20 @@ def script(d: WindowDriver):
             any(ns["squares"][0] is c for c in group.get_family()))
     d.check("group actually moved up", group.get_center()[1] > 1)
 
+    # The reported failure required moving backward and then forward over
+    # the retained checkpoint.  RIGHT must restore that checkpoint, not
+    # re-run the source and leave the pre-move group beside a fresh copy.
+    d.left()
+    d.check("one content mobject after moving back",
+            len(d.content_mobjects()) == 1)
+    d.right()
+    mobs = d.content_mobjects()
+    d.check("one content mobject after retained forward navigation",
+            len(mobs) == 1)
+    group = d.scene._live_namespace.get("group")
+    d.check("retained forward state is the moved group",
+            group is not None and group.get_center()[1] > 1)
+
 
 def main() -> int:
     driver = WindowDriver(FIXTURE, "GhostScene")

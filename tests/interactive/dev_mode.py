@@ -48,7 +48,7 @@ def script(d: WindowDriver):
                 for m in scene.mobjects))
 
     d.right()
-    d.check_index("RIGHT after navigation re-executes", 3)
+    d.check_index("RIGHT after navigation restores retained state", 3)
 
     d.edit_scene_file("checkpoint 3", "EDITED label")
     labels = [m for m in scene.mobjects

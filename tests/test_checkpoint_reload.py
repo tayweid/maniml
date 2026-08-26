@@ -6,9 +6,11 @@ reports them.
 """
 
 import os
+import random
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -88,17 +90,69 @@ class TestForwardExecution(CheckpointSceneTest):
         self.assertEqual(self.scene.current_animation_index, 5)
         self.assertEqual(len(self.scene.animation_checkpoints), n)
 
-    def test_rerun_after_jump_back_replaces_checkpoints(self):
+    def test_right_after_jump_restores_retained_checkpoint(self):
         self.run_all()
         scene = self.scene
-        scene.current_animation_index = 1
-        scene.restore_state(scene.animation_checkpoints[1]['state'])
-        scene.run_next_animation()  # re-runs the loop unit
-        self.assertEqual(scene.current_animation_index, 3)
+        original_units = [cp['unit_index'] for cp in scene.animation_checkpoints]
+        original_checkpoints = list(scene.animation_checkpoints)
+        scene._restore_checkpoint_for_display(1)
+        scene.run_next_animation = MagicMock(
+            wraps=scene.run_next_animation)
+
+        scene.advance_to_next_pausepoint()
+
+        self.assertEqual(scene.current_animation_index, 2)
         self.assertEqual(len(scene.animation_checkpoints), 6)
+        self.assertEqual(
+            [cp['unit_index'] for cp in scene.animation_checkpoints],
+            original_units,
+        )
+        for retained, original in zip(scene.animation_checkpoints, original_checkpoints):
+            self.assertIs(retained, original)
+        self.assertEqual(scene.frontier_index, 5)
+        scene.run_next_animation.assert_not_called()
 
 
 class TestNavigation(CheckpointSceneTest):
+    def test_render_batches_are_not_checkpoint_parents(self):
+        self.run_all()
+
+        for checkpoint in self.scene.animation_checkpoints[1:]:
+            # BASE keeps one top-level content mobject throughout.  It has no
+            # semantic parent; ephemeral render aggregation must not add one.
+            content = checkpoint['state'].mobjects[-1]
+            self.assertEqual(content.parents, [])
+
+    def test_restore_assembles_render_batches_once(self):
+        self.scene.run_next_animation()
+        self.scene.assemble_render_groups = MagicMock(
+            wraps=self.scene.assemble_render_groups)
+
+        self.scene._restore_checkpoint_for_display(0)
+
+        self.scene.assemble_render_groups.assert_called_once_with()
+
+    def test_checkpoint_restores_python_and_numpy_rng_for_execution(self):
+        checkpoint = self.scene.animation_checkpoints[0]
+
+        python_rng = random.Random()
+        python_rng.setstate(checkpoint['python_random_state'])
+        expected_python = python_rng.random()
+
+        live_numpy_state = np.random.get_state()
+        try:
+            np.random.set_state(checkpoint['numpy_random_state'])
+            expected_numpy = np.random.random()
+        finally:
+            np.random.set_state(live_numpy_state)
+
+        random.random()
+        np.random.random()
+        self.scene._restore_checkpoint_random_state(checkpoint)
+
+        self.assertEqual(random.random(), expected_python)
+        self.assertEqual(np.random.random(), expected_numpy)
+
     def test_jump_back_restores_copies_not_history(self):
         self.run_all()
         scene = self.scene
@@ -322,6 +376,19 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         scene.advance_to_next_pausepoint()   # no-op at the end
         self.assertEqual(scene.current_animation_index, 6)
 
+    def test_right_before_frontier_restores_the_next_pause(self):
+        self.run_all()
+        scene = self.scene
+        scene._restore_checkpoint_for_display(0)
+        scene.run_next_animation = MagicMock(
+            wraps=scene.run_next_animation)
+
+        scene.advance_to_next_pausepoint()
+
+        self.assertEqual(scene.current_animation_index, 3)
+        self.assertEqual(scene.frontier_index, 6)
+        scene.run_next_animation.assert_not_called()
+
     def test_plays_record_their_spans_and_pauses_record_none(self):
         self.run_all()
         recorded = [c.get('run_time') for c in self.scene.animation_checkpoints]
@@ -446,5 +513,3 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.assert_follows(3.0)
         self.scene.run_next_animation()      # and on through bump()
         self.assert_follows(4.0)
-
-

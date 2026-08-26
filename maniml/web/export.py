@@ -20,7 +20,6 @@ import json
 import os
 import shutil
 import tempfile
-import time
 from pathlib import Path
 
 from maniml.web.geometry import GeometryCache, serialize_scene
@@ -62,8 +61,7 @@ def record_scene(scene) -> GeometryRecorder:
     Mirrors the relevant parts of Scene.run() without a window."""
     recorder = GeometryRecorder(scene)
     scene._web_viewer = recorder
-    scene.virtual_animation_start_time = 0
-    scene.real_animation_start_time = time.time()
+    scene._reset_pacing_clocks()
     previous_error_mode = getattr(scene, "_propagate_animation_errors", False)
     scene._propagate_animation_errors = True
     try:
