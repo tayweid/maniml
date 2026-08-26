@@ -59,17 +59,44 @@ Do these in the near term, in this order:
    groups. The synthetic audit grew one mobject from 1 to 31 parents over
    30 restores. Fix this before deeper checkpoint optimization and add a
    100-restore parent-count/mutation-cost regression.
-3. **Stop rendering and encoding identical waits/idle frames.** The measured
+3. **Fix the idle-loop pacing clocks after backward navigation.** The
+   interact loop paces with `sleep(max(vt - rt, 0))` where `vt` derives
+   from `scene.time` — and LEFT/UP/DOWN restore `scene.time` from the
+   checkpoint, rewinding it behind the pacing clock, so the sleep term
+   goes permanently negative and the loop free-spins until the next real
+   play resets the clocks. Measured 2026-08-26 on a trivial 3-mobject
+   scene: 24 passes/s at 15% CPU parked normally, 103 passes/s at 43%
+   CPU parked after one backward jump (the "~105 fps" the streaming
+   throttle comment guards against). Reset or clamp the clocks on
+   checkpoint restore; when not playing, pace at `1/fps` outright.
+   Small and self-contained — do this first.
+4. **Stop rendering and encoding identical waits/idle frames.** The measured
    viewer encoded roughly twelve identical 1080p frames per static `wait()`.
    Pump events separately, retain clocks for real updaters, and send a hold
    duration/state change rather than repeatedly rendering a clean scene.
-4. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
+   Two further measured costs belong to this item (2026-08-26):
+   - The idle loop runs `camera.capture` every pass with a client
+     connected even when nothing changed — `update_frame`'s early-out
+     only applies to `dt == 0` calls, and the interact loop always
+     passes `1/fps`. A parked static scene renders at 30fps forever.
+   - The streaming policy treats "any mobject has updaters" as
+     animating, so a scene parked with `always_redraw`/label updaters
+     (most course scenes) JPEG-encodes visually identical 1080p frames
+     at up to 45fps indefinitely — measured 20–60 ms per encode, most
+     of a core by itself. Replace the updater inference with a real
+     did-the-picture-change test, or freeze streaming when parked and
+     tracker values are unchanged. Also note every state change forces
+     a lossless PNG (~100–400 ms CPU at 1080p) — per-keypress latency
+     on navigation. (Solo WebGL2/WebGPU already turns `_pixel_mode`
+     off, so these costs are Pixel/split-mode only; the geometry
+     stream is delta-cached and cheap.)
+5. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
    and byte accounting; exclude render-only/immutable/derived state; avoid
    retaining full history in modes that do not need navigation; and enforce a
    replay-backed budget. `_save_checkpoint()` already contributed about
    19 ms around the measured `play()`. Full copy-on-write/delta checkpoints
    remain a later architecture project.
-5. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
+6. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
    bug, not transport pacing: it groups label/isolate spans rather than words,
    so ordinary text becomes one 0.2-second chunk before rendering. Add a
    dedicated word-group path without changing generic `build_groups()`, and

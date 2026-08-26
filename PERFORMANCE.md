@@ -198,6 +198,46 @@ can approach quadratic growth when each play adds more geometry.
   static `wait()` in the measured scene. This confirms that wait/idle
   invalidation is an immediate optimization, not only a theoretical one.
 
+### Idle-loop pacing and parked-scene streaming (added 2026-08-26)
+
+Follow-up probes on the interact loop, same machine class as above
+(Apple Silicon, Python 3.13). A headless scene with three mobjects was
+driven through `update_frame(1/fps)` in a loop, the way `interact()`
+drives it with a client connected:
+
+| State | Passes/s | Process CPU |
+| --- | ---: | ---: |
+| Parked, pacing clocks aligned (as after a play) | 24 | 15% |
+| Parked, after one backward jump | 103 | 43% |
+| Parked with an `always_redraw` updater, after jump | 83 | 54% |
+
+Two distinct mechanisms:
+
+- **Pacing-clock rewind.** `update_frame` paces with
+  `sleep(max(vt - rt, 0))`, where `vt` derives from `scene.time` and the
+  clocks are only reset at the start of a real play. Backward navigation
+  (LEFT/UP/DOWN) restores `scene.time` from the checkpoint, rewinding it
+  behind `real_animation_start_time`, so the sleep term goes permanently
+  negative and the loop free-spins (the "~105 fps" the streaming
+  throttle's comment mentions) until the next play. The fix is to reset
+  or clamp the clocks on checkpoint restore — or simply pace at `1/fps`
+  whenever the scene is not playing.
+- **Parked scenes with updaters stream forever.** The streaming policy
+  infers "animating" from `has_updaters()` on any top-level mobject, so
+  a scene parked with `always_redraw`/label updaters (typical of course
+  scenes) keeps JPEG-encoding visually identical 1080p frames at up to
+  45 fps. Measured encode cost on this machine: 20–60 ms per frame at
+  quality 90 / 4:4:4 (content-dependent; the synthetic frame above sat
+  at ~5 ms, a noise frame at ~62 ms), i.e. most of one core while the
+  user just looks at a paused picture. A lossless PNG — forced on every
+  checkpoint-state change, so on every navigation keypress — costs
+  roughly 100–400 ms of synchronous CPU at 1080p.
+
+Solo WebGL2/WebGPU turns `_pixel_mode` off, so the encode costs are
+Pixel/split-mode only; the geometry stream is delta-cached and cheap at
+this scene size. The idle GL capture itself (first mechanism) runs
+regardless of renderer mode. TODO.md items 3 and 4 track the fixes.
+
 ## The scaling model to aim for
 
 | Operation | Current behavior | Required behavior |
