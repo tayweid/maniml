@@ -466,38 +466,6 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 for b in header["batches"] if not b.get("cached"))
             self.assertEqual(total, len(vertex_bytes))
 
-            # Streaming: with geometry mode on, a newly executed frontier
-            # animation mirrors every pixel frame with a geometry payload.
-            # Visited RIGHT navigation is an endpoint restore and correctly
-            # produces no animation frames.
-            ws.send(json.dumps({"type": "mode", "geometry": True}))
-            ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowRight"}))
-            frames, _ = self._collect(ws, 4)
-            geometry_frames = [f for f in frames if f[0] == 0x03]
-            jpeg_frames = [f for f in frames if f[0] == 0x01]
-            self.assertGreater(
-                len(geometry_frames), 3,
-                f"expected streamed geometry, got {len(geometry_frames)} "
-                f"(and {len(jpeg_frames)} JPEGs)")
-            self.assertGreater(len(jpeg_frames), 3,
-                               "pixel stream should continue alongside")
-
-            # Solo-GL: geometry only, the pixel stream stops entirely
-            ws.send(json.dumps(
-                {"type": "mode", "geometry": True, "pixels": False}))
-            self._collect(ws, 1)  # drain the mode-change transition
-            ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowRight"}))
-            frames, _ = self._collect(ws, 4)
-            solo_geometry = [f for f in frames if f[0] == 0x03]
-            solo_pixels = [f for f in frames if f[0] in (0x01, 0x02)]
-            self.assertGreater(len(solo_geometry), 3,
-                               "solo mode should stream geometry")
-            self.assertEqual(len(solo_pixels), 0,
-                             "solo mode must not stream pixels")
-            ws.send(json.dumps({"type": "mode", "geometry": False}))
-
     def test_future_chips(self):
         with self._connect() as ws:
             frames, states = self._collect(ws, 3)
@@ -530,6 +498,47 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         with self.assertRaises(Exception):
             with ws_connect(self.ws_url, open_timeout=3):
                 pass
+
+
+class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
+    """Geometry streaming needs fresh frontier animations.
+
+    Keep it in its own process: WebViewerE2E intentionally shares scene
+    history across tests, and its future-chip test advances to the end.  A
+    visited RIGHT is now an exact endpoint restore, not a source re-run that
+    can be borrowed to manufacture test frames.
+    """
+
+    def test_frontier_animations_stream_split_and_solo_geometry(self):
+        with self._connect() as ws:
+            self._collect(ws, 2)
+
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
+            frames, _ = self._collect(ws, 4)
+            geometry_frames = [f for f in frames if f[0] == 0x03]
+            jpeg_frames = [f for f in frames if f[0] == 0x01]
+            self.assertGreater(
+                len(geometry_frames), 3,
+                f"expected streamed geometry, got {len(geometry_frames)} "
+                f"(and {len(jpeg_frames)} JPEGs)")
+            self.assertGreater(len(jpeg_frames), 3,
+                               "pixel stream should continue alongside")
+
+            # Solo client rendering keeps geometry and stops pixel frames.
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": False}))
+            self._collect(ws, 1)
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
+            frames, _ = self._collect(ws, 4)
+            solo_geometry = [f for f in frames if f[0] == 0x03]
+            solo_pixels = [f for f in frames if f[0] in (0x01, 0x02)]
+            self.assertGreater(len(solo_geometry), 3,
+                               "solo mode should stream geometry")
+            self.assertEqual(len(solo_pixels), 0,
+                             "solo mode must not stream pixels")
 
 
 class StreamPolicyTests(unittest.TestCase):
