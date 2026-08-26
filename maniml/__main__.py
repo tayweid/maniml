@@ -41,10 +41,10 @@ Modes:
                    (./media/SceneName_web/) — a static folder anyone
                    can open in a browser with no Python; host it on
                    GitHub Pages to share
-  --export-present Render the scene, then write the standalone
-                   presenter (./media/SceneName_present/): the mp4 and
-                   a page that steps through it by pausepoint, both
-                   directions. A static folder for a course page —
+  --export-present Render the scene into the standalone presenter
+                   (./media/SceneName_present/, the only output): the
+                   mp4 and a page that steps through it by pausepoint,
+                   both directions. A static folder for a course page —
                    students click through the episode, no Python
   --help, -h       Show this help message
 
@@ -326,26 +326,31 @@ def run_scene(
     scene.run()
 
     if render:
-        # The pausepoints table rides on every render: with the mp4 it is
-        # the whole presentation cache (web/present_bundle.py).
-        from maniml.web.present_bundle import write_pausepoints
-
         movie = getattr(scene.file_writer, "final_file_path", None)
         if movie is not None and Path(movie).is_file():
-            try:
-                table = write_pausepoints(scene)
-                print(f"Pausepoints: {table}")
-            except Exception as e:
-                print(f"Pausepoints table failed: {e}")
             if export_present:
+                # The bundle IS the output: the rendered movie moves
+                # into it, and no flat cache files are left in media/.
                 from maniml.web.present_bundle import write_present_bundle
 
-                bundle = write_present_bundle(scene, Path(movie))
+                bundle = write_present_bundle(
+                    scene, Path(movie), consume_movie=True)
                 print(f"Present bundle: {bundle}")
                 print(
                     "A static folder — host it anywhere, e.g. "
                     f"cd {bundle} && python3 -m http.server"
                 )
+            else:
+                # The pausepoints table rides on every plain render: with
+                # the mp4 it is the whole presentation cache
+                # (web/present_bundle.py).
+                from maniml.web.present_bundle import write_pausepoints
+
+                try:
+                    table = write_pausepoints(scene)
+                    print(f"Pausepoints: {table}")
+                except Exception as e:
+                    print(f"Pausepoints table failed: {e}")
 
 
 if __name__ == "__main__":

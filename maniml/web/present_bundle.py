@@ -149,10 +149,18 @@ def presentation_sources(scene) -> tuple[Path | None, Path | None]:
     return table, movie
 
 
-def write_present_bundle(scene, movie_path: Path) -> Path:
+def write_present_bundle(scene, movie_path: Path,
+                         consume_movie: bool = False) -> Path:
     """Record the finished scene into media/<Scene>_present/, atomically:
     the previous bundle stays intact until a complete replacement is
-    ready (same discipline as the geometry export's publish)."""
+    ready (same discipline as the geometry export's publish).
+
+    With consume_movie the flat cache files — media/<Scene>.mp4 and any
+    <Scene>.pausepoints.json left by an earlier plain render — are
+    removed once the bundle is safely published: --export-present leaves
+    ONLY the bundle. The copy-then-unlink order is deliberate: a move
+    into staging would lose the movie if the publish failed and staging
+    were cleaned away."""
     import shutil
     import tempfile
 
@@ -186,4 +194,9 @@ def write_present_bundle(scene, movie_path: Path) -> Path:
         _publish_export(staging, destination, backup)
     finally:
         shutil.rmtree(transaction, ignore_errors=True)
+    if consume_movie:
+        movie_path.unlink(missing_ok=True)
+        stale_table = pausepoints_path_for(scene)
+        if stale_table is not None:
+            stale_table.unlink(missing_ok=True)
     return destination

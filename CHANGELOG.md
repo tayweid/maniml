@@ -50,6 +50,9 @@ interfaces may still change before the first public release.
   the root cache (`<Scene>.mp4` + pausepoints table) or the student
   bundle, whichever is newer — so once a bundle exists, the root pair
   can simply be deleted.
+- `--export-present` leaves only the bundle: the rendered mp4 moves
+  into it, and any stale flat cache files are cleaned up. Plain
+  `--render` still writes the flat mp4 + pausepoints pair.
 - The viewer's Download button now runs that export: one click renders
   the mp4, refreshes the pausepoints cache the Present button plays,
   and writes the student bundle.

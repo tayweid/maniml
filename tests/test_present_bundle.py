@@ -128,6 +128,24 @@ class PresentBundleTests(unittest.TestCase):
             self.assertFalse(stale.exists(),
                              "a republish must be a clean replacement")
 
+    def test_consume_movie_leaves_only_the_bundle(self):
+        from maniml.web.present_bundle import write_present_bundle
+
+        with tempfile.TemporaryDirectory() as d:
+            scene = stub_scene(d)
+            media = Path(d) / "media"
+            media.mkdir(parents=True, exist_ok=True)
+            movie = media / "FakeScene.mp4"
+            movie.write_bytes(b"movie")
+            stale = media / "FakeScene.pausepoints.json"
+            stale.write_text("{}")
+            dest = write_present_bundle(scene, movie, consume_movie=True)
+            self.assertFalse(movie.exists())
+            self.assertFalse(stale.exists())
+            self.assertEqual(sorted(p.name for p in media.iterdir()),
+                             ["FakeScene_present"])
+            self.assertEqual((dest / "scene.mp4").read_bytes(), b"movie")
+
     def test_missing_movie_is_an_error(self):
         from maniml.web.present_bundle import write_present_bundle
 

@@ -51,13 +51,15 @@ maniml script.py SceneName --render
 # ./media/SceneName_web/, a self-contained static player folder
 maniml script.py SceneName --export
 
-# Student bundle (headless): renders, then writes
-# ./media/SceneName_present/ — index.html + presentation.js +
-# present_meta.js + scene.mp4, a standalone page that steps through the
-# episode by pausepoint (both directions, honest reverse). A static
-# folder for a course site; opens from file:// too. Distinct from the
-# presentation cache (mp4 + pausepoints.json) the viewer's Present
-# button plays — that stays slim, per DECISIONS.md.
+# Student bundle (headless): renders straight into
+# ./media/SceneName_present/ — index.html + presentation.js + rail.js +
+# present_meta.js + present.json + scene.mp4, a standalone page that
+# steps through the episode by pausepoint (both directions, honest
+# reverse) under the viewer's presenter bar. The bundle is the ONLY
+# output: the rendered mp4 moves into it, and no flat cache files are
+# left in media/. A static folder for a course site; opens from file://
+# too. The viewer's Present button plays from it (presentation_sources
+# picks the root cache or the bundle, whichever table is newer).
 maniml script.py SceneName --export-present
 
 # Browser viewer: same interactive development (checkpoints, watcher,
