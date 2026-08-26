@@ -119,6 +119,36 @@ def present_dir_for(scene) -> Path | None:
             if media else None)
 
 
+def presentation_sources(scene) -> tuple[Path | None, Path | None]:
+    """(table, movie) the viewer should present from.
+
+    Two complete sources can exist: the root cache (<Scene>.mp4 +
+    <Scene>.pausepoints.json, written by every --render) and the student
+    bundle (scene.mp4 + present.json inside <Scene>_present/). Whichever
+    table is newer wins, so a re-render is picked up either way — and
+    the root pair can simply be deleted once the bundle exists.
+    """
+    bundle = present_dir_for(scene)
+    root = (pausepoints_path_for(scene), movie_path_for(scene))
+    candidates = [root]
+    if bundle is not None:
+        candidates.append((bundle / "present.json", bundle / "scene.mp4"))
+    complete = []
+    for table, movie in candidates:
+        if table is None or movie is None:
+            continue
+        try:
+            complete.append((table.stat().st_mtime, table, movie))
+        except OSError:
+            continue
+        if not movie.is_file():
+            complete.pop()
+    if not complete:
+        return root
+    _, table, movie = max(complete, key=lambda entry: entry[0])
+    return table, movie
+
+
 def write_present_bundle(scene, movie_path: Path) -> Path:
     """Record the finished scene into media/<Scene>_present/, atomically:
     the previous bundle stays intact until a complete replacement is
@@ -142,10 +172,16 @@ def write_present_bundle(scene, movie_path: Path) -> Path:
     backup = transaction / "previous"
     try:
         staging.mkdir(mode=0o755)
+        meta = build_meta(scene)
         for source_name, target_name in PRESENT_PAGE_ASSETS.items():
             shutil.copy(STATIC_DIR / source_name, staging / target_name)
+        # The page reads the .js (file:// has no fetch); the .json is the
+        # same table for everything else — the viewer presents from it
+        # (presentation_sources), and a course pipeline reads its source
+        # fingerprint for staleness.
         (staging / "present_meta.js").write_text(
-            "window.MANIML_PRESENT = " + json.dumps(build_meta(scene)) + ";\n")
+            "window.MANIML_PRESENT = " + json.dumps(meta) + ";\n")
+        (staging / "present.json").write_text(json.dumps(meta, indent=1))
         shutil.copy2(movie_path, staging / "scene.mp4")
         _publish_export(staging, destination, backup)
     finally:

@@ -43,7 +43,7 @@ from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
 from maniml.scene.source_map import chip_unit_for
 from maniml.web.present_bundle import FORMAT as PRESENT_FORMAT
-from maniml.web.present_bundle import movie_path_for, pausepoints_path_for
+from maniml.web.present_bundle import presentation_sources
 from maniml.web.library import find_scene_classes
 from maniml.web.server import WebServer
 
@@ -765,8 +765,11 @@ class WebViewer:
         return Path(raw_source).parent / "media" / f"{type(scene).__name__}_web"
 
     def _present_meta(self) -> dict | None:
-        """The pausepoints table, cached by its file mtime."""
-        meta_path = pausepoints_path_for(self.scene) if self.scene else None
+        """The pausepoints table — root cache or student bundle,
+        whichever is newer (presentation_sources) — cached by path and
+        file mtime."""
+        meta_path = (presentation_sources(self.scene)[0]
+                     if self.scene else None)
         if meta_path is None:
             return None
         try:
@@ -775,13 +778,13 @@ class WebViewer:
             self._present_meta_cache = None
             return None
         cached = getattr(self, "_present_meta_cache", None)
-        if cached is not None and cached[0] == mtime:
+        if cached is not None and cached[0] == (meta_path, mtime):
             return cached[1]
         try:
             meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             meta = None
-        self._present_meta_cache = (mtime, meta)
+        self._present_meta_cache = ((meta_path, mtime), meta)
         return meta
 
     def _present_fresh(self, meta: dict | None) -> bool:
@@ -809,11 +812,13 @@ class WebViewer:
         raw_source = getattr(scene, "_scene_filepath", None)
         baked = self._baked_dir()
         self.server.baked_dir = baked
-        # The presentation cache is exactly two files, mapped under
-        # /present/ with stable client-side names.
+        # The presentation source is exactly two files, mapped under
+        # /present/ with stable client-side names — the root cache or
+        # the student bundle, whichever table is newer.
+        table, movie = presentation_sources(scene)
         self.server.present_files = {
-            "present.json": pausepoints_path_for(scene),
-            "scene.mp4": movie_path_for(scene),
+            "present.json": table,
+            "scene.mp4": movie,
         }
         present_meta = self._present_meta()
         # While a stretch is being crossed the rail holds at the pausepoint

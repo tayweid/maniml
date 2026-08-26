@@ -46,6 +46,10 @@ interfaces may still change before the first public release.
   rail.js, the same chips/stacks/lit-stretch discipline, the glass pods
   — with the styles copied in rather than linked, so the folder stays
   self-contained. Plus a fullscreen control.
+- The viewer presents from the bundle too: the Present button resolves
+  the root cache (`<Scene>.mp4` + pausepoints table) or the student
+  bundle, whichever is newer — so once a bundle exists, the root pair
+  can simply be deleted.
 - The viewer's Download button now runs that export: one click renders
   the mp4, refreshes the pausepoints cache the Present button plays,
   and writes the student bundle.

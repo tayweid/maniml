@@ -95,8 +95,10 @@ class PresentBundleTests(unittest.TestCase):
             self.assertEqual(dest, Path(d) / "media" / "FakeScene_present")
             self.assertEqual(
                 sorted(p.name for p in dest.iterdir()),
-                ["index.html", "present_meta.js", "presentation.js",
-                 "rail.js", "scene.mp4"])
+                ["index.html", "present.json", "present_meta.js",
+                 "presentation.js", "rail.js", "scene.mp4"])
+            self.assertEqual(json.loads((dest / "present.json").read_text()),
+                             build_meta(scene))
             # The table rides as a script (file:// has no fetch) and
             # matches build_meta exactly
             meta_js = (dest / "present_meta.js").read_text()
@@ -134,6 +136,72 @@ class PresentBundleTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 write_present_bundle(
                     scene, Path(d) / "media" / "FakeScene.mp4")
+
+
+class PresentationSourcesTests(unittest.TestCase):
+    """The viewer presents from the root cache or the student bundle,
+    whichever table is newer — so the root pair is deletable once a
+    bundle exists."""
+
+    def make(self, d, root=False, bundle=False):
+        scene = stub_scene(d)
+        media = Path(d) / "media"
+        media.mkdir(parents=True, exist_ok=True)
+        if root:
+            (media / "FakeScene.mp4").write_bytes(b"root-movie")
+            (media / "FakeScene.pausepoints.json").write_text("{}")
+        if bundle:
+            folder = media / "FakeScene_present"
+            folder.mkdir(exist_ok=True)
+            (folder / "scene.mp4").write_bytes(b"bundle-movie")
+            (folder / "present.json").write_text("{}")
+        return scene, media
+
+    def test_bundle_alone_is_a_complete_source(self):
+        from maniml.web.present_bundle import presentation_sources
+
+        with tempfile.TemporaryDirectory() as d:
+            scene, media = self.make(d, bundle=True)
+            table, movie = presentation_sources(scene)
+            self.assertEqual(table, media / "FakeScene_present" / "present.json")
+            self.assertEqual(movie, media / "FakeScene_present" / "scene.mp4")
+
+    def test_newer_table_wins(self):
+        from maniml.web.present_bundle import presentation_sources
+
+        with tempfile.TemporaryDirectory() as d:
+            scene, media = self.make(d, root=True, bundle=True)
+            old, new = 1_000_000_000, 2_000_000_000
+            os.utime(media / "FakeScene_present" / "present.json", (old, old))
+            os.utime(media / "FakeScene.pausepoints.json", (new, new))
+            table, movie = presentation_sources(scene)
+            self.assertEqual(table, media / "FakeScene.pausepoints.json")
+            self.assertEqual(movie, media / "FakeScene.mp4")
+            os.utime(media / "FakeScene_present" / "present.json", (new, new))
+            os.utime(media / "FakeScene.pausepoints.json", (old, old))
+            table, movie = presentation_sources(scene)
+            self.assertEqual(table, media / "FakeScene_present" / "present.json")
+
+    def test_nothing_rendered_falls_back_to_root_paths(self):
+        from maniml.web.present_bundle import presentation_sources
+
+        with tempfile.TemporaryDirectory() as d:
+            scene, media = self.make(d)
+            table, movie = presentation_sources(scene)
+            self.assertEqual(table, media / "FakeScene.pausepoints.json")
+            self.assertEqual(movie, media / "FakeScene.mp4")
+
+    def test_table_without_movie_is_not_a_source(self):
+        from maniml.web.present_bundle import presentation_sources
+
+        with tempfile.TemporaryDirectory() as d:
+            scene, media = self.make(d, root=True, bundle=True)
+            (media / "FakeScene_present" / "scene.mp4").unlink()
+            new = 2_000_000_000
+            os.utime(media / "FakeScene_present" / "present.json", (new, new))
+            table, movie = presentation_sources(scene)
+            self.assertEqual(table, media / "FakeScene.pausepoints.json")
+            self.assertEqual(movie, media / "FakeScene.mp4")
 
 
 RENDER_SCENE = textwrap.dedent('''\
