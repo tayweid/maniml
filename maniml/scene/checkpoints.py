@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import inspect
 import os
+import random
 import traceback
 from contextlib import contextmanager
+
+import numpy as np
 
 from maniml.logger import log
 from maniml.mobject.mobject import Mobject
@@ -94,11 +97,14 @@ class CheckpointMixin:
             'line_number': 0,  # No specific line for initial state
             'unit_index': -1,  # Before the first animation unit
             'state': checkpoint_state,  # Empty scene state
-            'namespace': checkpoint_namespace
+            'namespace': checkpoint_namespace,
+            'python_random_state': random.getstate(),
+            'numpy_random_state': np.random.get_state(),
         }
         
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
+        self.frontier_index = 0
 
 
     def _setup_file_watcher(self) -> None:
@@ -172,6 +178,7 @@ class CheckpointMixin:
             else:
                 break
         self.animation_checkpoints = self.animation_checkpoints[:safe_idx + 1]
+        self.frontier_index = safe_idx
 
         if self.current_animation_index != safe_idx:
             self.current_animation_index = safe_idx
@@ -242,6 +249,7 @@ class CheckpointMixin:
 
         self.animation_checkpoints = []
         self.current_animation_index = -1
+        self.frontier_index = -1
         self._source_units_cache = None
         self.clear()
         self._create_checkpoint_zero(namespace=vars(module))
@@ -366,12 +374,33 @@ class CheckpointMixin:
             'name': name,
             'state': checkpoint_state,
             'namespace': checkpoint_namespace,
+            'python_random_state': random.getstate(),
+            'numpy_random_state': np.random.get_state(),
         }
         if self.current_animation_index < len(self.animation_checkpoints):
             # Re-running an existing animation: replace its checkpoint
             self.animation_checkpoints[self.current_animation_index] = checkpoint
         else:
             self.animation_checkpoints.append(checkpoint)
+        self.frontier_index = max(
+            getattr(self, 'frontier_index', -1),
+            self.current_animation_index,
+        )
+
+    @staticmethod
+    def _restore_checkpoint_random_state(checkpoint: dict) -> None:
+        """Restore deterministic process-global RNGs before source runs.
+
+        Display-only navigation intentionally leaves RNGs alone.  Actual
+        execution, including watcher rebuilds and explicit loop replay,
+        resumes from the selected checkpoint's stochastic state.
+        """
+        python_state = checkpoint.get('python_random_state')
+        if python_state is not None:
+            random.setstate(python_state)
+        numpy_state = checkpoint.get('numpy_random_state')
+        if numpy_state is not None:
+            np.random.set_state(numpy_state)
 
     def _remember_scene_filepath(self) -> None:
         """Record the user's scene file path from the stack if not yet known."""
@@ -473,11 +502,13 @@ class CheckpointMixin:
         # between namespace variables and on-screen mobjects.
         checkpoint_temporary = deepcopy_namespace(current_checkpoint)
 
-        self.clear()
-        self.restore_state(checkpoint_temporary['state'])
+        with self.mobject_list_transaction():
+            self.clear()
+            self.restore_state(checkpoint_temporary['state'])
 
         namespace = checkpoint_temporary['namespace']
         namespace['self'] = self
+        self._restore_checkpoint_random_state(current_checkpoint)
         # Anchor for the checkpoint(s) saved during exec
         namespace['__animation_line_number__'] = unit.end_line
         namespace['__animation_unit_index__'] = unit.index
@@ -494,8 +525,9 @@ class CheckpointMixin:
             # Restore the last successfully saved checkpoint so the scene
             # isn't left in a half-executed state
             checkpoint = self.animation_checkpoints[self.current_animation_index]
-            self.clear()
-            self.restore_state(checkpoint['state'])
+            with self.mobject_list_transaction():
+                self.clear()
+                self.restore_state(checkpoint['state'])
             self.update_frame(dt=0, force_draw=True)
             if self._strict_animation_errors():
                 raise
@@ -516,15 +548,32 @@ class CheckpointMixin:
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
     def advance_to_next_pausepoint(self) -> None:
-        """RIGHT: run units forward until a checkpoint flagged as a stop.
+        """RIGHT: restore retained history, or execute at the frontier.
 
-        Every play still saves its checkpoint on the way — those are the
-        interior states UP/DOWN and the play-by-play reverse navigate —
-        but the run only rests at authored pauses. A file with no pauses
-        treats every checkpoint as a stop: one unit per press, the
-        CE-compatible default.
+        Before the execution frontier, RIGHT selects an existing checkpoint
+        exactly like fine navigation and never runs scene Python.  At the
+        frontier it runs units until the next authored pause.  A file with
+        no pauses treats every play checkpoint as a stop.
         """
-        if not self._pause_anchored():
+        pause_anchored = self._pause_anchored()
+        frontier = min(
+            getattr(self, 'frontier_index', self.current_animation_index),
+            len(self.animation_checkpoints) - 1,
+        )
+        if self.current_animation_index < frontier:
+            if pause_anchored:
+                target = next(
+                    i for i in range(self.current_animation_index + 1, frontier + 1)
+                    if i == frontier or self.animation_checkpoints[i].get('stop')
+                )
+            else:
+                target = self.current_animation_index + 1
+            print(f"→ Restore animation {target}/{len(self.animation_checkpoints) - 1}")
+            self._restore_checkpoint_for_display(target)
+            self.update_frame(dt=0, force_draw=True)
+            return
+
+        if not pause_anchored:
             self.run_next_animation()
             return
         # Flagged so a viewer's rail can hold at the pausepoint being left

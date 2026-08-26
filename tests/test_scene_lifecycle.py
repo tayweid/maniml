@@ -8,6 +8,66 @@ from maniml.scene.scene import Scene
 from maniml.web.export import record_scene
 
 
+class PacingClockTests(unittest.TestCase):
+    @patch("maniml.scene.scene.time.monotonic", return_value=250.0)
+    def test_restore_rebases_pacing_on_restored_scene_time(self, monotonic):
+        """A restore can move scene time backward or forward; neither
+        direction may leak into the next wall-clock sleep deadline."""
+        scene = Scene.__new__(Scene)
+        scene.time = 100.0
+        scene.virtual_animation_start_time = 20.0
+        scene.real_animation_start_time = 40.0
+        scene._timeline_group = None
+        scene.assemble_render_groups = MagicMock()
+
+        state = MagicMock()
+        state.restore_scene.side_effect = lambda target: setattr(target, "time", 7.0)
+
+        scene.restore_state(state)
+
+        self.assertEqual(scene.virtual_animation_start_time, 7.0)
+        self.assertEqual(scene.real_animation_start_time, 250.0)
+        monotonic.assert_called_once_with()
+
+
+class MobjectListTransactionTests(unittest.TestCase):
+    def test_related_membership_changes_assemble_once(self):
+        scene = Scene.__new__(Scene)
+        scene._mobject_list_mutation_depth = 0
+        scene.mobjects = [object()]
+        scene.assemble_render_groups = MagicMock()
+
+        with scene.mobject_list_transaction():
+            scene.clear()
+            scene.clear()
+
+        self.assertEqual(scene.mobjects, [])
+        scene.assemble_render_groups.assert_called_once_with()
+
+    def test_entrance_animation_is_batched_before_its_first_frame(self):
+        """An entrance mobject is added by animation.begin(), after play starts.
+
+        Rebatching around play() used to run too early and omitted that mobject
+        from every animation frame. The transaction must commit inside
+        begin_animations(), after the entrance mobject joins the scene.
+        """
+        scene = Scene.__new__(Scene)
+        scene._mobject_list_mutation_depth = 0
+        scene._mobject_list_mutation_dirty = False
+        scene.mobjects = []
+        scene.id_to_mobject_map = {}
+        scene.assemble_render_groups = MagicMock()
+        mobject = MagicMock()
+        mobject.get_family.return_value = [mobject]
+        animation = MagicMock(mobject=mobject)
+
+        scene.begin_animations([animation])
+
+        animation.begin.assert_called_once_with()
+        self.assertEqual(scene.mobjects, [mobject])
+        scene.assemble_render_groups.assert_called_once_with()
+
+
 class SceneRunLifecycleTests(unittest.TestCase):
     @patch("maniml.scene.scene.time.sleep")
     def test_web_interaction_pauses_without_clients(self, sleep):
@@ -123,6 +183,8 @@ class SceneRunLifecycleTests(unittest.TestCase):
         scene._get_source_units = MagicMock(return_value=[unit])
         scene.clear = MagicMock()
         scene.restore_state = MagicMock()
+        scene.assemble_render_groups = MagicMock()
+        scene._mobject_list_mutation_depth = 0
         scene.update_frame = MagicMock()
         scene.skip_animations = False
         return scene

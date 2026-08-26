@@ -51,6 +51,55 @@ if TYPE_CHECKING:
     from maniml.animation.animation import Animation
 
 
+class _RenderBatch:
+    """Non-owning render aggregation for one adjacent shader batch.
+
+    A normal Group registers itself in every member's semantic ``parents``
+    list.  Render batching is ephemeral, so those links must not enter
+    checkpoints or mutation traversal.  This wrapper keeps the batching
+    behavior while polling the semantic family for dirty data at render
+    time, without becoming part of that family.
+    """
+
+    def __init__(self, mobjects: Iterable[Mobject]):
+        self.mobjects = tuple(mobjects)
+        group_class = self.mobjects[0].get_group_class()
+        self._group = group_class(*self.mobjects)
+        # Group construction performs useful class-specific setup, but its
+        # normal parent registration is semantic ownership.  Detach those
+        # links immediately; this batch keeps only non-owning references.
+        for mobject in self.mobjects:
+            if self._group in mobject.parents:
+                mobject.parents.remove(self._group)
+        self._group.family = None
+        self._family_ids: tuple[int, ...] = ()
+
+    def is_fixed_in_frame(self) -> bool:
+        return self.mobjects[0].is_fixed_in_frame()
+
+    def family_members_with_points(self) -> list[Mobject]:
+        """Expose the read-only drawable family geometry export expects."""
+        self._group.family = None
+        return self._group.family_members_with_points()
+
+    def render(self, ctx, camera_uniforms: dict) -> None:
+        # Semantic family structure can change during an animation.  Re-read
+        # it cheaply and rebuild the merged wrapper only when membership or
+        # member data changed.
+        self._group.family = None
+        family = self._group.get_family()
+        family_ids = tuple(id(mob) for mob in family[1:])
+        if family_ids != self._family_ids or any(
+                mob._data_has_changed for mob in family[1:]):
+            self._group._data_has_changed = True
+            self._family_ids = family_ids
+        self._group.render(ctx, camera_uniforms)
+        # These semantic mobjects were consumed by this batch.  A later
+        # mutation marks them dirty again through their real parent chain.
+        for mob in family[1:]:
+            mob._data_has_changed = False
+
+
 class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     random_seed: int = 0
     pan_sensitivity: float = 0.5
@@ -122,6 +171,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.file_writer = SceneFileWriter(self, **self.file_writer_config)
         self.mobjects: list[Mobject] = [self.camera.frame]
         self.render_groups: list[Mobject] = []
+        self._mobject_list_mutation_depth = 0
+        self._mobject_list_mutation_dirty = False
         self.id_to_mobject_map: dict[int, Mobject] = dict()
         self.num_plays: int = 0
         self.time: float = 0
@@ -149,6 +200,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # Checkpoint system for arrow key navigation
         self.animation_checkpoints = []  # List of dicts with {index, line_number, unit_index, state, namespace}
         self.current_animation_index = -1
+        # The newest checkpoint whose source lineage has actually run.
+        # Display navigation may move current_animation_index behind it.
+        self.frontier_index = -1
         self._processing_key = False  # Flag to prevent re-entry during key processing
         self._source_units_cache = None  # ((path, mtime), units) for the parsed scene file
         self._live_namespace = {}  # Variable name -> live (on-screen) object, for click-to-inspect
@@ -180,8 +234,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         return self.window
 
     def run(self) -> None:
-        self.virtual_animation_start_time: float = 0
-        self.real_animation_start_time: float = time.time()
+        self._reset_pacing_clocks()
         try:
             self.file_writer.begin()
             self.setup()
@@ -407,7 +460,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
         if self.window and not self.skip_animations:
             vt = self.time - self.virtual_animation_start_time
-            rt = time.time() - self.real_animation_start_time
+            rt = time.monotonic() - self.real_animation_start_time
             time.sleep(max(vt - rt, 0))
 
     def emit_frame(self) -> None:
@@ -432,6 +485,17 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     def increment_time(self, dt: float) -> None:
         self.time += dt
+
+    def _reset_pacing_clocks(self) -> None:
+        """Start a fresh wall-clock pacing epoch at the current scene time.
+
+        ``scene.time`` is authored media state and checkpoint restore may
+        move it in either direction.  Pairing a restored media timestamp
+        with an older wall-clock baseline causes backward free-running or a
+        forward freeze, so every discontinuous restore starts a new epoch.
+        """
+        self.virtual_animation_start_time = getattr(self, 'time', 0.0)
+        self.real_animation_start_time = time.monotonic()
 
     # Related to internal mobject organization
 
@@ -467,10 +531,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             lambda m: str(type(m)) + str(m.get_shader_wrapper(self.camera.ctx).get_id()) + str(m.z_index)
         )
 
-        for group in self.render_groups:
-            group.clear()
         self.render_groups = [
-            batch[0].get_group_class()(*batch)
+            _RenderBatch(batch)
             for batch, key in batches
         ]
 
@@ -478,10 +540,29 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def affects_mobject_list(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            func(self, *args, **kwargs)
-            self.assemble_render_groups()
+            with self.mobject_list_transaction():
+                self._mobject_list_mutation_dirty = True
+                func(self, *args, **kwargs)
             return self
         return wrapper
+
+    @contextmanager
+    def mobject_list_transaction(self):
+        """Commit nested or related membership changes with one rebatch."""
+        depth = getattr(self, '_mobject_list_mutation_depth', 0)
+        if depth == 0:
+            self._mobject_list_mutation_dirty = False
+        self._mobject_list_mutation_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._mobject_list_mutation_depth = depth
+            if depth == 0:
+                try:
+                    if self._mobject_list_mutation_dirty:
+                        self.assemble_render_groups()
+                finally:
+                    self._mobject_list_mutation_dirty = False
 
     @affects_mobject_list
     def add(self, *new_mobjects: Mobject):
@@ -617,8 +698,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                 raise EndScene()
 
     def stop_skipping(self) -> None:
-        self.virtual_animation_start_time = self.time
-        self.real_animation_start_time = time.time()
+        self._reset_pacing_clocks()
         self.skip_animations = False
 
     # Methods associated with running animations
@@ -685,8 +765,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.file_writer.begin_animation()
 
         if self.window:
-            self.virtual_animation_start_time = self.time
-            self.real_animation_start_time = time.time()
+            self._reset_pacing_clocks()
         if self._web_viewer is not None:
             self._web_viewer.begin_animation()
 
@@ -704,17 +783,19 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.num_plays += 1
 
     def begin_animations(self, animations: Iterable[Animation]) -> None:
-        all_mobjects = set(self.get_mobject_family_members())
-        for animation in animations:
-            animation.begin()
-            # Anything animated that's not already in the
-            # scene gets added to the scene.  Note, for
-            # animated mobjects that are in the family of
-            # those on screen, this can result in a restructuring
-            # of the scene.mobjects list, which is usually desired.
-            if animation.mobject not in all_mobjects:
-                self.add(animation.mobject)
-                all_mobjects = all_mobjects.union(animation.mobject.get_family())
+        with self.mobject_list_transaction():
+            all_mobjects = set(self.get_mobject_family_members())
+            for animation in animations:
+                animation.begin()
+                # Anything animated that's not already in the
+                # scene gets added to the scene.  Note, for
+                # animated mobjects that are in the family of
+                # those on screen, this can result in a restructuring
+                # of the scene.mobjects list, which is usually desired.
+                if animation.mobject not in all_mobjects:
+                    self.add(animation.mobject)
+                    all_mobjects = all_mobjects.union(
+                        animation.mobject.get_family())
 
     def progress_through_animations(self, animations: Iterable[Animation]) -> None:
         if self.window:
@@ -727,8 +808,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             # frames come out compressed: a run_time=1/10 play emitting its
             # three frames over 55ms rather than 100ms. Start the clock where
             # the frames actually start.
-            self.virtual_animation_start_time = self.time
-            self.real_animation_start_time = time.time()
+            self._reset_pacing_clocks()
         last_t = 0
         for t in self.get_animation_time_progression(animations):
             dt = t - last_t
@@ -741,15 +821,15 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.emit_frame()
 
     def finish_animations(self, animations: Iterable[Animation]) -> None:
-        for animation in animations:
-            animation.finish()
-            animation.clean_up_from_scene(self)
+        with self.mobject_list_transaction():
+            for animation in animations:
+                animation.finish()
+                animation.clean_up_from_scene(self)
         if self.skip_animations:
             self.update_mobjects(self.get_run_time(animations))
         else:
             self.update_mobjects(0)
 
-    @affects_mobject_list
     def play(
         self,
         *proto_animations: Animation | _AnimationBuilder,
@@ -916,6 +996,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     @affects_mobject_list
     def restore_state(self, scene_state: SceneState):
         scene_state.restore_scene(self)
+        self._reset_pacing_clocks()
         # Restoring replaces self.mobjects wholesale; keep the
         # presentation timeline overlay alive across restores so it
         # stays on screen while a unit plays (it is excluded from
@@ -923,9 +1004,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         group = self._timeline_group
         if group is not None and group not in self.mobjects:
             self.add(group)
-        # Rebuild draw batches for the restored (and re-sorted) mobject list;
-        # without this a restore renders with the previous unit's groups
-        self.assemble_render_groups()
+        # The affects_mobject_list wrapper rebuilds draw batches once after
+        # the complete restore (including any timeline reattachment).
 
     def save_state(self) -> None:
         # Store a copy: a reference snapshot aliases the live mobjects

@@ -16,7 +16,9 @@ FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "nav_scene.py")
 def script(d: WindowDriver):
     scene = d.scene
     d.pump(0.5)
-    d.check_index("first unit auto-played", 1)
+    d.check_index("scene opens at checkpoint zero", 0)
+    d.right()
+    d.check_index("first unit runs on request", 1)
     circle = scene._live_namespace.get("circle")
     d.check("circle stroke is BLUE on screen",
             circle is not None
@@ -31,11 +33,11 @@ def script(d: WindowDriver):
     d.right()
     d.check_index("extra RIGHT is a no-op", 5)
 
-    d.up()
-    d.up()
-    d.check_index("UPx2 jumps back", 3)
     d.down()
-    d.check_index("DOWN jumps forward", 4)
+    d.down()
+    d.check_index("DOWNx2 jumps back", 3)
+    d.up()
+    d.check_index("UP jumps forward", 4)
 
     d.left()
     d.check_index("LEFT reverses", 3)
@@ -48,7 +50,7 @@ def script(d: WindowDriver):
                 for m in scene.mobjects))
 
     d.right()
-    d.check_index("RIGHT after navigation re-executes", 3)
+    d.check_index("RIGHT after navigation restores retained state", 3)
 
     d.edit_scene_file("checkpoint 3", "EDITED label")
     labels = [m for m in scene.mobjects
