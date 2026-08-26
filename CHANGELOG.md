@@ -42,6 +42,10 @@ interfaces may still change before the first public release.
   for hosting on a course site so students can click through an episode
   with no engine anywhere. Opens from `file://` too. The viewer's own
   presentation cache (mp4 + pausepoints table) is unchanged.
+- The bundle's page carries the viewer's presenter bar — the same
+  rail.js, the same chips/stacks/lit-stretch discipline, the glass pods
+  — with the styles copied in rather than linked, so the folder stays
+  self-contained. Plus a fullscreen control.
 - The viewer's Download button now runs that export: one click renders
   the mp4, refreshes the pausepoints cache the Present button plays,
   and writes the student bundle.

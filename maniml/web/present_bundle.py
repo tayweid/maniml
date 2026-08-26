@@ -108,7 +108,8 @@ def write_pausepoints(scene) -> Path:
 
 PRESENT_DIR_SUFFIX = "_present"
 PRESENT_PAGE_ASSETS = {"present.html": "index.html",
-                       "presentation.js": "presentation.js"}
+                       "presentation.js": "presentation.js",
+                       "rail.js": "rail.js"}
 STATIC_DIR = Path(__file__).parent / "static"
 
 

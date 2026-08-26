@@ -319,9 +319,14 @@ class ViewerTests(unittest.TestCase):
         # of the cache the viewer plays.
         present = (STATIC / "present.html").read_text()
         self.assertIn('<script src="presentation.js"></script>', present)
+        self.assertIn('<script src="rail.js"></script>', present)
         self.assertIn('<script src="present_meta.js"></script>', present)
         self.assertIn('src="scene.mp4"', present)
-        # Standalone means standalone: no shell.css, no socket
+        # The bundle page carries the viewer's presenter bar: the same
+        # rail library and markup, with the pod/rail styles copied in —
+        # never linked, so the folder stays self-contained
+        self.assertIn('id="rail"', present)
+        self.assertIn("ManimlRail.create", present)
         self.assertNotIn("shell.css", present)
         self.assertNotIn("WebSocket", present)
 

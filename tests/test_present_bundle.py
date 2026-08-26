@@ -96,7 +96,7 @@ class PresentBundleTests(unittest.TestCase):
             self.assertEqual(
                 sorted(p.name for p in dest.iterdir()),
                 ["index.html", "present_meta.js", "presentation.js",
-                 "scene.mp4"])
+                 "rail.js", "scene.mp4"])
             # The table rides as a script (file:// has no fetch) and
             # matches build_meta exactly
             meta_js = (dest / "present_meta.js").read_text()
