@@ -42,6 +42,9 @@ interfaces may still change before the first public release.
   for hosting on a course site so students can click through an episode
   with no engine anywhere. Opens from `file://` too. The viewer's own
   presentation cache (mp4 + pausepoints table) is unchanged.
+- The viewer's Download button now runs that export: one click renders
+  the mp4, refreshes the pausepoints cache the Present button plays,
+  and writes the student bundle.
 
 - ManimLive is a local application again. The interface is served by the
   engine that runs your scenes, from the same pip install, so there is nothing

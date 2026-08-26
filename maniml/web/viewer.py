@@ -619,7 +619,12 @@ class WebViewer:
                     }
                 )
                 return
-            mode = "--render" if export_format == "video" else "--export"
+            # "video" runs --export-present: the same render (mp4 +
+            # pausepoints cache the Present button plays) plus the
+            # standalone student bundle in media/<Scene>_present/ —
+            # one button refreshes both.
+            mode = ("--export-present" if export_format == "video"
+                    else "--export")
             try:
                 process = subprocess.Popen(
                     [sys.executable, "-m", "maniml", str(source), scene_name, mode],

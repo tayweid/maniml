@@ -48,6 +48,9 @@ class ViewerExportTests(unittest.TestCase):
     def test_video_export_uses_fixed_argv_without_a_shell(self):
         process = Mock()
         process.wait.return_value = 0
+        # The progress relay iterates the child's stdout; a bare Mock is
+        # not iterable and crashed the immediate-thread run
+        process.stdout = iter(())
 
         with (
             patch("maniml.web.viewer.subprocess.Popen", return_value=process) as popen,
@@ -58,7 +61,7 @@ class ViewerExportTests(unittest.TestCase):
         args, kwargs = popen.call_args
         self.assertEqual(
             args[0][-4:],
-            ["maniml", str(self.source), "ExportDemo", "--render"],
+            ["maniml", str(self.source), "ExportDemo", "--export-present"],
         )
         self.assertNotIn("shell", kwargs)
         self.assertEqual(kwargs["cwd"], self.tempdir.name)
