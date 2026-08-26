@@ -838,6 +838,16 @@ function handleMessage(data) {
     else presenter.moveStarted(data.from, data.to, data.back, data.unit);
   }
   else if (data.type === "export_status") handleExportStatus(data);
+  else if (data.type === "renderer_fallback") {
+    // The server found content that the client renderer cannot represent.
+    // It has already switched the stream to full native frames, so mirror
+    // that decision locally without sending another mode round-trip.
+    renderer = "pixel";
+    split = false;
+    applyRendererUI();
+    glWarn.textContent = data.message || "Using Pixel for this scene.";
+    glWarn.classList.add("on");
+  }
 }
 
 // Scene picker: every Scene class the engine found in the open file, so one

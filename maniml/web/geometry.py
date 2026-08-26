@@ -141,10 +141,47 @@ def _texture_file(path: str) -> tuple[str, bytes]:
     return cached
 
 
+def _unsupported_geometry_name(sm) -> str | None:
+    """Return the serializer incompatibility for one drawable, if any."""
+    from maniml.mobject.types.vectorized_mobject import VMobject
+    from maniml.mobject.types.dot_cloud import DotCloud
+    from maniml.mobject.types.image_mobject import ImageMobject
+    from maniml.mobject.types.surface import Surface
+    from maniml.camera.camera_frame import CameraFrame
+
+    if isinstance(sm, CameraFrame):
+        return None
+    if isinstance(sm, (DotCloud, ImageMobject, Surface)):
+        return None
+    if not isinstance(sm, VMobject):
+        return type(sm).__name__
+    triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
+    if sm.depth_test and sm.get_fill_opacity() > 0 and not triangulated:
+        return f"{type(sm).__name__} (depth-tested winding fill)"
+    return None
+
+
+def scene_supports_client_geometry(scene: Scene) -> bool:
+    """Cheap whole-frame support preflight used before native capture.
+
+    This mirrors `_collect_records`' compatibility decisions but never
+    builds shader data, merges arrays, hashes content, or touches the
+    framebuffer.
+    """
+    from maniml.camera.camera_frame import CameraFrame
+
+    for group in scene.render_groups:
+        for sm in group.family_members_with_points():
+            if isinstance(sm, CameraFrame):
+                continue
+            if _unsupported_geometry_name(sm) is not None:
+                return False
+    return True
+
+
 def _collect_records(scene, unsupported):
     """One record per drawable submobject, in draw order, carrying the
     numpy data and the draw state that decides merge compatibility."""
-    from maniml.mobject.types.vectorized_mobject import VMobject
     from maniml.mobject.types.dot_cloud import DotCloud
     from maniml.mobject.types.image_mobject import ImageMobject
     from maniml.mobject.types.surface import Surface, TexturedSurface
@@ -167,6 +204,11 @@ def _collect_records(scene, unsupported):
         for sm in group.family_members_with_points():
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
+            unsupported_name = _unsupported_geometry_name(sm)
+            if unsupported_name is not None:
+                if unsupported_name not in unsupported:
+                    unsupported.append(unsupported_name)
+                continue
             if isinstance(sm, (DotCloud, ImageMobject, Surface)):
                 if isinstance(sm, DotCloud):
                     record = plain_record(sm, "dotcloud", 32)
@@ -181,21 +223,8 @@ def _collect_records(scene, unsupported):
                 if record is not None:
                     records.append(record)
                 continue
-            if not isinstance(sm, VMobject):
-                name = type(sm).__name__
-                if name not in unsupported:
-                    unsupported.append(name)
-                continue
             triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
             has_fill = sm.get_fill_opacity() > 0
-            if sm.depth_test and has_fill and not triangulated:
-                # Winding fill under depth test needs the depth
-                # pre-pass, which is not ported (ledger item 6). Rare:
-                # ThreeDScene.add switches fills to triangulated.
-                name = f"{type(sm).__name__} (depth-tested winding fill)"
-                if name not in unsupported:
-                    unsupported.append(name)
-                continue
             data = sm.get_shader_data()
             if len(data) == 0:
                 continue

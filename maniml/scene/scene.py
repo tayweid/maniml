@@ -348,7 +348,22 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                     # while condition on every pass.
                     time.sleep(min(frame_interval, 0.1))
                     continue
+                # Browser input lives on the socket thread and can be
+                # drained without touching GL.  This lets a clean parked
+                # scene sleep instead of capturing identical frames merely
+                # to discover that no event arrived.
+                self._web_viewer.dispatch_events()
                 self._maybe_replay_loop_pause()
+                if self.is_window_closing():
+                    break
+                mobjects_updating = self.should_update_mobjects()
+                if not (mobjects_updating
+                        or self._web_viewer.has_undrawn_event()):
+                    time.sleep(frame_interval)
+                    continue
+                dt = frame_interval if mobjects_updating else 0
+                self.update_frame(dt)
+                continue
 
             self.update_frame(frame_interval)
 
@@ -452,7 +467,14 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.window._window.dispatch_events()
             return
 
-        self.camera.capture(*self.render_groups)
+        skip_native_capture = bool(
+            self._web_viewer is not None
+            and getattr(
+                self._web_viewer, 'can_skip_native_capture', lambda: False
+            )()
+        )
+        if not skip_native_capture:
+            self.camera.capture(*self.render_groups)
 
         if self._web_viewer is not None:
             self._web_viewer.on_frame_rendered()

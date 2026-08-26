@@ -30,6 +30,38 @@ class PacingClockTests(unittest.TestCase):
         monotonic.assert_called_once_with()
 
 
+class WebGpuNativeBypassTests(unittest.TestCase):
+    @staticmethod
+    def scene(can_skip_native_capture):
+        scene = Scene.__new__(Scene)
+        scene.time = 0.0
+        scene.mobjects = []
+        scene.render_groups = []
+        scene.window = None
+        scene.skip_animations = True
+        scene.camera = MagicMock()
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.can_skip_native_capture.return_value = (
+            can_skip_native_capture)
+        return scene
+
+    def test_supported_solo_webgpu_skips_native_capture(self):
+        scene = self.scene(True)
+
+        scene.update_frame(dt=0, force_draw=True)
+
+        scene.camera.capture.assert_not_called()
+        scene._web_viewer.on_frame_rendered.assert_called_once_with()
+
+    def test_pixel_or_unsupported_content_keeps_native_capture(self):
+        scene = self.scene(False)
+
+        scene.update_frame(dt=0, force_draw=True)
+
+        scene.camera.capture.assert_called_once_with()
+        scene._web_viewer.on_frame_rendered.assert_called_once_with()
+
+
 class SceneRunLifecycleTests(unittest.TestCase):
     @patch("maniml.scene.scene.time.sleep")
     def test_web_interaction_pauses_without_clients(self, sleep):
@@ -48,6 +80,49 @@ class SceneRunLifecycleTests(unittest.TestCase):
 
         scene.update_frame.assert_not_called()
         sleep.assert_called_once_with(1 / 30)
+
+    @patch("maniml.scene.scene.time.sleep")
+    def test_clean_connected_web_scene_polls_without_rendering(self, sleep):
+        scene = Scene.__new__(Scene)
+        scene.window = object()
+        scene.camera = SimpleNamespace(fps=30)
+        scene.auto_reload_enabled = False
+        scene._file_changed_flag = False
+        scene.skip_animations = False
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.has_clients.return_value = True
+        scene._web_viewer.has_undrawn_event.return_value = False
+        scene.should_update_mobjects = MagicMock(return_value=False)
+        scene._maybe_replay_loop_pause = MagicMock()
+        scene.is_window_closing = MagicMock(side_effect=[False, False, True])
+        scene.update_frame = MagicMock()
+
+        scene.interact()
+
+        scene._web_viewer.dispatch_events.assert_called_once_with()
+        scene.update_frame.assert_not_called()
+        sleep.assert_called_once_with(1 / 30)
+
+    @patch("maniml.scene.scene.time.sleep")
+    def test_connected_web_input_draws_once_without_advancing_time(self, sleep):
+        scene = Scene.__new__(Scene)
+        scene.window = object()
+        scene.camera = SimpleNamespace(fps=30)
+        scene.auto_reload_enabled = False
+        scene._file_changed_flag = False
+        scene.skip_animations = False
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.has_clients.return_value = True
+        scene._web_viewer.has_undrawn_event.return_value = True
+        scene.should_update_mobjects = MagicMock(return_value=False)
+        scene._maybe_replay_loop_pause = MagicMock()
+        scene.is_window_closing = MagicMock(side_effect=[False, False, True])
+        scene.update_frame = MagicMock()
+
+        scene.interact()
+
+        scene.update_frame.assert_called_once_with(0)
+        sleep.assert_not_called()
 
     def test_setup_error_aborts_output_and_preserves_original_error(self):
         scene = Scene.__new__(Scene)

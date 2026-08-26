@@ -64,6 +64,7 @@ JS_KEY_TO_PYGLET = {
     "Tab": PygletWindowKeys.TAB,
     " ": PygletWindowKeys.SPACE,
 }
+NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"})
 JS_BUTTON_TO_PYGLET = {
     0: PygletMouseButtons.LEFT,
     1: PygletMouseButtons.MIDDLE,
@@ -169,6 +170,7 @@ class WebViewer:
         self._animating = False
         self._move_open = False  # a stretch's move is lit on the rail
         self._keys_settled_at = 0.0  # keys stamped before this are stale
+        self._coalesced_navigation_events = 0
         self._needs_refresh = True  # a client wants a full PNG + state
         self._dispatching = False
         self._last_send_time = 0.0
@@ -183,6 +185,7 @@ class WebViewer:
         self._scene_names_cache: tuple[tuple, list[str]] | None = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
         self._pixel_mode = True  # off in solo-GL: geometry is the only stream
+        self._frame_geometry_supported: bool | None = None
         self._export_lock = threading.Lock()
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
@@ -244,8 +247,37 @@ class WebViewer:
     def has_clients(self) -> bool:
         return self.server.has_clients()
 
+    def can_skip_native_capture(self) -> bool:
+        """True only for a fully supported solo client-rendered frame."""
+        self._frame_geometry_supported = None
+        if not (self._geometry_mode and self.scene is not None
+                and self.server.has_clients()):
+            return False
+        from maniml.web.geometry import scene_supports_client_geometry
+        self._frame_geometry_supported = scene_supports_client_geometry(
+            self.scene)
+        return self._frame_geometry_supported and not self._pixel_mode
+
+    def _fall_back_to_pixel(self) -> None:
+        """Make an unsupported client-rendered frame wholly native."""
+        if not self._geometry_mode:
+            return
+        self._geometry_mode = False
+        self._pixel_mode = True
+        self._needs_refresh = True
+        self._dirty = True
+        self._geometry_cache.reset()
+        self.server.broadcast_json({
+            "type": "renderer_fallback",
+            "message": "Scene content is not supported by WebGPU; using Pixel.",
+        })
+
     def has_undrawn_event(self) -> bool:
-        return self._has_undrawn_event
+        quiet_png_due = (
+            self._last_send_lossy
+            and time.monotonic() - self._last_send_time >= PNG_AFTER_QUIET
+        )
+        return self._has_undrawn_event or quiet_png_due
 
     def is_key_pressed(self, symbol: int) -> bool:
         return symbol in self.pressed_keys
@@ -298,23 +330,25 @@ class WebViewer:
         if self._move_open and not self._scene_moving():
             self._move_open = False
             # Keys received before this instant were pressed while the
-            # scene was moving (the drain only runs between animations):
-            # they are stale and must die, not fire late. The next
-            # dispatch compares each key's arrival stamp against this.
+            # scene was moving (the drain only runs between animations).
+            # The next dispatch coalesces stale arrows to one latest intent
+            # and drops other stale presses.
             self._keys_settled_at = time.monotonic()
             self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
-        """Called after every camera.capture(): pump input, stream output."""
-        if not self._dispatching:
-            self._dispatching = True
-            try:
-                self.dispatch_events()
-            finally:
-                self._dispatching = False
+        """Pump input and stream output after a native or client frame."""
+        self.dispatch_events()
 
         if not self.server.has_clients():
+            self._frame_geometry_supported = None
             return
+        if (self._geometry_mode
+                and self._frame_geometry_supported is False):
+            # camera.capture() has already run for this frame. Send that
+            # complete native result instead of a partial geometry message.
+            self._fall_back_to_pixel()
+        self._frame_geometry_supported = None
         self._broadcast_logs()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
@@ -368,7 +402,7 @@ class WebViewer:
                 image.convert("RGB").save(buf, "PNG")
                 self.server.broadcast(b"\x02" + buf.getvalue())
         self._last_send_time = now
-        self._last_send_lossy = (kind == "jpeg")
+        self._last_send_lossy = (kind == "jpeg" and self._pixel_mode)
         self._dirty = False
         self._needs_refresh = False
         self._has_undrawn_event = False
@@ -407,16 +441,69 @@ class WebViewer:
     # -- Inbound events --
 
     def dispatch_events(self):
-        for event in self.server.pop_events():
+        if getattr(self, "_dispatching", False):
+            return
+        self._dispatching = True
+        try:
+            self._dispatch_events()
+        finally:
+            self._dispatching = False
+
+    def _dispatch_events(self):
+        events = self.server.pop_events()
+        # Input received during an animation cannot be drained until the
+        # current dispatch returns.  Keep one bounded navigation intent —
+        # the latest arrow press — and coalesce older stale arrows instead
+        # of dropping every press at settle time.
+        # Classify against one settle boundary. Handling an earlier event
+        # may itself run an animation and advance `_keys_settled_at`; that
+        # must not retrospectively change the policy for this drained batch.
+        settle_boundary = self._keys_settled_at
+        stale_navigation = [
+            self._is_stale_navigation_press(event) for event in events
+        ]
+        latest_stale_navigation = next(
+            (index for index in range(len(events) - 1, -1, -1)
+             if stale_navigation[index]),
+            None,
+        )
+
+        for index, event in enumerate(events):
+            if stale_navigation[index]:
+                if index != latest_stale_navigation:
+                    self._coalesced_navigation_events += 1
+                    continue
+                event = dict(event)
+                event.pop("_received", None)
+            elif (event.get("type") == "key"
+                  and event.get("action") == "down"
+                  and (received := event.get("_received")) is not None
+                  and received > settle_boundary):
+                # This press was current when the batch was drained. An
+                # earlier handler may animate and move the settle boundary,
+                # but it cannot retroactively make this press stale.
+                event = dict(event)
+                event.pop("_received", None)
             try:
                 self._handle_event(event)
             except Exception as e:
                 log.error(f"web viewer event failed: {event.get('type')}: {e}")
 
+    def _is_stale_navigation_press(self, event: dict) -> bool:
+        received = event.get("_received")
+        return bool(
+            event.get("type") == "key"
+            and event.get("action") == "down"
+            and event.get("key") in NAVIGATION_KEYS
+            and received is not None
+            and received <= self._keys_settled_at
+        )
+
     def _handle_event(self, event: dict):
         kind = event.get("type")
         if kind == "_connect":
             self._needs_refresh = True
+            self._has_undrawn_event = True
             self._last_state = None
             self._geometry_cache.reset()  # new client holds no batches
             # Hand the new client the whole backlog: output from before it
@@ -462,10 +549,9 @@ class WebViewer:
                 return
             mods = self._map_mods(event)
             if event.get("action") == "down":
-                # A key pressed while an animation was running is stale
-                # input, not queued intent: it dies here instead of firing
-                # after the animation lands. Key-ups still pass so
-                # pressed_keys cannot wedge on a dropped press.
+                # dispatch_events retains at most the latest stale arrow by
+                # removing its timestamp. Other stale key presses still die;
+                # key-ups always pass so pressed_keys cannot wedge.
                 received = event.get("_received")
                 if received is not None and received <= self._keys_settled_at:
                     return
@@ -536,9 +622,16 @@ class WebViewer:
 
         elif kind == "geometry_request":
             # One-shot snapshot (sent on toggle-on, before any frame flows)
-            from maniml.web.geometry import serialize_scene
-            self.server.broadcast(
-                serialize_scene(self.scene, self._geometry_cache))
+            if self._geometry_mode:
+                from maniml.web.geometry import (
+                    scene_supports_client_geometry,
+                    serialize_scene,
+                )
+                if scene_supports_client_geometry(self.scene):
+                    self.server.broadcast(
+                        serialize_scene(self.scene, self._geometry_cache))
+                else:
+                    self._fall_back_to_pixel()
             self._dirty = False  # the request itself needs no pixel frame
 
         elif kind == "geometry_reset":
@@ -555,6 +648,7 @@ class WebViewer:
             # so a rejoining toggle always starts from a full payload.
             self._geometry_mode = bool(event.get("geometry"))
             self._pixel_mode = bool(event.get("pixels", True))
+            self._frame_geometry_supported = None
             if self._geometry_mode:
                 self._geometry_cache.reset()
             # Leaving solo: the canvas needs a fresh pixel frame

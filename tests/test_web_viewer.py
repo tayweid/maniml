@@ -38,6 +38,28 @@ class WebDemo(Scene):
         self.play(dot.animate.shift(LEFT * 4))
 """
 
+UNSUPPORTED_GEOMETRY_SOURCE = """
+import moderngl
+from manim import *
+
+class CustomCloud(PMobject):
+    shader_folder = "true_dot"
+    render_primitive = moderngl.POINTS
+    data_dtype = DotCloud.data_dtype
+
+    def init_uniforms(self):
+        super().init_uniforms()
+        self.uniforms["glow_factor"] = 0.0
+        self.uniforms["anti_alias_width"] = 2.0
+
+    def init_points(self):
+        self.set_points([[0, 0, 0]])
+
+class UnsupportedDemo(Scene):
+    def construct(self):
+        self.add(CustomCloud())
+"""
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STARTUP_TIMEOUT = 25
 MESSAGE_TIMEOUT = 10
@@ -178,12 +200,11 @@ class RailAnchorTests(unittest.TestCase):
 
 
 class StaleKeyTests(unittest.TestCase):
-    """A key pressed while an animation runs dies instead of firing late.
+    """Animation-overlap input has an explicit bounded-intent policy.
 
     The drain only runs between animations, so every key event carries an
-    arrival stamp (set by the server thread) and the viewer records the
-    instant the last move settled: a press stamped before the settle was
-    made at a scene that no longer exists.
+    arrival stamp.  At settle, the latest queued arrow survives and older
+    arrows are coalesced; stale non-navigation keys still die.
     """
 
     @staticmethod
@@ -201,6 +222,62 @@ class StaleKeyTests(unittest.TestCase):
             _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
         )
         return viewer, (lambda e: WebViewer._handle_event(viewer, e)), pressed
+
+    @staticmethod
+    def dispatch(events, *, advance_settle_on_press=False):
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+        pressed = []
+        holder = {}
+
+        def on_press(symbol, mods):
+            pressed.append(symbol)
+            if advance_settle_on_press:
+                holder["viewer"]._keys_settled_at = 200.0
+
+        viewer = SimpleNamespace(
+            scene=SimpleNamespace(
+                on_key_press=on_press,
+                on_key_release=lambda s, m: None,
+            ),
+            server=SimpleNamespace(pop_events=lambda: list(events)),
+            pressed_keys=set(), _keys_settled_at=100.0,
+            _coalesced_navigation_events=0,
+            _dirty=False, _has_undrawn_event=False,
+            _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
+            _is_stale_navigation_press=lambda event:
+                WebViewer._is_stale_navigation_press(viewer, event),
+            _handle_event=lambda event: WebViewer._handle_event(viewer, event),
+        )
+        holder["viewer"] = viewer
+        viewer._dispatch_events = lambda: WebViewer._dispatch_events(viewer)
+        WebViewer.dispatch_events(viewer)
+        return viewer, pressed
+
+    def test_latest_stale_arrow_is_retained_and_older_arrows_coalesce(self):
+        viewer, pressed = self.dispatch([
+            {"type": "key", "action": "down", "key": "ArrowRight",
+             "_received": 90.0},
+            {"type": "key", "action": "down", "key": "ArrowLeft",
+             "_received": 91.0},
+            {"type": "key", "action": "down", "key": "ArrowUp",
+             "_received": 92.0},
+        ])
+
+        self.assertEqual(pressed, [viewer._map_key("ArrowUp")])
+        self.assertEqual(viewer._coalesced_navigation_events, 2)
+
+    def test_settle_change_during_dispatch_does_not_reclassify_batch(self):
+        viewer, pressed = self.dispatch([
+            {"type": "key", "action": "down", "key": "ArrowRight",
+             "_received": 101.0},
+            {"type": "key", "action": "down", "key": "ArrowLeft",
+             "_received": 102.0},
+        ], advance_settle_on_press=True)
+
+        self.assertEqual(pressed, [
+            viewer._map_key("ArrowRight"), viewer._map_key("ArrowLeft")])
+        self.assertEqual(viewer._coalesced_navigation_events, 0)
 
     def test_a_press_stamped_before_the_settle_dies(self):
         viewer, handle, pressed = self.make_viewer()
@@ -541,6 +618,33 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
                              "solo mode must not stream pixels")
 
 
+class UnsupportedGeometryE2E(_ViewerHarness, unittest.TestCase):
+    """Unsupported custom drawables switch the whole frame to Pixel."""
+
+    SOURCE = UNSUPPORTED_GEOMETRY_SOURCE
+    SCENE = "UnsupportedDemo"
+    FILENAME = "unsupported_scene.py"
+
+    def test_solo_geometry_request_falls_back_to_complete_pixel_frame(self):
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
+            self._collect(ws, 2)
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": False}))
+            ws.send(json.dumps({"type": "geometry_request"}))
+            frames, messages = self._collect(ws, 4)
+
+            self.assertTrue(any(
+                message.get("type") == "renderer_fallback"
+                for message in messages), messages)
+            self.assertTrue(any(frame[0] == 0x02 for frame in frames),
+                            "fallback did not send a complete PNG frame")
+            self.assertFalse(any(frame[0] == 0x03 for frame in frames),
+                             "unsupported partial geometry was sent")
+
+
 class StreamPolicyTests(unittest.TestCase):
     """The streaming policy's one timing invariant, checked by arithmetic
     rather than by watching a clock — a rate assertion against a real process
@@ -566,6 +670,70 @@ class StreamPolicyTests(unittest.TestCase):
             MIN_SEND_INTERVAL, frame_period * 0.9,
             "the throttle is close enough to the frame period to alias "
             "against it once real timing jitter is involved")
+
+    def test_lossy_frame_schedules_one_quiet_png(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import PNG_AFTER_QUIET, WebViewer
+
+        viewer = SimpleNamespace(
+            _pixel_mode=True,
+            _last_send_lossy=True,
+            _last_send_time=10.0,
+            _has_undrawn_event=False,
+        )
+        with patch("maniml.web.viewer.time.monotonic",
+                   return_value=10.0 + PNG_AFTER_QUIET):
+            self.assertTrue(WebViewer.has_undrawn_event(viewer))
+
+    def test_native_bypass_requires_solo_mode_and_supported_geometry(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import WebViewer
+
+        viewer = SimpleNamespace(
+            _geometry_mode=True,
+            _pixel_mode=False,
+            _frame_geometry_supported=None,
+            scene=object(),
+            server=SimpleNamespace(has_clients=lambda: True),
+        )
+        with patch(
+            "maniml.web.geometry.scene_supports_client_geometry",
+            return_value=True,
+        ) as supported:
+            self.assertTrue(WebViewer.can_skip_native_capture(viewer))
+            supported.assert_called_once_with(viewer.scene)
+
+        viewer._pixel_mode = True
+        with patch(
+            "maniml.web.geometry.scene_supports_client_geometry",
+            return_value=True,
+        ) as supported:
+            self.assertFalse(WebViewer.can_skip_native_capture(viewer))
+            supported.assert_called_once_with(viewer.scene)
+
+    def test_unsupported_geometry_frame_switches_wholly_to_pixel(self):
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+
+        messages = []
+        viewer = SimpleNamespace(
+            _geometry_mode=True,
+            _pixel_mode=False,
+            _needs_refresh=False,
+            _dirty=False,
+            _geometry_cache=SimpleNamespace(reset=lambda: None),
+            server=SimpleNamespace(broadcast_json=messages.append),
+        )
+
+        WebViewer._fall_back_to_pixel(viewer)
+
+        self.assertFalse(viewer._geometry_mode)
+        self.assertTrue(viewer._pixel_mode)
+        self.assertTrue(viewer._needs_refresh)
+        self.assertTrue(viewer._dirty)
+        self.assertEqual(messages[0]["type"], "renderer_fallback")
 
 
 RAIL_SOURCE = """

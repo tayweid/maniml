@@ -15,6 +15,7 @@ FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "ghost_scene.py")
 def script(d: WindowDriver):
     scene = d.scene
     d.pump(0.3)
+    d.right()  # flash loop (one source unit, two play checkpoints)
     ns = scene._live_namespace
     d.check("one content mobject after flash loop",
             len(d.content_mobjects()) == 1)
