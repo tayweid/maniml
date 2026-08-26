@@ -61,6 +61,7 @@ jobs:
           tests.test_remote_assets
           tests.test_scene_lifecycle
           tests.test_animations
+          tests.test_coordinate_systems
           tests.test_rail_sim
 
       - name: Audit locked dependencies

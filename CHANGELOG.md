@@ -88,6 +88,10 @@ interfaces may still change before the first public release.
   stroked one (the curve it sits on) in WebGL2/WebGPU, while the pixel
   stream and `--render` were correct. Batches no longer merge across
   the native render-group boundaries.
+- Y-axis numbers now stand upright, as in CE. The y-axis was rotated
+  into place after its numbers were attached, so every label came out
+  90 degrees over; the axis now rotates before its numbers are added
+  (CE's own order), and labels lay out against the vertical line.
 - Added CE-compatible `Table` and `MathTable`: entries on a fixed grid,
   row and column labels joining the grid, separator lines drawn midway
   between neighbours, and the `get_columns`/`get_rows`/`get_entries`

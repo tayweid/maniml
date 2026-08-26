@@ -513,8 +513,8 @@ class Axes(VGroup, CoordinateSystem):
                 y_axis_config
             ),
             length=height,
+            rotation=90 * DEG,
         )
-        self.y_axis.rotate(90 * DEG, about_point=ORIGIN)
         # Add as a separate group in case various other
         # mobjects are added to self, as for example in
         # NumberPlane below
@@ -526,7 +526,8 @@ class Axes(VGroup, CoordinateSystem):
         self,
         range_terms: RangeSpecifier,
         axis_config: dict,
-        length: float | None
+        length: float | None,
+        rotation: float = 0.0,
     ) -> NumberLine:
         # CE-compatible axis-config keys
         axis_config = dict(axis_config)
@@ -534,8 +535,17 @@ class Axes(VGroup, CoordinateSystem):
         elongated = axis_config.pop('numbers_with_elongated_ticks', None)
         if elongated is not None:
             axis_config.setdefault('big_tick_numbers', list(elongated))
+        # Numbers go on only after the axis is rotated into place, as in
+        # CE (NumberLine rotates itself before adding labels): a label
+        # laid out next_to the already-vertical y-axis stays upright,
+        # where rotating a numbered axis would rotate its labels with it.
+        include_numbers = axis_config.pop('include_numbers', False)
         axis = NumberLine(range_terms, width=length, **axis_config)
         axis.shift(-axis.n2p(self._origin_shift(axis)))
+        if rotation:
+            axis.rotate(rotation, about_point=ORIGIN)
+        if include_numbers:
+            axis.add_numbers(excluding=axis.numbers_to_exclude)
         if numbers_to_include is not None:
             axis.add_numbers(list(numbers_to_include), excluding=[])
         return axis
