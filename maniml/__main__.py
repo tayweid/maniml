@@ -34,7 +34,10 @@ Modes:
                    instead of a native window (combines with --present)
   --present        Presentation: pre-runs every animation up front
                    (validating the whole scene), disables the file
-                   watcher, then starts at the first checkpoint
+                   watcher, then starts at the first checkpoint. In
+                   the web viewer, a fresh recording supplies smooth
+                   forward/reverse motion; an explicit Present request
+                   renders that cache first when needed
   --render         No window: write the scene to a video file and
                    each checkpoint to a PNG, under ./media/
   --export         Bake the scene into a self-contained web player
