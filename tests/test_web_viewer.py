@@ -244,7 +244,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             while time.time() < deadline and on_state is None:
                 _, states = self._collect(ws, 2)
                 for s in states:
-                    if s.get("type") == "state" and s.get("present"):
+                    if (s.get("type") == "state" and s.get("present")
+                            and s.get("presentation_ready")):
                         on_state = s
             self.assertIsNotNone(on_state, "present mode never engaged")
             self.assertEqual(on_state["current"], 0, "did not rewind to start")
@@ -252,12 +253,15 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                                     "checkpoints were not all pre-built")
             ws.send(json.dumps({"type": "present"}))   # toggle back off
             deadline = time.time() + 10
-            off = False
-            while time.time() < deadline and not off:
+            off_state = None
+            while time.time() < deadline and off_state is None:
                 _, states = self._collect(ws, 2)
-                off = any(s.get("type") == "state" and not s.get("present")
-                          for s in states)
-            self.assertTrue(off, "present mode never disengaged")
+                off_state = next((
+                    s for s in states
+                    if s.get("type") == "state" and not s.get("present")
+                ), None)
+            self.assertIsNotNone(off_state, "present mode never disengaged")
+            self.assertFalse(off_state.get("presentation_ready"))
 
     def test_present_bundle_serving_freshness_and_ranges(self):
         """media/<Scene>_present is mounted at /present/ with single-range

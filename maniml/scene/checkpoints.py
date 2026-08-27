@@ -250,6 +250,7 @@ class CheckpointMixin:
         self.animation_checkpoints = []
         self.current_animation_index = -1
         self.frontier_index = -1
+        self._presentation_ready = False
         self._source_units_cache = None
         self.clear()
         self._create_checkpoint_zero(namespace=vars(module))
