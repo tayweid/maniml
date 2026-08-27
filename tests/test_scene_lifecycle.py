@@ -30,6 +30,38 @@ class PacingClockTests(unittest.TestCase):
         monotonic.assert_called_once_with()
 
 
+class WebGpuNativeBypassTests(unittest.TestCase):
+    @staticmethod
+    def scene(can_skip_native_capture):
+        scene = Scene.__new__(Scene)
+        scene.time = 0.0
+        scene.mobjects = []
+        scene.render_groups = []
+        scene.window = None
+        scene.skip_animations = True
+        scene.camera = MagicMock()
+        scene._web_viewer = MagicMock()
+        scene._web_viewer.can_skip_native_capture.return_value = (
+            can_skip_native_capture)
+        return scene
+
+    def test_supported_solo_webgpu_skips_native_capture(self):
+        scene = self.scene(True)
+
+        scene.update_frame(dt=0, force_draw=True)
+
+        scene.camera.capture.assert_not_called()
+        scene._web_viewer.on_frame_rendered.assert_called_once_with()
+
+    def test_pixel_or_unsupported_content_keeps_native_capture(self):
+        scene = self.scene(False)
+
+        scene.update_frame(dt=0, force_draw=True)
+
+        scene.camera.capture.assert_called_once_with()
+        scene._web_viewer.on_frame_rendered.assert_called_once_with()
+
+
 class MobjectListTransactionTests(unittest.TestCase):
     def test_related_membership_changes_assemble_once(self):
         scene = Scene.__new__(Scene)

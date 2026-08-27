@@ -479,9 +479,18 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.window._window.dispatch_events()
             return
 
-        with performance.stage("renderer.native_capture"):
-            self.camera.capture(*self.render_groups)
-        performance.increment("renderer.native_capture.calls")
+        skip_native_capture = bool(
+            self._web_viewer is not None
+            and getattr(
+                self._web_viewer, 'can_skip_native_capture', lambda: False
+            )()
+        )
+        if not skip_native_capture:
+            with performance.stage("renderer.native_capture"):
+                self.camera.capture(*self.render_groups)
+            performance.increment("renderer.native_capture.calls")
+        else:
+            performance.increment("renderer.native_capture.bypassed")
 
         if self._web_viewer is not None:
             self._web_viewer.on_frame_rendered()

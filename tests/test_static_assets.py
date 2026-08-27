@@ -287,6 +287,8 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("void selectRenderer(renderer, segment);", viewer)
         self.assertIn('renderer = "pixel";', viewer)
         self.assertIn("WebGPU unavailable; using Pixel:", viewer)
+        self.assertIn('data.type === "renderer_fallback"', viewer)
+        self.assertIn("Using Pixel for this scene.", viewer)
 
     def test_client_render_assets_are_intact(self):
         """Kept deliberately: these are what a zero-install browser build

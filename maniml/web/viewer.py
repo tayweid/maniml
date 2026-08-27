@@ -187,6 +187,7 @@ class WebViewer:
         self._scene_names_cache: tuple[tuple, list[str]] | None = None
         self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
         self._pixel_mode = True  # off in solo-GL: geometry is the only stream
+        self._frame_geometry_supported: bool | None = None
         self._export_lock = threading.Lock()
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
@@ -247,6 +248,33 @@ class WebViewer:
 
     def has_clients(self) -> bool:
         return self.server.has_clients()
+
+    def can_skip_native_capture(self) -> bool:
+        """True only for a fully supported solo client-rendered frame."""
+        self._frame_geometry_supported = None
+        if not (self._geometry_mode and self.scene is not None
+                and self.server.has_clients()):
+            return False
+        from maniml.web.geometry import scene_supports_client_geometry
+        with performance.stage("geometry.support_preflight"):
+            self._frame_geometry_supported = scene_supports_client_geometry(
+                self.scene)
+        return self._frame_geometry_supported and not self._pixel_mode
+
+    def _fall_back_to_pixel(self) -> None:
+        """Make an unsupported client-rendered frame wholly native."""
+        if not self._geometry_mode:
+            return
+        self._geometry_mode = False
+        self._pixel_mode = True
+        self._needs_refresh = True
+        self._dirty = True
+        self._geometry_cache.reset()
+        performance.increment("renderer.pixel_fallbacks")
+        self.server.broadcast_json({
+            "type": "renderer_fallback",
+            "message": "Scene content is not supported by WebGPU; using Pixel.",
+        })
 
     def has_undrawn_event(self) -> bool:
         return self._has_undrawn_event
@@ -315,11 +343,18 @@ class WebViewer:
             self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
-        """Called after every camera.capture(): pump input, stream output."""
+        """Pump input and stream output after a native or client frame."""
         self.dispatch_events()
 
         if not self.server.has_clients():
+            self._frame_geometry_supported = None
             return
+        if (self._geometry_mode
+                and self._frame_geometry_supported is False):
+            # camera.capture() has already run for this frame. Send that
+            # complete native result instead of a partial geometry message.
+            self._fall_back_to_pixel()
+        self._frame_geometry_supported = None
         self._broadcast_logs()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
@@ -381,7 +416,7 @@ class WebViewer:
             performance.increment("transport.pixel_frames")
             performance.increment("transport.pixel_bytes", len(payload))
         self._last_send_time = now
-        self._last_send_lossy = (kind == "jpeg")
+        self._last_send_lossy = (kind == "jpeg" and self._pixel_mode)
         self._dirty = False
         self._needs_refresh = False
         self._has_undrawn_event = False
@@ -622,13 +657,26 @@ class WebViewer:
 
         elif kind == "geometry_request":
             # One-shot snapshot (sent on toggle-on, before any frame flows)
-            from maniml.web.geometry import serialize_scene
-            payload = serialize_scene(self.scene, self._geometry_cache)
-            with performance.stage("transport.broadcast"):
-                self.server.broadcast(payload)
-            performance.increment("transport.geometry_frames")
-            performance.increment("transport.geometry_bytes", len(payload))
-            self._dirty = False  # the request itself needs no pixel frame
+            if self._geometry_mode:
+                from maniml.web.geometry import (
+                    scene_supports_client_geometry,
+                    serialize_scene,
+                )
+                if scene_supports_client_geometry(self.scene):
+                    payload = serialize_scene(self.scene, self._geometry_cache)
+                    with performance.stage("transport.broadcast"):
+                        self.server.broadcast(payload)
+                    performance.increment("transport.geometry_frames")
+                    performance.increment(
+                        "transport.geometry_bytes", len(payload))
+                    self._dirty = False
+                    self._has_undrawn_event = False
+                else:
+                    self._fall_back_to_pixel()
+            else:
+                # The request itself needs no frame in Pixel-only mode.
+                self._dirty = False
+                self._has_undrawn_event = False
 
         elif kind == "geometry_reset":
             # A client hit a cache miss (e.g. evicted a batch we still
@@ -644,6 +692,7 @@ class WebViewer:
             # so a rejoining toggle always starts from a full payload.
             self._geometry_mode = bool(event.get("geometry"))
             self._pixel_mode = bool(event.get("pixels", True))
+            self._frame_geometry_supported = None
             if self._geometry_mode:
                 self._geometry_cache.reset()
             # Leaving solo: the canvas needs a fresh pixel frame

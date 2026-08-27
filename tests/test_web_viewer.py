@@ -38,6 +38,28 @@ class WebDemo(Scene):
         self.play(dot.animate.shift(LEFT * 4))
 """
 
+UNSUPPORTED_GEOMETRY_SOURCE = """
+import moderngl
+from manim import *
+
+class CustomCloud(PMobject):
+    shader_folder = "true_dot"
+    render_primitive = moderngl.POINTS
+    data_dtype = DotCloud.data_dtype
+
+    def init_uniforms(self):
+        super().init_uniforms()
+        self.uniforms["glow_factor"] = 0.0
+        self.uniforms["anti_alias_width"] = 2.0
+
+    def init_points(self):
+        self.set_points([[0, 0, 0]])
+
+class UnsupportedDemo(Scene):
+    def construct(self):
+        self.add(CustomCloud())
+"""
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STARTUP_TIMEOUT = 25
 MESSAGE_TIMEOUT = 10
@@ -500,6 +522,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             self._collect(ws, 3)
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": True}))
             ws.send(json.dumps({"type": "geometry_request"}))
             deadline = time.time() + 8
             message = None
@@ -596,6 +620,33 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
                              "solo mode must not stream pixels")
 
 
+class UnsupportedGeometryE2E(_ViewerHarness, unittest.TestCase):
+    """Unsupported custom drawables switch the whole frame to Pixel."""
+
+    SOURCE = UNSUPPORTED_GEOMETRY_SOURCE
+    SCENE = "UnsupportedDemo"
+    FILENAME = "unsupported_scene.py"
+
+    def test_solo_geometry_request_falls_back_to_complete_pixel_frame(self):
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            ws.send(json.dumps(
+                {"type": "key", "action": "down", "key": "ArrowRight"}))
+            self._collect(ws, 2)
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": False}))
+            ws.send(json.dumps({"type": "geometry_request"}))
+            frames, messages = self._collect(ws, 4)
+
+            self.assertTrue(any(
+                message.get("type") == "renderer_fallback"
+                for message in messages), messages)
+            self.assertTrue(any(frame[0] == 0x02 for frame in frames),
+                            "fallback did not send a complete PNG frame")
+            self.assertFalse(any(frame[0] == 0x03 for frame in frames),
+                             "unsupported partial geometry was sent")
+
+
 class StreamPolicyTests(unittest.TestCase):
     """The streaming policy's one timing invariant, checked by arithmetic
     rather than by watching a clock — a rate assertion against a real process
@@ -621,6 +672,55 @@ class StreamPolicyTests(unittest.TestCase):
             MIN_SEND_INTERVAL, frame_period * 0.9,
             "the throttle is close enough to the frame period to alias "
             "against it once real timing jitter is involved")
+
+    def test_native_bypass_requires_solo_mode_and_supported_geometry(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import WebViewer
+
+        viewer = SimpleNamespace(
+            _geometry_mode=True,
+            _pixel_mode=False,
+            _frame_geometry_supported=None,
+            scene=object(),
+            server=SimpleNamespace(has_clients=lambda: True),
+        )
+        with patch(
+            "maniml.web.geometry.scene_supports_client_geometry",
+            return_value=True,
+        ) as supported:
+            self.assertTrue(WebViewer.can_skip_native_capture(viewer))
+            supported.assert_called_once_with(viewer.scene)
+
+        viewer._pixel_mode = True
+        with patch(
+            "maniml.web.geometry.scene_supports_client_geometry",
+            return_value=True,
+        ) as supported:
+            self.assertFalse(WebViewer.can_skip_native_capture(viewer))
+            supported.assert_called_once_with(viewer.scene)
+
+    def test_unsupported_geometry_frame_switches_wholly_to_pixel(self):
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+
+        messages = []
+        viewer = SimpleNamespace(
+            _geometry_mode=True,
+            _pixel_mode=False,
+            _needs_refresh=False,
+            _dirty=False,
+            _geometry_cache=SimpleNamespace(reset=lambda: None),
+            server=SimpleNamespace(broadcast_json=messages.append),
+        )
+
+        WebViewer._fall_back_to_pixel(viewer)
+
+        self.assertFalse(viewer._geometry_mode)
+        self.assertTrue(viewer._pixel_mode)
+        self.assertTrue(viewer._needs_refresh)
+        self.assertTrue(viewer._dirty)
+        self.assertEqual(messages[0]["type"], "renderer_fallback")
 
 
 RAIL_SOURCE = """
