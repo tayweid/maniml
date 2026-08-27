@@ -204,6 +204,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # The newest checkpoint whose source lineage has actually run.
         # Display navigation may move current_animation_index behind it.
         self.frontier_index = -1
+        # Opt-in sidecar only. Legacy checkpoints/renderers remain
+        # authoritative until their separate parity gates pass.
+        from maniml.revisions import ShadowRevisionStore
+        self._shadow_revisions = ShadowRevisionStore.from_environment()
         self._processing_key = False  # Flag to prevent re-entry during key processing
         self._source_units_cache = None  # ((path, mtime), units) for the parsed scene file
         self._live_namespace = {}  # Variable name -> live (on-screen) object, for click-to-inspect

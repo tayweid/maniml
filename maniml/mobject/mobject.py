@@ -155,7 +155,16 @@ class Mobject(object):
             if isinstance(value, np.ndarray):
                 value = value.copy()
             self.uniforms[key] = value
+        self._note_revision_dirty("uniforms")
         return self
+
+    def _note_revision_dirty(self, component: str) -> None:
+        # Zero import/registry work in ordinary runs. IDs exist only in the
+        # explicit shadow lane.
+        if "_maniml_semantic_id" not in self.__dict__:
+            return
+        from maniml.revisions import mark_revision_dirty
+        mark_revision_dirty(self, component)
 
     @property
     def animate(self) -> _AnimationBuilder | Self:
@@ -253,6 +262,7 @@ class Mobject(object):
 
     def note_changed_data(self, recurse_up: bool = True) -> Self:
         self._data_has_changed = True
+        self._note_revision_dirty("data")
         # Clear triangulation cache if it exists
         if hasattr(self, '_triangulation_cache'):
             delattr(self, '_triangulation_cache')
@@ -464,6 +474,7 @@ class Mobject(object):
 
     @affects_data
     def note_changed_family(self, only_changed_order=False) -> Self:
+        self._note_revision_dirty("order" if only_changed_order else "family")
         self.family = None
         if not only_changed_order:
             self.refresh_has_updater_status()
@@ -708,7 +719,14 @@ class Mobject(object):
 
     @stash_mobject_pointers
     def deepcopy(self) -> Self:
-        return copy.deepcopy(self)
+        result = copy.deepcopy(self)
+        # This method is part of the authored-object API. Internal checkpoint
+        # snapshots deliberately call copy.deepcopy directly so only they
+        # retain semantic identity.
+        if "_maniml_semantic_id" in self.__dict__:
+            from maniml.revisions import forget_semantic_ids
+            forget_semantic_ids(result)
+        return result
 
     def copy(self, deep: bool = False) -> Self:
         if deep:
@@ -749,6 +767,9 @@ class Mobject(object):
                     setattr(result, attr, result.family[family.index(value)])
             elif isinstance(value, np.ndarray):
                 setattr(result, attr, value.copy())
+        if "_maniml_semantic_id" in self.__dict__:
+            from maniml.revisions import forget_semantic_ids
+            forget_semantic_ids(result)
         return result
 
     def generate_target(self, use_deepcopy: bool = False) -> Self:
@@ -891,6 +912,7 @@ class Mobject(object):
 
     def add_updater(self, update_func: Updater, call: bool = True) -> Self:
         self.updaters.append(update_func)
+        self._note_revision_dirty("updaters")
         if call:
             self.update(dt=0)
         self.refresh_has_updater_status()
@@ -899,12 +921,14 @@ class Mobject(object):
 
     def insert_updater(self, update_func: Updater, index=0):
         self.updaters.insert(index, update_func)
+        self._note_revision_dirty("updaters")
         self.refresh_has_updater_status()
         return self
 
     def remove_updater(self, update_func: Updater) -> Self:
         while update_func in self.updaters:
             self.updaters.remove(update_func)
+        self._note_revision_dirty("updaters")
         self.refresh_has_updater_status()
         return self
 
@@ -912,6 +936,7 @@ class Mobject(object):
         for mob in self.get_family(recurse):
             mob.updaters = []
             mob._has_updaters_in_family = False
+            mob._note_revision_dirty("updaters")
         for parent in self.get_ancestors():
             parent._has_updaters_in_family = False
         return self

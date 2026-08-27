@@ -57,11 +57,17 @@ the Monday checkout yet.
 The next approved work is narrower than the original list:
 
 1. Add stable semantic identity and commit records in shadow mode only.
+   **Done:** identity semantics, component deltas, mutation hints, direct-array
+   validation, checkpoint parity, and suffix lineage are in the opt-in lane.
 2. Dual-write a structural-sharing endpoint prototype and compare it with
    legacy checkpoints; checkpoint save/restore and memory are the measured
-   ordinary-course bottleneck.
+   ordinary-course bottleneck. **Manifest proven:** checkpoint maps reuse
+   immutable revisions for unchanged objects and copied-endpoint parity passes;
+   legacy scene/namespace copies remain authoritative.
 3. Prototype bounded renderer resources/chunks behind the current serializer
-   for the measured 2,000-object, one-change case.
+   for the measured 2,000-object, one-change case. **Manifest proven:** one
+   square shift produces one 134-byte resource reference; authoritative
+   browser delivery is not cut over.
 4. Add video-first retained motion independently, so visited Present history
    animates without re-executing scene Python.
 

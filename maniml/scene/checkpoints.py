@@ -86,6 +86,7 @@ class CheckpointMixin:
         namespace['self'] = self
         
         # Add current (empty) state to namespace
+        self._shadow_revisions.prepare(self)
         namespace['__checkpoint_state__'] = self.get_state()
         
         # Deep copy to create checkpoint
@@ -107,6 +108,9 @@ class CheckpointMixin:
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
         self.frontier_index = 0
+        shadow = self._shadow_revisions.commit(
+            self, 0, reason="checkpoint_zero")
+        self._shadow_revisions.validate_checkpoint(checkpoint_state, shadow)
         performance.gauge("checkpoint.count", 1)
         performance.sample_process("checkpoint_saved", checkpoint=0)
 
@@ -183,6 +187,7 @@ class CheckpointMixin:
                 break
         self.animation_checkpoints = self.animation_checkpoints[:safe_idx + 1]
         self.frontier_index = safe_idx
+        self._shadow_revisions.invalidate_after(safe_idx)
 
         if self.current_animation_index != safe_idx:
             self.current_animation_index = safe_idx
@@ -254,6 +259,7 @@ class CheckpointMixin:
         self.animation_checkpoints = []
         self.current_animation_index = -1
         self.frontier_index = -1
+        self._shadow_revisions.reset()
         self._source_units_cache = None
         self.clear()
         self._create_checkpoint_zero(namespace=vars(module))
@@ -368,6 +374,7 @@ class CheckpointMixin:
 
         # Deep copy state and namespace together so references between
         # namespace variables and on-screen mobjects are preserved
+        self._shadow_revisions.prepare(self)
         namespace['__checkpoint_state__'] = self.get_state()
         with performance.stage("checkpoint.save_copy"):
             checkpoint_namespace = deepcopy_namespace(namespace)
@@ -394,6 +401,11 @@ class CheckpointMixin:
             getattr(self, 'frontier_index', -1),
             self.current_animation_index,
         )
+        shadow = self._shadow_revisions.commit(
+            self, self.current_animation_index,
+            reason="pause" if name is not None else "play",
+        )
+        self._shadow_revisions.validate_checkpoint(checkpoint_state, shadow)
         performance.gauge("checkpoint.count", len(self.animation_checkpoints))
         performance.gauge("checkpoint.frontier", self.frontier_index)
         # Current RSS on macOS requires a process query. Keep it outside the
