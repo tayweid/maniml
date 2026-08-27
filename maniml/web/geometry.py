@@ -42,6 +42,8 @@ import struct
 
 import numpy as np
 
+from maniml.performance import performance
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -308,8 +310,9 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
     import hashlib
 
     camera = scene.camera
-    camera.refresh_uniforms()
-    frame_scale = float(camera.uniforms["frame_scale"])
+    with performance.stage("geometry.camera_uniforms"):
+        camera.refresh_uniforms()
+        frame_scale = float(camera.uniforms["frame_scale"])
 
     unsupported = []
     batches = []
@@ -317,53 +320,62 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
     offset = 0
     needed_textures: dict[str, bytes] = {}
 
-    for record in _merge_records(_collect_records(scene, unsupported)):
-        data = record["data"]
-        raw = np.ascontiguousarray(data).tobytes()
-        tri_bytes = index_bytes = b""
-        if record["kind"] == "vmobject" and record["tri"] is not None:
-            tri_data, tri_indices = record["tri"]
-            tri_bytes = tri_data.tobytes()
-            index_bytes = np.ascontiguousarray(tri_indices).tobytes()
+    with performance.stage("geometry.collect_shader_data"):
+        records = _collect_records(scene, unsupported)
+    with performance.stage("geometry.merge_batches"):
+        records = _merge_records(records)
+    cached_batches = 0
+    vertices = 0
+    with performance.stage("geometry.pack_and_hash"):
+        for record in records:
+            data = record["data"]
+            vertices += len(data)
+            raw = np.ascontiguousarray(data).tobytes()
+            tri_bytes = index_bytes = b""
+            if record["kind"] == "vmobject" and record["tri"] is not None:
+                tri_data, tri_indices = record["tri"]
+                tri_bytes = tri_data.tobytes()
+                index_bytes = np.ascontiguousarray(tri_indices).tobytes()
 
-        content_hash = hashlib.blake2b(
-            raw + tri_bytes, digest_size=8).hexdigest()
-        batch = {
-            "kind": record["kind"],
-            "hash": content_hash,
-            "num_verts": len(data),
-            "stride": record["stride"],
-            "uniforms": record["uniforms"],
-            "depth_test": record["depth_test"],
-        }
-        if record["kind"] == "vmobject":
-            batch["stroke_behind"] = record["stroke_behind"]
-            batch["fill_mode"] = record["fill_mode"]
-            batch["stroke_verts"] = _stroke_verts(data, frame_scale)
-        if record["textures"]:
-            batch["textures"] = record["textures"]
-            for tex_hash in record["textures"].values():
-                if cache is None or f"tex:{tex_hash}" not in cache.sent:
-                    needed_textures[tex_hash] = _TEXTURE_BY_HASH[tex_hash]
+            content_hash = hashlib.blake2b(
+                raw + tri_bytes, digest_size=8).hexdigest()
+            batch = {
+                "kind": record["kind"],
+                "hash": content_hash,
+                "num_verts": len(data),
+                "stride": record["stride"],
+                "uniforms": record["uniforms"],
+                "depth_test": record["depth_test"],
+            }
+            if record["kind"] == "vmobject":
+                batch["stroke_behind"] = record["stroke_behind"]
+                batch["fill_mode"] = record["fill_mode"]
+                batch["stroke_verts"] = _stroke_verts(data, frame_scale)
+            if record["textures"]:
+                batch["textures"] = record["textures"]
+                for tex_hash in record["textures"].values():
+                    if cache is None or f"tex:{tex_hash}" not in cache.sent:
+                        needed_textures[tex_hash] = _TEXTURE_BY_HASH[tex_hash]
 
-        if cache is not None and content_hash in cache.sent:
-            batch["cached"] = True
-        else:
-            batch["offset"] = offset
-            blobs.append(raw)
-            offset += len(raw)
-            if tri_bytes:
-                batch["tri"] = {
-                    "voffset": offset, "vcount": len(tri_bytes) // 40,
-                    "ioffset": offset + len(tri_bytes),
-                    "icount": len(index_bytes) // 4,
-                }
-                blobs.append(tri_bytes)
-                blobs.append(index_bytes)
-                offset += len(tri_bytes) + len(index_bytes)
-            if cache is not None:
-                cache.sent.add(content_hash)
-        batches.append(batch)
+            if cache is not None and content_hash in cache.sent:
+                batch["cached"] = True
+                cached_batches += 1
+            else:
+                batch["offset"] = offset
+                blobs.append(raw)
+                offset += len(raw)
+                if tri_bytes:
+                    batch["tri"] = {
+                        "voffset": offset, "vcount": len(tri_bytes) // 40,
+                        "ioffset": offset + len(tri_bytes),
+                        "icount": len(index_bytes) // 4,
+                    }
+                    blobs.append(tri_bytes)
+                    blobs.append(index_bytes)
+                    offset += len(tri_bytes) + len(index_bytes)
+                if cache is not None:
+                    cache.sent.add(content_hash)
+            batches.append(batch)
 
     texture_data = {}
     for tex_hash, raw_tex in needed_textures.items():
@@ -383,13 +395,21 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
         "texture_data": texture_data,
         "unsupported": unsupported,
     }
-    header_bytes = json.dumps(header).encode()
-    return b"".join([
-        bytes([GEOMETRY_MESSAGE_TYPE]),
-        struct.pack("<I", len(header_bytes)),
-        header_bytes,
-        *blobs,
-    ])
+    with performance.stage("geometry.json_and_join"):
+        header_bytes = json.dumps(header).encode()
+        message = b"".join([
+            bytes([GEOMETRY_MESSAGE_TYPE]),
+            struct.pack("<I", len(header_bytes)),
+            header_bytes,
+            *blobs,
+        ])
+    performance.increment("geometry.serialize.calls")
+    performance.increment("geometry.serialized_bytes", len(message))
+    performance.increment("geometry.vertices", vertices)
+    performance.increment("geometry.cached_batches", cached_batches)
+    performance.gauge("geometry.batch_count", len(batches))
+    performance.gauge("geometry.unsupported_count", len(unsupported))
+    return message
 
 
 def parse_geometry_message(message: bytes):

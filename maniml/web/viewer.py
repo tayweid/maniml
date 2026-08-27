@@ -41,6 +41,7 @@ from maniml.constants import FRAME_SHAPE
 from maniml.event_constants import MouseButtons as PygletMouseButtons
 from maniml.event_constants import WindowKeys as PygletWindowKeys
 from maniml.logger import log
+from maniml.performance import performance
 from maniml.scene.source_map import chip_unit_for
 from maniml.web.present_bundle import FORMAT as PRESENT_FORMAT
 from maniml.web.present_bundle import presentation_sources
@@ -171,6 +172,7 @@ class WebViewer:
         self._move_open = False  # a stretch's move is lit on the rail
         self._keys_settled_at = 0.0  # keys stamped before this are stale
         self._coalesced_navigation_events = 0
+        self._pending_navigation_received: float | None = None
         self._needs_refresh = True  # a client wants a full PNG + state
         self._dispatching = False
         self._last_send_time = 0.0
@@ -254,8 +256,9 @@ class WebViewer:
                 and self.server.has_clients()):
             return False
         from maniml.web.geometry import scene_supports_client_geometry
-        self._frame_geometry_supported = scene_supports_client_geometry(
-            self.scene)
+        with performance.stage("geometry.support_preflight"):
+            self._frame_geometry_supported = scene_supports_client_geometry(
+                self.scene)
         return self._frame_geometry_supported and not self._pixel_mode
 
     def _fall_back_to_pixel(self) -> None:
@@ -267,17 +270,28 @@ class WebViewer:
         self._needs_refresh = True
         self._dirty = True
         self._geometry_cache.reset()
+        performance.increment("renderer.pixel_fallbacks")
         self.server.broadcast_json({
             "type": "renderer_fallback",
             "message": "Scene content is not supported by WebGPU; using Pixel.",
         })
 
     def has_undrawn_event(self) -> bool:
+        now = time.monotonic()
+        event_due = self._has_undrawn_event
+        if (event_due
+                and getattr(self, '_dirty', False)
+                and not getattr(self, '_needs_refresh', False)
+                and now - self._last_send_time < MIN_SEND_INTERVAL):
+            # Retain the event, but let interact() sleep until the next
+            # frame interval instead of busy-rendering frames the transport
+            # policy will refuse to send.
+            event_due = False
         quiet_png_due = (
             self._last_send_lossy
-            and time.monotonic() - self._last_send_time >= PNG_AFTER_QUIET
+            and now - self._last_send_time >= PNG_AFTER_QUIET
         )
-        return self._has_undrawn_event or quiet_png_due
+        return event_due or quiet_png_due
 
     def is_key_pressed(self, symbol: int) -> bool:
         return symbol in self.pressed_keys
@@ -294,6 +308,12 @@ class WebViewer:
 
     def begin_animation(self):
         self._animating = True
+        if self._pending_navigation_received is not None:
+            performance.observe_ms(
+                "input.to_first_motion",
+                (time.monotonic() - self._pending_navigation_received) * 1000,
+            )
+            self._pending_navigation_received = None
         if not getattr(self.scene, "_is_playing", False):
             # wait() runs through pre_play/post_play too, but sitting still
             # is not crossing to the next pausepoint: lighting the rail for
@@ -383,24 +403,32 @@ class WebViewer:
             # checkpoint it left, so no state change follows — without
             # this the rail would hold its lit dash forever.
             self._close_move_if_settled()
+            performance.increment("viewer.frames.no_stream")
             return
 
         if self._pixel_mode:
             camera = self.scene.camera
-            raw = camera.get_raw_fbo_data()
+            with performance.stage("renderer.readback"):
+                raw = camera.get_raw_fbo_data()
             w, h = camera.draw_fbo.size
             channels = len(raw) // (w * h)
             image = Image.frombytes(
                 "RGBA" if channels == 4 else "RGB", (w, h), raw)
             buf = io.BytesIO()
-            if kind == "jpeg":
-                image.convert("RGB").save(
-                    buf, "JPEG", quality=JPEG_QUALITY,
-                    subsampling=JPEG_SUBSAMPLING)
-                self.server.broadcast(b"\x01" + buf.getvalue(), droppable=True)
-            else:
-                image.convert("RGB").save(buf, "PNG")
-                self.server.broadcast(b"\x02" + buf.getvalue())
+            with performance.stage("renderer.image_encode"):
+                if kind == "jpeg":
+                    image.convert("RGB").save(
+                        buf, "JPEG", quality=JPEG_QUALITY,
+                        subsampling=JPEG_SUBSAMPLING)
+                    payload = b"\x01" + buf.getvalue()
+                else:
+                    image.convert("RGB").save(buf, "PNG")
+                    payload = b"\x02" + buf.getvalue()
+            with performance.stage("transport.broadcast"):
+                self.server.broadcast(
+                    payload, droppable=(kind == "jpeg"))
+            performance.increment("transport.pixel_frames")
+            performance.increment("transport.pixel_bytes", len(payload))
         self._last_send_time = now
         self._last_send_lossy = (kind == "jpeg" and self._pixel_mode)
         self._dirty = False
@@ -412,8 +440,11 @@ class WebViewer:
             # Not droppable: it would always collide with the pixel send
             # queued a moment earlier, and the payload is small anyway.
             from maniml.web.geometry import serialize_scene
-            self.server.broadcast(
-                serialize_scene(self.scene, self._geometry_cache))
+            payload = serialize_scene(self.scene, self._geometry_cache)
+            with performance.stage("transport.broadcast"):
+                self.server.broadcast(payload)
+            performance.increment("transport.geometry_frames")
+            performance.increment("transport.geometry_bytes", len(payload))
         self._broadcast_state()
         # The landing state must be on the wire BEFORE the move-close:
         # the client pends states while a move is open and lands the last
@@ -451,6 +482,7 @@ class WebViewer:
 
     def _dispatch_events(self):
         events = self.server.pop_events()
+        performance.increment("input.events", len(events))
         # Input received during an animation cannot be drained until the
         # current dispatch returns.  Keep one bounded navigation intent —
         # the latest arrow press — and coalesce older stale arrows instead
@@ -472,9 +504,10 @@ class WebViewer:
             if stale_navigation[index]:
                 if index != latest_stale_navigation:
                     self._coalesced_navigation_events += 1
+                    performance.increment("input.navigation.coalesced")
                     continue
                 event = dict(event)
-                event.pop("_received", None)
+                event["_intent_received"] = event.pop("_received", None)
             elif (event.get("type") == "key"
                   and event.get("action") == "down"
                   and (received := event.get("_received")) is not None
@@ -483,7 +516,7 @@ class WebViewer:
                 # earlier handler may animate and move the settle boundary,
                 # but it cannot retroactively make this press stale.
                 event = dict(event)
-                event.pop("_received", None)
+                event["_intent_received"] = event.pop("_received", None)
             try:
                 self._handle_event(event)
             except Exception as e:
@@ -554,9 +587,27 @@ class WebViewer:
                 # key-ups always pass so pressed_keys cannot wedge.
                 received = event.get("_received")
                 if received is not None and received <= self._keys_settled_at:
+                    performance.increment("input.key_presses.dropped_stale")
                     return
                 self.pressed_keys.add(symbol)
-                scene.on_key_press(symbol, mods)
+                navigation_received = event.get(
+                    "_intent_received", event.get("_received"))
+                is_navigation = event.get("key") in NAVIGATION_KEYS
+                if is_navigation and navigation_received is not None:
+                    performance.observe_ms(
+                        "input.queue_delay",
+                        (time.monotonic() - navigation_received) * 1000,
+                    )
+                    self._pending_navigation_received = navigation_received
+                try:
+                    scene.on_key_press(symbol, mods)
+                finally:
+                    if is_navigation and navigation_received is not None:
+                        performance.observe_ms(
+                            "input.to_endpoint",
+                            (time.monotonic() - navigation_received) * 1000,
+                        )
+                        self._pending_navigation_received = None
             else:
                 self.pressed_keys.discard(symbol)
                 scene.on_key_release(symbol, mods)
@@ -628,11 +679,20 @@ class WebViewer:
                     serialize_scene,
                 )
                 if scene_supports_client_geometry(self.scene):
-                    self.server.broadcast(
-                        serialize_scene(self.scene, self._geometry_cache))
+                    payload = serialize_scene(self.scene, self._geometry_cache)
+                    with performance.stage("transport.broadcast"):
+                        self.server.broadcast(payload)
+                    performance.increment("transport.geometry_frames")
+                    performance.increment(
+                        "transport.geometry_bytes", len(payload))
+                    self._dirty = False
+                    self._has_undrawn_event = False
                 else:
                     self._fall_back_to_pixel()
-            self._dirty = False  # the request itself needs no pixel frame
+            else:
+                # The request itself needs no frame in Pixel-only mode.
+                self._dirty = False
+                self._has_undrawn_event = False
 
         elif kind == "geometry_reset":
             # A client hit a cache miss (e.g. evicted a batch we still

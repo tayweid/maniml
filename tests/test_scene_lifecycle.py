@@ -62,6 +62,38 @@ class WebGpuNativeBypassTests(unittest.TestCase):
         scene._web_viewer.on_frame_rendered.assert_called_once_with()
 
 
+class MobjectListTransactionTests(unittest.TestCase):
+    def test_related_membership_changes_assemble_once(self):
+        scene = Scene.__new__(Scene)
+        scene._mobject_list_mutation_depth = 0
+        scene.mobjects = [object()]
+        scene.assemble_render_groups = MagicMock()
+
+        with scene.mobject_list_transaction():
+            scene.clear()
+            scene.clear()
+
+        self.assertEqual(scene.mobjects, [])
+        scene.assemble_render_groups.assert_called_once_with()
+
+    def test_animation_additions_commit_before_frames_run(self):
+        scene = Scene.__new__(Scene)
+        scene._mobject_list_mutation_depth = 0
+        scene._mobject_list_mutation_dirty = False
+        scene.mobjects = []
+        scene.id_to_mobject_map = {}
+        scene.assemble_render_groups = MagicMock()
+        mobject = MagicMock()
+        mobject.get_family.return_value = [mobject]
+        animation = MagicMock(mobject=mobject)
+
+        scene.begin_animations([animation])
+
+        animation.begin.assert_called_once_with()
+        self.assertEqual(scene.mobjects, [mobject])
+        scene.assemble_render_groups.assert_called_once_with()
+
+
 class SceneRunLifecycleTests(unittest.TestCase):
     @patch("maniml.scene.scene.time.sleep")
     def test_web_interaction_pauses_without_clients(self, sleep):
@@ -220,6 +252,8 @@ class SceneRunLifecycleTests(unittest.TestCase):
         scene._get_source_units = MagicMock(return_value=[unit])
         scene.clear = MagicMock()
         scene.restore_state = MagicMock()
+        scene.assemble_render_groups = MagicMock()
+        scene._mobject_list_mutation_depth = 0
         scene.update_frame = MagicMock()
         scene.skip_animations = False
         return scene

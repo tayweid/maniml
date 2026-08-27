@@ -139,6 +139,7 @@ const ManimlWGPU = (() => {
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
+  let adapterInfo = null;
   let modules = {}, pipelines = new Map(), blitPipeline = null;
   let quadBuffer, sampler;
   let outTexture, resolveTexture, depthTexture, fillTexture;
@@ -165,6 +166,14 @@ const ManimlWGPU = (() => {
     const adapter = await navigator.gpu.requestAdapter(
       { powerPreference: "high-performance" });
     if (!adapter) throw new Error("no WebGPU adapter");
+    const info = adapter.info || {};
+    adapterInfo = {
+      vendor: info.vendor || "",
+      architecture: info.architecture || "",
+      device: info.device || "",
+      description: info.description || "",
+      featureCount: Array.from(adapter.features || []).length,
+    };
     device = await adapter.requestDevice();
     canvas = canvasEl;
     context = canvas.getContext("webgpu");
@@ -523,5 +532,13 @@ const ManimlWGPU = (() => {
     else { drawFill(); drawStroke(); }
   }
 
-  return { init, render, onCacheMiss: null };
+  function diagnostics() {
+    return {
+      backend: "webgpu",
+      adapter: adapterInfo,
+      canvasFormat,
+    };
+  }
+
+  return { init, render, diagnostics, onCacheMiss: null };
 })();

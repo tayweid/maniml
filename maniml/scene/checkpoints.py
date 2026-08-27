@@ -20,6 +20,7 @@ import numpy as np
 
 from maniml.logger import log
 from maniml.mobject.mobject import Mobject
+from maniml.performance import performance
 from maniml.scene.file_watcher import FileWatcher
 from maniml.scene.source_map import SourceMapError
 from maniml.scene.source_map import build_units
@@ -88,7 +89,8 @@ class CheckpointMixin:
         namespace['__checkpoint_state__'] = self.get_state()
         
         # Deep copy to create checkpoint
-        checkpoint_namespace = deepcopy_namespace(namespace)
+        with performance.stage("checkpoint.save_copy"):
+            checkpoint_namespace = deepcopy_namespace(namespace)
         checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
         
         # Create checkpoint 0
@@ -105,6 +107,8 @@ class CheckpointMixin:
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
         self.frontier_index = 0
+        performance.gauge("checkpoint.count", 1)
+        performance.sample_process("checkpoint_saved", checkpoint=0)
 
 
     def _setup_file_watcher(self) -> None:
@@ -275,12 +279,15 @@ class CheckpointMixin:
         namespace as the live one (for click-to-inspect). State and
         namespace are copied together so names still point at the
         on-screen objects."""
-        self.current_animation_index = index
-        temp = deepcopy_namespace(self.animation_checkpoints[index])
-        self.restore_state(temp['state'])
-        namespace = temp['namespace']
-        namespace['self'] = self
-        self._live_namespace = namespace
+        with performance.stage("checkpoint.display_restore"):
+            self.current_animation_index = index
+            with performance.stage("checkpoint.restore_copy"):
+                temp = deepcopy_namespace(self.animation_checkpoints[index])
+            self.restore_state(temp['state'])
+            namespace = temp['namespace']
+            namespace['self'] = self
+            self._live_namespace = namespace
+        performance.increment("checkpoint.display_restore.calls")
 
     def _find_animation_anchor(self) -> tuple[int | None, int | None]:
         """Locate the source anchor (end line and unit index) of the play()
@@ -362,7 +369,8 @@ class CheckpointMixin:
         # Deep copy state and namespace together so references between
         # namespace variables and on-screen mobjects are preserved
         namespace['__checkpoint_state__'] = self.get_state()
-        checkpoint_namespace = deepcopy_namespace(namespace)
+        with performance.stage("checkpoint.save_copy"):
+            checkpoint_namespace = deepcopy_namespace(namespace)
         checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
 
         self.current_animation_index += 1
@@ -386,6 +394,19 @@ class CheckpointMixin:
             getattr(self, 'frontier_index', -1),
             self.current_animation_index,
         )
+        performance.gauge("checkpoint.count", len(self.animation_checkpoints))
+        performance.gauge("checkpoint.frontier", self.frontier_index)
+        # Current RSS on macOS requires a process query. Keep it outside the
+        # copy timer and sample sparsely so profiling does not become the
+        # dominant cost in loop-heavy scenes.
+        if (self.current_animation_index <= 1
+                or self.current_animation_index % 10 == 0):
+            performance.sample_process(
+                "checkpoint_saved",
+                checkpoint=self.current_animation_index,
+                checkpoint_count=len(self.animation_checkpoints),
+                mobjects=len(getattr(self, 'mobjects', ())),
+            )
 
     @staticmethod
     def _restore_checkpoint_random_state(checkpoint: dict) -> None:
@@ -500,10 +521,13 @@ class CheckpointMixin:
         # Work on a deep copy so the stored checkpoint stays pristine.
         # State and namespace are copied together, preserving references
         # between namespace variables and on-screen mobjects.
-        checkpoint_temporary = deepcopy_namespace(current_checkpoint)
+        with performance.stage("checkpoint.execution_copy"):
+            checkpoint_temporary = deepcopy_namespace(current_checkpoint)
 
-        self.clear()
-        self.restore_state(checkpoint_temporary['state'])
+        with performance.stage("checkpoint.execution_restore"):
+            with self.mobject_list_transaction():
+                self.clear()
+                self.restore_state(checkpoint_temporary['state'])
 
         namespace = checkpoint_temporary['namespace']
         namespace['self'] = self
@@ -518,14 +542,16 @@ class CheckpointMixin:
             print(f"→ Running animation {next_index}")
         try:
             code = compile(unit.source, self._scene_filepath, 'exec')
-            exec(code, namespace)
+            with performance.stage("source.execute"):
+                exec(code, namespace)
         except Exception as e:
             print(f"Error running animation: {e}")
             # Restore the last successfully saved checkpoint so the scene
             # isn't left in a half-executed state
             checkpoint = self.animation_checkpoints[self.current_animation_index]
-            self.clear()
-            self.restore_state(checkpoint['state'])
+            with self.mobject_list_transaction():
+                self.clear()
+                self.restore_state(checkpoint['state'])
             self.update_frame(dt=0, force_draw=True)
             if self._strict_animation_errors():
                 raise

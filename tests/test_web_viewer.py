@@ -686,6 +686,25 @@ class StreamPolicyTests(unittest.TestCase):
                    return_value=10.0 + PNG_AFTER_QUIET):
             self.assertTrue(WebViewer.has_undrawn_event(viewer))
 
+    def test_throttled_dirty_event_sleeps_instead_of_busy_rendering(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import MIN_SEND_INTERVAL, WebViewer
+
+        viewer = SimpleNamespace(
+            _dirty=True,
+            _needs_refresh=False,
+            _has_undrawn_event=True,
+            _last_send_lossy=False,
+            _last_send_time=10.0,
+        )
+        with patch("maniml.web.viewer.time.monotonic",
+                   return_value=10.0 + MIN_SEND_INTERVAL / 2):
+            self.assertFalse(WebViewer.has_undrawn_event(viewer))
+        with patch("maniml.web.viewer.time.monotonic",
+                   return_value=10.0 + MIN_SEND_INTERVAL + 1e-6):
+            self.assertTrue(WebViewer.has_undrawn_event(viewer))
+
     def test_native_bypass_requires_solo_mode_and_supported_geometry(self):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -734,6 +753,32 @@ class StreamPolicyTests(unittest.TestCase):
         self.assertTrue(viewer._needs_refresh)
         self.assertTrue(viewer._dirty)
         self.assertEqual(messages[0]["type"], "renderer_fallback")
+
+    def test_one_shot_geometry_request_consumes_its_undrawn_event(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import WebViewer
+
+        payloads = []
+        viewer = SimpleNamespace(
+            _geometry_mode=True,
+            _dirty=True,
+            _has_undrawn_event=True,
+            _geometry_cache=object(),
+            scene=object(),
+            server=SimpleNamespace(broadcast=payloads.append),
+        )
+        with (
+            patch("maniml.web.geometry.scene_supports_client_geometry",
+                  return_value=True),
+            patch("maniml.web.geometry.serialize_scene",
+                  return_value=b"geometry"),
+        ):
+            WebViewer._handle_event(viewer, {"type": "geometry_request"})
+
+        self.assertEqual(payloads, [b"geometry"])
+        self.assertFalse(viewer._dirty)
+        self.assertFalse(viewer._has_undrawn_event)
 
 
 RAIL_SOURCE = """

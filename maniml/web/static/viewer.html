@@ -763,6 +763,11 @@ let split = false;
 function applyRendererUI() {
   document.body.classList.toggle("alt", renderer !== "pixel");
   document.body.classList.toggle("compare", renderer !== "pixel" && split);
+  document.body.dataset.renderer = renderer;
+  if (renderer === "pixel") {
+    document.body.dataset.rendererBackend = "pixel";
+    delete document.body.dataset.rendererAdapter;
+  }
   for (const [name, backend] of Object.entries(backends)) {
     backend.canvas.classList.toggle("current", renderer === name);
   }
@@ -786,6 +791,12 @@ async function selectRenderer(name, seg) {
         backend.module.onCacheMiss = () => send({ type: "geometry_reset" });
         backend.ready = true;
       }
+      const diagnostics = backend.module.diagnostics
+        ? backend.module.diagnostics() : null;
+      document.body.dataset.rendererBackend = diagnostics?.backend
+        || (name === "gl" ? "webgl2" : name);
+      document.body.dataset.rendererAdapter = JSON.stringify(
+        diagnostics?.adapter || {});
     } catch (err) {
       if (seg) {
         seg.classList.add("failed");
