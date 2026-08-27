@@ -7,32 +7,33 @@ implementation order live in `PERFORMANCE.md`.
 
 ## The milestone: WebGPU as the one canonical renderer
 
-Decided 2026-08-14, sequencing confirmed 2026-08-18. The wgpu backend
+Decided 2026-08-14; sequencing updated by reviewer decision 2026-08-26. The wgpu backend
 already covers the full parity ledger in both the browser
 (`static/webgpu.js` + `static/wgsl/`) and natively
 (`web/wgpu_renderer.py`), the live viewer starts on WebGPU with a
 visible Pixel fallback, and the fidelity suite passes. What remains is
 sequence, each step gated on the one before it:
 
-1. **Dogfood real course scenes in WebGPU solo mode.** The burn-in
-   state: the pixel stream off, the client canvas the only viewer,
-   unsupported content surfaced loudly. This is the gate everything
-   below waits on.
-2. **Retire `gl.js` + `glsl/`** (and the WebGL2 half of
+1. **Land and burn in the contained stabilization layer in A2 solo
+   WebGPU.** Fidelity reports are foreground work: z-index ordering,
+   axis labels, color, text/image, and 3D differences preempt the
+   background performance architecture.
+2. **Land the supported native-capture bypass.** The profiler and
+   bounded-input reviews may land alongside it, but solo WebGPU is the
+   daily path and gets wall-clock priority.
+3. **Retire `gl.js` + `glsl/`** (and the WebGL2 half of
    `reference_renderer.py` / `tests/test_gl_port.py`). Decided; only
-   the burn-in holds it.
-3. **Retire the native geometry-shader pipeline**: `--render` and the
-   reference renderer move onto wgpu-py, making the browser renderer
-   and the reference renderer literally the same code. WebGPU compute
-   can then restore GPU-side adaptive tessellation, replacing the
-   fixed-strip instancing compromise.
-4. **Retire pyglet** (`rendering/window.py`): blocked on trusting
-   `--web` for daily use, and on inlining the pyglet key/mouse
-   constants `viewer.py` imports for the InteractionMixin mapping.
-   Moving the `--present` timeline from the GL overlay to DOM belongs
-   here too — it absorbs the scrubber-crowding item below and deletes
-   the checkpoint-ignore plumbing.
-5. After the transition: Windows/Linux CI matrices and cross-platform
+   the active A2 burn-in holds it.
+4. **Move default `--render` onto wgpu-py and add 2× supersampling.**
+   Browser and offline output then share the WebGPU renderer contract.
+   Keep the current native GL renderer permanently behind
+   `--renderer=native` as the independent pixel-diff and final-render
+   reference; it is not a deprecation stub.
+5. **Retire the pyglet window** (`rendering/window.py`), not the native
+   renderer. Inline the key/mouse constants `viewer.py` imports and
+   move the `--present` timeline from the GL overlay to DOM, deleting
+   the checkpoint-ignore/reattachment plumbing.
+6. After the transition: Windows/Linux CI matrices and cross-platform
    packaging return (scoped out during the macOS developer preview).
 
 ## Performance: near-term work and the large-scene gate
@@ -44,7 +45,23 @@ queue backup. Do **not** begin a wholesale renderer rewrite merely to
 improve that path. The measurements, evidence, correctness constraints,
 and full implementation sequence live in `PERFORMANCE.md`.
 
-Do these in the near term, in this order:
+**Start Gate S decision, 2026-08-26:** approved with conditions because large
+agent-based simulation scenes are a real target. Stable semantic identity plus
+structural-sharing history, and bounded renderer resources/chunks, may continue
+in shadow mode at background pace. They never take wall-clock priority over
+the WebGPU strip above. Before either becomes authoritative, the repeat gate
+must prove endpoint/image parity, acceptable shadow overhead, and measured
+speedup. Structural-sharing history must also beat a keyframe + skip-replay
+prototype at equal correctness: keep every configurable Nth full checkpoint,
+evict interior snapshots under a byte budget, and reconstruct an evicted
+endpoint with `temp_skip` from the nearest retained keyframe.
+
+Phase 5 video-first Present motion is approved independently and belongs on
+its own review branch. Legacy checkpoints and geometry delivery remain
+authoritative until their separate repeat gates pass.
+
+Contained/background backlog, in dependency order when it does not compete
+with the foreground WebGPU strip:
 
 1. **Preserve the installed-app measurement path.** Promote the working
    scratch harnesses (`relaycheck.mjs`, `ab.mjs`, `appshot.mjs`,
@@ -116,10 +133,11 @@ Then take the contained next milestone:
 - Re-run the same installed-app fixtures and preserve image/state/navigation
   correctness alongside the timing result.
 
-Before claiming support for genuinely large scenes, complete the architecture
-gate from `PERFORMANCE.md`: stable resource/revision IDs, bounded geometry
-chunks and dirty uploads, transform/uniform deltas, copy-on-write/delta
-checkpoints, and streaming/keyframed exports. This is mandatory at that scale:
+Before making shadow history or resources authoritative for genuinely large
+scenes, pass the repeat gate from `PERFORMANCE.md`: stable resource/revision
+IDs, bounded geometry chunks and dirty uploads, transform/uniform deltas,
+checkpoint parity, accepted shadow overhead, measured speedup, and a win over
+keyframe + skip-replay. This evidence is mandatory at that scale:
 serializing an unchanged 5,000-object scene already took about 45 ms, and moving
 one object resent the full 4.08 MB merged batch.
 

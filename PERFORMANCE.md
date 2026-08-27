@@ -2,6 +2,23 @@
 
 Reviewed 2026-08-20 at commit `4f59cc27`.
 
+Decision update 2026-08-26: Start Gate S is approved with conditions for the
+two shadow investigations: semantic identity plus structural-sharing history,
+and bounded renderer resources/chunks. This work runs at background pace and
+never preempts the foreground WebGPU strip. Before either path becomes
+authoritative, a repeat gate must show endpoint/image parity, acceptable
+shadow overhead, and measured end-to-end speedup. Structural sharing must also
+beat a keyframe + skip-replay prototype that keeps every configurable Nth full
+checkpoint and reconstructs evicted interior endpoints with `temp_skip` from
+the nearest retained keyframe.
+
+The foreground sequence is: A2 solo-WebGPU burn-in and fidelity fixes;
+native-capture bypass; WebGL2 deletion; default `--render` on wgpu-py with 2×
+supersampling while native GL remains permanently available through
+`--renderer=native`; then pyglet-window deletion and a DOM Present timeline.
+Phase 5 video-first Present motion is approved independently on its own review
+branch.
+
 This document audits ManimLive's interactive engine, checkpoint system, native
 renderer, browser renderers, transport, process lifecycle, caches, movie
 writer, and exported player. It is a performance roadmap, not a record of code
@@ -23,8 +40,9 @@ The five most important changes are:
 2. Add stable object/resource IDs and explicit geometry, uniform, transform,
    order, and camera revisions. Clean objects must not be walked, copied,
    converted to bytes, or hashed every frame.
-3. Replace full-scene checkpoint copies with copy-on-write/delta snapshots,
-   periodic keyframes, and a configurable memory/history budget.
+3. Compare copy-on-write/delta snapshots against keyframe + skip-replay under
+   the same configurable memory/history budget; only replace legacy reads if
+   structural sharing wins on correctness, overhead, and measured speedup.
 4. Stop native OpenGL capture while the browser is the sole renderer, and stop
    all redraws while a scene is idle and clean.
 5. Use bounded, byte-accounted queues and caches throughout the browser path.
