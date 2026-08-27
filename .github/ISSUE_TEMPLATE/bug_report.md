@@ -30,7 +30,7 @@ maniml ...
 - Python version:
 - OS and version:
 - Preview mode: native / `--web` / `--render` / `--export`
-- Browser and renderer, if relevant: Pixel / WebGL2 / WebGPU
+- Browser and renderer, if relevant: Pixel / WebGPU
 - Current ManimCE result, if this is a compatibility report:
 
 ## Logs or screenshots

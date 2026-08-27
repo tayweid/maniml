@@ -398,7 +398,6 @@
 <body class="disconnected">
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
-  <canvas id="glview" class="altview"></canvas>
   <canvas id="gpuview" class="altview"></canvas>
   <video id="playback-video" playsinline preload="auto"></video>
   <section id="connection-overlay" role="alert" hidden>
@@ -446,7 +445,6 @@
         </button>
         <div id="renderers" class="flyout" role="menu" aria-label="Renderer options">
           <button class="fly-action seg" data-renderer="pixel" role="menuitem" aria-label="Server pixel renderer"><span>Px</span><span class="control-label">Pixel</span></button>
-          <button class="fly-action seg" data-renderer="gl" role="menuitem" aria-label="WebGL2 renderer"><span>GL</span><span class="control-label">WebGL2</span></button>
           <button class="fly-action seg" data-renderer="gpu" role="menuitem" aria-label="WebGPU renderer"><span>GPU</span><span class="control-label">WebGPU</span></button>
           <button id="split" class="fly-action" role="menuitem" aria-label="Compare client renderer with pixel stream">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 5v14"/></svg><span class="control-label">Compare</span>
@@ -513,7 +511,6 @@
     </button>
   </div>
 </div>
-<script src="gl.js"></script>
 <script src="webgpu.js"></script>
 <script src="presentation.js"></script>
 <script src="rail.js"></script>
@@ -676,7 +673,7 @@ function applyCapabilities(values) {
 //
 // So the socket only ever *decodes*. Presenting happens in
 // requestAnimationFrame: at most one paint per refresh, always the newest
-// thing received, for the pixel stream and the client renderers alike.
+// thing received, for the pixel stream and the client renderer alike.
 // A pixel frame is a whole picture, so only the newest one is worth keeping.
 // A geometry payload is NOT: the server marks a batch cached once it has sent
 // it, so a dropped payload takes that batch's only transmission with it and
@@ -767,14 +764,12 @@ async function handleFrame(blob) {
   }
 }
 
-// -- Client renderers: Pixel is the server stream; WebGL2 and WebGPU
-//    render geometry payloads in the browser. "split" shows the pixel
+// -- Client rendering: Pixel is the server stream; WebGPU renders
+//    geometry payloads in the browser. "split" shows the pixel
 //    stream beside the client render for comparison. --
 const glWarn = document.getElementById("glwarn");
 const splitEl = document.getElementById("split");
 const backends = {
-  gl: { module: ManimlGL, canvas: document.getElementById("glview"),
-        ready: false },
   gpu: { module: ManimlWGPU, canvas: document.getElementById("gpuview"),
          ready: false },
 };
@@ -793,7 +788,7 @@ function applyRendererUI() {
     backend.canvas.classList.toggle("current", renderer === name);
   }
   document.getElementById("renderer-name").textContent = {
-    pixel: "Pixel", gl: "WebGL2", gpu: "WebGPU",
+    pixel: "Pixel", gpu: "WebGPU",
   }[renderer];
   if (renderer === "pixel" && glWarn) glWarn.classList.remove("on");
 }
@@ -844,13 +839,13 @@ splitEl.onclick = () => {
   sendRendererMode();
 };
 
-let glQueue = Promise.resolve();
+let geometryQueue = Promise.resolve();
 function handleGeometry(arrayBuffer) {
   const backend = backends[renderer];
   if (!backend || !backend.ready) return;
   // Chain renders: texture decodes are async, and messages must apply
   // in arrival order
-  glQueue = glQueue.then(async () => {
+  geometryQueue = geometryQueue.then(async () => {
     const header = await backend.module.render(arrayBuffer);
     // Missing content has no pixel-stream safety net outside split
     // mode: surface it in the bar
@@ -1317,7 +1312,6 @@ function attachPointer(el) {
   el.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 attachPointer(canvas);
-attachPointer(document.getElementById("glview"));
 attachPointer(document.getElementById("gpuview"));
 </script>
 </body>

@@ -2,9 +2,9 @@
 
 Runs the scene once headlessly, records the geometry stream (the same
 0x03 messages the live viewer streams, delta-encoded), and writes a
-self-contained static folder: the player page, both client renderers
-with their shaders, and the recorded data. Drop the folder on any
-static host (GitHub Pages) and anyone can scrub through the scene's
+self-contained static folder: the player page, WebGPU renderer and shaders,
+and the recorded data. Drop the folder on any static host (GitHub Pages) and
+anyone can scrub through the scene's
 animations in the browser — no Python anywhere.
 
 The recorder plugs into the same `_web_viewer` hook the live viewer
@@ -22,12 +22,16 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from maniml.web.geometry import GeometryCache, serialize_scene
+from maniml.web.geometry import (
+    GEOMETRY_FORMAT_VERSION,
+    GeometryCache,
+    serialize_scene,
+)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-PLAYER_ASSETS = ["player.html", "player.js", "gl.js", "webgpu.js"]
-PLAYER_ASSET_DIRS = ["glsl", "wgsl"]
+PLAYER_ASSETS = ["player.html", "player.js", "webgpu.js"]
+PLAYER_ASSET_DIRS = ["wgsl"]
 
 
 class GeometryRecorder:
@@ -162,6 +166,7 @@ def _write_export(scene, recorder: GeometryRecorder, staging: Path) -> None:
 
     checkpoints = scene.animation_checkpoints
     meta = {
+        "format_version": GEOMETRY_FORMAT_VERSION,
         "scene": type(scene).__name__,
         "fps": int(scene.camera.fps),
         "frames": [

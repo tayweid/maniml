@@ -1,18 +1,35 @@
 // The baked-scene player: replays a recorded geometry stream
 // (scene.json + scene.bin, written by `maniml scene.py Scene --export`)
-// through the same client renderers the live viewer uses. WebGPU when
-// available, WebGL2 otherwise.
+// through the same WebGPU renderer the live viewer uses.
 "use strict";
 
 (async () => {
+  const EXPORT_FORMAT_VERSION = 1;
   const stage = document.getElementById("stage");
   const chipsEl = document.getElementById("chips");
   const playBtn = document.getElementById("playbtn");
   const statusEl = document.getElementById("status");
 
+  function showPlayerError(message, status) {
+    const error = document.createElement("div");
+    error.id = "renderer-error";
+    error.textContent = message;
+    stage.replaceChildren(error);
+    playBtn.disabled = true;
+    statusEl.textContent = status;
+  }
+
   const meta = await (await fetch("scene.json")).json();
   document.title = meta.scene;
   document.getElementById("scene-name").textContent = meta.scene;
+  if (meta.format_version !== EXPORT_FORMAT_VERSION) {
+    showPlayerError(
+      "This scene export uses an incompatible format. Re-export this scene "
+        + "with the current ManimLive version.",
+      "Re-export required",
+    );
+    return;
+  }
   const compressed = await fetch("scene.bin.gz");
   const stream = compressed.body.pipeThrough(
     new DecompressionStream("gzip"));
@@ -37,18 +54,25 @@
     if (frame.segment >= 0) ends[frame.segment] = i + 1;
   });
 
-  // Pick a renderer: WebGPU, falling back to WebGL2
+  // A baked geometry export uses the canonical WebGPU renderer. The MP4
+  // presentation bundle remains the distribution path for browsers without
+  // WebGPU, so fail clearly instead of carrying a second renderer here.
   const canvas = document.createElement("canvas");
   stage.appendChild(canvas);
-  let renderer = null, backendName = "";
+  let renderer = null;
   try {
     await ManimlWGPU.init(canvas);
-    renderer = ManimlWGPU; backendName = "WebGPU";
+    renderer = ManimlWGPU;
   } catch (err) {
-    await ManimlGL.init(canvas);
-    renderer = ManimlGL; backendName = "WebGL2";
+    console.error("WebGPU unavailable:", err);
+    showPlayerError(
+      "This browser doesn't support WebGPU. "
+        + "Use the MP4 presentation export instead.",
+      "WebGPU required",
+    );
+    return;
   }
-  statusEl.textContent = backendName;
+  statusEl.textContent = "WebGPU";
 
   // Delta encoding means messages must be processed in order once so
   // every batch's buffers are cached; afterwards any frame renders

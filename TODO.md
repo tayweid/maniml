@@ -18,12 +18,18 @@ sequence, each step gated on the one before it:
    state: the pixel stream off, the client canvas the only viewer,
    unsupported content surfaced loudly. This is the gate everything
    below waits on.
-2. **Retire `gl.js` + `glsl/`** (and the WebGL2 half of
-   `reference_renderer.py` / `tests/test_gl_port.py`). Decided; only
-   the burn-in holds it.
-3. **Retire the native geometry-shader pipeline**: `--render` and the
-   reference renderer move onto wgpu-py, making the browser renderer
-   and the reference renderer literally the same code. WebGPU compute
+2. **Land the prepared WebGL2 retirement after the A-series fidelity gate.**
+   `review/retire-webgl2` removes the live WebGL2 backend, its shaders,
+   desktop mirror, and fidelity module while preserving their backend-neutral
+   geometry and z-order coverage in the WebGPU suite. Do not merge it until
+   the open WebGPU fidelity bugs are closed; WebGL2 remains the differential
+   diagnostic during that burn-in. Baked geometry exports become WebGPU-only
+   with a direct unsupported-browser message; MP4 presentation bundles need
+   no GPU renderer.
+3. **Move `--render` onto wgpu-py** so offline output and the browser share
+   one renderer. Keep the current native GL pipeline permanently available
+   behind `--renderer=native` as the pixel-diff reference for final renders;
+   fold 2× supersampling into this move. WebGPU compute
    can then restore GPU-side adaptive tessellation, replacing the
    fixed-strip instancing compromise.
 4. **Retire pyglet** (`rendering/window.py`): blocked on trusting
@@ -87,7 +93,7 @@ Do these in the near term, in this order:
      did-the-picture-change test, or freeze streaming when parked and
      tracker values are unchanged. Also note every state change forces
      a lossless PNG (~100–400 ms CPU at 1080p) — per-keypress latency
-     on navigation. (Solo WebGL2/WebGPU already turns `_pixel_mode`
+     on navigation. (Solo WebGPU already turns `_pixel_mode`
      off, so these costs are Pixel/split-mode only; the geometry
      stream is delta-cached and cheap.)
 5. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time

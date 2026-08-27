@@ -26,9 +26,8 @@ from websockets.http11 import Request, Response
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-# The renderers fetch their shader sources as text; nothing maps these.
+# The WebGPU renderer fetches its shader sources as text; nothing maps these.
 SHADER_CONTENT_TYPES = {
-    ".glsl": "text/plain",
     ".wgsl": "text/plain",
     ".webmanifest": "application/manifest+json",
 }

@@ -1,5 +1,4 @@
-// WGSL port of web/static/glsl/composite.{vert,frag} — stamps the
-// accumulated winding-fill texture onto the scene target.
+// Stamps the accumulated winding-fill texture onto the scene target.
 
 @group(0) @binding(0) var fill_texture: texture_2d<f32>;
 @group(0) @binding(1) var fill_sampler: sampler;

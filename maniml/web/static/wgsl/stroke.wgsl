@@ -1,5 +1,4 @@
-// WGSL port of web/static/glsl/vstroke.{vert,frag} — the instanced
-// adaptive-polyline stroke. Serves both the stroke pass and the
+// Instanced adaptive-polyline stroke. Serves both the stroke pass and the
 // fill-border pass (u.border_mode + different vertex buffer offsets).
 
 struct StrokeIn {

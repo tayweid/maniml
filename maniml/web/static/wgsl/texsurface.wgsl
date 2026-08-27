@@ -1,4 +1,3 @@
-// WGSL port of web/static/glsl/vtexsurface.{vert,frag} —
 // TexturedSurface with the day/night light blend.
 
 @group(1) @binding(0) var light_texture: texture_2d<f32>;

@@ -44,6 +44,11 @@
   .chip:hover { border-color: var(--accent); }
   .chip.current { background: var(--accent); border-color: var(--accent); }
   #status { margin-left: auto; color: var(--dim); font-size: 12px; }
+  #renderer-error {
+    max-width: 440px; padding: 20px 24px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel); text-align: center;
+    color: var(--text); line-height: 1.55;
+  }
 </style>
 </head>
 <body>
@@ -54,7 +59,6 @@
   <div id="chips"></div>
   <div id="status"></div>
 </div>
-<script src="gl.js"></script>
 <script src="webgpu.js"></script>
 <script src="player.js"></script>
 </body>

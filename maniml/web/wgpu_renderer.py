@@ -1,11 +1,9 @@
-"""WebGPU reference renderer — the future canonical backend.
+"""Native mirror of the canonical browser WebGPU renderer.
 
-Consumes the same geometry messages as web/reference_renderer.py (the
-desktop-GL mirror of the WebGL2 client) but renders them with wgpu,
-compiling the WGSL shaders in web/wgsl/. Once this backend reaches
-parity, the same WGSL and the same pass structure run in the browser
-via WebGPU, and this module replaces the GL reference renderer — one
-renderer everywhere (see the Stage 2 endgame in TODO.md).
+Consumes the geometry messages emitted by web/geometry.py and renders them
+with wgpu, compiling the WGSL shaders in web/static/wgsl/. The same WGSL and
+pass structure run in the browser via WebGPU; this module is the pixel-diff
+reference and the path that will power native `--render` (see TODO.md).
 
 Scope: full parity-ledger coverage — winding fill + border + composite,
 strokes, triangulated 3D fill with depth test and MSAA, dot clouds,

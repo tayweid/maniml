@@ -1,5 +1,4 @@
-// WGSL port of web/static/glsl/vdot.{vert,frag} — DotCloud billboard
-// quads, one instance per dot, 4 vertices.
+// DotCloud billboard quads, one instance per dot, 4 vertices.
 
 struct DotIn {
     @location(0) dot_point: vec3f,
