@@ -64,6 +64,7 @@ JS_KEY_TO_PYGLET = {
     "Tab": PygletWindowKeys.TAB,
     " ": PygletWindowKeys.SPACE,
 }
+NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"})
 JS_BUTTON_TO_PYGLET = {
     0: PygletMouseButtons.LEFT,
     1: PygletMouseButtons.MIDDLE,
@@ -169,6 +170,7 @@ class WebViewer:
         self._animating = False
         self._move_open = False  # a stretch's move is lit on the rail
         self._keys_settled_at = 0.0  # keys stamped before this are stale
+        self._coalesced_navigation_events = 0
         self._needs_refresh = True  # a client wants a full PNG + state
         self._dispatching = False
         self._last_send_time = 0.0
@@ -298,20 +300,15 @@ class WebViewer:
         if self._move_open and not self._scene_moving():
             self._move_open = False
             # Keys received before this instant were pressed while the
-            # scene was moving (the drain only runs between animations):
-            # they are stale and must die, not fire late. The next
-            # dispatch compares each key's arrival stamp against this.
+            # scene was moving (the drain only runs between animations).
+            # The next dispatch coalesces stale arrows to one latest intent
+            # and drops other stale presses.
             self._keys_settled_at = time.monotonic()
             self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
         """Called after every camera.capture(): pump input, stream output."""
-        if not self._dispatching:
-            self._dispatching = True
-            try:
-                self.dispatch_events()
-            finally:
-                self._dispatching = False
+        self.dispatch_events()
 
         if not self.server.has_clients():
             return
@@ -407,11 +404,62 @@ class WebViewer:
     # -- Inbound events --
 
     def dispatch_events(self):
-        for event in self.server.pop_events():
+        if getattr(self, "_dispatching", False):
+            return
+        self._dispatching = True
+        try:
+            self._dispatch_events()
+        finally:
+            self._dispatching = False
+
+    def _dispatch_events(self):
+        events = self.server.pop_events()
+        # Input received during an animation cannot be drained until the
+        # current dispatch returns. Keep one bounded navigation intent—the
+        # latest arrow press—and coalesce older stale arrows.
+        # Classify against one settle boundary. Handling an earlier event
+        # may itself run an animation and advance `_keys_settled_at`; that
+        # must not retrospectively change the policy for this drained batch.
+        settle_boundary = self._keys_settled_at
+        stale_navigation = [
+            self._is_stale_navigation_press(event) for event in events
+        ]
+        latest_stale_navigation = next(
+            (index for index in range(len(events) - 1, -1, -1)
+             if stale_navigation[index]),
+            None,
+        )
+
+        for index, event in enumerate(events):
+            if stale_navigation[index]:
+                if index != latest_stale_navigation:
+                    self._coalesced_navigation_events += 1
+                    continue
+                event = dict(event)
+                event.pop("_received", None)
+            elif (event.get("type") == "key"
+                  and event.get("action") == "down"
+                  and (received := event.get("_received")) is not None
+                  and received > settle_boundary):
+                # This press was current when the batch was drained. An
+                # earlier handler may animate and move the settle boundary,
+                # but it cannot retroactively make this press stale.
+                event = dict(event)
+                event.pop("_received", None)
             try:
                 self._handle_event(event)
             except Exception as e:
                 log.error(f"web viewer event failed: {event.get('type')}: {e}")
+
+    def _is_stale_navigation_press(self, event: dict) -> bool:
+        received = event.get("_received")
+        return bool(
+            event.get("type") == "key"
+            and event.get("action") == "down"
+            and event.get("key") in NAVIGATION_KEYS
+            and received is not None
+            and received <= self._keys_settled_at
+        )
 
     def _handle_event(self, event: dict):
         kind = event.get("type")
@@ -462,10 +510,9 @@ class WebViewer:
                 return
             mods = self._map_mods(event)
             if event.get("action") == "down":
-                # A key pressed while an animation was running is stale
-                # input, not queued intent: it dies here instead of firing
-                # after the animation lands. Key-ups still pass so
-                # pressed_keys cannot wedge on a dropped press.
+                # dispatch_events retains at most the latest stale arrow by
+                # removing its timestamp. Other stale key presses still die;
+                # key-ups always pass so pressed_keys cannot wedge.
                 received = event.get("_received")
                 if received is not None and received <= self._keys_settled_at:
                     return

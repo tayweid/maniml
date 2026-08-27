@@ -178,12 +178,11 @@ class RailAnchorTests(unittest.TestCase):
 
 
 class StaleKeyTests(unittest.TestCase):
-    """A key pressed while an animation runs dies instead of firing late.
+    """Animation-overlap input has an explicit bounded-intent policy.
 
     The drain only runs between animations, so every key event carries an
-    arrival stamp (set by the server thread) and the viewer records the
-    instant the last move settled: a press stamped before the settle was
-    made at a scene that no longer exists.
+    arrival stamp. At settle, the latest queued arrow survives and older
+    arrows are coalesced; stale non-navigation keys still die.
     """
 
     @staticmethod
@@ -201,6 +200,62 @@ class StaleKeyTests(unittest.TestCase):
             _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
         )
         return viewer, (lambda e: WebViewer._handle_event(viewer, e)), pressed
+
+    @staticmethod
+    def dispatch(events, *, advance_settle_on_press=False):
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+        pressed = []
+        holder = {}
+
+        def on_press(symbol, mods):
+            pressed.append(symbol)
+            if advance_settle_on_press:
+                holder["viewer"]._keys_settled_at = 200.0
+
+        viewer = SimpleNamespace(
+            scene=SimpleNamespace(
+                on_key_press=on_press,
+                on_key_release=lambda s, m: None,
+            ),
+            server=SimpleNamespace(pop_events=lambda: list(events)),
+            pressed_keys=set(), _keys_settled_at=100.0,
+            _coalesced_navigation_events=0,
+            _dirty=False, _has_undrawn_event=False,
+            _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
+            _is_stale_navigation_press=lambda event:
+                WebViewer._is_stale_navigation_press(viewer, event),
+            _handle_event=lambda event: WebViewer._handle_event(viewer, event),
+        )
+        holder["viewer"] = viewer
+        viewer._dispatch_events = lambda: WebViewer._dispatch_events(viewer)
+        WebViewer.dispatch_events(viewer)
+        return viewer, pressed
+
+    def test_latest_stale_arrow_is_retained_and_older_arrows_coalesce(self):
+        viewer, pressed = self.dispatch([
+            {"type": "key", "action": "down", "key": "ArrowRight",
+             "_received": 90.0},
+            {"type": "key", "action": "down", "key": "ArrowLeft",
+             "_received": 91.0},
+            {"type": "key", "action": "down", "key": "ArrowUp",
+             "_received": 92.0},
+        ])
+
+        self.assertEqual(pressed, [viewer._map_key("ArrowUp")])
+        self.assertEqual(viewer._coalesced_navigation_events, 2)
+
+    def test_settle_change_during_dispatch_does_not_reclassify_batch(self):
+        viewer, pressed = self.dispatch([
+            {"type": "key", "action": "down", "key": "ArrowRight",
+             "_received": 101.0},
+            {"type": "key", "action": "down", "key": "ArrowLeft",
+             "_received": 102.0},
+        ], advance_settle_on_press=True)
+
+        self.assertEqual(pressed, [
+            viewer._map_key("ArrowRight"), viewer._map_key("ArrowLeft")])
+        self.assertEqual(viewer._coalesced_navigation_events, 0)
 
     def test_a_press_stamped_before_the_settle_dies(self):
         viewer, handle, pressed = self.make_viewer()
