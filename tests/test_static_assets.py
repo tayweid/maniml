@@ -284,6 +284,12 @@ class ViewerTests(unittest.TestCase):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('const DEFAULT_RENDERER = "gpu";', viewer)
         self.assertIn("let renderer = DEFAULT_RENDERER;", viewer)
+        for renderer in ("pixel", "gl", "gpu"):
+            self.assertIn(f'data-renderer="{renderer}"', viewer)
+        self.assertIn('id="split"', viewer)
+        self.assertIn(
+            'document.querySelectorAll("#renderers .seg")', viewer)
+        self.assertIn("splitEl.onclick", viewer)
         self.assertIn("void selectRenderer(renderer, segment);", viewer)
         self.assertIn('renderer = "pixel";', viewer)
         self.assertIn("WebGPU unavailable; using Pixel:", viewer)
