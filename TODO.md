@@ -44,35 +44,31 @@ queue backup. Do **not** begin a wholesale renderer rewrite merely to
 improve that path. The measurements, evidence, correctness constraints,
 and full implementation sequence live in `PERFORMANCE.md`.
 
-**Isolated branch update, 2026-08-26:** the contained work below is complete
-on `perf/systematic-viewer`: restore pacing, frontier-aware retained history,
+**Isolated branch update, 2026-08-26:** the contained work below was developed
+on the now-held omnibus branch: restore pacing, frontier-aware retained history,
 Python/NumPy RNG checkpoints, non-owning render batches, single scene-list
 commits, clean idle, bounded latest-wins navigation, supported solo-WebGPU
 native bypass, whole-frame Pixel fallback, and opt-in stage instrumentation.
 Real browser dogfood confirmed Apple/Metal WebGPU rather than a silent Pixel
 fallback. The workspace-level `PERFORMANCE_GATE_REPORT.md` records the measured
-Start Gate S decision. This work is deliberately not installed or merged into
-the Monday checkout yet.
+Start Gate S evidence and proposal. Gate approval belongs to the external
+reviewer. This work is deliberately not installed or merged into the Monday
+checkout; the mergeable fix layer is being split into small review branches.
 
-The next approved work is narrower than the original list:
+The following architecture work is **proposed, not approved**. Its prototype
+remains held off the review branches pending the reviewer's gate decision:
 
-1. Add stable semantic identity and commit records in shadow mode only.
-   **Done:** identity semantics, component deltas, mutation hints, direct-array
-   validation, checkpoint parity, and suffix lineage are in the opt-in lane.
+1. Add stable semantic identity and commit records in shadow mode only. A
+   prototype exists on the held omnibus branch but is not proposed for merge.
 2. Dual-write a structural-sharing endpoint prototype and compare it with
    legacy checkpoints; checkpoint save/restore and memory are the measured
-   ordinary-course bottleneck. **Manifest proven:** checkpoint maps reuse
-   immutable revisions for unchanged objects and copied-endpoint parity passes;
+   ordinary-course bottleneck. Prototype evidence exists on the held branch;
    legacy scene/namespace copies remain authoritative.
 3. Prototype bounded renderer resources/chunks behind the current serializer
-   for the measured 2,000-object, one-change case. **Manifest proven:** one
-   square shift produces one 134-byte resource reference; authoritative
-   browser delivery is not cut over.
-4. Add video-first retained motion independently, so visited Present history
-   animates without re-executing scene Python. **Present bridge done:** the
-   browser waits for exact live endpoints, requires a fresh count-matched
-   recording, plays it in both directions, and restores the live endpoint on
-   exit. General per-segment retention/budgets remain experimental.
+   for the measured 2,000-object, one-change case. Prototype evidence exists
+   on the held branch; authoritative browser delivery is not cut over.
+4. Add video-first retained motion independently. The recent bridge remains on
+   the held omnibus branch and is outside the current review sequence.
 
 Phase 4C scheduler/protocol replacement and renderer/legacy retirement remain
 closed gates. The numbered near-term list below is retained as the original
@@ -150,8 +146,9 @@ Then take the contained next milestone:
 - Re-run the same installed-app fixtures and preserve image/state/navigation
   correctness alongside the timing result.
 
-Before claiming support for genuinely large scenes, complete the now-open
-shadow architecture gate from `PERFORMANCE.md`: stable resource/revision IDs,
+Before claiming support for genuinely large scenes, obtain the pending shadow
+architecture gate decision from `PERFORMANCE.md`, then, if approved, complete:
+stable resource/revision IDs,
 bounded geometry chunks and dirty uploads, transform/uniform deltas,
 copy-on-write/delta
 checkpoints, and streaming/keyframed exports. This is mandatory at that scale:
