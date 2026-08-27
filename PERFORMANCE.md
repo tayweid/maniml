@@ -2,10 +2,21 @@
 
 Reviewed 2026-08-20 at commit `4f59cc27`.
 
+Implementation update 2026-08-26: the contained correctness/hot-path layer is
+implemented on the isolated `perf/systematic-viewer` branch, with opt-in stage
+profiles and real-browser WebGPU verification. Course-scene dogfood narrowed
+the remaining ordinary-workload cost to checkpoint copying and retained-memory
+growth; a 2,000-object fixture also confirmed full-batch one-object geometry
+cost. The workspace-level `PERFORMANCE_GATE_REPORT.md` is the current gate
+decision: stable identity, structural-sharing endpoints, and bounded renderer
+resources may proceed in shadow mode, while scheduler/protocol and renderer
+cutovers remain gated.
+
 This document audits ManimLive's interactive engine, checkpoint system, native
 renderer, browser renderers, transport, process lifecycle, caches, movie
-writer, and exported player. It is a performance roadmap, not a record of code
-changes: the review deliberately left runtime behavior unchanged.
+writer, and exported player. The original review deliberately left runtime
+behavior unchanged; the update above points to the implementation and current
+evidence without rewriting the historical audit below.
 
 ## Executive conclusion
 

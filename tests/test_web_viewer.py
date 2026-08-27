@@ -516,6 +516,12 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         from maniml.web.geometry import parse_geometry_message
         with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
+            # Raw test sockets do not run viewer.html's renderer handshake.
+            # Opt in explicitly so this test does not depend on a previous
+            # test having left the shared scene process in geometry mode.
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": True, "pixels": False}))
+            self._collect(ws, 1)
             # Make the test self-contained: when run alone this executes the
             # first frontier unit; after test_full_loop it restores that
             # already-retained endpoint without re-executing Python.
@@ -542,6 +548,11 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                    if "tri" in b else 0)
                 for b in header["batches"] if not b.get("cached"))
             self.assertEqual(total, len(vertex_bytes))
+            # Put the class-scoped viewer back in its default mode for the
+            # remaining E2E cases.
+            ws.send(json.dumps(
+                {"type": "mode", "geometry": False, "pixels": True}))
+            self._collect(ws, 1)
 
     def test_future_chips(self):
         with self._connect() as ws:

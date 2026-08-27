@@ -44,6 +44,31 @@ queue backup. Do **not** begin a wholesale renderer rewrite merely to
 improve that path. The measurements, evidence, correctness constraints,
 and full implementation sequence live in `PERFORMANCE.md`.
 
+**Isolated branch update, 2026-08-26:** the contained work below is complete
+on `perf/systematic-viewer`: restore pacing, frontier-aware retained history,
+Python/NumPy RNG checkpoints, non-owning render batches, single scene-list
+commits, clean idle, bounded latest-wins navigation, supported solo-WebGPU
+native bypass, whole-frame Pixel fallback, and opt-in stage instrumentation.
+Real browser dogfood confirmed Apple/Metal WebGPU rather than a silent Pixel
+fallback. The workspace-level `PERFORMANCE_GATE_REPORT.md` records the measured
+Start Gate S decision. This work is deliberately not installed or merged into
+the Monday checkout yet.
+
+The next approved work is narrower than the original list:
+
+1. Add stable semantic identity and commit records in shadow mode only.
+2. Dual-write a structural-sharing endpoint prototype and compare it with
+   legacy checkpoints; checkpoint save/restore and memory are the measured
+   ordinary-course bottleneck.
+3. Prototype bounded renderer resources/chunks behind the current serializer
+   for the measured 2,000-object, one-change case.
+4. Add video-first retained motion independently, so visited Present history
+   animates without re-executing scene Python.
+
+Phase 4C scheduler/protocol replacement and renderer/legacy retirement remain
+closed gates. The numbered near-term list below is retained as the original
+audit trail; completed items should not be reimplemented.
+
 Do these in the near term, in this order:
 
 1. **Preserve the installed-app measurement path.** Promote the working
@@ -116,9 +141,10 @@ Then take the contained next milestone:
 - Re-run the same installed-app fixtures and preserve image/state/navigation
   correctness alongside the timing result.
 
-Before claiming support for genuinely large scenes, complete the architecture
-gate from `PERFORMANCE.md`: stable resource/revision IDs, bounded geometry
-chunks and dirty uploads, transform/uniform deltas, copy-on-write/delta
+Before claiming support for genuinely large scenes, complete the now-open
+shadow architecture gate from `PERFORMANCE.md`: stable resource/revision IDs,
+bounded geometry chunks and dirty uploads, transform/uniform deltas,
+copy-on-write/delta
 checkpoints, and streaming/keyframed exports. This is mandatory at that scale:
 serializing an unchanged 5,000-object scene already took about 45 ms, and moving
 one object resent the full 4.08 MB merged batch.
