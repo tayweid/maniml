@@ -69,7 +69,10 @@ The next approved work is narrower than the original list:
    square shift produces one 134-byte resource reference; authoritative
    browser delivery is not cut over.
 4. Add video-first retained motion independently, so visited Present history
-   animates without re-executing scene Python.
+   animates without re-executing scene Python. **Present bridge done:** the
+   browser waits for exact live endpoints, requires a fresh count-matched
+   recording, plays it in both directions, and restores the live endpoint on
+   exit. General per-segment retention/budgets remain experimental.
 
 Phase 4C scheduler/protocol replacement and renderer/legacy retirement remain
 closed gates. The numbered near-term list below is retained as the original

@@ -562,6 +562,7 @@ class WebViewer:
             try:
                 if getattr(scene, "_present_mode", False):
                     scene._present_mode = False
+                    scene._presentation_ready = False
                     scene.auto_reload_enabled = True
                     if getattr(scene, "_file_watcher", None) is None:
                         scene._setup_file_watcher()
@@ -989,6 +990,8 @@ class WebViewer:
             "current": current,
             "count": len(checkpoints),
             "present": bool(getattr(scene, "_present_mode", False)),
+            "presentation_ready": bool(
+                getattr(scene, "_presentation_ready", False)),
             "baked": bool(baked is not None and baked.is_dir()),
             "present_bundle": bool(present_meta),
             "present_fresh": self._present_fresh(present_meta),

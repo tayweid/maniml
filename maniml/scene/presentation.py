@@ -19,12 +19,16 @@ class PresentationMixin:
         to validate the whole scene and build every checkpoint, then
         rewind to the start. The file watcher stays off: nothing
         re-parses mid-presentation."""
+        self._presentation_ready = False
         print("Preparing presentation...")
         self.auto_reload_enabled = False
         with self.temp_skip():
             self._run_all_units()
         total = len(self.animation_checkpoints) - 1
         self._restore_checkpoint_for_display(0)
+        # The browser may now use a fresh recording: every recorded endpoint
+        # has a live checkpoint to restore when playback exits.
+        self._presentation_ready = True
         self.update_frame(dt=0, force_draw=True)
         print(f"Ready: {total} animations pre-built. RIGHT arrow to begin;")
         print("move the mouse to the bottom edge for the timeline.")
@@ -134,4 +138,3 @@ class PresentationMixin:
         return True
 
     # Click-to-inspect and drag-to-move (development mode)
-

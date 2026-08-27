@@ -214,6 +214,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
         # Run modes (set by __main__)
         self._present_mode = False  # Pre-built checkpoints, watcher off, timeline scrubber
+        # Becomes true only after present-mode prebuild has completed and the
+        # live engine can restore every checkpoint advertised to video playback.
+        self._presentation_ready = False
         self._render_mode = False   # Headless: write video + checkpoint PNGs
         self._propagate_animation_errors = False  # Strict non-interactive runs
 
