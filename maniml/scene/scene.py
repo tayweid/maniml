@@ -19,6 +19,7 @@ from maniml.camera.camera import Camera
 from maniml.camera.camera_frame import CameraFrame
 from maniml.config import manim_config
 from maniml.logger import log
+from maniml.performance import performance
 from maniml.mobject.mobject import _AnimationBuilder
 from maniml.mobject.mobject import Group
 from maniml.mobject.mobject import Mobject
@@ -240,6 +241,17 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.setup()
             # Create checkpoint 0 right before construct
             self._create_checkpoint_zero()
+            performance.metadata(
+                scene=type(self).__name__,
+                source=getattr(self, '_scene_filepath', None),
+                fps=self.camera.fps,
+                resolution=list(self.camera.get_pixel_shape()),
+                route="web" if self._web_viewer is not None else "native",
+                render_mode=bool(self._render_mode),
+                present_mode=bool(self._present_mode),
+            )
+            performance.sample_process(
+                "scene_start", checkpoints=len(self.animation_checkpoints))
             if self._render_mode:
                 self._render_all()
             elif self._present_mode:
@@ -309,6 +321,14 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         if window is not None:
             attempt("destroying the viewer", window.destroy)
 
+        performance.gauge(
+            "checkpoint.count", len(getattr(self, 'animation_checkpoints', ())))
+        performance.sample_process(
+            "scene_teardown",
+            checkpoints=len(getattr(self, 'animation_checkpoints', ())),
+        )
+        attempt("flushing performance data", performance.flush)
+
         if errors:
             first_label, first_error = errors[0]
             for label, error in errors[1:]:
@@ -347,6 +367,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                     # A detached browser needs neither GL capture nor a busy
                     # event loop.  The viewer lease still gets checked by the
                     # while condition on every pass.
+                    performance.increment("idle.detached_sleeps")
                     time.sleep(min(frame_interval, 0.1))
                     continue
                 self._maybe_replay_loop_pause()
@@ -439,8 +460,13 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.get_image().show()
 
     def update_frame(self, dt: float = 0, force_draw: bool = False) -> None:
+        performance.increment(
+            "scene.frames.positive_dt" if dt > 0 else "scene.frames.zero_dt")
+        if force_draw:
+            performance.increment("scene.frames.forced")
         self.increment_time(dt)
-        self.update_mobjects(dt)
+        with performance.stage("scene.update_mobjects"):
+            self.update_mobjects(dt)
         if self.skip_animations and not force_draw:
             return
 
@@ -453,7 +479,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.window._window.dispatch_events()
             return
 
-        self.camera.capture(*self.render_groups)
+        with performance.stage("renderer.native_capture"):
+            self.camera.capture(*self.render_groups)
+        performance.increment("renderer.native_capture.calls")
 
         if self._web_viewer is not None:
             self._web_viewer.on_frame_rendered()
@@ -526,15 +554,19 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # z_index preserves add order and higher z_index draws on top.
         # In 3D the depth buffer still decides true occlusion; z_index
         # only orders the draw calls.
-        batches = batch_by_property(
-            sorted(self.mobjects, key=lambda m: m.z_index),
-            lambda m: str(type(m)) + str(m.get_shader_wrapper(self.camera.ctx).get_id()) + str(m.z_index)
-        )
+        with performance.stage("renderer.assemble_batches"):
+            batches = batch_by_property(
+                sorted(self.mobjects, key=lambda m: m.z_index),
+                lambda m: str(type(m)) + str(m.get_shader_wrapper(self.camera.ctx).get_id()) + str(m.z_index)
+            )
 
-        self.render_groups = [
-            _RenderBatch(batch)
-            for batch, key in batches
-        ]
+            self.render_groups = [
+                _RenderBatch(batch)
+                for batch, key in batches
+            ]
+        performance.increment("renderer.assemble_batches.calls")
+        performance.gauge("scene.mobjects", len(self.mobjects))
+        performance.gauge("renderer.batch_count", len(self.render_groups))
 
     @staticmethod
     def affects_mobject_list(func: Callable[..., T]) -> Callable[..., T]:
@@ -783,19 +815,20 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.num_plays += 1
 
     def begin_animations(self, animations: Iterable[Animation]) -> None:
-        with self.mobject_list_transaction():
-            all_mobjects = set(self.get_mobject_family_members())
-            for animation in animations:
-                animation.begin()
-                # Anything animated that's not already in the
-                # scene gets added to the scene.  Note, for
-                # animated mobjects that are in the family of
-                # those on screen, this can result in a restructuring
-                # of the scene.mobjects list, which is usually desired.
-                if animation.mobject not in all_mobjects:
-                    self.add(animation.mobject)
-                    all_mobjects = all_mobjects.union(
-                        animation.mobject.get_family())
+        with performance.stage("animation.begin"):
+            with self.mobject_list_transaction():
+                all_mobjects = set(self.get_mobject_family_members())
+                for animation in animations:
+                    animation.begin()
+                    # Anything animated that's not already in the
+                    # scene gets added to the scene.  Note, for
+                    # animated mobjects that are in the family of
+                    # those on screen, this can result in a restructuring
+                    # of the scene.mobjects list, which is usually desired.
+                    if animation.mobject not in all_mobjects:
+                        self.add(animation.mobject)
+                        all_mobjects = all_mobjects.union(
+                            animation.mobject.get_family())
 
     def progress_through_animations(self, animations: Iterable[Animation]) -> None:
         if self.window:
@@ -813,22 +846,24 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         for t in self.get_animation_time_progression(animations):
             dt = t - last_t
             last_t = t
-            for animation in animations:
-                animation.update_mobjects(dt)
-                alpha = t / animation.run_time
-                animation.interpolate(alpha)
+            with performance.stage("animation.interpolate"):
+                for animation in animations:
+                    animation.update_mobjects(dt)
+                    alpha = t / animation.run_time
+                    animation.interpolate(alpha)
             self.update_frame(dt)
             self.emit_frame()
 
     def finish_animations(self, animations: Iterable[Animation]) -> None:
-        with self.mobject_list_transaction():
-            for animation in animations:
-                animation.finish()
-                animation.clean_up_from_scene(self)
-        if self.skip_animations:
-            self.update_mobjects(self.get_run_time(animations))
-        else:
-            self.update_mobjects(0)
+        with performance.stage("animation.finish"):
+            with self.mobject_list_transaction():
+                for animation in animations:
+                    animation.finish()
+                    animation.clean_up_from_scene(self)
+            if self.skip_animations:
+                self.update_mobjects(self.get_run_time(animations))
+            else:
+                self.update_mobjects(0)
 
     def play(
         self,
@@ -842,9 +877,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             log.warning("Called Scene.play with no animations")
             return
 
-        animations = list(map(prepare_animation, proto_animations))
-        for anim in animations:
-            anim.update_rate_info(run_time, rate_func, lag_ratio)
+        with performance.stage("animation.prepare"):
+            animations = list(map(prepare_animation, proto_animations))
+            for anim in animations:
+                anim.update_rate_info(run_time, rate_func, lag_ratio)
 
         if getattr(self, '_suppress_checkpoints', False):
             line_no, unit_index = None, None
