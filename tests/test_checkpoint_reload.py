@@ -201,6 +201,29 @@ class TestNavigation(CheckpointSceneTest):
         self.assertTrue(np.allclose(restored.get_center(), before),
                         "undo did not restore the pre-mutation state")
 
+    def test_replay_to_unit_starts_at_the_frontier(self):
+        # A future-chip click replays source. Parked behind the frontier —
+        # on the loop's interior checkpoint — the replay must first return
+        # to the frontier: executing from the interior cannot resume the
+        # loop mid-statement, so it would overwrite the loop's second
+        # checkpoint with a wrong-lineage endpoint (missing that
+        # iteration's shift).
+        self.scene.run_next_animation()  # unit 0: Create
+        self.scene.run_next_animation()  # unit 1: the whole loop, 2 saves
+        self.scene._restore_checkpoint_for_display(2)
+
+        self.scene._replay_to_unit(2)  # the future-chip path
+
+        units = [c.get('unit_index') for c in self.scene.animation_checkpoints]
+        self.assertEqual(units, [-1, 0, 1, 1, 2],
+                         "replay from an interior checkpoint rewrote history")
+        loop_end = self.scene.animation_checkpoints[3]['namespace']['circle']
+        self.assertAlmostEqual(
+            float(loop_end.get_center()[0]), 1.0, places=6,
+            msg="loop endpoint lost its second iteration's shift")
+        self.assertEqual(self.scene.current_animation_index, 4)
+        self.assertEqual(self.scene.frontier_index, 4)
+
 
 class TestRecordedSpans(CheckpointSceneTest):
     """Every play records its run_time on the checkpoint it saves. Nothing

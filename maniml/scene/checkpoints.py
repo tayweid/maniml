@@ -198,7 +198,20 @@ class CheckpointMixin:
         Units before the target are fast-forwarded (animations skipped,
         so each costs only its state evaluation); the target unit itself
         plays at real speed.
+
+        Replay executes source, so it must start from the execution
+        frontier. Starting from an earlier display position would re-run
+        retained history — and from an interior loop checkpoint it cannot
+        resume the loop mid-statement, so it would overwrite the next
+        slot with a wrong-lineage endpoint. The watcher paths are
+        unaffected: they truncate first, so display and frontier agree.
         """
+        frontier = min(
+            getattr(self, 'frontier_index', self.current_animation_index),
+            len(self.animation_checkpoints) - 1,
+        )
+        if self.current_animation_index < frontier:
+            self._restore_checkpoint_for_display(frontier)
         self._advancing = True  # one rail move for the whole replay
         try:
             self._replay_to_unit_inner(target_unit_index)
