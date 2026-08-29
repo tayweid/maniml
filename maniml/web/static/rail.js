@@ -172,8 +172,16 @@ function create(config) {
     // navigation. Position feedback is the presenter's job, so drop it.
     chip.onclick = () => {
       if (chip.blur) chip.blur();
-      if (group.known) config.onChipClick(group.indices[0]);
-      else config.onFutureChipClick(group.unit);
+      // A chip is the resting state at the END of its stretch: interior
+      // plays (and loop iterations) collapse into it and are reached with
+      // UP/DOWN. Clicking must land on that rest — the group's last
+      // checkpoint — not the first interior play, or the scene parks one
+      // or more plays short of the pausepoint the chip stands for.
+      if (group.known) {
+        config.onChipClick(group.indices[group.indices.length - 1]);
+      } else {
+        config.onFutureChipClick(group.unit);
+      }
     };
   }
 

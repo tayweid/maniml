@@ -101,9 +101,11 @@ function railState(dom) {
   // ---- Scene 1: a live stretch — one steady link, position held ----
   {
     const dom = makeDom();
+    const chipClicks = [];
     const rail = ManimlRail.create({
       document: dom.doc, railEl: dom.railEl, body: dom.body,
-      env: () => {}, onChipClick: () => {}, onFutureChipClick: () => {},
+      env: () => {}, onChipClick: (i) => chipClicks.push(i),
+      onFutureChipClick: () => {},
     });
     // cp0 Start; cp1..3 interior plays; cp4 the pause — all one stretch,
     // so one chip holds cp1..4 (a single pausepooint => NOT a stack)
@@ -179,6 +181,16 @@ function railState(dom) {
     firstChip.blur = () => { blurred = true; };
     firstChip.onclick();
     check("stretch: a click drops focus (no stuck ring)", blurred, true);
+
+    // A chip stands for the rest at the END of its stretch (its tooltip
+    // says so: interior plays are for UP/DOWN). Clicking the stretch chip
+    // must land on the pausepoint cp4, never on interior play cp1 — a
+    // click that parks plays-short of the rest desyncs the rail and shows
+    // a state that almost-but-not-quite matches the pausepoint.
+    const stretchChip = dom.railEl.querySelectorAll(".chip")[1];
+    stretchChip.onclick();
+    check("stretch: clicking the chip targets its pausepoint, not an interior play",
+      chipClicks[chipClicks.length - 1], 4);
   }
 
   // ---- Scene 2: a true stack (pause in a loop) pulses, no link ----
