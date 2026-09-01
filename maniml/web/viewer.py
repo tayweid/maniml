@@ -651,7 +651,7 @@ class WebViewer:
 
         elif kind == "export":
             export_format = event.get("format")
-            if export_format in {"video", "web"}:
+            if export_format in {"video", "web", "checkpoints"}:
                 self._start_export(export_format)
             self._dirty = False
 
@@ -760,9 +760,14 @@ class WebViewer:
             # "video" runs --export-present: the same render (mp4 +
             # pausepoints cache the Present button plays) plus the
             # standalone student bundle in media/<Scene>_present/ —
-            # one button refreshes both.
-            mode = ("--export-present" if export_format == "video"
-                    else "--export")
+            # one button refreshes both. "checkpoints" is deliberately
+            # not part of that: the per-checkpoint stills are the
+            # bulkiest thing a render can write, so they get their own
+            # button and their own run.
+            mode = {
+                "video": "--export-present",
+                "checkpoints": "--export-checkpoints",
+            }.get(export_format, "--export")
             try:
                 process = subprocess.Popen(
                     [sys.executable, "-m", "maniml", str(source), scene_name, mode],

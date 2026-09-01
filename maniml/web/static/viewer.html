@@ -265,9 +265,9 @@
     padding: 0 6px; color: var(--dim); font-size: 11px;
   }
   #export-pod.active #job-status { display: block; }
-  #export-pod.working .export-icon { color: var(--warn); opacity: 1; }
-  #export-pod.success .export-icon { color: var(--good); opacity: 1; }
-  #export-pod.failed .export-icon { color: var(--bad); opacity: 1; }
+  #export-pod.working .export-icon.running { color: var(--warn); opacity: 1; }
+  #export-pod.success .export-icon.running { color: var(--good); opacity: 1; }
+  #export-pod.failed .export-icon.running { color: var(--bad); opacity: 1; }
   #renderer-name { padding: 0 5px 0 1px; color: var(--dim); font-size: 11px; }
   .seg.selected { color: var(--accent); opacity: 1; background: rgba(88,196,221,.16); }
   .seg.failed { opacity: .24; pointer-events: none; }
@@ -433,8 +433,14 @@
 
   <div class="pod tools-pod">
     <span id="export-pod" class="tool-group">
-      <button id="export-video" class="icon-button export-icon" aria-label="Render video, pausepoints, and the student bundle" hidden>
+      <button id="export-video" class="icon-button export-icon" data-format="video" aria-label="Render video, pausepoints, and the student bundle" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
+      </button>
+      <!-- Its own button because it is its own artifact: one full-size PNG
+           per checkpoint outweighs the movie several times over, so the
+           stills are rendered when they are wanted, not on every download. -->
+      <button id="export-checkpoints" class="icon-button export-icon" data-format="checkpoints" aria-label="Render a PNG of every checkpoint" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg><span class="control-label">Stills</span>
       </button>
       <span id="job-status" role="status" aria-live="polite"></span>
     </span>
@@ -661,6 +667,7 @@ function applyCapabilities(values) {
   const capabilities = new Set(values);
   document.getElementById("restart-scene").hidden = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
+  document.getElementById("export-checkpoints").hidden = !capabilities.has("export");
 }
 
 // -- Frames (1 header byte: 0x01 JPEG, 0x02 PNG; image is GL bottom-up.
@@ -1019,7 +1026,7 @@ async function enterPlayback() {
     meta = await (await fetch(scenePrefix + "/present/present.json")).json();
   } catch (err) { /* no bundle */ }
   if (!meta || meta.format !== 1 || !(meta.checkpoints || []).length) {
-    showExportStatus("No recording — rendering one", "working");
+    showExportStatus("No recording — rendering one", "working", 0, "video");
     presentPending = true;
     send({ type: "export", format: "video" });
     return;
@@ -1069,15 +1076,29 @@ document.getElementById("export-video").onclick = () => {
   send({ type: "export", format: "video" });
   canvas.focus();
 };
+document.getElementById("export-checkpoints").onclick = () => {
+  send({ type: "export", format: "checkpoints" });
+  canvas.focus();
+};
 
 const exportPod = document.getElementById("export-pod");
 const jobStatus = document.getElementById("job-status");
 let exportStatusTimer = null;
-function showExportStatus(message, state, linger) {
+const EXPORT_NOUNS = {
+  web: "Web player",
+  checkpoints: "Checkpoint stills",
+  video: "Video",
+};
+function showExportStatus(message, state, linger, format) {
   clearTimeout(exportStatusTimer);
   jobStatus.textContent = message;
   exportPod.classList.remove("working", "success", "failed");
   exportPod.classList.add("active", state);
+  // The pod holds two buttons; only the one whose job this is takes the
+  // colour, so a stills render never reads as a video render.
+  for (const button of exportPod.querySelectorAll(".export-icon")) {
+    button.classList.toggle("running", button.dataset.format === format);
+  }
   if (linger) {
     exportStatusTimer = setTimeout(() => {
       exportPod.classList.remove("active", "working", "success", "failed");
@@ -1085,11 +1106,16 @@ function showExportStatus(message, state, linger) {
   }
 }
 function handleExportStatus(data) {
-  const noun = data.format === "web" ? "Web player" : "Video";
-  if (data.status === "running") showExportStatus(noun + " exporting…", "working");
-  else if (data.status === "busy") showExportStatus("Export already running", "failed", 4000);
-  else if (data.status === "complete") showExportStatus(noun + " saved in media/", "success", 6000);
-  else showExportStatus(noun + " export failed", "failed", 6000);
+  const noun = EXPORT_NOUNS[data.format] || "Video";
+  if (data.status === "running") {
+    showExportStatus(noun + " exporting…", "working", 0, data.format);
+  } else if (data.status === "busy") {
+    showExportStatus("Export already running", "failed", 4000, data.format);
+  } else if (data.status === "complete") {
+    showExportStatus(noun + " saved in media/", "success", 6000, data.format);
+  } else {
+    showExportStatus(noun + " export failed", "failed", 6000, data.format);
+  }
   // A render requested by Present: enter (or re-enter) playback on the
   // fresh recording the render just wrote.
   if (presentPending && data.format === "video"

@@ -210,7 +210,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
         # Run modes (set by __main__)
         self._present_mode = False  # Pre-built checkpoints, watcher off, timeline scrubber
-        self._render_mode = False   # Headless: write video + checkpoint PNGs
+        self._render_mode = False   # Headless: write the video
+        self._render_checkpoints = False  # ...and a PNG per checkpoint
         self._propagate_animation_errors = False  # Strict non-interactive runs
 
         # Presentation timeline overlay

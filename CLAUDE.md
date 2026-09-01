@@ -43,8 +43,9 @@ python -m maniml script.py SceneName    # equivalent
 # bottom edge of the window
 maniml script.py SceneName --present
 
-# Render mode (headless): writes ./media/SceneName.mp4 plus a PNG per
-# checkpoint under ./media/SceneName_checkpoints/
+# Render mode (headless): writes ./media/SceneName.mp4 (plus the
+# pausepoints table beside it). No checkpoint stills — see
+# --export-checkpoints below
 maniml script.py SceneName --render
 
 # Baked web export (headless): records the geometry stream into
@@ -61,6 +62,14 @@ maniml script.py SceneName --export
 # too. The viewer's Present button plays from it (presentation_sources
 # picks the root cache or the bundle, whichever table is newer).
 maniml script.py SceneName --export-present
+
+# Checkpoint stills (headless): one full-resolution PNG per checkpoint
+# under ./media/SceneName_checkpoints/, and nothing else — no movie, no
+# bundle. Its own export (and its own button in the viewer, beside
+# Download) because the stills outweigh every other render output
+# several times over: regenerate them when they are wanted rather than
+# carrying them in the repo. Combines with --render when both are.
+maniml script.py SceneName --export-checkpoints
 
 # Browser viewer: same interactive development (checkpoints, watcher,
 # click-to-inspect), viewed in a browser tab instead of the pyglet
@@ -116,7 +125,7 @@ All of this lives in `maniml/`:
    - Arrow keys (in `on_key_press`): RIGHT runs units forward to the next pausepoint (`advance_to_next_pausepoint`; every checkpoint counts as a stop in a pause-less file, so it is one unit there); UP/DOWN jump per checkpoint — the per-play fine navigation; LEFT jumps instantly to the previous pausepoint's exact state (`_reverse_to_previous_pausepoint`). LEFT is deliberately unanimated: a state morph cannot truly reverse an animation, so navigation does not pretend to — true backward playback is the recorded-stream roadmap item (see DECISIONS.md, "Backward navigation is a jump").
    - **Copy discipline**: `SceneState` stores direct references; isolation happens by deep-copying state+namespace *together* at save time. Anything restored for display (UP/DOWN/LEFT, undo/redo) goes through `SceneState.copy()` so on-screen mutation can never corrupt stored history. `run_next_animation` deep-copies the whole checkpoint before exec for the same reason.
 
-4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off, mouse-at-bottom-edge timeline scrubber built from `_show_timeline`/`_handle_timeline_click`; overlay excluded from checkpoints via the ignore list in `get_state` and re-attached across restores in `restore_state`); `--render` → `_render_all()` headless (frames to `SceneFileWriter`, one PNG per checkpoint — intermediate loop checkpoints are restored individually for their snapshots). Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through.
+4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off, mouse-at-bottom-edge timeline scrubber built from `_show_timeline`/`_handle_timeline_click`; overlay excluded from checkpoints via the ignore list in `get_state` and re-attached across restores in `restore_state`); `--render` → `_render_all()` headless (frames to `SceneFileWriter`); `--export-checkpoints` → the same `_render_all()` with `_render_checkpoints` on, which additionally writes one PNG per checkpoint (intermediate loop checkpoints are restored individually for their snapshots) — on its own it skips the movie (`write_to_movie=False`), and the two flags combine. Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through.
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame, timeline, fixed-in-frame excluded). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`).
 

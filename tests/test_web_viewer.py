@@ -723,6 +723,69 @@ class StreamPolicyTests(unittest.TestCase):
         self.assertEqual(messages[0]["type"], "renderer_fallback")
 
 
+class ExportRoutingTests(unittest.TestCase):
+    """Each export format runs its own CLI mode in its own subprocess.
+
+    The checkpoint stills are the point of the split: one full-size PNG
+    per checkpoint is far more disk than the movie beside it, so they are
+    written only when their own button asks for them.
+    """
+
+    def _mode_for(self, export_format):
+        import tempfile
+        import threading
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from maniml.web.viewer import WebViewer
+
+        class Tiny:
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "tiny_scene.py")
+            with open(source, "w") as f:
+                f.write("# scene\n")
+            scene = Tiny()
+            scene._scene_filepath = source
+            viewer = SimpleNamespace(
+                scene=scene,
+                _export_lock=threading.Lock(),
+                _export_process=None,
+                server=SimpleNamespace(broadcast_json=lambda payload: None),
+            )
+            viewer._relay_export_progress = lambda *args: None
+            viewer._finish_export = lambda *args: None
+            with patch("subprocess.Popen") as popen:
+                WebViewer._start_export(viewer, export_format)
+            if not popen.called:
+                return None
+            return popen.call_args[0][0]
+
+    def test_each_format_runs_its_own_mode(self):
+        self.assertIn("--export-present", self._mode_for("video"))
+        self.assertIn("--export", self._mode_for("web"))
+        self.assertIn("--export-checkpoints", self._mode_for("checkpoints"))
+
+    def test_the_video_export_writes_no_checkpoint_stills(self):
+        self.assertNotIn("--export-checkpoints", self._mode_for("video"))
+
+    def test_only_the_three_known_formats_reach_an_export(self):
+        """The wire picks a format, never a command line."""
+        from types import SimpleNamespace
+        from maniml.web.viewer import WebViewer
+
+        started = []
+        viewer = SimpleNamespace(
+            scene=object(),
+            _dirty=True,
+            _has_undrawn_event=True,
+            _start_export=started.append,
+        )
+        for fmt in ("video", "web", "checkpoints", "--render", None):
+            WebViewer._handle_event(viewer, {"type": "export", "format": fmt})
+        self.assertEqual(started, ["video", "web", "checkpoints"])
+
+
 RAIL_SOURCE = """
 from manim import *
 

@@ -185,7 +185,7 @@ class ViewerTests(unittest.TestCase):
         viewer = (STATIC / "viewer.html").read_text()
         for element in (
             'id="open-file"', 'id="file-menu"', 'id="previous"', 'id="next"',
-            'id="export-video"',
+            'id="export-video"', 'id="export-checkpoints"',
             'id="connection-overlay"', 'id="retry-connection"',
             'aria-label="Scene pausepoints"',
         ):

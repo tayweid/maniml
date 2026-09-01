@@ -35,8 +35,8 @@ Modes:
   --present        Presentation: pre-runs every animation up front
                    (validating the whole scene), disables the file
                    watcher, then starts at the first checkpoint
-  --render         No window: write the scene to a video file and
-                   each checkpoint to a PNG, under ./media/
+  --render         No window: write the scene to a video file under
+                   ./media/
   --export         Bake the scene into a self-contained web player
                    (./media/SceneName_web/) — a static folder anyone
                    can open in a browser with no Python; host it on
@@ -46,6 +46,12 @@ Modes:
                    mp4 and a page that steps through it by pausepoint,
                    both directions. A static folder for a course page —
                    students click through the episode, no Python
+  --export-checkpoints
+                   No window: write one PNG per checkpoint under
+                   ./media/SceneName_checkpoints/. Its own export
+                   because the stills outweigh everything else a render
+                   produces — regenerate them when you need them, and
+                   keep them out of the repo
   --help, -h       Show this help message
 
 Interactive controls (in the preview window):
@@ -61,6 +67,7 @@ Examples:
   maniml example.py MyScene --present
   maniml example.py MyScene --render
   maniml example.py MyScene --export-present
+  maniml example.py MyScene --export-checkpoints
 """
 
 
@@ -116,7 +123,7 @@ def main():
         sys.exit(0)
 
     unknown = flags - {"--present", "--render", "--web", "--no-browser",
-                       "--export", "--export-present"}
+                       "--export", "--export-present", "--export-checkpoints"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -133,10 +140,11 @@ def main():
         script_file,
         scene_name,
         present="--present" in flags,
-        render="--render" in flags or "--export-present" in flags,
+        render="--render" in flags,
         web="--web" in flags,
         export="--export" in flags,
         export_present="--export-present" in flags,
+        export_checkpoints="--export-checkpoints" in flags,
         open_browser="--no-browser" not in flags,
     )
 
@@ -252,6 +260,7 @@ def run_scene(
     web=False,
     export=False,
     export_present=False,
+    export_checkpoints=False,
     open_browser=True,
 ):
     module = load_scene_module(script_file)
@@ -298,17 +307,24 @@ def run_scene(
         )
         return
 
-    if render:
+    # Three flags, one headless run: --render and --export-present want
+    # the movie, --export-checkpoints wants only the stills (asking for
+    # both writes both).
+    headless = render or export_present or export_checkpoints
+    write_movie = render or export_present
+
+    if headless:
         media_dir = os.path.join(os.path.dirname(os.path.abspath(script_file)), "media")
         scene = scene_class(
             window=None,
             file_writer_config=dict(
-                write_to_movie=True,
+                write_to_movie=write_movie,
                 output_directory=media_dir,
                 file_name=scene_name,
             ),
         )
         scene._render_mode = True
+        scene._render_checkpoints = export_checkpoints
     elif web:
         from maniml.web import WebViewer
 
@@ -325,7 +341,7 @@ def run_scene(
     scene._scene_filepath = os.path.abspath(script_file)
     scene.run()
 
-    if render:
+    if write_movie:
         movie = getattr(scene.file_writer, "final_file_path", None)
         if movie is not None and Path(movie).is_file():
             if export_present:

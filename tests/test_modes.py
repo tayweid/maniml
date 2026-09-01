@@ -85,20 +85,36 @@ class TestPresentMode(ModeSceneTest):
 
 
 class TestRenderMode(ModeSceneTest):
-    def test_render_all_writes_checkpoint_pngs(self):
-        media = os.path.join(self.tmpdir.name, 'media')
-        scene = self.make_scene(file_writer_config=dict(
+    def _render_scene(self, media):
+        return self.make_scene(file_writer_config=dict(
             write_to_movie=False,  # PNGs only; video needs ffmpeg
             output_directory=media,
             file_name='ModeScene',
         ))
+
+    def test_render_all_writes_checkpoint_pngs_when_asked(self):
+        media = os.path.join(self.tmpdir.name, 'media')
+        scene = self._render_scene(media)
         scene._render_mode = True
+        scene._render_checkpoints = True
         scene._render_all()
         pngs = sorted(glob.glob(os.path.join(media, 'ModeScene_checkpoints', '*.png')))
         self.assertEqual(len(pngs), 5, pngs)
         self.assertTrue(pngs[0].endswith('000.png'))
         self.assertTrue(pngs[-1].endswith('004.png'))
         self.assertGreater(os.path.getsize(pngs[-1]), 0)
+
+    def test_a_plain_render_writes_no_checkpoint_pngs(self):
+        """The stills are their own export: a render that was not asked
+        for them leaves no directory behind (they dwarf the movie)."""
+        media = os.path.join(self.tmpdir.name, 'plain-media')
+        scene = self._render_scene(media)
+        scene._render_mode = True
+        scene._render_all()
+        self.assertFalse(
+            os.path.exists(os.path.join(media, 'ModeScene_checkpoints')))
+        # ...and every unit still ran
+        self.assertEqual(scene.current_animation_index, 4)
 
 
 class TestInspect(ModeSceneTest):

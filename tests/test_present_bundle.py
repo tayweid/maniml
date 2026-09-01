@@ -3,7 +3,7 @@
 A cheap unit layer over build_meta with a stub scene, and one real
 end-to-end render (subprocess, real ffmpeg) that pins the property the
 whole mode rests on: the frame of the video at a checkpoint's recorded
-time matches the checkpoint PNG the render saves.
+time matches the still that `--export-checkpoints` saves.
 """
 
 import json
@@ -236,8 +236,10 @@ RENDER_SCENE = textwrap.dedent('''\
 
 @unittest.skipIf(shutil.which("ffmpeg") is None, "ffmpeg not available")
 class RenderAlignmentE2E(unittest.TestCase):
-    """--render writes the bundle, and the video frame at each checkpoint's
-    recorded time matches the checkpoint PNG the render saves."""
+    """--render writes the movie and its pausepoints table, and the video
+    frame at each checkpoint's recorded time matches the still that
+    --export-checkpoints saves (asked for here explicitly: the stills are
+    their own export, never part of a plain render)."""
 
     @classmethod
     def setUpClass(cls):
@@ -246,7 +248,8 @@ class RenderAlignmentE2E(unittest.TestCase):
         with open(scene_path, "w") as f:
             f.write(RENDER_SCENE)
         result = subprocess.run(
-            [sys.executable, "-m", "maniml", scene_path, "Tiny", "--render"],
+            [sys.executable, "-m", "maniml", scene_path, "Tiny",
+             "--render", "--export-checkpoints"],
             cwd=cls.tmpdir.name,
             env={**os.environ, "PYTHONPATH": REPO_ROOT},
             capture_output=True, text=True, timeout=300,

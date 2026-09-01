@@ -1,8 +1,8 @@
 """Delivery modes for maniml scenes.
 
 Presentation mode (pre-run all units, clickable bottom-edge timeline
-scrubber) and headless render mode (movie plus one PNG per
-checkpoint).
+scrubber) and headless render mode (the movie, and — only when asked
+for — one PNG per checkpoint).
 """
 from __future__ import annotations
 
@@ -31,19 +31,31 @@ class PresentationMixin:
 
     def _render_all(self) -> None:
         """Run every unit at full speed so frames reach the file writer,
-        saving a PNG snapshot of each checkpoint along the way."""
-        image_dir = os.path.join(
-            self.file_writer.output_directory,
-            f"{self.file_writer.get_output_file_name()}_checkpoints",
-        )
-        os.makedirs(image_dir, exist_ok=True)
-        self._save_checkpoint_image(image_dir)  # initial (empty) state
+        saving a PNG snapshot of each checkpoint when asked to.
+
+        The stills are opt-in (`_render_checkpoints`, set by
+        `--export-checkpoints`): a full-resolution PNG per checkpoint is
+        several times the movie it would sit beside, which is the wrong
+        thing to drop into a repo on every render, so they are their own
+        export — regenerated, and gitignored, on their own.
+        """
+        capture = self._render_checkpoints
+        image_dir = None
+        if capture:
+            image_dir = os.path.join(
+                self.file_writer.output_directory,
+                f"{self.file_writer.get_output_file_name()}_checkpoints",
+            )
+            os.makedirs(image_dir, exist_ok=True)
+            self._save_checkpoint_image(image_dir)  # initial (empty) state
         while True:
             last_index = self.current_animation_index
             self.run_next_animation()
             final = self.current_animation_index
             if final == last_index:
                 break
+            if not capture:
+                continue
             if final == last_index + 1:
                 self._save_checkpoint_image(image_dir)
             else:
@@ -52,7 +64,8 @@ class PresentationMixin:
                 for i in range(last_index + 1, final + 1):
                     self._restore_checkpoint_for_display(i)
                     self._save_checkpoint_image(image_dir)
-        print(f"Wrote {self.current_animation_index + 1} checkpoint images to {image_dir}")
+        if capture:
+            print(f"Wrote {self.current_animation_index + 1} checkpoint images to {image_dir}")
 
     def _save_checkpoint_image(self, image_dir: str) -> None:
         self.update_frame(dt=0, force_draw=True)

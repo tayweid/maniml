@@ -108,7 +108,11 @@ In the preview window:
   paste-ready `name.move_to([x, y, z])` prints on release
 - `--present` — pre-runs the whole scene and adds a clickable checkpoint
   timeline at the bottom edge of the window
-- `--render` — headless: writes an MP4 plus a PNG per checkpoint
+- `--render` — headless: writes an MP4
+- `--export-checkpoints` — headless: writes a PNG per checkpoint, and
+  nothing else. Its own export (and its own button beside Download in
+  the viewer) because the stills outweigh everything else a render
+  writes — render them when you want them, don't carry them in a repo
 - `--export` — headless: bakes the scene into a self-contained web player
   (a static folder that scrubs and plays with no Python anywhere)
 
