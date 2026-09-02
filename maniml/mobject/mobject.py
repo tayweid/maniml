@@ -1886,7 +1886,15 @@ class Mobject(object):
             if key not in mobject1.uniforms or key not in mobject2.uniforms:
                 continue
             self.uniforms[key] = (1 - alpha) * mobject1.uniforms[key] + alpha * mobject2.uniforms[key]
-        self.bounding_box[:] = path_func(mobject1.bounding_box, mobject2.bounding_box, alpha)
+        # Interpolate from the endpoints' COMPUTED boxes, not their raw
+        # cache arrays: an endpoint copy that never computed its box
+        # still holds init-time zeros with the dirty flag set, and
+        # lerping that writes a poisoned box into self while self's
+        # clean flag makes it stick (real points, origin box). The
+        # endpoints are static, so this computes once and caches.
+        self.bounding_box[:] = path_func(
+            mobject1.get_bounding_box(), mobject2.get_bounding_box(), alpha
+        )
         return self
 
     def pointwise_become_partial(self, mobject, a, b) -> Self:

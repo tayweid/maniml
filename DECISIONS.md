@@ -484,3 +484,20 @@ z_index on a marker dot inside its VGroup is honored, so the
 "first-child-on-top" child ordering (which never actually did anything)
 and most of the bring_to_front calls can go when those files are next
 touched.
+
+**Follow-up (same day): the split has to trust bounding boxes, and
+interpolate was poisoning them.** After the fix above, the A3 markers
+still drew dashes-over-dot in the live viewer — but only after a play;
+a plain add() rendered correctly. The cause was
+`Mobject.interpolate`, which lerped the endpoints' RAW `bounding_box`
+cache arrays: an animation-endpoint copy that never computed its box
+still holds init-time zeros (with its dirty flag set), and lerping
+that writes an origin box into the live mobject while the live flag
+stays clean — real points, poisoned cache. The hazard split then saw
+every dash "at the origin" and stopped splitting. Fixed by
+interpolating `get_bounding_box()` (computes-if-dirty; the endpoints
+are static, so it computes once per animation and caches). The
+poisoning predates the draw-order work — click-to-inspect hit-testing
+reads the same boxes — but rendering never consulted bounding boxes
+until the hazard split did. Regression-tested in
+tests/test_gl_port.py::test_family_draw_order_survives_animation.

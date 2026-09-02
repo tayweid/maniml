@@ -317,6 +317,33 @@ class GLPortFidelity(unittest.TestCase):
         self.assertGreater(int(center[0]), int(center[2]),
                            f"raised dot should now be on top: {center}")
 
+    def test_family_draw_order_survives_animation(self):
+        # The hazard split reads bounding boxes, and Mobject.interpolate
+        # used to lerp the endpoints' RAW bbox cache arrays — an
+        # endpoint copy that never computed its box holds init-time
+        # zeros, so a FadeIn left live members with a poisoned
+        # origin-box cache and the split stopped firing: the dashes
+        # painted over the marker dot again, but only after a play.
+        from maniml.mobject.geometry import Dot, DashedLine
+        from maniml.mobject.types.vectorized_mobject import VGroup
+        from maniml.animation.fading import FadeIn
+        scene = PortScene(window=None)
+        dash = DashedLine(LEFT * 3, RIGHT * 3, stroke_width=12).set_color(BLUE)
+        dot = Dot(np.array([0.0, 0.0, 0.0]), radius=0.3, color=YELLOW,
+                  z_index=10)
+        marker = VGroup(dot, dash)
+        scene.play(FadeIn(marker), run_time=0.2)
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"))
+        h, w = native.shape[:2]
+        center = native[h // 2, w // 2]
+        self.assertGreater(int(center[0]), int(center[2]),
+                           f"dot not on top after FadeIn play: {center}")
+        # The poisoned cache also broke hit-testing style bbox reads
+        seg = dash.family_members_with_points()[0]
+        self.assertFalse(np.allclose(seg.get_bounding_box(), 0),
+                         "segment bounding box collapsed to origin")
+
     def test_non_overlapping_members_still_merge(self):
         # The hazard split is bbox-gated: same-state filled+stroked
         # shapes that do not overlap (bars of a chart, outlined text)
