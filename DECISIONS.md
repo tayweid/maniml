@@ -439,3 +439,48 @@ by plain `--render`, and the cache the viewer plays is unchanged. The
 table ships as `present_meta.js` because the page must open from
 file://, where fetch() does not exist. Episode-sized reality check: all
 of EpisodeA1 is a 4.3 MB folder.
+
+## Family draw order is CE's (decided 2026-09-02)
+
+The symptom, reported from course production as "VGroup children render
+in reverse order": a fill-only Dot placed last in a VGroup still drew
+under an earlier DashedLine's dashes, and no reordering of children
+changed anything. The A3 episode grew a workaround culture around it —
+"bring_to_front the dots; z_index alone isn't honored across plays".
+
+The diagnosis was not reversal. Same-kind children always drew in
+order; the inversion was the batch pass sequence. The renderer merges
+same-state family members into one batch, and a batch draws ALL its
+fills before ANY of its strokes (the winding-number fill accumulates in
+the float texture and composites once — that part is load-bearing, not
+an optimization). So within a batch, any stroke beat any fill, whatever
+the family order said. CE paints each member completely, in family
+order, with the family stably sorted by z_index first.
+
+Decision: match CE, and keep the batching. `assemble_draw_batches`
+(utils/family_ops.py) is now the one place that turns a render group's
+family into draw batches, used by both the native flatten
+(Mobject.get_shader_wrapper_list) and the web serializer
+(web/geometry.py) so the pipelines cannot disagree (pixel-diffed in
+tests/test_gl_port.py). It stably sorts by z_index, merges same-key
+neighbors, and starts a new batch when a member's early-pass content
+(fill; stroke when stroke_behind) overlaps late-pass content already in
+the batch — the only case where merging inverts CE's paint order. The
+overlap test is a stroke-padded bounding box per late-pass member (not
+a running union, which reads a wrapped grid row as covering everything
+and splits members that overlap nothing painted), so text glyphs, bar
+charts, and dense grids still merge into one draw: 500 packed
+filled+stroked squares stay one batch, ~6ms to rebatch against ~2.5ms
+before. A child's z_index change dirties the render caches up the
+parent chain and takes effect next frame.
+
+Not done, documented in TODO.md's quality tier: CE sorts one flattened
+scene-wide list, so a high-z child of one top-level group cannot draw
+over a later top-level group here. The 3D path is untouched — depth
+test resolves occlusion per pixel, so batches there never split.
+
+The course workarounds survive unchanged but are now mostly redundant:
+z_index on a marker dot inside its VGroup is honored, so the
+"first-child-on-top" child ordering (which never actually did anything)
+and most of the bring_to_front calls can go when those files are next
+touched.

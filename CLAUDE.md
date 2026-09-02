@@ -290,7 +290,7 @@ loopback, no file handlers, a different scope).
 - `deepcopy_namespace` falls back to per-value copies with a shared memo when batch deepcopy fails, and keeps live references (with a named warning) for values that cannot copy at all; a scene holding non-picklable state degrades checkpoint isolation.
 - LEFT-arrow is an instant jump, not a reversal: nothing animates backward until the recorded-playback layer lands (TODO.md). The reverse *morph* was deleted 2026-08-23 — see DECISIONS.md for why it could never be made honest.
 - CE `color=` kwarg compatibility was fixed piecemeal (2026-08): classes must not pin `stroke_color=`/`fill_color=` defaults in `__init__` — that silently overrides a user's `color=` (VMobject resolves `stroke_color or color`, `fill_color or color`). Circle, Dot, Arrow, ArrowTip, StrokeArrow, AnnularSector, Annulus, and StringMobject (all Tex/Text) were converted; other classes may still have the pattern.
-- `z_index` is CE-compatible via a stable draw-order sort of top-level mobjects (`assemble_render_groups`); within-family z_index is not sorted.
+- Draw order is CE's since 2026-09-02 (`assemble_draw_batches` in `utils/family_ops.py`: stable z_index sort within each render group's family, batch splits where merging would paint a fill under an earlier stroke — see DECISIONS.md "Family draw order is CE's"). Remaining gap: a child's z_index cannot lift it over a *different* top-level group, and a top-level mobject's z_index change after add() reorders only on its next add.
 
 ManimGL's IPython embed mode was removed in 2026-07 (see `DECISIONS.md`); `self.embed()` remains as a stub that logs a warning.
 

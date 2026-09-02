@@ -269,9 +269,14 @@ only when that code is being touched anyway.
   mobject whose points change re-runs earclip every frame. Fine for
   shapes; measurable when morphing large Text in 3D. Fix:
   transform-aware cache so rigid motions reuse the mesh.
-- **z_index sorts top-level mobjects only.** CE also sorts within
-  families; maniml preserves family draw order. Rarely matters — noted
-  so it doesn't surprise.
+- **z_index cannot lift a child over a different top-level group.**
+  Within a family z_index now sorts (stable, CE-style — see DECISIONS
+  "Family draw order is CE's", 2026-09-02), and top-level mobjects sort
+  at add(); but CE sorts one flattened scene-wide list, so a
+  z_index=10 child of group A still draws under a whole group B added
+  after A. Also: changing a TOP-LEVEL mobject's z_index after add()
+  only reorders on its next add (any play touching it); a child's
+  change takes effect immediately.
 - **Minor typography drift vs CE.** Multi-part `MathTex(...)` parts
   join with TeX's natural math spacing, slightly tighter than CE's
   joining. Cosmetic.

@@ -14,15 +14,18 @@ camera uniforms from `Camera.refresh_uniforms()` verbatim plus
 per-batch mobject uniforms, so the consumer reproduces the native
 projection arithmetic rather than inventing its own.
 
-Batching mirrors the native renderer: within one render group,
-consecutive submobjects with identical draw state (kind, uniforms,
-stroke_behind, depth_test, fill_mode) merge into one batch — one
-buffer, one pass sequence. This is not just a draw-call optimization:
-the winding-number fill blending is only native-faithful when a whole
-batch accumulates in the float texture before a single composite.
-Merging never crosses a render-group boundary, because the groups are
-the scene's z_index draw order and each batch draws all its fills
-before any of its strokes.
+Batching mirrors the native renderer: within one render group, family
+members are stably sorted by z_index and consecutive submobjects with
+identical draw state (kind, uniforms, stroke_behind, depth_test,
+fill_mode) merge into one batch — one buffer, one pass sequence. This
+is not just a draw-call optimization: the winding-number fill blending
+is only native-faithful when a whole batch accumulates in the float
+texture before a single composite. Merging never crosses a
+render-group boundary (the groups are the scene's z_index draw order),
+and — because each batch draws all its fills before any of its strokes
+— a member whose fill overlaps an already-merged member's stroke
+starts a new batch, exactly as the native flatten does
+(assemble_draw_batches in utils/family_ops.py).
 
 Each vmobject batch also carries `stroke_verts`: the largest strip the
 batch's curves actually need (the same adaptive-subdivision formula the
@@ -43,6 +46,9 @@ import struct
 import numpy as np
 
 from maniml.performance import performance
+from maniml.utils.family_ops import DrawBatchHazard
+from maniml.utils.family_ops import draw_pass_content
+from maniml.utils.family_ops import padded_draw_bbox
 
 from typing import TYPE_CHECKING
 
@@ -199,11 +205,15 @@ def _collect_records(scene, unsupported):
             "depth_test": bool(sm.depth_test),
             "stroke_behind": False, "fill_mode": None,
             "tri": None, "textures": textures,
+            "_pass_early": False, "_pass_late": False, "_draw_bbox": None,
         }
 
     records = []
     for group_index, group in enumerate(scene.render_groups):
-        for sm in group.family_members_with_points():
+        # Stable z_index sort within the family — the same order the
+        # native flatten uses (Mobject.get_shader_wrapper_list)
+        for sm in sorted(group.family_members_with_points(),
+                         key=lambda m: m.z_index):
             if isinstance(sm, CameraFrame):
                 continue  # in scene.mobjects but never drawn
             unsupported_name = _unsupported_geometry_name(sm)
@@ -230,6 +240,7 @@ def _collect_records(scene, unsupported):
             data = sm.get_shader_data()
             if len(data) == 0:
                 continue
+            pass_early, pass_late = draw_pass_content(sm)
             records.append({
                 "kind": "vmobject", "stride": 68, "data": data,
                 "group": group_index,
@@ -240,6 +251,9 @@ def _collect_records(scene, unsupported):
                 "tri": (_triangulated_fill_data(sm)
                         if triangulated and has_fill else None),
                 "textures": None,
+                "_pass_early": pass_early, "_pass_late": pass_late,
+                "_draw_bbox": (padded_draw_bbox(sm)
+                               if pass_early or pass_late else None),
             })
     return records
 
@@ -255,8 +269,17 @@ _MERGE_KEYS = ("group", "kind", "uniforms", "stroke_behind", "depth_test",
 
 def _merge_records(records):
     """Merge consecutive records with identical draw state — the
-    native renderer's batching (batch_by_property over shader-wrapper
-    id). Triangulated fill chunks concatenate with re-based indices.
+    native renderer's batching (assemble_draw_batches in
+    utils/family_ops.py; the split rules here must mirror it, and
+    tests/test_gl_port.py pixel-diffs the two pipelines). Triangulated
+    fill chunks concatenate with re-based indices.
+
+    A record whose early-pass content (fill; stroke when stroke_behind)
+    overlaps the open batch's accumulated late-pass content starts a
+    new batch instead of merging: a batch draws all its early passes
+    before any of its late ones, so merging there would paint the new
+    member under an earlier member's stroke — the CE draw-order hazard
+    assemble_draw_batches documents.
 
     Chunks are gathered and joined once per batch rather than folded in
     one at a time. Concatenating on each step reallocates and recopies
@@ -268,9 +291,13 @@ def _merge_records(records):
     merged = []
     chunks = []      # per merged batch: the data arrays still to be joined
     tri_chunks = []  # per merged batch: (verts, indices) still to be joined
+    hazard_state = None  # late-pass footprint of the open batch
     for record in records:
         prev = merged[-1] if merged else None
-        if prev is not None and all(
+        bbox = record["_draw_bbox"]
+        hazard = prev is not None and hazard_state.would_invert(
+            record["_pass_early"], bbox)
+        if prev is not None and not hazard and all(
                 prev[k] == record[k] for k in _MERGE_KEYS):
             chunks[-1].append(record["data"])
             if record["tri"] is not None:
@@ -279,6 +306,11 @@ def _merge_records(records):
             merged.append(dict(record))
             chunks.append([record["data"]])
             tri_chunks.append([record["tri"]] if record["tri"] is not None else [])
+            hazard_state = DrawBatchHazard()
+        hazard_state.admit(record["_pass_late"], bbox)
+
+    for batch in merged:
+        del batch["_pass_early"], batch["_pass_late"], batch["_draw_bbox"]
 
     for batch, data_parts, tri_parts in zip(merged, chunks, tri_chunks):
         if len(data_parts) > 1:

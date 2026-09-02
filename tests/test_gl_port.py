@@ -238,6 +238,101 @@ class GLPortFidelity(unittest.TestCase):
         self.assertLess(diff.mean(), 1.5)
         self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
 
+    def test_family_draw_order_matches_ce(self):
+        # CE paints VGroup children in order, each fill-then-stroke. A
+        # stroke-only dashed line and a fill-only Dot share draw state,
+        # so before the hazard split they merged into one batch whose
+        # fills all composite before any stroke — the dashes landed on
+        # top of a Dot placed LAST (the econ-course workaround culture:
+        # "bring_to_front the dots").
+        from maniml.mobject.geometry import Dot, DashedLine
+        from maniml.mobject.types.vectorized_mobject import VGroup
+        scene = PortScene(window=None)
+        dash = DashedLine(LEFT * 3, RIGHT * 3, stroke_width=12).set_color(BLUE)
+        dot = Dot(np.array([0.0, 0.0, 0.0]), radius=0.3, color=YELLOW)
+        scene.add(VGroup(dash, dot))  # dot last => dot on top, as CE
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        self.assertGreater(len(header["batches"]), 1)
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+
+        h, w = native.shape[:2]
+        for name, img in (("native", native), ("ported", ported)):
+            center = img[h // 2, w // 2]
+            self.assertGreater(
+                center[0], center[2],
+                f"{name} center not dot-colored: {center}")
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5)
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
+
+    def test_family_z_index_matches_ce(self):
+        # CE stably sorts family members by z_index; a first-child Dot
+        # with a higher z_index draws over its later siblings.
+        from maniml.mobject.geometry import Dot, Line
+        from maniml.mobject.types.vectorized_mobject import VGroup
+        scene = PortScene(window=None)
+        dot = Dot(np.array([0.0, 0.0, 0.0]), radius=0.3, color=YELLOW,
+                  z_index=10)
+        line = Line(LEFT * 3, RIGHT * 3, color=BLUE, stroke_width=12)
+        scene.add(VGroup(dot, line))
+        scene.update_frame(dt=0, force_draw=True)
+        native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
+
+        header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
+        ported = ReferenceRenderer().render(header, vertex_bytes)
+        ported = np.asarray(ported.convert("RGB"), dtype=np.float64)
+
+        h, w = native.shape[:2]
+        for name, img in (("native", native), ("ported", ported)):
+            center = img[h // 2, w // 2]
+            self.assertGreater(
+                center[0], center[2],
+                f"{name} center not dot-colored: {center}")
+        diff = np.abs(native - ported)
+        self.assertLess(diff.mean(), 1.5)
+        self.assertLess((diff.max(axis=2) > 24).mean(), 0.005)
+
+    def test_z_index_change_rerenders(self):
+        # Changing a child's z_index after a frame has rendered must
+        # dirty the render caches so the next frame reorders.
+        from maniml.mobject.geometry import Dot, Line
+        from maniml.mobject.types.vectorized_mobject import VGroup
+        scene = PortScene(window=None)
+        dot = Dot(np.array([0.0, 0.0, 0.0]), radius=0.3, color=YELLOW)
+        line = Line(LEFT * 3, RIGHT * 3, color=BLUE, stroke_width=12)
+        scene.add(VGroup(dot, line))  # line last: line on top
+        scene.update_frame(dt=0, force_draw=True)
+        h, w = np.asarray(scene.get_image()).shape[:2]
+        center = np.asarray(scene.get_image().convert("RGB"))[h // 2, w // 2]
+        self.assertGreater(int(center[2]), int(center[0]),
+                           f"line should start on top: {center}")
+
+        dot.z_index = 5
+        scene.update_frame(dt=0, force_draw=True)
+        center = np.asarray(scene.get_image().convert("RGB"))[h // 2, w // 2]
+        self.assertGreater(int(center[0]), int(center[2]),
+                           f"raised dot should now be on top: {center}")
+
+    def test_non_overlapping_members_still_merge(self):
+        # The hazard split is bbox-gated: same-state filled+stroked
+        # shapes that do not overlap (bars of a chart, outlined text)
+        # must still merge into one batch, not one composite each.
+        from maniml.mobject.types.vectorized_mobject import VGroup
+        scene = PortScene(window=None)
+        squares = VGroup(*(
+            Square(side_length=0.8, color=BLUE, fill_opacity=1.0,
+                   stroke_width=4).shift(RIGHT * (2.0 * i - 3))
+            for i in range(4)
+        ))
+        scene.add(squares)
+        scene.update_frame(dt=0, force_draw=True)
+        header, _ = parse_geometry_message(serialize_scene(scene))
+        self.assertEqual(len(header["batches"]), 1)
+
     def test_delta_encoding(self):
         from maniml.web.geometry import GeometryCache
         from maniml.mobject.types.dot_cloud import DotCloud

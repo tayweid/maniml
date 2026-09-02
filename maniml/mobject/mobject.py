@@ -26,9 +26,9 @@ from maniml.utils.color import color_gradient
 from maniml.utils.color import color_to_rgb
 from maniml.utils.color import get_colormap_list
 from maniml.utils.color import rgb_to_hex
+from maniml.utils.family_ops import assemble_draw_batches
 from maniml.utils.iterables import arrays_match
 from maniml.utils.iterables import array_is_constant
-from maniml.utils.iterables import batch_by_property
 from maniml.utils.iterables import list_update
 from maniml.utils.iterables import listify
 from maniml.utils.iterables import resize_array
@@ -208,16 +208,28 @@ class Mobject(object):
 
     # CE-compatible z_index: the scene stably sorts top-level mobjects
     # by z_index when assembling render groups (see
-    # Scene.assemble_render_groups), so higher z_index draws on top and
-    # equal z_index preserves add order. Only top-level z_index affects
-    # ordering; in 3D the depth buffer decides true occlusion.
+    # Scene.assemble_render_groups), and each render group stably sorts
+    # its family members when flattening for draw (see
+    # get_shader_wrapper_list), so higher z_index draws on top and
+    # equal z_index preserves add/family order. A child's z_index
+    # orders it within its own top-level group but cannot lift it over
+    # a different group; in 3D the depth buffer decides true occlusion.
+    # Changing a TOP-LEVEL mobject's z_index after add() reorders only
+    # on the next add of that mobject (e.g. any play() touching it).
     @property
     def z_index(self) -> float:
         return self.__dict__.get('_z_index', 0)
 
     @z_index.setter
     def z_index(self, value: float):
+        old = self.__dict__.get('_z_index')
         self.__dict__['_z_index'] = value
+        # Within-family draw order depends on this value, so a change
+        # must dirty the render caches up the parent chain (the guard
+        # skips the assignment in __init__, before those exist)
+        if old is not None and old != value and 'parents' in self.__dict__:
+            for mob in (self, *self.get_ancestors()):
+                mob._data_has_changed = True
 
     @property
     def always(self) -> _UpdaterBuilder:
@@ -2080,10 +2092,17 @@ class Mobject(object):
 
     def get_shader_wrapper_list(self, ctx: Context) -> list[ShaderWrapper]:
         family = self.family_members_with_points()
-        batches = batch_by_property(family, lambda sm: sm.get_shader_wrapper(ctx).get_id())
+        # CE-faithful draw batches: stable z_index sort within the
+        # family, same-key neighbors merged, and a batch split rather
+        # than allowing its all-fills-then-all-strokes pass order to
+        # paint a member under an earlier member's stroke (see
+        # utils/family_ops.py)
+        batches = assemble_draw_batches(
+            family, lambda sm: sm.get_shader_wrapper(ctx).get_id()
+        )
 
         result = []
-        for submobs, sid in batches:
+        for sid, submobs in batches:
             shader_wrapper = submobs[0].shader_wrapper
             data_list = [sm.get_shader_data() for sm in submobs]
             shader_wrapper.read_in(data_list)
