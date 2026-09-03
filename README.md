@@ -5,7 +5,7 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 ## Features
 
 - **ManimCE API compatibility (growing)**: *targets the current ManimCE API; coverage is tracked by a conformance test (`tests/ce_conformance/`) and unsupported settings warn rather than fail silently*
-- **Live preview:** *real-time rendering in a native window (`maniml scene.py`) or the browser (`--web`)*
+- **Live preview:** *real-time rendering in the browser (`maniml scene.py`), drawn by your GPU with WebGPU*
 - **The app:** *`maniml app` serves a local page listing your scene files; each opens in the browser viewer*
 - **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing; a clickable checkpoint timeline in the browser*
 - **Hot reloading:** *the preview automatically plays edited animations*
@@ -98,16 +98,16 @@ the page on *that* address, so both remain usable.
 
 ## Interactive controls
 
-In the preview window:
+In the browser viewer:
 
 - **RIGHT arrow** — run the next animation (re-executed from source)
-- **LEFT arrow** — reverse to the previous checkpoint (animated)
+- **LEFT arrow** — jump to the previous checkpoint
 - **UP / DOWN arrows** — jump between checkpoints instantly
 - **Save the scene file** — the watcher replays only the edited animations
 - **Click a mobject** — prints its variable name; drag to move it, and a
   paste-ready `name.move_to([x, y, z])` prints on release
-- `--present` — pre-runs the whole scene and adds a clickable checkpoint
-  timeline at the bottom edge of the window. In the browser, Present then
+- `--present` — pre-runs the whole scene; the rail at the bottom of the
+  viewer is the clickable checkpoint timeline. Present then
   uses a fresh MP4 for smooth forward and reverse motion and restores the
   live engine at the recorded endpoint on exit. Entering Present explicitly
   renders the cache if it is missing or stale; ordinary live viewing does
@@ -154,8 +154,8 @@ per-pixel correct.
 
 Work in progress but tested: the checkpoint system, the CE
 compatibility surface (tracked by `tests/ce_conformance/`), and the
-interactive loop (windowed tests in `tests/interactive/`) all have
-regression suites.
+interactive loop (driven headlessly in `tests/test_checkpoint_reload.py`
+and end-to-end in `tests/test_web_viewer.py`) all have regression suites.
 
 ## Security
 

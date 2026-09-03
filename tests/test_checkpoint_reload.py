@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from maniml.__main__ import load_scene_module
-from maniml.event_constants import WindowKeys as PygletWindowKeys
+from maniml.event_constants import WindowKeys
 
 BASE = textwrap.dedent('''\
     from maniml import *
@@ -159,7 +159,7 @@ class TestNavigation(CheckpointSceneTest):
         checkpoint = scene.animation_checkpoints[4]
         stored = [m.get_center().copy() for m in checkpoint['state'].mobjects]
 
-        scene.on_key_press(PygletWindowKeys.DOWN, 0)  # index 5 -> 4
+        scene.on_key_press(WindowKeys.DOWN, 0)  # index 5 -> 4
         self.assertEqual(scene.current_animation_index, 4)
         # the on-screen mobjects must be copies, not the stored ones
         for live in scene.mobjects:
@@ -179,7 +179,7 @@ class TestNavigation(CheckpointSceneTest):
         self.run_all()
         scene = self.scene
         n = len(scene.animation_checkpoints)
-        scene.on_key_press(PygletWindowKeys.LEFT, 0)
+        scene.on_key_press(WindowKeys.LEFT, 0)
         self.assertEqual(scene.current_animation_index, 4)
         # navigating back must not create checkpoints
         self.assertEqual(len(scene.animation_checkpoints), n)
@@ -536,3 +536,76 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.assert_follows(3.0)
         self.scene.run_next_animation()      # and on through bump()
         self.assert_follows(4.0)
+
+
+GHOST = textwrap.dedent('''\
+    from maniml import *
+
+    class GhostScene(Scene):
+        def construct(self):
+            squares = [Square(side_length=0.5).shift(RIGHT * i) for i in range(3)]
+            group = VGroup(*squares)
+            self.add(group)
+            for i in range(2):
+                # Storing the builders in a variable puts them in the
+                # checkpoint namespace; this once broke deepcopy identity
+                update_squares = [s.animate.set_fill(BLUE, 1) for s in squares]
+                self.play(*update_squares, run_time=0.1)
+            self.play(group.animate.to_edge(UP))
+            self.wait()
+''')
+
+
+class TestGhostMobjects(unittest.TestCase):
+    """Ported from the retired windowed scenario tests/interactive/
+    ghost_regression.py (2026-09-02): animating a group whose .animate
+    builders were stored in a namespace variable must not leave a stale
+    duplicate behind, and RIGHT over a retained checkpoint must restore
+    it rather than re-run the source beside the old copy."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.scene_file = os.path.join(self.tmpdir.name, 'ghost_scene.py')
+        with open(self.scene_file, 'w') as f:
+            f.write(GHOST)
+        module = load_scene_module(self.scene_file)
+        self.scene = module.GhostScene(window=None)
+        self.scene._scene_filepath = self.scene_file
+        self.scene.skip_animations = True
+        self.scene.setup()
+        self.scene._create_checkpoint_zero()
+
+    def tearDown(self):
+        self.scene.camera.ctx.release()
+        self.tmpdir.cleanup()
+
+    def content(self):
+        from maniml.camera.camera_frame import CameraFrame
+        return [m for m in self.scene.mobjects
+                if not isinstance(m, CameraFrame)]
+
+    def test_group_animation_leaves_no_ghost_across_navigation(self):
+        scene = self.scene
+        scene.on_key_press(WindowKeys.RIGHT, 0)  # flash loop: one unit
+        self.assertEqual(len(self.content()), 1)
+
+        scene.on_key_press(WindowKeys.RIGHT, 0)  # group.animate.to_edge(UP)
+        mobs = self.content()
+        self.assertEqual(len(mobs), 1, "ghost left beside the moved group")
+        ns = scene._live_namespace
+        group = ns.get("group")
+        self.assertTrue(any(group is m for m in mobs),
+                        "namespace group is not the on-screen group")
+        self.assertTrue(any(ns["squares"][0] is c for c in group.get_family()))
+        self.assertGreater(group.get_center()[1], 1, "group did not move up")
+
+        # The reported failure needed a step back and forward over the
+        # retained checkpoint: RIGHT must restore it, not re-run source.
+        scene.on_key_press(WindowKeys.LEFT, 0)
+        self.assertEqual(len(self.content()), 1)
+        scene.on_key_press(WindowKeys.RIGHT, 0)
+        mobs = self.content()
+        self.assertEqual(len(mobs), 1, "ghost after retained forward step")
+        group = scene._live_namespace.get("group")
+        self.assertIsNotNone(group)
+        self.assertGreater(group.get_center()[1], 1)

@@ -33,7 +33,6 @@ from maniml.utils.family_ops import recursive_mobject_remove
 from maniml.utils.iterables import batch_by_property
 from maniml.utils.sounds import play_sound
 from maniml.utils.color import color_to_rgba
-from maniml.rendering.window import Window
 from maniml.scene.checkpoints import CheckpointMixin
 from maniml.scene.checkpoints import deepcopy_namespace  # re-export
 from maniml.scene.interaction import InteractionMixin
@@ -149,19 +148,20 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             file_writer_config,
         )
 
+        # `window` is the viewer: the browser viewer (web/viewer.py) or,
+        # for export, its recorder. The pyglet window is retired; the
+        # name stays because the viewer implements the window interface
+        # the scene loop was built around. The camera is always
+        # windowless — a standalone GL context, the same path --render
+        # uses — and the viewer draws from the geometry stream.
         self.window = window
-        # The browser viewer (--web) stands in for the pyglet window
-        # everywhere except the camera, which runs on its standalone
-        # (windowless) GL context — the same path --render uses
         self._web_viewer = window if getattr(window, 'is_web_viewer', False) else None
         if self.window:
             self.window.init_for_scene(self)
-            # Make sure camera and Pyglet window sync
             self.camera_config["fps"] = 30
 
         # Core state of the scene
         self.camera: Camera = Camera(
-            window=None if self._web_viewer else self.window,
             samples=self.samples,
             **self.camera_config
         )
@@ -218,8 +218,6 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self._propagate_animation_errors = False  # Strict non-interactive runs
 
         # Presentation timeline overlay
-        self._timeline_group = None
-        self._timeline_xs = None
 
         # Click-to-inspect / drag state
         self._grabbed_mobject = None
@@ -235,7 +233,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def __str__(self) -> str:
         return self.__class__.__name__
 
-    def get_window(self) -> Window | None:
+    def get_window(self):
         return self.window
 
     def run(self) -> None:
@@ -342,9 +340,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     def interact(self) -> None:
         """
-        If there is a window, enter a loop
-        which updates the frame while under
-        the hood calling the pyglet event loop
+        If there is a viewer, enter a loop which updates the frame
+        while pumping the viewer's events
         """
         if self.window is None:
             return
@@ -449,15 +446,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         )
     
     def get_image(self) -> Image:
-        # Guard on the camera's window: with the web viewer the camera
-        # is windowless, so there is no window fbo to toggle
-        if self.camera.window is not None:
-            self.camera.use_window_fbo(False)
-            self.camera.capture(*self.render_groups)
-        image = self.camera.get_image()
-        if self.camera.window is not None:
-            self.camera.use_window_fbo(True)
-        return image
+        return self.camera.get_image()
 
     def show(self) -> None:
         self.update_frame(force_draw=True)
@@ -1037,24 +1026,14 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     # Helpers for interactive development
 
     def get_state(self) -> SceneState:
-        # The timeline scrubber is a display overlay, never part of
-        # checkpoint history
-        ignore = [self._timeline_group] if self._timeline_group is not None else None
-        return SceneState(self, ignore=ignore)
+        return SceneState(self)
 
     @affects_mobject_list
     def restore_state(self, scene_state: SceneState):
         scene_state.restore_scene(self)
         self._reset_pacing_clocks()
-        # Restoring replaces self.mobjects wholesale; keep the
-        # presentation timeline overlay alive across restores so it
-        # stays on screen while a unit plays (it is excluded from
-        # checkpoints via the ignore list in get_state)
-        group = self._timeline_group
-        if group is not None and group not in self.mobjects:
-            self.add(group)
         # The affects_mobject_list wrapper rebuilds draw batches once after
-        # the complete restore (including any timeline reattachment).
+        # the complete restore.
 
     def save_state(self) -> None:
         # Store a copy: a reference snapshot aliases the live mobjects
@@ -1096,26 +1075,20 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     @contextmanager
     def temp_record(self):
-        if self.camera.window is not None:
-            self.camera.use_window_fbo(False)
         try:
+            self.file_writer.begin_insert()
+            yield
+        except BaseException as error:
             try:
-                self.file_writer.begin_insert()
-                yield
-            except BaseException as error:
-                try:
-                    self.file_writer.abort()
-                except BaseException as cleanup_error:
-                    error.add_note(
-                        f"Also failed while aborting insert output: {cleanup_error}"
-                    )
-                self.file_writer.write_to_movie = False
-                raise
-            else:
-                self.file_writer.end_insert()
-        finally:
-            if self.camera.window is not None:
-                self.camera.use_window_fbo(True)
+                self.file_writer.abort()
+            except BaseException as cleanup_error:
+                error.add_note(
+                    f"Also failed while aborting insert output: {cleanup_error}"
+                )
+            self.file_writer.write_to_movie = False
+            raise
+        else:
+            self.file_writer.end_insert()
 
     def temp_config_change(self, skip=False, record=False, progress_bar=False):
         stack = ExitStack()

@@ -651,3 +651,40 @@ audit measured (20–60 ms per encode, most of a core on a parked scene
 with updaters). Deleting it removes those costs rather than optimising
 them, and it removes the last reason the viewer had to know whether the
 native pipeline agreed with the browser.
+
+## The pyglet window is retired (decided 2026-09-02)
+
+Milestone step 2 of the one-renderer beeline. The browser viewer is
+now the default and only live surface: `maniml scene.py Scene` opens
+the browser (`--web` is accepted and means the same), and the pyglet
+window, `rendering/window.py`, the `pyglet` and `moderngl-window`
+dependencies, the window section of the config, and the `-f` full
+screen flag are gone. `Scene.window` keeps its name because
+`WebViewer` implements the interface the scene loop was built around;
+the camera is always a standalone GL context now, which deleted the
+window framebuffer, the letterboxed blit, and the `use_window_fbo`
+toggling around offline capture.
+
+The `--present` timeline overlay — rings drawn as scene mobjects near
+the bottom edge, revealed by the mouse — went with it. It existed for
+the window; the browser has had its own rail since 2026-08-16, in
+live and Present alike, so the overlay was a second scrubber with its
+own checkpoint-ignore plumbing (`get_state`/`restore_state` had to
+exclude and re-attach it) and its own crowding bug past ~50
+checkpoints. Both are deleted rather than fixed. In present mode a
+click on the stage no longer grabs anything: navigation is the rail.
+
+The key and mouse constants in `event_constants.py` are maniml's own.
+Their values are still the ones pyglet delivered, so scene code and
+`mobject/interactive.py` compare against the same numbers; nothing
+imports pyglet, and `tests/test_headless_import.py` asserts that a
+star import touches neither pyglet nor moderngl-window.
+
+The windowed scenario suite (`tests/interactive/`, opt-in through
+`MANIML_WINDOW_TESTS`) is deleted. Its ghost-mobject regression is
+ported to `tests/test_checkpoint_reload.py::TestGhostMobjects`, driven
+headlessly the way the rest of that file drives a scene; dev-mode
+navigation and present-mode prebuild are covered by the headless
+checkpoint and mode tests and by the end-to-end web viewer suite; the
+3D depth/MSAA scenario is covered by the wgpu fidelity cases. The
+MSAA letterbox blit it also checked no longer exists.

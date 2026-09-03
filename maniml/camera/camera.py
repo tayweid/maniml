@@ -19,13 +19,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional
     from maniml.typing import ManimColor, Vect3
-    from maniml.rendering.window import Window
 
 
 class Camera(object):
     def __init__(
         self,
-        window: Optional[Window] = None,
         background_image: Optional[str] = None,
         frame_config: dict = dict(),
         # Note: frame height and width will be resized to match this resolution aspect ratio
@@ -45,7 +43,6 @@ class Camera(object):
         # to set samples to be greater than 0.
         samples: int = 0,
     ):
-        self.window = window
         self.background_image = background_image
         self.default_pixel_shape = resolution  # Rename?
         self.fps = fps
@@ -70,10 +67,10 @@ class Camera(object):
         self.frame = CameraFrame(**config)
 
     def init_context(self) -> None:
-        if self.window is None:
-            self.ctx: moderngl.Context = moderngl.create_standalone_context()
-        else:
-            self.ctx: moderngl.Context = self.window.ctx
+        # Always a standalone (windowless) context: the live viewer draws
+        # in the browser from the geometry stream, and offline output
+        # reads this context's framebuffer back.
+        self.ctx: moderngl.Context = moderngl.create_standalone_context()
 
         self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
         self.ctx.enable(moderngl.BLEND)
@@ -85,25 +82,11 @@ class Camera(object):
         # This is the frame buffer we'll draw into when emitting frames
         self.draw_fbo = self.get_fbo(samples=0)
 
-        if self.window is None:
-            self.window_fbo = None
-            self.fbo = self.fbo_for_files
-        else:
-            self.window_fbo = self.ctx.detect_framebuffer()
-            # Always render to fixed-size FBO, then blit to window with letterboxing
-            self.fbo = self.fbo_for_files
-
+        self.fbo = self.fbo_for_files
         self.fbo.use()
 
     def init_light_source(self) -> None:
         self.light_source = Point(self.light_source_position)
-
-    def use_window_fbo(self, use: bool = True):
-        assert self.window is not None
-        if use:
-            self.fbo = self.window_fbo
-        else:
-            self.fbo = self.fbo_for_files
 
     # Methods associated with the frame buffer
     def get_fbo(
@@ -124,8 +107,6 @@ class Camera(object):
 
     def clear(self) -> None:
         self.fbo.clear(*self.background_rgba)
-        if self.window:
-            self.window.clear(*self.background_rgba)
 
     def blit(self, src_fbo, dst_fbo):
         """
@@ -136,44 +117,6 @@ class Camera(object):
         gl.glBlitFramebuffer(
             *src_fbo.viewport,
             *dst_fbo.viewport,
-            gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR
-        )
-
-    def blit_letterboxed(self, src_fbo, dst_fbo):
-        """
-        Copy between FBOs with letterboxing to maintain aspect ratio.
-        """
-        # A multisampled source may only blit to an equal-sized rect
-        # (GL_INVALID_OPERATION otherwise, e.g. ThreeDScene's samples=4).
-        # Resolve it into the same-size single-sample draw_fbo first,
-        # then do the scaled letterbox blit from that.
-        if getattr(src_fbo.color_attachments[0], 'samples', 0) > 0:
-            self.blit(src_fbo, self.draw_fbo)
-            src_fbo = self.draw_fbo
-
-        src_w, src_h = src_fbo.viewport[2], src_fbo.viewport[3]
-        dst_w, dst_h = dst_fbo.viewport[2], dst_fbo.viewport[3]
-
-        src_aspect = src_w / src_h
-        dst_aspect = dst_w / dst_h
-
-        if dst_aspect > src_aspect:
-            # Window is wider - pillarbox (bars on sides)
-            new_w = int(dst_h * src_aspect)
-            new_h = dst_h
-        else:
-            # Window is taller - letterbox (bars on top/bottom)
-            new_w = dst_w
-            new_h = int(dst_w / src_aspect)
-
-        x_offset = (dst_w - new_w) // 2
-        y_offset = (dst_h - new_h) // 2
-
-        gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, src_fbo.glo)
-        gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, dst_fbo.glo)
-        gl.glBlitFramebuffer(
-            0, 0, src_w, src_h,  # source rect
-            x_offset, y_offset, x_offset + new_w, y_offset + new_h,  # dest rect
             gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR
         )
 
@@ -273,15 +216,6 @@ class Camera(object):
         for mobject in sorted_mobjects:
             mobject.render(self.ctx, self.uniforms)
 
-        if self.window:
-            self.window.swap_buffers()
-            if self.fbo is not self.window_fbo:
-                # Clear window to black for letterbox bars
-                self.window_fbo.use()
-                self.window_fbo.clear(0, 0, 0, 1)
-                # Blit with letterboxing to maintain aspect ratio
-                self.blit_letterboxed(self.fbo, self.window_fbo)
-                self.window.swap_buffers()
 
     def refresh_uniforms(self) -> None:
         frame = self.frame

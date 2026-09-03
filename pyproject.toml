@@ -33,7 +33,6 @@ dependencies = [
     "audioop-lts>=0.2.1; python_version >= '3.13'",
     "numpy>=1.19.0",
     "moderngl>=5.6.0",
-    "moderngl-window>=2.4.0",
     "pillow>=8.0.0",
     "pydub>=0.25.1",
     "scipy>=1.5.0",
@@ -51,7 +50,6 @@ dependencies = [
     "isosurfaces>=0.1.0",
     "manimpango>=0.4.0",
     "tqdm>=4.0.0",
-    "pyglet>=2.0.0",
     # maniml uses the new websockets.asyncio implementation added in 13.0.
     "websockets>=13.0",
     "rich>=13.0.0",

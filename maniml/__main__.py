@@ -29,16 +29,17 @@ App:
   maniml agent open | status | restart | uninstall
 
 Modes:
-  (default)        Interactive development: window + hot-reload
-  --web            Same interactive development, viewed in the browser
-                   instead of a native window (combines with --present)
+  (default)        Interactive development in the browser: checkpoints,
+                   hot-reload, click-to-inspect. The scene renders in
+                   the browser with WebGPU; --no-browser skips opening
+                   the tab (--web is accepted and means the same)
   --present        Presentation: pre-runs every animation up front
                    (validating the whole scene), disables the file
                    watcher, then starts at the first checkpoint. In
                    the web viewer, a fresh recording supplies smooth
                    forward/reverse motion; an explicit Present request
                    renders that cache first when needed
-  --render         No window: write the scene to a video file under
+  --render         Headless: write the scene to a video file under
                    ./media/
   --export         Bake the scene into a self-contained web player
                    (./media/SceneName_web/) — a static folder anyone
@@ -50,20 +51,19 @@ Modes:
                    both directions. A static folder for a course page —
                    students click through the episode, no Python
   --export-checkpoints
-                   No window: write one PNG per checkpoint under
+                   Headless: write one PNG per checkpoint under
                    ./media/SceneName_checkpoints/. Its own export
                    because the stills outweigh everything else a render
                    produces — regenerate them when you need them, and
                    keep them out of the repo
   --help, -h       Show this help message
 
-Interactive controls (in the preview window):
+Interactive controls (in the browser viewer):
   RIGHT arrow      Run the next animation (re-executed from source)
-  LEFT arrow       Reverse to the previous checkpoint (animated)
+  LEFT arrow       Jump to the previous checkpoint
   UP/DOWN arrows   Jump between checkpoints instantly
   Saving the scene file auto-reloads from the last safe checkpoint
-  Timeline         (--present) move the mouse to the bottom edge for
-                   a clickable checkpoint timeline
+  The rail at the bottom is the clickable checkpoint timeline
 
 Examples:
   maniml example.py MyScene
@@ -328,18 +328,14 @@ def run_scene(
         )
         scene._render_mode = True
         scene._render_checkpoints = export_checkpoints
-    elif web:
+    else:
+        # The browser is the viewer (the pyglet window is retired); --web
+        # is accepted for muscle memory and scripts but changes nothing.
         from maniml.web import WebViewer
 
         viewer = WebViewer(open_browser=open_browser)
         _run_web_scenes(viewer, script_file, scene_name, scene_class, present)
         return
-    else:
-        from maniml.rendering.window import Window
-
-        window = Window()
-        scene = scene_class(window=window)
-        scene._present_mode = present
 
     scene._scene_filepath = os.path.abspath(script_file)
     scene.run()

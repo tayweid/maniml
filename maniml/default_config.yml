@@ -35,17 +35,6 @@ directories:
   # it stores this saved data to whatever directory appdirs.user_cache_dir("maniml") returns,
   # but here a user can specify a different cache location
   cache: ""
-window:
-  # The position of window on screen. UR -> Upper Right, and likewise DL -> Down and Left,
-  # UO would be upper middle, etc.
-  position_string: UR
-  # If using multiple monitors, which one should show the window
-  monitor_index: 0
-  # If not full screen, the default to give it half the screen width
-  full_screen: False
-  # Other optional specifications that override the above include:
-  # position: (500, 500)  # Specific position, in pixel coordinates, for upper right corner
-  # size: (1920, 1080)  # Specific size, in pixels
 camera:
   resolution: (1920, 1080)
   background_color: "#1a1a1a"

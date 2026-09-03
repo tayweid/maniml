@@ -1,18 +1,16 @@
-"""Display-independent input constants used by ManimLive.
+"""Key symbols, modifier masks, and mouse button masks for scene input.
 
-The native window backend forwards Pyglet's integer event values directly to
-scenes. Keeping the small subset used by the scene and browser paths here
-lets those paths work without importing ``pyglet.window``, which otherwise
-tries to create an OpenGL shadow window at import time.
-
-These values are part of Pyglet 2's public ``window.key`` and
-``window.mouse`` APIs. A regression test checks them against the installed
-Pyglet version so a future dependency change cannot silently break input.
+These are maniml's own constants. Their integer values are the ones the
+retired pyglet window used to deliver (pyglet 2's ``window.key`` and
+``window.mouse``), kept so scene code, ``mobject/interactive.py``, and
+recorded checkpoints that compare against them keep working; nothing
+imports pyglet any more. The browser viewer maps DOM key names and
+button indices onto them (``web/viewer.py``).
 """
 
 
 class WindowKeys:
-    """Pyglet-compatible key symbols and modifier masks ManimLive uses."""
+    """Key symbols and modifier masks the scene handlers compare against."""
 
     MOD_SHIFT = 1 << 0
     MOD_CTRL = 1 << 1
@@ -32,7 +30,7 @@ class WindowKeys:
 
 
 class MouseButtons:
-    """Pyglet-compatible mouse button masks ManimLive uses."""
+    """Mouse button masks the scene handlers compare against."""
 
     LEFT = 1 << 0
     MIDDLE = 1 << 1

@@ -58,32 +58,6 @@ class TestPresentMode(ModeSceneTest):
         # live namespace tracks the displayed checkpoint
         self.assertIn('self', scene._live_namespace)
 
-    def test_timeline_click_jumps(self):
-        scene = self.make_scene()
-        scene._present_mode = True
-        scene._prepare_presentation()
-        scene._show_timeline()
-        self.assertIsNotNone(scene._timeline_group)
-
-        # click near the last dot's x, inside the bottom zone
-        x = scene._timeline_xs[-1]
-        y = scene.camera.frame.get_bottom()[1] + 0.01
-        handled = scene._handle_timeline_click(np.array([x, y, 0.0]))
-        self.assertTrue(handled)
-        self.assertEqual(scene.current_animation_index, 4)
-
-        # a click in the middle of the frame is not a timeline click
-        handled = scene._handle_timeline_click(np.array([0.0, 0.0, 0.0]))
-        self.assertFalse(handled)
-
-    def test_timeline_never_leaks_into_checkpoints(self):
-        scene = self.make_scene()
-        scene._present_mode = True
-        scene._prepare_presentation()
-        scene._show_timeline()
-        state = scene.get_state()
-        self.assertNotIn(scene._timeline_group, state.mobjects)
-
 
 class TestRenderMode(ModeSceneTest):
     def _render_scene(self, media):

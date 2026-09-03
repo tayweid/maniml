@@ -22,14 +22,14 @@ as well). Steps, in order:
    switcher, and the fallback protocol are gone; a browser without
    WebGPU gets a notice on the stage. Native capture is skipped
    whenever a client renders. `--render` still uses native GL.
-2. **Retire pyglet** (`rendering/window.py`): `--web` becomes the only
-   live surface. Inline the pyglet key/mouse constants `viewer.py`
-   imports for the InteractionMixin mapping; move the `--present`
-   timeline from the GL overlay to the DOM (absorbs the
-   scrubber-crowding item and deletes the checkpoint-ignore plumbing).
-   After this the native GL pipeline is used by exactly one thing:
-   headless `--render`/`--export-checkpoints` through a standalone
-   context.
+2. **Retire pyglet.** Done 2026-09-02 (DECISIONS.md, "The pyglet
+   window is retired"): the browser is the default and only live
+   surface (`--web` is a no-op alias), `rendering/window.py` and the
+   pyglet / moderngl-window dependencies are gone, the key and mouse
+   constants are maniml's own, and the GL timeline overlay is deleted
+   in favour of the viewer's rail. The native GL pipeline is now used
+   by exactly one thing: headless `--render`/`--export-checkpoints`
+   through a standalone context.
 3. **Pause.** Dogfood real course scenes with the browser as the only
    live surface for a while before touching the render path. The
    burn-in signal is course production, not the test suite.
@@ -183,17 +183,6 @@ viewing becomes a product promise.
   twice, or it reproduces the duplicate-mobject bug above. See
   "Cell-marked scene files" below for the version of this that stops
   being a bug rather than getting fixed.
-
-- **Presentation timeline: window the scrubber for large scenes.** The
-  bar packs all N rings into a fixed 60% span, so past ~50 checkpoints
-  the rings crowd, and past ~78 they overlap and the connecting-line
-  stubs invert (`_show_timeline` in `maniml/scene/presentation.py`).
-  Plan: show every k-th ring plus the neighborhood around the current
-  checkpoint, rather than all of them. (Simpler fallback if windowing
-  proves fiddly: adaptive marker radius
-  `r = min(0.055 * scale, 0.35 * spacing)`, dropping the connecting
-  line when gaps get tiny.) Superseded entirely if the timeline moves
-  to DOM (milestone step 4).
 
 ## App and viewer
 

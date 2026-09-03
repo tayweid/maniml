@@ -17,7 +17,6 @@ class PacingClockTests(unittest.TestCase):
         scene.time = 100.0
         scene.virtual_animation_start_time = 20.0
         scene.real_animation_start_time = 40.0
-        scene._timeline_group = None
         scene.assemble_render_groups = MagicMock()
 
         state = MagicMock()
@@ -224,7 +223,7 @@ class SceneRunLifecycleTests(unittest.TestCase):
 
 class LiveSoundTests(unittest.TestCase):
     """add_sound() plays through the system player exactly when there is a
-    live audience: a pyglet window, or a web viewer with a client. Render,
+    live audience: a web viewer with a client. Render,
     export (whose recorder stands in as _web_viewer without has_clients),
     and headless runs stay silent."""
 
@@ -391,10 +390,6 @@ class RecordingLifecycleTests(unittest.TestCase):
         scene.file_writer.begin_insert.assert_called_once_with()
         scene.file_writer.abort.assert_called_once_with()
         self.assertFalse(scene.file_writer.write_to_movie)
-        self.assertEqual(
-            scene.camera.use_window_fbo.call_args_list,
-            [call(False), call(True)],
-        )
 
 
 if __name__ == "__main__":

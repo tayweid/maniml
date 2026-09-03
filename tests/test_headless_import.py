@@ -17,7 +17,6 @@ class HeadlessImportTests(unittest.TestCase):
             "DISPLAY",
             "WAYLAND_DISPLAY",
             "MIR_SOCKET",
-            "PYGLET_HEADLESS",
         ):
             env.pop(name, None)
         return subprocess.run(
@@ -37,33 +36,19 @@ class HeadlessImportTests(unittest.TestCase):
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
         )
 
-    def test_package_and_star_import_do_not_create_a_shadow_window(self):
+    def test_package_and_star_import_touch_no_window_toolkit(self):
+        # The pyglet window is retired (2026-09-02): importing maniml must
+        # not pull in pyglet or moderngl-window, which would try to reach
+        # a display and are no longer dependencies.
         script = textwrap.dedent("""
-            import pyglet
+            import sys
             import maniml
             from maniml import *
 
-            assert pyglet.options["shadow_window"] is False
-            assert pyglet.gl._shadow_window is None
-            assert maniml.Window is Window
+            assert "pyglet" not in sys.modules
+            assert "moderngl_window" not in sys.modules
+            assert not hasattr(maniml, "Window")
             assert Scene.__module__ == "maniml.scene.scene"
-            """)
-        self.assert_succeeded(self.run_without_display("-c", script))
-
-    def test_input_constants_match_native_pyglet_events(self):
-        script = textwrap.dedent("""
-            import maniml
-            from maniml.event_constants import MouseButtons, WindowKeys
-            from pyglet.window import key, mouse
-
-            for name in (
-                "MOD_SHIFT", "MOD_CTRL", "MOD_ALT", "MOD_CAPSLOCK",
-                "MOD_COMMAND", "BACKSPACE", "TAB", "ENTER", "ESCAPE",
-                "LEFT", "UP", "RIGHT", "DOWN", "SPACE",
-            ):
-                assert getattr(WindowKeys, name) == getattr(key, name), name
-            for name in ("LEFT", "MIDDLE", "RIGHT"):
-                assert getattr(MouseButtons, name) == getattr(mouse, name), name
             """)
         self.assert_succeeded(self.run_without_display("-c", script))
 

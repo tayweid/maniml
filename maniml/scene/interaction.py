@@ -2,14 +2,14 @@
 
 Arrow-key checkpoint navigation (RIGHT re-executes from source,
 UP/DOWN jump, LEFT plays an animated reverse morph), click-to-inspect
-and drag-to-move, and the window mouse/keyboard callbacks.
+and drag-to-move, and the viewer mouse/keyboard callbacks.
 """
 from __future__ import annotations
 
 from maniml.camera.camera_frame import CameraFrame
 from maniml.config import manim_config
-from maniml.event_constants import MouseButtons as PygletMouseButtons
-from maniml.event_constants import WindowKeys as PygletWindowKeys
+from maniml.event_constants import MouseButtons
+from maniml.event_constants import WindowKeys
 from maniml.event_handler import EVENT_DISPATCHER
 from maniml.event_handler.event_type import EventType
 from maniml.logger import log
@@ -19,8 +19,7 @@ class InteractionMixin:
     def _inspectable_mobjects(self) -> list[Mobject]:
         return [
             mob for mob in self.mobjects
-            if mob is not self._timeline_group
-            and not isinstance(mob, CameraFrame)
+            if not isinstance(mob, CameraFrame)
             and not mob.is_fixed_in_frame()
         ]
 
@@ -83,14 +82,6 @@ class InteractionMixin:
         if propagate_event is not None and propagate_event is False:
             return
 
-        # Presentation timeline appears when the mouse nears the bottom edge
-        if self._present_mode:
-            if self._timeline_zone_contains(point):
-                if self._timeline_group is None:
-                    self._show_timeline()
-            elif self._timeline_group is not None:
-                self._hide_timeline()
-
         frame = self.camera.frame
         # Handle perspective changes
         if self.window.is_key_pressed(ord(manim_config.key_bindings.pan_3d)):
@@ -134,9 +125,10 @@ class InteractionMixin:
             return
 
         if self._present_mode:
-            if self._handle_timeline_click(point):
-                return
-        elif button == PygletMouseButtons.LEFT:
+            # A presentation is navigated from the viewer's rail, not by
+            # grabbing what is on screen
+            return
+        if button == MouseButtons.LEFT:
             # Click a mobject to identify it; keep holding to drag it
             mobject = self._find_mobject_at(point)
             if mobject is not None:
@@ -173,7 +165,7 @@ class InteractionMixin:
             about_point=point
         )
 
-    def _reverse_to_previous_pausepoint(self, timeline_visible: bool = False) -> None:
+    def _reverse_to_previous_pausepoint(self) -> None:
         """LEFT: jump instantly to the previous pausepoint's exact state
         (or the scene start; the previous checkpoint in a pause-less file).
 
@@ -201,8 +193,6 @@ class InteractionMixin:
             target = index - 1
         print(f"← Back to animation {target}/{len(checkpoints) - 1}")
         self._restore_checkpoint_for_display(target)
-        if timeline_visible:
-            self._show_timeline()
         self.update_frame(dt=0, force_draw=True)
 
     def on_key_release(
@@ -227,19 +217,13 @@ class InteractionMixin:
         # boundary, and _maybe_replay_loop_pause applies it from the
         # pausepoint.
         if getattr(self, '_loop_hold_index', None) is not None and symbol in (
-                PygletWindowKeys.LEFT, PygletWindowKeys.RIGHT,
-                PygletWindowKeys.UP, PygletWindowKeys.DOWN):
+                WindowKeys.LEFT, WindowKeys.RIGHT,
+                WindowKeys.UP, WindowKeys.DOWN):
             self._loop_exit_key = symbol
             return
 
-        # In present mode the timeline overlay rides along through
-        # navigation: it survives checkpoint restores (see
-        # restore_state) and is rebuilt around each move, with the
-        # traversed segment emphasized while a unit plays
-        timeline_visible = self._present_mode and self._timeline_group is not None
-
         # Handle UP arrow - jump to next animation
-        if symbol == PygletWindowKeys.UP:
+        if symbol == WindowKeys.UP:
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
@@ -247,14 +231,12 @@ class InteractionMixin:
             if self.current_animation_index < len(self.animation_checkpoints) - 1:
                 print(f"↑ Jump to animation {self.current_animation_index + 1}/{len(self.animation_checkpoints) - 1}")
                 self._restore_checkpoint_for_display(self.current_animation_index + 1)
-                if timeline_visible:
-                    self._show_timeline()
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at last animation")
 
         # Handle DOWN arrow - jump to previous animation
-        elif symbol == PygletWindowKeys.DOWN:
+        elif symbol == WindowKeys.DOWN:
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
@@ -264,14 +246,12 @@ class InteractionMixin:
                 # Restores a copy: putting the stored mobjects on screen
                 # would let later mutation corrupt the checkpoint
                 self._restore_checkpoint_for_display(self.current_animation_index - 1)
-                if timeline_visible:
-                    self._show_timeline()
                 self.update_frame(dt=0, force_draw=True)
             else:
                 print("Already at first animation")
 
         # Handle LEFT arrow - play animation in reverse
-        elif symbol == PygletWindowKeys.LEFT:
+        elif symbol == WindowKeys.LEFT:
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
@@ -280,7 +260,7 @@ class InteractionMixin:
                 # Set flag to prevent re-entry
                 self._processing_key = True
                 try:
-                    self._reverse_to_previous_pausepoint(timeline_visible)
+                    self._reverse_to_previous_pausepoint()
                 finally:
                     # Clear the flag
                     self._processing_key = False
@@ -288,7 +268,7 @@ class InteractionMixin:
                 print("Already at first animation")
 
         # Handle RIGHT arrow - play next animation forward
-        elif symbol == PygletWindowKeys.RIGHT:
+        elif symbol == WindowKeys.RIGHT:
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
@@ -296,15 +276,7 @@ class InteractionMixin:
             # Set flag to prevent re-entry
             self._processing_key = True
             try:
-                if (timeline_visible and self.current_animation_index
-                        < len(self.animation_checkpoints) - 1):
-                    self._show_timeline(active_segment=(
-                        self.current_animation_index,
-                        self.current_animation_index + 1,
-                    ))
                 self.advance_to_next_pausepoint()
-                if timeline_visible:
-                    self._show_timeline()
             finally:
                 self._processing_key = False
         
@@ -323,12 +295,12 @@ class InteractionMixin:
 
             if char == manim_config.key_bindings.reset:
                 self.play(self.camera.frame.animate.to_default_state())
-            elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            elif char == "z" and (modifiers & (WindowKeys.MOD_COMMAND | WindowKeys.MOD_CTRL)):
                 self.undo()
-            elif char == "z" and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL | PygletWindowKeys.MOD_SHIFT)):
+            elif char == "z" and (modifiers & (WindowKeys.MOD_COMMAND | WindowKeys.MOD_CTRL | WindowKeys.MOD_SHIFT)):
                 self.redo()
             # command + q
-            elif char == manim_config.key_bindings.quit and (modifiers & (PygletWindowKeys.MOD_COMMAND | PygletWindowKeys.MOD_CTRL)):
+            elif char == manim_config.key_bindings.quit and (modifiers & (WindowKeys.MOD_COMMAND | WindowKeys.MOD_CTRL)):
                 self.quit_interaction = True
             # Space
             elif char == " ":
@@ -347,9 +319,7 @@ class InteractionMixin:
         pass
 
     def focus(self) -> None:
-        """
-        Puts focus on the ManimGL window.
-        """
+        """Put focus on the viewer."""
         if not self.window:
             return
         self.window.focus()

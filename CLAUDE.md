@@ -71,12 +71,13 @@ maniml script.py SceneName --export-present
 # carrying them in the repo. Combines with --render when both are.
 maniml script.py SceneName --export-checkpoints
 
-# Browser viewer: same interactive development (checkpoints, watcher,
-# click-to-inspect), viewed in a browser tab instead of the pyglet
-# window; combines with --present. --no-browser skips the auto-open.
-# The browser renders the scene itself with WebGPU; there is no
-# server-side picture, so a browser without WebGPU shows a notice.
-maniml script.py SceneName --web
+# Interactive development (the default): checkpoints, watcher,
+# click-to-inspect, in a browser tab; combines with --present.
+# --no-browser skips the auto-open; --web is accepted and means the
+# same (the pyglet window was retired 2026-09-02). The browser renders
+# the scene itself with WebGPU; there is no server-side picture, so a
+# browser without WebGPU shows a notice.
+maniml script.py SceneName
 
 # The app: persistent local server. The landing page is an Open action and
 # the files you opened before — not a directory listing. A file opens at its
@@ -90,16 +91,12 @@ maniml app [dir]
 # second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
-# Full display-independent suite (~98s; test_web_viewer is a headless
-# end-to-end drive of --web over a real WebSocket). CI's job definitions
-# in .github/workflows/ci.yml are the canonical module lists.
+# Full suite (~200s; nothing needs a display: test_web_viewer is a
+# headless end-to-end drive of the viewer over a real WebSocket, and the
+# interaction handlers are driven directly on window=None scenes). CI's
+# job definitions in .github/workflows/ci.yml are the canonical module
+# lists.
 python -m unittest discover -s tests -t .
-
-# Windowed interactive tests (real OpenGL window; drives actual key/mouse
-# handlers; needs a display, so opt-in)
-MANIML_WINDOW_TESTS=1 python -m unittest tests.test_interactive
-# ...or one scenario directly:
-python -m tests.interactive.dev_mode
 
 # CE API conformance: tests/ce_conformance/ce_api_names.txt is the CE
 # public API (regenerate: python -m tests.ce_conformance.extract_ce_names ../manimce);
@@ -133,9 +130,10 @@ All of this lives in `maniml/`:
 
 ## The web layer (`maniml/web/`)
 
-The browser viewer (`--web`) is an additive frontend that stands in for
-the pyglet window; the pyglet path is unchanged and remains the default
-until the WebGPU transition retires it (`TODO.md`). Module map:
+The browser viewer is the scene's window: `WebViewer` implements the
+interface the scene loop was built around (the pyglet window it
+replaced was retired on 2026-09-02, see DECISIONS.md), and `Scene.window`
+keeps that name. Module map:
 
 - `server.py` — the one-port server (WebSocket + plain GETs) and `ClientLease`.
 - `viewer.py` — `WebViewer`, the Window stand-in; streaming policy; the console tap.
@@ -159,7 +157,7 @@ until the WebGPU transition retires it (`TODO.md`). Module map:
 
 **A chip is a source statement, not a checkpoint.** The rail groups consecutive checkpoints sharing a `unit_index` into one chip, so a loop that stood as one stacked chip before it ran is still one stacked chip after — otherwise the rail swells as you step through it and every chip you were aiming at moves. That is why the state carries `units` and the move carries `unit`: a forward play's destination checkpoint does not exist yet, so only the statement being played can say whether the move stays inside the stack (the chip pulses, there being no stretch between two chips to light) or crosses to the next one.
 
-**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket; a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Input events drain inside `on_frame_rendered` — the same place pyglet dispatches (during the render tick) — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
+**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket; a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Input events drain inside `on_frame_rendered` — during the render tick — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
 
 **The console.** Output rides the same socket: `OutputTap` tees `sys.stdout`/`sys.stderr` in the scene process (writes still reach the real stream, so the app can scrape the launch line) into a bounded `LogBuffer`, and `_broadcast_logs` sends new lines as `{"type": "log", "lines": [...]}` — deliberately *before* the "has anything changed" test, since an idle scene can still be printing, and with the full backlog on connect. This is the only way to see a running scene's output in app mode at all: the child's stdout is a pipe into the app process, read only when a scene fails to start. The panel is toggle-only (`C`), never automatic — stepping a scene prints on every arrow key. In full screen it rides with the rest of the chrome rather than being suppressed, overlaying rather than reflowing so the frame is not resized every time the pointer nears an edge.
 
@@ -312,4 +310,4 @@ ManimGL's IPython embed mode was removed in 2026-07 (see `DECISIONS.md`); `self.
 - Mobjects animated under depth test re-triangulate each frame the points change (earclip cost; fine for typical scenes, measurable for huge Text).
 - `Camera.blit_letterboxed` resolves the MSAA fbo (ThreeDScene uses samples=4) into `draw_fbo` before the scaled window blit — an MSAA source may only blit to an equal-sized rect.
 
-Regression-tested in `tests/interactive/three_d.py` (windowed).
+Regression-tested by the depth-tested 3D case in `tests/test_wgpu_port.py` (the windowed scenario it once had went with the pyglet window).

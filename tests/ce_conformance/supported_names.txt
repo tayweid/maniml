@@ -183,7 +183,6 @@ Vector
 VectorizedPoint
 Wait
 Wiggle
-Window
 Write
 X_AXIS
 Y_AXIS

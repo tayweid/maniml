@@ -1,9 +1,10 @@
-"""Browser-based viewer: a drop-in stand-in for the pyglet Window.
+"""Browser-based viewer: the scene's window.
 
-WebViewer duck-types the small interface Scene expects from its window
+WebViewer implements the small interface Scene expects from its window
 (`init_for_scene`, `destroy`, `is_closing`, `has_undrawn_event`,
-`is_key_pressed`, `focus`, `_window.dispatch_events`), so the
-InteractionMixin handlers and the checkpoint system run unmodified.
+`is_key_pressed`, `focus`, `_window.dispatch_events`) — the shape the
+retired pyglet window had — so the InteractionMixin handlers and the
+checkpoint system run unmodified.
 Rendering happens in the browser: once a client reports its WebGPU is
 up (a `mode` message with `geometry: true`), every frame is serialized
 as a geometry payload (web/geometry.py) and rendered client-side, and
@@ -17,9 +18,9 @@ stays off the socket; a forced payload on any checkpoint-state change.
 
 Event flow: the browser sends key/pointer events over the WebSocket as
 JSON; `_dispatch_events` (called from `on_frame_rendered`, i.e. from
-inside the scene's own update loop, mirroring where pyglet dispatches)
-maps them to pyglet key symbols / button masks and calls the scene's
-existing on_* handlers. Pointer coordinates arrive normalized to the
+inside the scene's own update loop, i.e. during the render tick) maps
+them to the key symbols / button masks in event_constants.py and calls
+the scene's existing on_* handlers. Pointer coordinates arrive normalized to the
 frame ([0,1], y-up), so no window-size bookkeeping is needed.
 """
 
@@ -39,8 +40,8 @@ from pathlib import Path
 import numpy as np
 
 from maniml.constants import FRAME_SHAPE
-from maniml.event_constants import MouseButtons as PygletMouseButtons
-from maniml.event_constants import WindowKeys as PygletWindowKeys
+from maniml.event_constants import MouseButtons
+from maniml.event_constants import WindowKeys
 from maniml.logger import log
 from maniml.performance import performance
 from maniml.scene.source_map import chip_unit_for
@@ -55,22 +56,22 @@ if TYPE_CHECKING:
     from typing import Optional
     from maniml.scene.scene import Scene
 
-JS_KEY_TO_PYGLET = {
-    "ArrowLeft": PygletWindowKeys.LEFT,
-    "ArrowRight": PygletWindowKeys.RIGHT,
-    "ArrowUp": PygletWindowKeys.UP,
-    "ArrowDown": PygletWindowKeys.DOWN,
-    "Enter": PygletWindowKeys.ENTER,
-    "Escape": PygletWindowKeys.ESCAPE,
-    "Backspace": PygletWindowKeys.BACKSPACE,
-    "Tab": PygletWindowKeys.TAB,
-    " ": PygletWindowKeys.SPACE,
+JS_KEY_TO_SYMBOL = {
+    "ArrowLeft": WindowKeys.LEFT,
+    "ArrowRight": WindowKeys.RIGHT,
+    "ArrowUp": WindowKeys.UP,
+    "ArrowDown": WindowKeys.DOWN,
+    "Enter": WindowKeys.ENTER,
+    "Escape": WindowKeys.ESCAPE,
+    "Backspace": WindowKeys.BACKSPACE,
+    "Tab": WindowKeys.TAB,
+    " ": WindowKeys.SPACE,
 }
 NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"})
-JS_BUTTON_TO_PYGLET = {
-    0: PygletMouseButtons.LEFT,
-    1: PygletMouseButtons.MIDDLE,
-    2: PygletMouseButtons.RIGHT,
+JS_BUTTON_TO_MASK = {
+    0: MouseButtons.LEFT,
+    1: MouseButtons.MIDDLE,
+    2: MouseButtons.RIGHT,
 }
 
 # Scenes are flat colour with hard edges, which is the worst case for the
@@ -556,11 +557,11 @@ class WebViewer:
                 else:
                     scene.on_mouse_motion(point, d_point)
             elif action == "down":
-                button = JS_BUTTON_TO_PYGLET.get(event.get("button", 0))
+                button = JS_BUTTON_TO_MASK.get(event.get("button", 0))
                 if button is not None:
                     scene.on_mouse_press(point, button, mods)
             elif action == "up":
-                button = JS_BUTTON_TO_PYGLET.get(event.get("button", 0))
+                button = JS_BUTTON_TO_MASK.get(event.get("button", 0))
                 if button is not None:
                     scene.on_mouse_release(point, button, mods)
             elif action == "wheel":
@@ -638,8 +639,6 @@ class WebViewer:
         if index == scene.current_animation_index:
             return
         scene._restore_checkpoint_for_display(index)
-        if scene._present_mode and scene._timeline_group is not None:
-            scene._show_timeline()
         scene.update_frame(dt=0, force_draw=True)
 
     def _advance_to_unit(self, unit_index: int):
@@ -783,8 +782,8 @@ class WebViewer:
 
     @staticmethod
     def _map_key(js_key: str) -> Optional[int]:
-        if js_key in JS_KEY_TO_PYGLET:
-            return JS_KEY_TO_PYGLET[js_key]
+        if js_key in JS_KEY_TO_SYMBOL:
+            return JS_KEY_TO_SYMBOL[js_key]
         if len(js_key) == 1:
             return ord(js_key.lower())
         return None
@@ -793,13 +792,13 @@ class WebViewer:
     def _map_mods(event: dict) -> int:
         mods = 0
         if event.get("shift"):
-            mods |= PygletWindowKeys.MOD_SHIFT
+            mods |= WindowKeys.MOD_SHIFT
         if event.get("ctrl"):
-            mods |= PygletWindowKeys.MOD_CTRL
+            mods |= WindowKeys.MOD_CTRL
         if event.get("alt"):
-            mods |= PygletWindowKeys.MOD_ALT
+            mods |= WindowKeys.MOD_ALT
         if event.get("meta"):
-            mods |= PygletWindowKeys.MOD_COMMAND
+            mods |= WindowKeys.MOD_COMMAND
         return mods
 
     @staticmethod
@@ -807,11 +806,11 @@ class WebViewer:
         # JS MouseEvent.buttons: 1=left, 2=right, 4=middle
         mask = 0
         if js_buttons & 1:
-            mask |= PygletMouseButtons.LEFT
+            mask |= MouseButtons.LEFT
         if js_buttons & 2:
-            mask |= PygletMouseButtons.RIGHT
+            mask |= MouseButtons.RIGHT
         if js_buttons & 4:
-            mask |= PygletMouseButtons.MIDDLE
+            mask |= MouseButtons.MIDDLE
         return mask
 
     def _norm_to_scene(self, nx: float, ny: float, relative: bool = False):

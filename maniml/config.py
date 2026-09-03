@@ -41,7 +41,6 @@ def initialize_manim_config() -> Dict:
     log.setLevel(args.log_level or config["log_level"])
 
     update_directory_config(config)
-    update_window_config(config, args)
     update_camera_config(config, args)
     update_file_writer_config(config, args)
     update_scene_config(config, args)
@@ -93,11 +92,6 @@ def parse_cli():
             "--uhd",
             action="store_true",
             help="Render at a 4k",
-        )
-        parser.add_argument(
-            "-f", "--full_screen",
-            action="store_true",
-            help="Show window in full screen",
         )
         parser.add_argument(
             "-p", "--presenter_mode",
@@ -227,15 +221,6 @@ def update_directory_config(config: Dict):
     base = dir_config.base
     for key, subdir in dir_config.subdirs.items():
         dir_config[key] = os.path.join(base, subdir)
-
-
-def update_window_config(config: Dict, args: Namespace):
-    window_config = config.window
-    for key in "position", "size":
-        if window_config.get(key):
-            window_config[key] = literal_eval(window_config[key])
-    if args.full_screen:
-        window_config.full_screen = True
 
 
 def update_camera_config(config: Dict, args: Namespace):
