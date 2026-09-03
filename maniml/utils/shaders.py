@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from typing import Sequence, Optional
 
 
-# Global maps to reflect uniform status
-PROGRAM_UNIFORM_MIRRORS: dict[int, dict[str, float | tuple]] = dict()
 
 
 @lru_cache()
@@ -58,10 +56,13 @@ def set_program_uniform(
     Returns True if changed the program, False if it left it as is.
     """
 
-    pid = id(program)
-    if pid not in PROGRAM_UNIFORM_MIRRORS:
-        PROGRAM_UNIFORM_MIRRORS[pid] = dict()
-    uniform_mirror = PROGRAM_UNIFORM_MIRRORS[pid]
+    # The mirror lives on the program itself (moderngl's user slot), so
+    # it dies with the program. A module dict keyed by id(program) let a
+    # new program inherit the mirror of a freed one at the same address
+    # and skip its first uniform writes (tests/test_shader_uniforms.py).
+    if not isinstance(program.extra, dict):
+        program.extra = {}
+    uniform_mirror = program.extra.setdefault("uniform_mirror", {})
 
     if type(value) is np.ndarray and value.ndim > 0:
         value = tuple(value.flatten())
