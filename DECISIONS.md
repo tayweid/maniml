@@ -621,3 +621,33 @@ program's own `extra` slot and dies with it;
 `tests/test_shader_uniforms.py` fails unfixed at the second iteration.
 The same defect would have hit a long live session in the native
 window, which is one more reason the native pipeline is on its way out.
+
+## The browser is the only live viewer (decided 2026-09-02)
+
+Milestone step 1 of the one-renderer beeline: the Pixel stream is
+deleted. Until now `--web` kept two pictures — the browser's WebGPU
+render of the geometry stream and, behind it, JPEG/PNG frames of the
+native GL framebuffer streamed as a fallback and a comparison ("split")
+— with a renderer switcher in the bar, a `renderer_fallback` protocol
+that flipped a client back to Pixel when a scene held content the
+serializer could not express, and a per-frame support preflight that
+decided whether native capture could be skipped.
+
+All of that is gone. The client reports `{"type": "mode", "geometry":
+true}` once its WebGPU is up; from then on every frame is a geometry
+payload and `Scene.update_frame` skips `camera.capture` outright. A
+browser without WebGPU gets a notice on the stage (state and console
+still flow, so the engine is not lost). Content the serializer cannot
+express is declared in the payload's `unsupported` header, left out of
+the picture, and named in the bar — there is no native frame behind it
+to fall back to, and pretending otherwise is what the split view was
+for. `--render`, `--export-checkpoints`, and the pyglet window still
+use native GL; they are the next steps.
+
+Why now rather than after pyglet: the stream was the only consumer of
+the JPEG encoder, the readback, the `droppable` frame queue in the
+server, and the updater-inference streaming costs that the performance
+audit measured (20–60 ms per encode, most of a core on a parked scene
+with updaters). Deleting it removes those costs rather than optimising
+them, and it removes the last reason the viewer had to know whether the
+native pipeline agreed with the browser.

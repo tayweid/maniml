@@ -280,21 +280,20 @@ class ViewerTests(unittest.TestCase):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn("window.location = appUrl;", viewer)
 
-    def test_live_viewer_uses_webgpu_first_with_visible_pixel_fallback(self):
+    def test_live_viewer_is_webgpu_only(self):
+        """The browser is the renderer. There is no server pixel stream to
+        fall back to or compare against, so the page must not offer one: a
+        browser without WebGPU gets the notice on the stage instead."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn('const DEFAULT_RENDERER = "gpu";', viewer)
-        self.assertIn("let renderer = DEFAULT_RENDERER;", viewer)
-        for renderer in ("pixel", "gpu"):
-            self.assertIn(f'data-renderer="{renderer}"', viewer)
-        self.assertIn('id="split"', viewer)
-        self.assertIn(
-            'document.querySelectorAll("#renderers .seg")', viewer)
-        self.assertIn("splitEl.onclick", viewer)
-        self.assertIn("void selectRenderer(renderer, segment);", viewer)
-        self.assertIn('renderer = "pixel";', viewer)
-        self.assertIn("WebGPU unavailable; using Pixel:", viewer)
-        self.assertIn('data.type === "renderer_fallback"', viewer)
-        self.assertIn("Using Pixel for this scene.", viewer)
+        self.assertIn("await ManimlWGPU.init(canvas);", viewer)
+        self.assertIn("void startRenderer();", viewer)
+        self.assertIn('id="gpu-unsupported"', viewer)
+        self.assertIn('document.body.classList.add("nogpu");', viewer)
+        self.assertIn('send({ type: "mode", geometry: gpuReady });', viewer)
+        for gone in ('data-renderer="pixel"', 'id="split"', 'id="gpuview"',
+                     "renderer_fallback", "createImageBitmap",
+                     'getContext("2d")', "pixels:"):
+            self.assertNotIn(gone, viewer)
 
     def test_client_render_assets_are_intact(self):
         """Kept deliberately: these are what a zero-install browser build

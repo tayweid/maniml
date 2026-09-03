@@ -16,15 +16,12 @@ arbiter when renderers disagree — native GL is a convenience oracle,
 not ground truth (the 2026-09-02 draw-order bug was wrong in native GL
 as well). Steps, in order:
 
-1. **Make the viewer WebGPU-only: delete the Pixel stream.** The JPEG
-   pixel path (native capture -> readback -> encode -> WebSocket ->
-   `<img>`) exists only as a fallback for browsers without WebGPU.
-   Remove it: the viewer shows a clear unsupported message instead (the
-   call already made for the baked player), `_pixel_mode`, the split
-   view, and the streaming-policy/updater inference go with it, and the
-   idle-frame encode costs listed under Performance disappear rather
-   than get optimised. Keep `--render` on native GL for now; it does not
-   go through this path.
+1. **Make the viewer WebGPU-only: delete the Pixel stream.** Done
+   2026-09-02 (DECISIONS.md, "The browser is the only live viewer"):
+   the JPEG/PNG path, `_pixel_mode`, the split view, the renderer
+   switcher, and the fallback protocol are gone; a browser without
+   WebGPU gets a notice on the stage. Native capture is skipped
+   whenever a client renders. `--render` still uses native GL.
 2. **Retire pyglet** (`rendering/window.py`): `--web` becomes the only
    live surface. Inline the pyglet key/mouse constants `viewer.py`
    imports for the InteractionMixin mapping; move the `--present`
@@ -71,8 +68,9 @@ The shadow-mode revision-store gate was **closed on 2026-09-02**
 (DECISIONS.md): no background scale work until the one-renderer strip
 is done. The prototype is kept as tag `archive/perf-systematic-viewer`.
 
-Item 2's Pixel-only costs are deleted by milestone step 1 rather than
-fixed. Remaining, in this order:
+Item 2's Pixel-only encode costs went with the pixel stream
+(2026-09-02); what remains of it is the idle native capture, which now
+only runs when no client renders. Remaining, in this order:
 
 1. **Preserve the installed-app measurement path.** Promote the working
    scratch harnesses (`relaycheck.mjs`, `ab.mjs`, `appshot.mjs`,
@@ -96,11 +94,12 @@ fixed. Remaining, in this order:
      at up to 45fps indefinitely — measured 20–60 ms per encode, most
      of a core by itself. Replace the updater inference with a real
      did-the-picture-change test, or freeze streaming when parked and
-     tracker values are unchanged. Also note every state change forces
-     a lossless PNG (~100–400 ms CPU at 1080p) — per-keypress latency
-     on navigation. (Solo WebGPU already turns `_pixel_mode`
-     off, so these costs are Pixel/split-mode only; the geometry
-     stream is delta-cached and cheap.)
+     tracker values are unchanged. (The JPEG/PNG encode costs went with
+     the pixel stream on 2026-09-02; the geometry stream is
+     delta-cached and cheap. What is left of this item is the idle
+     native capture, which now runs only when no client renders, and
+     the updater inference that keeps payloads flowing for a parked
+     scene.)
 3. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
    and byte accounting; exclude render-only/immutable/derived state; avoid
    retaining full history in modes that do not need navigation; and enforce a
@@ -361,7 +360,8 @@ eye on it.
 
 ## Open questions
 
-- Frame pacing/backpressure in the pixel stream.
+- Frame pacing/backpressure in the geometry stream (nothing is
+  droppable, so a slow client queues).
 - Multi-client (presenter + audience views?).
 - Baked-format size for long, animation-dense scenes (per-submobject
   deltas if it ever matters).

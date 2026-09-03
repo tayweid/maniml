@@ -53,7 +53,7 @@ class WebGpuNativeBypassTests(unittest.TestCase):
         scene.camera.capture.assert_not_called()
         scene._web_viewer.on_frame_rendered.assert_called_once_with()
 
-    def test_pixel_or_unsupported_content_keeps_native_capture(self):
+    def test_no_client_renderer_keeps_native_capture(self):
         scene = self.scene(False)
 
         scene.update_frame(dt=0, force_draw=True)

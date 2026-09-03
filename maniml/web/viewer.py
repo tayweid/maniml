@@ -4,13 +4,16 @@ WebViewer duck-types the small interface Scene expects from its window
 (`init_for_scene`, `destroy`, `is_closing`, `has_undrawn_event`,
 `is_key_pressed`, `focus`, `_window.dispatch_events`), so the
 InteractionMixin handlers and the checkpoint system run unmodified.
-Rendering stays native: the camera runs on its standalone (windowless)
-GL context — the same path --render uses — and the viewer reads the
-finished FBO back and streams it to the browser.
+Rendering happens in the browser: once a client reports its WebGPU is
+up (a `mode` message with `geometry: true`), every frame is serialized
+as a geometry payload (web/geometry.py) and rendered client-side, and
+the native capture is skipped entirely. Nothing is sent while idle with
+no clients, and a client without WebGPU gets state and console output
+but no picture.
 
-Streaming policy: JPEG frames while an animation plays or input events
-are arriving, then a single lossless PNG once things go quiet. Nothing
-is read back or sent while idle with no clients.
+Streaming policy: a payload on every frame while an animation plays or
+input events are arriving, throttled outside a play so the idle loop
+stays off the socket; a forced payload on any checkpoint-state change.
 
 Event flow: the browser sends key/pointer events over the WebSocket as
 JSON; `_dispatch_events` (called from `on_frame_rendered`, i.e. from
@@ -23,7 +26,6 @@ frame ([0,1], y-up), so no window-size bookkeeping is needed.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import subprocess
@@ -35,7 +37,6 @@ from collections import deque
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from maniml.constants import FRAME_SHAPE
 from maniml.event_constants import MouseButtons as PygletMouseButtons
@@ -73,15 +74,6 @@ JS_BUTTON_TO_PYGLET = {
 }
 
 # Scenes are flat colour with hard edges, which is the worst case for the
-# 4:2:0 chroma subsampling a JPEG encoder reaches for by default: colour is
-# stored at half resolution, so the boundary between two saturated blocks
-# smears across several pixels and an animation reads as colours melting into
-# each other rather than switching. Measured on a 1920x1080 frame of colour
-# blocks, worst-case channel error against the source: 147 at 4:2:0, 28 at
-# 4:4:4/90. The cost is 49 KB/frame against 84, i.e. 1.5 MB/s against 2.5 at
-# the 30/s cap — over loopback, to a client on the same machine.
-JPEG_QUALITY = 90
-JPEG_SUBSAMPLING = 0  # 4:4:4, full-resolution colour
 # Bounds the stream when frames are produced faster than a viewer can use
 # them — fast-forwards, updater loops. It must stay clear of the rate a scene
 # actually renders at (30fps, i.e. one frame every 33.3ms): a throttle of the
@@ -91,7 +83,6 @@ JPEG_SUBSAMPLING = 0  # 4:4:4, full-resolution colour
 # transition shows its intermediate shapes instead of moving. A margin means
 # every rendered frame passes and the render rate is the only limit.
 MIN_SEND_INTERVAL = 1 / 45
-PNG_AFTER_QUIET = 0.4  # seconds of quiet before the crisp idle frame
 
 
 class OutputTap:
@@ -173,10 +164,9 @@ class WebViewer:
         self._keys_settled_at = 0.0  # keys stamped before this are stale
         self._pending_navigation_received: float | None = None
         self._coalesced_navigation_events = 0
-        self._needs_refresh = True  # a client wants a full PNG + state
+        self._needs_refresh = True  # a client wants a full payload + state
         self._dispatching = False
         self._last_send_time = 0.0
-        self._last_send_lossy = False
         self._last_state = None
         self._last_move = None
         # Set when a client picks another scene from the same file. The run
@@ -185,9 +175,9 @@ class WebViewer:
         # browser tab both survive.
         self._pending_scene: str | None = None
         self._scene_names_cache: tuple[tuple, list[str]] | None = None
-        self._geometry_mode = False  # Stage 2: stream geometry alongside pixels
-        self._pixel_mode = True  # off in solo-GL: geometry is the only stream
-        self._frame_geometry_supported: bool | None = None
+        # True once a client has reported its WebGPU renderer is up; only
+        # then is there anyone to draw for
+        self._geometry_mode = False
         self._export_lock = threading.Lock()
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
@@ -250,31 +240,14 @@ class WebViewer:
         return self.server.has_clients()
 
     def can_skip_native_capture(self) -> bool:
-        """True only for a fully supported solo client-rendered frame."""
-        self._frame_geometry_supported = None
-        if not (self._geometry_mode and self.scene is not None
-                and self.server.has_clients()):
-            return False
-        from maniml.web.geometry import scene_supports_client_geometry
-        with performance.stage("geometry.support_preflight"):
-            self._frame_geometry_supported = scene_supports_client_geometry(
-                self.scene)
-        return self._frame_geometry_supported and not self._pixel_mode
+        """True whenever a client renders: the browser is the only viewer.
 
-    def _fall_back_to_pixel(self) -> None:
-        """Make an unsupported client-rendered frame wholly native."""
-        if not self._geometry_mode:
-            return
-        self._geometry_mode = False
-        self._pixel_mode = True
-        self._needs_refresh = True
-        self._dirty = True
-        self._geometry_cache.reset()
-        performance.increment("renderer.pixel_fallbacks")
-        self.server.broadcast_json({
-            "type": "renderer_fallback",
-            "message": "Scene content is not supported by WebGPU; using Pixel.",
-        })
+        Content the serializer cannot express is not a reason to capture
+        natively — nothing would show the native frame. It is listed in
+        the payload's `unsupported` header and the client says so.
+        """
+        return bool(self._geometry_mode and self.scene is not None
+                    and self.server.has_clients())
 
     def has_undrawn_event(self) -> bool:
         return self._has_undrawn_event
@@ -343,18 +316,11 @@ class WebViewer:
             self._broadcast_move(None, None, False, None)
 
     def on_frame_rendered(self):
-        """Pump input and stream output after a native or client frame."""
+        """Pump input and stream the frame's geometry to the clients."""
         self.dispatch_events()
 
         if not self.server.has_clients():
-            self._frame_geometry_supported = None
             return
-        if (self._geometry_mode
-                and self._frame_geometry_supported is False):
-            # camera.capture() has already run for this frame. Send that
-            # complete native result instead of a partial geometry message.
-            self._fall_back_to_pixel()
-        self._frame_geometry_supported = None
         self._broadcast_logs()
         now = time.monotonic()
         # A checkpoint-state change means the picture changed without any
@@ -365,9 +331,9 @@ class WebViewer:
         # play()/wait(); stream while any are live
         animating = self._animating or any(
             m.has_updaters() for m in self.scene.mobjects)
-        kind = None
+        send = False
         if self._needs_refresh or state_changed:
-            kind = "png"
+            send = True
         elif animating or self._dirty:
             # Inside a play() every rendered frame is one of a small, fixed
             # number that constitute the animation: run_time=1/10 at 30 fps
@@ -380,10 +346,8 @@ class WebViewer:
             # applies only outside a play.
             playing = bool(getattr(self.scene, "_is_playing", False))
             if playing or now - self._last_send_time >= MIN_SEND_INTERVAL:
-                kind = "jpeg"
-        elif self._last_send_lossy and now - self._last_send_time >= PNG_AFTER_QUIET:
-            kind = "png"
-        if kind is None:
+                send = True
+        if not send:
             # Even a frame with nothing to stream must still close a
             # settled move: an exec error rolls the scene back to the
             # checkpoint it left, so no state change follows — without
@@ -392,45 +356,12 @@ class WebViewer:
             performance.increment("viewer.frames.no_stream")
             return
 
-        if self._pixel_mode:
-            camera = self.scene.camera
-            with performance.stage("renderer.readback"):
-                raw = camera.get_raw_fbo_data()
-            w, h = camera.draw_fbo.size
-            channels = len(raw) // (w * h)
-            image = Image.frombytes(
-                "RGBA" if channels == 4 else "RGB", (w, h), raw)
-            buf = io.BytesIO()
-            with performance.stage("renderer.image_encode"):
-                if kind == "jpeg":
-                    image.convert("RGB").save(
-                        buf, "JPEG", quality=JPEG_QUALITY,
-                        subsampling=JPEG_SUBSAMPLING)
-                    payload = b"\x01" + buf.getvalue()
-                else:
-                    image.convert("RGB").save(buf, "PNG")
-                    payload = b"\x02" + buf.getvalue()
-            with performance.stage("transport.broadcast"):
-                self.server.broadcast(
-                    payload, droppable=(kind == "jpeg"))
-            performance.increment("transport.pixel_frames")
-            performance.increment("transport.pixel_bytes", len(payload))
         self._last_send_time = now
-        self._last_send_lossy = (kind == "jpeg" and self._pixel_mode)
         self._dirty = False
         self._needs_refresh = False
         self._has_undrawn_event = False
         if self._geometry_mode:
-            # Mirror every pixel frame with a geometry payload so the
-            # client's GL panel animates in lockstep with the stream.
-            # Not droppable: it would always collide with the pixel send
-            # queued a moment earlier, and the payload is small anyway.
-            from maniml.web.geometry import serialize_scene
-            payload = serialize_scene(self.scene, self._geometry_cache)
-            with performance.stage("transport.broadcast"):
-                self.server.broadcast(payload)
-            performance.increment("transport.geometry_frames")
-            performance.increment("transport.geometry_bytes", len(payload))
+            self._send_geometry()
         self._broadcast_state()
         # The landing state must be on the wire BEFORE the move-close:
         # the client pends states while a move is open and lands the last
@@ -439,6 +370,20 @@ class WebViewer:
         # chip being left for a frame, and then visibly hops to the new
         # pausepoint — instead of the dash handing off to its dot.
         self._close_move_if_settled()
+
+    def _send_geometry(self) -> None:
+        """Serialize the scene and send it to every client.
+
+        Never droppable: the server marks a batch cached once sent, so a
+        dropped payload would take that batch's only transmission with
+        it and force a full resend.
+        """
+        from maniml.web.geometry import serialize_scene
+        payload = serialize_scene(self.scene, self._geometry_cache)
+        with performance.stage("transport.broadcast"):
+            self.server.broadcast(payload)
+        performance.increment("transport.geometry_frames")
+        performance.increment("transport.geometry_bytes", len(payload))
 
     def _broadcast_logs(self, replace: bool = False) -> None:
         """Send whatever the scene has printed since the last frame.
@@ -657,27 +602,12 @@ class WebViewer:
             self._dirty = False
 
         elif kind == "geometry_request":
-            # One-shot snapshot (sent on toggle-on, before any frame flows)
+            # One-shot snapshot (sent when the client's renderer comes up,
+            # before any frame flows)
             if self._geometry_mode:
-                from maniml.web.geometry import (
-                    scene_supports_client_geometry,
-                    serialize_scene,
-                )
-                if scene_supports_client_geometry(self.scene):
-                    payload = serialize_scene(self.scene, self._geometry_cache)
-                    with performance.stage("transport.broadcast"):
-                        self.server.broadcast(payload)
-                    performance.increment("transport.geometry_frames")
-                    performance.increment(
-                        "transport.geometry_bytes", len(payload))
-                    self._dirty = False
-                    self._has_undrawn_event = False
-                else:
-                    self._fall_back_to_pixel()
-            else:
-                # The request itself needs no frame in Pixel-only mode.
-                self._dirty = False
-                self._has_undrawn_event = False
+                self._send_geometry()
+            self._dirty = False
+            self._has_undrawn_event = False
 
         elif kind == "geometry_reset":
             # A client hit a cache miss (e.g. evicted a batch we still
@@ -686,18 +616,16 @@ class WebViewer:
             self._dirty = True
 
         elif kind == "mode":
-            # Stage-2 streaming opt-in: while on, every pixel frame is
-            # mirrored with a geometry payload; with pixels off (solo-GL)
-            # the geometry stream is the only one and the per-frame
-            # readback+encode is skipped entirely. Reset deltas on enable
-            # so a rejoining toggle always starts from a full payload.
+            # The client reports whether it has a renderer to draw with.
+            # On: every frame ships as geometry and native capture stops.
+            # Off (no WebGPU, or the engine asleep behind recorded
+            # playback): nothing but state and console output. Reset
+            # deltas on enable so a rejoining client starts from a full
+            # payload.
             self._geometry_mode = bool(event.get("geometry"))
-            self._pixel_mode = bool(event.get("pixels", True))
-            self._frame_geometry_supported = None
             if self._geometry_mode:
                 self._geometry_cache.reset()
-            # Leaving solo: the canvas needs a fresh pixel frame
-            self._needs_refresh = self._pixel_mode
+            self._needs_refresh = self._geometry_mode
             self._dirty = False
 
     def _jump_to_checkpoint(self, index: int):
@@ -1058,9 +986,9 @@ class WebViewer:
         """Say which stretch of the timeline an animation is crossing.
 
         Its own message rather than a field on the state, for two reasons: a
-        state change forces a lossless PNG (see ``on_frame_rendered``), and
-        one per play would be a full-frame send at the worst moment; and this
-        must reach the rail when the play *starts*, not on whatever frame the
+        state change forces a full payload (see ``on_frame_rendered``), and
+        one per play would be a send at the worst moment; and this must
+        reach the rail when the play *starts*, not on whatever frame the
         streaming policy sends next.
 
         ``unit`` is the source statement being played, which the destination

@@ -97,7 +97,6 @@ class WebServer:
 
         self._events: deque[dict] = deque()
         self._clients: set = set()
-        self._busy: set = set()  # clients with an unfinished frame send
         self._client_lease = ClientLease()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._closing: asyncio.Event | None = None
@@ -188,23 +187,17 @@ class WebServer:
             pass
         finally:
             self._clients.discard(ws)
-            self._busy.discard(ws)
             if registered:
                 self._client_lease.disconnected()
 
-    def _send_to_all(self, data, droppable: bool):
+    def _send_to_all(self, data):
         for ws in list(self._clients):
-            if droppable and ws in self._busy:
-                continue  # slow client: skip this frame rather than queue it
-            self._busy.add(ws)
 
             async def send(ws=ws):
                 try:
                     await ws.send(data)
                 except Exception:
                     self._clients.discard(ws)
-                finally:
-                    self._busy.discard(ws)
 
             self._loop.create_task(send())
 
@@ -213,11 +206,11 @@ class WebServer:
     def has_clients(self) -> bool:
         return self._client_lease.has_clients()
 
-    def broadcast(self, data: bytes | str, droppable: bool = False) -> None:
-        """Send to every client. `droppable` marks per-frame data that a
-        client that hasn't finished its previous send may skip."""
+    def broadcast(self, data: bytes | str) -> None:
+        """Send to every client. Nothing is droppable: geometry payloads
+        are deltas against what the server believes each client holds."""
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._send_to_all, data, droppable)
+            self._loop.call_soon_threadsafe(self._send_to_all, data)
 
     def broadcast_json(self, obj: dict) -> None:
         self.broadcast(json.dumps(obj))

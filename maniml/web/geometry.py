@@ -33,9 +33,10 @@ stroke shader applies, evaluated at the current frame_scale), so the
 client can draw that many vertices per instance instead of the
 worst-case 64.
 
-Not expressible here (the live client falls back to the Pixel stream and
-records the type in `unsupported`): unknown custom drawables and
-depth-tested winding fills that were not triangulated. Images, surfaces,
+Not expressible here (recorded by type in the header's `unsupported`
+list and left out of the picture — there is no server-side frame behind
+the browser's render): unknown custom drawables and depth-tested winding
+fills that were not triangulated. Images, surfaces,
 texture data, dot clouds, triangulated fills, and clip planes are supported.
 """
 
@@ -172,24 +173,6 @@ def _unsupported_geometry_name(sm) -> str | None:
     if sm.depth_test and sm.get_fill_opacity() > 0 and not triangulated:
         return f"{type(sm).__name__} (depth-tested winding fill)"
     return None
-
-
-def scene_supports_client_geometry(scene: Scene) -> bool:
-    """Cheap whole-frame support preflight used before native capture.
-
-    This mirrors `_collect_records`' compatibility decisions but never
-    builds shader data, merges arrays, hashes content, or touches the
-    framebuffer.
-    """
-    from maniml.camera.camera_frame import CameraFrame
-
-    for group in scene.render_groups:
-        for sm in group.family_members_with_points():
-            if isinstance(sm, CameraFrame):
-                continue
-            if _unsupported_geometry_name(sm) is not None:
-                return False
-    return True
 
 
 def _collect_records(scene, unsupported):

@@ -233,10 +233,11 @@ Two distinct mechanisms:
   checkpoint-state change, so on every navigation keypress — costs
   roughly 100–400 ms of synchronous CPU at 1080p.
 
-Solo WebGL2/WebGPU turns `_pixel_mode` off, so the encode costs are
-Pixel/split-mode only; the geometry stream is delta-cached and cheap at
-this scene size. The idle GL capture itself (first mechanism) runs
-regardless of renderer mode. TODO.md items 3 and 4 track the fixes.
+The pixel stream was deleted on 2026-09-02 (the browser renders every
+frame from geometry, and native capture is skipped while a client
+renders), which removed the encode costs above outright; the geometry
+stream is delta-cached and cheap at this scene size. The measurements
+stay here as the record of what the JPEG path cost.
 
 ## The scaling model to aim for
 
@@ -412,7 +413,7 @@ paint, and move the backlog rather than eliminate it.
 
 - One serialized writer task and explicit byte/message budget per client.
 - Per-client renderer subscription, acknowledged resource revisions, and cache
-  state. The current viewer-global geometry/pixel mode and `sent` cache cannot
+  state. The current viewer-global geometry mode and `sent` cache cannot
   describe two clients with different capabilities or cache contents.
 - Reliable, deduplicated resource updates separate from a latest-wins display
   state.
@@ -660,15 +661,10 @@ grids. A 501×501 surface approaches 750,000 Python calls during construction.
 Accept vectorized functions over mesh arrays and retain scalar fallback for API
 compatibility.
 
-## P1: pixel and movie output
+## P1: movie output
 
-### Move pixel readback/encoding off the scene thread
-
-Pixel streaming synchronously reads the framebuffer, creates a PIL image,
-converts it, and encodes JPEG/PNG before the server can decide whether another
-frame is useful. Use pre-encode client credit, asynchronous PBO readback, and a
-size-one latest-frame encoder queue. A hardware video/WebCodecs path will scale
-better than independent JPEGs if Pixel remains a primary fallback.
+(The pixel-stream readback/encoding item that used to lead this section
+is moot: the stream was deleted on 2026-09-02.)
 
 ### Pipeline offline movie writes
 

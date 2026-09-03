@@ -9,7 +9,7 @@ ManimLive speeds up Manim's animation workflow by bringing hot reloading and int
 - **The app:** *`maniml app` serves a local page listing your scene files; each opens in the browser viewer*
 - **Keyboard navigation:** *arrow keys navigate through the animations, built on dynamic checkpointing; a clickable checkpoint timeline in the browser*
 - **Hot reloading:** *the preview automatically plays edited animations*
-- **Client-side rendering (experimental):** *the browser viewer can render scenes with its own GPU via WebGL2 or WebGPU, pixel-faithful to the native renderer*
+- **Client-side rendering:** *the browser viewer renders scenes with its own GPU via WebGPU, pixel-faithful to the native renderer*
 
 ## Installation
 

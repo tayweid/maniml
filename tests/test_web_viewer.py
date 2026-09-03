@@ -2,9 +2,10 @@
 
 Launches a real scene subprocess in web mode, then acts as the browser:
 fetches the client page over HTTP, connects to the WebSocket, and
-asserts the full loop works — initial PNG frame + state on connect,
-JPEG streaming after a RIGHT-arrow keypress, checkpoint state advancing,
-and click-to-inspect printing the variable name to the terminal.
+asserts the full loop works — state on connect, a geometry payload once
+the client reports its renderer, geometry streaming after a RIGHT-arrow
+keypress, checkpoint state advancing, and click-to-inspect printing the
+variable name to the terminal.
 
 Headless (offscreen GL only), so it runs un-gated like the other
 integration suites.
@@ -461,12 +462,18 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         self.assertIn("<canvas", page)
 
         with self._connect() as ws:
-            # On connect: a lossless PNG snapshot plus checkpoint state
-            frames, states = self._collect(ws, 3)
-            self.assertTrue(frames, "no frame after connect")
-            self.assertEqual(frames[0][0], 0x02, "first frame should be PNG")
-            self.assertTrue(frames[0][1:9].startswith(b"\x89PNG"), "PNG magic")
+            # On connect: checkpoint state, and nothing to look at until the
+            # client says it has a renderer
+            frames, states = self._collect(ws, 2)
+            self.assertEqual(frames, [], "a picture was sent before any "
+                             "client renderer existed to draw it")
             self.assertTrue(states, "no state message after connect")
+            # The browser's WebGPU is up: one full geometry payload follows
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            frames, more = self._collect(ws, 2)
+            states += more
+            self.assertTrue(frames, "no payload after the renderer came up")
+            self.assertEqual(frames[0][0], 0x03, "first frame should be geometry")
             start_state = states[-1]
             # Nothing has run: the scene waits at checkpoint 0 until asked.
             self.assertEqual(start_state["count"], 1)
@@ -474,7 +481,7 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(start_state["future"], "no units left to run")
             self.assertEqual(start_state["file"], "web_scene.py")
 
-            # RIGHT arrow: the next unit runs and streams JPEG frames
+            # RIGHT arrow: the next unit runs and streams geometry frames
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             printed = []
@@ -486,11 +493,10 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(
                 any("animation" in line["text"].lower() for line in printed),
                 printed)
-            jpegs = [f for f in frames if f[0] == 0x01]
-            self.assertGreater(len(jpegs), 3, "expected streamed JPEG frames")
-            self.assertTrue(jpegs[0][1:3] == b"\xff\xd8", "JPEG magic")
-            # ...capped by a crisp PNG once the animation settles
-            self.assertEqual(frames[-1][0], 0x02, "quiet-time PNG follow-up")
+            geometry = [f for f in frames if f[0] == 0x03]
+            self.assertGreater(len(geometry), 3, "expected streamed geometry")
+            self.assertEqual(set(f[0] for f in frames), {0x03},
+                             "only geometry payloads travel this socket")
             # The move-close trails the landing state on the wire, so take
             # the last STATE message, not the last JSON message.
             landed = [s for s in states if s.get("type") == "state"]
@@ -527,7 +533,7 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             self._collect(ws, 3)
             ws.send(json.dumps(
-                {"type": "mode", "geometry": True, "pixels": True}))
+                {"type": "mode", "geometry": True}))
             ws.send(json.dumps({"type": "geometry_request"}))
             deadline = time.time() + 8
             message = None
@@ -592,7 +598,7 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
     can be borrowed to manufacture test frames.
     """
 
-    def test_frontier_animations_stream_split_and_solo_geometry(self):
+    def test_frontier_animations_stream_geometry(self):
         with self._connect() as ws:
             self._collect(ws, 2)
 
@@ -601,54 +607,54 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             frames, _ = self._collect(ws, 4)
             geometry_frames = [f for f in frames if f[0] == 0x03]
-            jpeg_frames = [f for f in frames if f[0] == 0x01]
             self.assertGreater(
                 len(geometry_frames), 3,
-                f"expected streamed geometry, got {len(geometry_frames)} "
-                f"(and {len(jpeg_frames)} JPEGs)")
-            self.assertGreater(len(jpeg_frames), 3,
-                               "pixel stream should continue alongside")
+                f"expected streamed geometry, got {len(geometry_frames)}")
+            self.assertEqual(len(frames), len(geometry_frames),
+                             "nothing but geometry travels this socket")
 
-            # Solo client rendering keeps geometry and stops pixel frames.
-            ws.send(json.dumps(
-                {"type": "mode", "geometry": True, "pixels": False}))
+            # A client without a renderer (or one asleep behind recorded
+            # playback) gets state, not pictures.
+            ws.send(json.dumps({"type": "mode", "geometry": False}))
             self._collect(ws, 1)
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
-            frames, _ = self._collect(ws, 4)
-            solo_geometry = [f for f in frames if f[0] == 0x03]
-            solo_pixels = [f for f in frames if f[0] in (0x01, 0x02)]
-            self.assertGreater(len(solo_geometry), 3,
-                               "solo mode should stream geometry")
-            self.assertEqual(len(solo_pixels), 0,
-                             "solo mode must not stream pixels")
+            frames, states = self._collect(ws, 4)
+            self.assertEqual(frames, [], "frames sent with no renderer")
+            self.assertTrue(any(s.get("type") == "state" for s in states),
+                            "state must still flow without a renderer")
 
 
 class UnsupportedGeometryE2E(_ViewerHarness, unittest.TestCase):
-    """Unsupported custom drawables switch the whole frame to Pixel."""
+    """Unsupported custom drawables are declared in the payload header and
+    left out of the picture; there is no server-side frame to fall back to,
+    so the client shows the header's list instead."""
 
     SOURCE = UNSUPPORTED_GEOMETRY_SOURCE
     SCENE = "UnsupportedDemo"
     FILENAME = "unsupported_scene.py"
 
-    def test_solo_geometry_request_falls_back_to_complete_pixel_frame(self):
+    def test_unsupported_content_is_declared_not_captured(self):
+        from maniml.web.geometry import parse_geometry_message
+
         with self._connect() as ws:
             self._collect(ws, 2)
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             self._collect(ws, 2)
-            ws.send(json.dumps(
-                {"type": "mode", "geometry": True, "pixels": False}))
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
             ws.send(json.dumps({"type": "geometry_request"}))
             frames, messages = self._collect(ws, 4)
 
-            self.assertTrue(any(
+            geometry = [f for f in frames if f[0] == 0x03]
+            self.assertTrue(geometry, "no geometry payload for the scene")
+            self.assertEqual(len(frames), len(geometry),
+                             "a non-geometry frame was sent")
+            header, _ = parse_geometry_message(geometry[-1])
+            self.assertIn("CustomCloud", header["unsupported"])
+            self.assertFalse(any(
                 message.get("type") == "renderer_fallback"
-                for message in messages), messages)
-            self.assertTrue(any(frame[0] == 0x02 for frame in frames),
-                            "fallback did not send a complete PNG frame")
-            self.assertFalse(any(frame[0] == 0x03 for frame in frames),
-                             "unsupported partial geometry was sent")
+                for message in messages), "the fallback protocol is gone")
 
 
 class StreamPolicyTests(unittest.TestCase):
@@ -677,54 +683,27 @@ class StreamPolicyTests(unittest.TestCase):
             "the throttle is close enough to the frame period to alias "
             "against it once real timing jitter is involved")
 
-    def test_native_bypass_requires_solo_mode_and_supported_geometry(self):
+    def test_native_capture_is_skipped_whenever_a_client_renders(self):
+        """The browser is the only viewer, so a native frame is only ever
+        worth capturing when nobody is rendering client-side: no client, or
+        a client that reported no WebGPU. Unsupported content is not a
+        reason to capture — nothing would show the native frame."""
         from types import SimpleNamespace
-        from unittest.mock import patch
         from maniml.web.viewer import WebViewer
 
         viewer = SimpleNamespace(
             _geometry_mode=True,
-            _pixel_mode=False,
-            _frame_geometry_supported=None,
             scene=object(),
             server=SimpleNamespace(has_clients=lambda: True),
         )
-        with patch(
-            "maniml.web.geometry.scene_supports_client_geometry",
-            return_value=True,
-        ) as supported:
-            self.assertTrue(WebViewer.can_skip_native_capture(viewer))
-            supported.assert_called_once_with(viewer.scene)
+        self.assertTrue(WebViewer.can_skip_native_capture(viewer))
 
-        viewer._pixel_mode = True
-        with patch(
-            "maniml.web.geometry.scene_supports_client_geometry",
-            return_value=True,
-        ) as supported:
-            self.assertFalse(WebViewer.can_skip_native_capture(viewer))
-            supported.assert_called_once_with(viewer.scene)
+        viewer._geometry_mode = False
+        self.assertFalse(WebViewer.can_skip_native_capture(viewer))
 
-    def test_unsupported_geometry_frame_switches_wholly_to_pixel(self):
-        from types import SimpleNamespace
-        from maniml.web.viewer import WebViewer
-
-        messages = []
-        viewer = SimpleNamespace(
-            _geometry_mode=True,
-            _pixel_mode=False,
-            _needs_refresh=False,
-            _dirty=False,
-            _geometry_cache=SimpleNamespace(reset=lambda: None),
-            server=SimpleNamespace(broadcast_json=messages.append),
-        )
-
-        WebViewer._fall_back_to_pixel(viewer)
-
-        self.assertFalse(viewer._geometry_mode)
-        self.assertTrue(viewer._pixel_mode)
-        self.assertTrue(viewer._needs_refresh)
-        self.assertTrue(viewer._dirty)
-        self.assertEqual(messages[0]["type"], "renderer_fallback")
+        viewer._geometry_mode = True
+        viewer.server = SimpleNamespace(has_clients=lambda: False)
+        self.assertFalse(WebViewer.can_skip_native_capture(viewer))
 
 
 class ExportRoutingTests(unittest.TestCase):
