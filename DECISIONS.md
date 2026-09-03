@@ -537,3 +537,65 @@ poisoning predates the draw-order work — click-to-inspect hit-testing
 reads the same boxes — but rendering never consulted bounding boxes
 until the hazard split did. Regression-tested in
 tests/test_wgpu_port.py::FamilyDrawOrder.test_family_draw_order_survives_animation.
+
+## One renderer: the beeline (decided 2026-09-02)
+
+Taylor's call after the 2026-09-02 status review: everything goes
+except native GL, which stays until after pyglet, with a pause before
+it is removed. Concretely:
+
+- **WebGL2 is retired** (`review/retire-webgl2`, merged 2026-09-02):
+  `gl.js`, `glsl/`, the GL half of the reference renderer and the
+  WebGL2 fidelity module are gone (-1,600 lines). The geometry player
+  is WebGPU-only with an unsupported-browser message; exports carry a
+  versioned format header. The burn-in hold was lifted because the
+  z-order bug the WebGL2 comparator was kept to triage is fixed, and
+  remaining triage compares against native render frames or CE.
+- **CE is the arbiter.** When native GL and WebGPU disagree, the
+  reference is what manim CE draws (the `manimce/` clone and the
+  conformance suite), not the native pipeline. The draw-order bug was
+  wrong in native GL too; "match native" would have enshrined it.
+- **The Pixel stream goes next, then pyglet, then a pause, then
+  `--render` on wgpu-py and native GL deleted.** Sequence and reasons
+  in TODO.md's milestone section. The pyglet window is the last live
+  consumer of the native pipeline; once it is gone native GL serves
+  only headless `--render`, which is the one place a wrong-but-stable
+  renderer costs least while the wgpu render is built beside it.
+- **The shadow-mode gate is closed.** The 2026-08-26 gate review
+  (PERFORMANCE_GATE_REPORT and the PROBLEM / ARCHITECTURE / MIGRATION
+  proposals, then in the workspace root) approved two background
+  investigations — a structural-sharing revision store with stable
+  semantic identity, and bounded per-resource geometry chunks for
+  large scenes — conditioned on beating a keyframe + skip-replay
+  comparator and never taking priority over the WebGPU strip. Its
+  measured evidence stands and is summarised here so the documents
+  can go: on the course scene (`dogfood/03_Code.py`), solo WebGPU
+  after the stabilisation layer reached 64.5 ms input-to-first-motion
+  and 62 ms p50 retained-history endpoints against 79/86 ms on Pixel,
+  with 238 of 240 native captures bypassed; checkpoint save/restore
+  copies were 22/37 ms p50 and the visible navigation-boundary cost;
+  a one-object change in a 2,000-square scene still shipped the whole
+  merged batch (130 ms p50 to endpoint). Those large-scene numbers are
+  real, but no course scene is near them; the decision is to finish
+  the one-renderer strip first and re-open scale work only when a
+  real scene demands it. The Phase-1 code (`revisions.py`, mobject
+  hooks, the shadow Present work) is preserved as tag
+  `archive/perf-systematic-viewer`; the priority-decision branch as
+  `archive/performance-priority-decision`.
+
+## Recorded video is tagged BT.709 (fixed 2026-09-02)
+
+Taylor's one remaining fidelity report was "the background grey is a
+slightly different grey between the web viewer and the rendered
+video". Measured in the app's Chromium by drawing the decoded `<video>`
+to a canvas beside a CSS swatch: the grey itself matched (26,26,26),
+but a maniml BLUE square that is (89,197,223) live decoded as
+(80,188,225) — the movie pipe wrote untagged yuv420p, swscale converted
+RGB->YUV with its BT.601 default, and browsers decode untagged HD as
+BT.709. The pipe now converts with `scale=out_color_matrix=bt709` and
+tags the stream (`-colorspace/-color_primaries/-color_trc bt709`,
+`-color_range tv`); the square decodes as (90,197,222). The always-on
+`eq=saturation=1:gamma=1` filter was also dropped unless asked for: eq
+works in YUV, so with RGBA input ffmpeg inserted an extra RGB->YUV pass
+whose rounding tinted the grey to (24,26,26). Regression test:
+`tests/test_external_processes.py::test_movie_pipe_tags_bt709`.

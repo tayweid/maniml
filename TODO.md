@@ -7,50 +7,76 @@ implementation order live in `PERFORMANCE.md`.
 
 ## The milestone: WebGPU as the one canonical renderer
 
-Decided 2026-08-14, sequencing confirmed 2026-08-18. The wgpu backend
-already covers the full parity ledger in both the browser
-(`static/webgpu.js` + `static/wgsl/`) and natively
-(`web/wgpu_renderer.py`), the live viewer starts on WebGPU with a
-visible Pixel fallback, and the fidelity suite passes. What remains is
-sequence, each step gated on the one before it:
+Decided 2026-08-14; sequence reset 2026-09-02 (see DECISIONS.md, "One
+renderer: the beeline"). The wgpu backend covers the full parity ledger
+in the browser (`static/webgpu.js` + `static/wgsl/`) and natively
+(`web/wgpu_renderer.py`); WebGL2 is gone; the live viewer starts on
+WebGPU with a Pixel fallback that is about to go too. CE is the
+arbiter when renderers disagree — native GL is a convenience oracle,
+not ground truth (the 2026-09-02 draw-order bug was wrong in native GL
+as well). Steps, in order:
 
-1. **Dogfood real course scenes in WebGPU solo mode.** The burn-in
-   state: the pixel stream off, the client canvas the only viewer,
-   unsupported content surfaced loudly. This is the gate everything
-   below waits on.
-2. **Land the prepared WebGL2 retirement after the A-series fidelity gate.**
-   `review/retire-webgl2` removes the live WebGL2 backend, its shaders,
-   desktop mirror, and fidelity module while preserving their backend-neutral
-   geometry and z-order coverage in the WebGPU suite. Do not merge it until
-   the open WebGPU fidelity bugs are closed; WebGL2 remains the differential
-   diagnostic during that burn-in. Baked geometry exports become WebGPU-only
-   with a direct unsupported-browser message; MP4 presentation bundles need
-   no GPU renderer.
-3. **Move `--render` onto wgpu-py** so offline output and the browser share
-   one renderer. Keep the current native GL pipeline permanently available
-   behind `--renderer=native` as the pixel-diff reference for final renders;
-   fold 2× supersampling into this move. WebGPU compute
-   can then restore GPU-side adaptive tessellation, replacing the
-   fixed-strip instancing compromise.
-4. **Retire pyglet** (`rendering/window.py`): blocked on trusting
-   `--web` for daily use, and on inlining the pyglet key/mouse
-   constants `viewer.py` imports for the InteractionMixin mapping.
-   Moving the `--present` timeline from the GL overlay to DOM belongs
-   here too — it absorbs the scrubber-crowding item below and deletes
-   the checkpoint-ignore plumbing.
+1. **Make the viewer WebGPU-only: delete the Pixel stream.** The JPEG
+   pixel path (native capture -> readback -> encode -> WebSocket ->
+   `<img>`) exists only as a fallback for browsers without WebGPU.
+   Remove it: the viewer shows a clear unsupported message instead (the
+   call already made for the baked player), `_pixel_mode`, the split
+   view, and the streaming-policy/updater inference go with it, and the
+   idle-frame encode costs listed under Performance disappear rather
+   than get optimised. Keep `--render` on native GL for now; it does not
+   go through this path.
+2. **Retire pyglet** (`rendering/window.py`): `--web` becomes the only
+   live surface. Inline the pyglet key/mouse constants `viewer.py`
+   imports for the InteractionMixin mapping; move the `--present`
+   timeline from the GL overlay to the DOM (absorbs the
+   scrubber-crowding item and deletes the checkpoint-ignore plumbing).
+   After this the native GL pipeline is used by exactly one thing:
+   headless `--render`/`--export-checkpoints` through a standalone
+   context.
+3. **Pause.** Dogfood real course scenes with the browser as the only
+   live surface for a while before touching the render path. The
+   burn-in signal is course production, not the test suite.
+4. **Move `--render` onto wgpu-py**, then delete the native GL pipeline
+   (`rendering/`, `camera/` GL parts, the geometry shaders). Fold 2x
+   supersampling into the wgpu render. Offline output, the browser, and
+   the fidelity reference are then literally the same WGSL. WebGPU
+   compute can then restore GPU-side adaptive tessellation, replacing
+   the fixed-strip instancing compromise. The fidelity tests turn into
+   golden-image regression tests plus CE conformance.
 5. After the transition: Windows/Linux CI matrices and cross-platform
    packaging return (scoped out during the macOS developer preview).
+
+Open fidelity items feeding the pause in step 3:
+
+- **Full-suite fidelity flake** (found 2026-09-02). `python -m unittest
+  discover` shows one or two native-vs-wgpu pixel failures in
+  `tests/test_wgpu_port.py` that change from run to run (cached_batches,
+  the 2d/image/surfaces cases) and predate the draw-order work. Every
+  one passes in isolation and with its own module; pairing each earlier
+  module with them passes too, so it is cumulative state, not a single
+  poisoner. Until it is found, judge fidelity from the module run and
+  compare full runs against a same-day baseline.
+- Rendered video colour drift is fixed (BT.709 tagging, 2026-09-02).
+  The A0/A1 "axis label" and "colour" reports from the gate review are
+  closed: not reproducible in solo WebGPU per the 2026-09-02 dogfood.
 
 ## Performance: near-term work and the large-scene gate
 
 The installed small-scene path is healthy after the launchd, relay,
-client-queue, and short-animation fixes: the installed app measured
-33.5 ms median / 45.5 ms p95 frame spacing with no observed bunching or
-queue backup. Do **not** begin a wholesale renderer rewrite merely to
+client-queue, and short-animation fixes, and the 2026-08-26 perf branch
+landed on main: render batches are non-owning, the pacing clocks reset
+on checkpoint restore, retained-history navigation no longer re-executes
+Python, a parked viewer sleeps, and supported solo-WebGPU frames bypass
+native capture. Do **not** begin a wholesale renderer rewrite merely to
 improve that path. The measurements, evidence, correctness constraints,
 and full implementation sequence live in `PERFORMANCE.md`.
 
-Do these in the near term, in this order:
+The shadow-mode revision-store gate was **closed on 2026-09-02**
+(DECISIONS.md): no background scale work until the one-renderer strip
+is done. The prototype is kept as tag `archive/perf-systematic-viewer`.
+
+Item 2's Pixel-only costs are deleted by milestone step 1 rather than
+fixed. Remaining, in this order:
 
 1. **Preserve the installed-app measurement path.** Promote the working
    scratch harnesses (`relaycheck.mjs`, `ab.mjs`, `appshot.mjs`,
@@ -59,24 +85,7 @@ Do these in the near term, in this order:
    (shell/launchd) independent from network route (direct/relay); a
    hand-started process was structurally unable to reproduce the original
    throttle.
-2. **Make render batches non-owning.** `assemble_render_groups()` currently
-   creates normal semantic parents. Checkpoint/restore can copy those
-   ephemeral parents, after which later mutations traverse and dirty stale
-   groups. The synthetic audit grew one mobject from 1 to 31 parents over
-   30 restores. Fix this before deeper checkpoint optimization and add a
-   100-restore parent-count/mutation-cost regression.
-3. **Fix the idle-loop pacing clocks after backward navigation.** The
-   interact loop paces with `sleep(max(vt - rt, 0))` where `vt` derives
-   from `scene.time` — and LEFT/UP/DOWN restore `scene.time` from the
-   checkpoint, rewinding it behind the pacing clock, so the sleep term
-   goes permanently negative and the loop free-spins until the next real
-   play resets the clocks. Measured 2026-08-26 on a trivial 3-mobject
-   scene: 24 passes/s at 15% CPU parked normally, 103 passes/s at 43%
-   CPU parked after one backward jump (the "~105 fps" the streaming
-   throttle comment guards against). Reset or clamp the clocks on
-   checkpoint restore; when not playing, pace at `1/fps` outright.
-   Small and self-contained — do this first.
-4. **Stop rendering and encoding identical waits/idle frames.** The measured
+2. **Stop rendering and encoding identical waits/idle frames.** The measured
    viewer encoded roughly twelve identical 1080p frames per static `wait()`.
    Pump events separately, retain clocks for real updaters, and send a hold
    duration/state change rather than repeatedly rendering a clean scene.
@@ -96,13 +105,13 @@ Do these in the near term, in this order:
      on navigation. (Solo WebGPU already turns `_pixel_mode`
      off, so these costs are Pixel/split-mode only; the geometry
      stream is delta-cached and cheap.)
-5. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
+3. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
    and byte accounting; exclude render-only/immutable/derived state; avoid
    retaining full history in modes that do not need navigation; and enforce a
    replay-backed budget. `_save_checkpoint()` already contributed about
    19 ms around the measured `play()`. Full copy-on-write/delta checkpoints
    remain a later architecture project.
-6. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
+4. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
    bug, not transport pacing: it groups label/isolate spans rather than words,
    so ordinary text becomes one 0.2-second chunk before rendering. Add a
    dedicated word-group path without changing generic `build_groups()`, and
@@ -111,8 +120,6 @@ Do these in the near term, in this order:
 
 Then take the contained next milestone:
 
-- Skip native OpenGL capture when WebGPU is the sole renderer and the scene is
-  fully supported.
 - Batch scene-list mutations so a large `play(*animations)` rebuilds render
   groups once, not repeatedly.
 - Put explicit byte limits and lifecycle cleanup on browser, texture, GL, and
