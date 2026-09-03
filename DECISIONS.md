@@ -599,3 +599,25 @@ tags the stream (`-colorspace/-color_primaries/-color_trc bt709`,
 works in YUV, so with RGBA input ffmpeg inserted an extra RGB->YUV pass
 whose rounding tinted the grey to (24,26,26). Regression test:
 `tests/test_external_processes.py::test_movie_pipe_tags_bt709`.
+
+## The full-suite fidelity flake was a uniform mirror keyed by id() (fixed 2026-09-02)
+
+For about a week the full `unittest discover` run failed one or two
+native-vs-wgpu fidelity cases per run — a different case each time,
+never in isolation, never with any single other module paired in, and
+never in a six-iteration repeat inside one process. Dumping the failing
+frames (`MANIML_FIDELITY_DUMP`) showed the NATIVE side was the wrong
+one: a z_index case's native frame had lost its dot.
+
+`set_program_uniform` skips a GL write when its mirror says the value
+is already set, and the mirror lived in a module dict keyed by
+`id(program)`. `get_shader_program` is an `lru_cache` of 128 entries,
+so once a run has created enough scenes, programs are evicted and
+freed, a new program lands on a freed address, inherits the stale
+mirror, and silently skips its first uniform writes. Nothing short of
+the whole suite allocates enough programs to reach eviction, which is
+why every bisection came back clean. The mirror now lives in the
+program's own `extra` slot and dies with it;
+`tests/test_shader_uniforms.py` fails unfixed at the second iteration.
+The same defect would have hit a long live session in the native
+window, which is one more reason the native pipeline is on its way out.

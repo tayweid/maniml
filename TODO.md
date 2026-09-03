@@ -46,16 +46,12 @@ as well). Steps, in order:
 5. After the transition: Windows/Linux CI matrices and cross-platform
    packaging return (scoped out during the macOS developer preview).
 
-Open fidelity items feeding the pause in step 3:
+Fidelity ledger for the pause in step 3:
 
-- **Full-suite fidelity flake** (found 2026-09-02). `python -m unittest
-  discover` shows one or two native-vs-wgpu pixel failures in
-  `tests/test_wgpu_port.py` that change from run to run (cached_batches,
-  the 2d/image/surfaces cases) and predate the draw-order work. Every
-  one passes in isolation and with its own module; pairing each earlier
-  module with them passes too, so it is cumulative state, not a single
-  poisoner. Until it is found, judge fidelity from the module run and
-  compare full runs against a same-day baseline.
+- The full-suite fidelity flake is fixed (2026-09-02): the per-program
+  uniform mirror was keyed by `id(program)` and outlived freed programs
+  (DECISIONS.md). The full `discover` run is clean except the two
+  long-standing `test_app.AppShellE2E` failures.
 - Rendered video colour drift is fixed (BT.709 tagging, 2026-09-02).
   The A0/A1 "axis label" and "colour" reports from the gate review are
   closed: not reproducible in solo WebGPU per the 2026-09-02 dogfood.
