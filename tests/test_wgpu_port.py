@@ -186,6 +186,24 @@ class GeometryPayloadTests(unittest.TestCase):
         self.assertGreater(len(header["batches"]), 1)
 
 
+
+def _dump_fidelity_failure(name, native, ported):
+    """With MANIML_FIDELITY_DUMP=<dir>, write the native/ported/diff images
+    of a failing comparison so a flaky full-suite failure can be looked at
+    instead of re-run."""
+    directory = os.environ.get("MANIML_FIDELITY_DUMP")
+    if not directory:
+        return
+    from PIL import Image
+    os.makedirs(directory, exist_ok=True)
+    Image.fromarray(native.astype(np.uint8)).save(
+        os.path.join(directory, f"{name}_native.png"))
+    Image.fromarray(ported.astype(np.uint8)).save(
+        os.path.join(directory, f"{name}_ported.png"))
+    diff = np.clip(np.abs(native - ported) * 4, 0, 255).astype(np.uint8)
+    Image.fromarray(diff).save(os.path.join(directory, f"{name}_diff_x4.png"))
+
+
 # (name, scene builder, mean threshold, fraction-off-by->24 threshold)
 CASES = [
     ("2d", build_scene, 1.5, 0.005),
@@ -225,6 +243,8 @@ class WgpuPortFidelity(unittest.TestCase):
                 diff = np.abs(native - ported)
                 mean_diff = diff.mean()
                 frac_off = (diff.max(axis=2) > 24).mean()
+                if mean_diff >= mean_max or frac_off >= frac_max:
+                    _dump_fidelity_failure(name, native, ported)
                 self.assertLess(
                     mean_diff, mean_max,
                     f"[{name}] mean |diff| {mean_diff:.3f}; "
@@ -259,6 +279,8 @@ class WgpuDeltaEncoding(unittest.TestCase):
         img2 = np.asarray(renderer.render(h2, b2).convert("RGB"), float)
         self.assertTrue((img1 == img2).all())
         img3 = np.asarray(renderer.render(h3, b3).convert("RGB"), float)
+        if np.abs(native3 - img3).mean() >= 1.5:
+            _dump_fidelity_failure("cached_batches", native3, img3)
         self.assertLess(np.abs(native3 - img3).mean(), 1.5)
 
 
