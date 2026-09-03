@@ -132,6 +132,31 @@ Retiring `gl.js` + `glsl/` once WebGPU is canonical was **confirmed
 2026-08-18**, with the trigger unchanged: burn-in on real course
 scenes. The retirement steps live in `TODO.md`.
 
+The retirement implementation was prepared on `review/retire-webgl2`
+2026-08-26, but remains merge-gated on the A-series WebGPU fidelity bugs.
+Until those close, the restored three-way live control keeps WebGL2 as a
+differential diagnostic: a defect shared by WebGL2 and WebGPU implicates the
+serializer, while a WebGPU-only defect localizes to the WGSL port. Once the
+gate closes, the live product has one client renderer (WebGPU), Pixel remains
+its complete-frame fallback, and the WebGL2 browser backend, shader tree,
+desktop mirror, and dedicated fidelity module leave together. Backend-neutral
+payload and z-order assertions move into the WebGPU suite rather than being
+discarded with that harness.
+
+The baked geometry player follows the same retirement: `--export` is
+WebGPU-only and displays a clear unsupported-browser message rather than
+shipping WebGL2 solely as an export fallback. This is acceptable because the
+MP4 student bundle (`--export-present`) is the primary distribution artifact
+and needs no GPU renderer; retaining an export-only backend would preserve the
+maintenance burden after removing it from the live product.
+
+Geometry exports are explicitly versioned from this retirement onward.
+`GEOMETRY_FORMAT_VERSION` is written into both the binary geometry headers
+and `scene.json`; the standalone player refuses a different or missing
+version with a "Re-export this scene" message before it downloads or renders
+the frame stream. Future resource/chunk formats increment that constant
+rather than letting an old export fail as malformed GPU input.
+
 ## Stage 3 — the app (2026-08-14 onward)
 
 `maniml app [dir]` (`web/app.py`, since split — see 2026-08-18 below):
@@ -473,7 +498,7 @@ Decision: match CE, and keep the batching. `assemble_draw_batches`
 family into draw batches, used by both the native flatten
 (Mobject.get_shader_wrapper_list) and the web serializer
 (web/geometry.py) so the pipelines cannot disagree (pixel-diffed in
-tests/test_gl_port.py). It stably sorts by z_index, merges same-key
+tests/test_wgpu_port.py). It stably sorts by z_index, merges same-key
 neighbors, and starts a new batch when a member's early-pass content
 (fill; stroke when stroke_behind) overlaps late-pass content already in
 the batch — the only case where merging inverts CE's paint order. The
@@ -511,4 +536,4 @@ are static, so it computes once per animation and caches). The
 poisoning predates the draw-order work — click-to-inspect hit-testing
 reads the same boxes — but rendering never consulted bounding boxes
 until the hazard split did. Regression-tested in
-tests/test_gl_port.py::test_family_draw_order_survives_animation.
+tests/test_wgpu_port.py::FamilyDrawOrder.test_family_draw_order_survives_animation.

@@ -115,7 +115,7 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('"/scene/" + encodeURIComponent(sceneParam)', viewer)
 
     def test_viewer_keeps_its_transport_seam_explicit(self):
-        """The client renderers are the basis of any future browser-only
+        """The client renderer is the basis of any future browser-only
         build, so the WebSocket must stay a replaceable transport rather than
         leak through the rest of the viewer."""
         viewer = (STATIC / "viewer.html").read_text()
@@ -284,7 +284,7 @@ class ViewerTests(unittest.TestCase):
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('const DEFAULT_RENDERER = "gpu";', viewer)
         self.assertIn("let renderer = DEFAULT_RENDERER;", viewer)
-        for renderer in ("pixel", "gl", "gpu"):
+        for renderer in ("pixel", "gpu"):
             self.assertIn(f'data-renderer="{renderer}"', viewer)
         self.assertIn('id="split"', viewer)
         self.assertIn(
@@ -299,10 +299,21 @@ class ViewerTests(unittest.TestCase):
     def test_client_render_assets_are_intact(self):
         """Kept deliberately: these are what a zero-install browser build
         would render with."""
-        for name in ("gl.js", "webgpu.js", "player.html", "player.js"):
+        for name in ("webgpu.js", "player.html", "player.js"):
             self.assertTrue((STATIC / name).is_file(), name)
-        self.assertTrue(list((STATIC / "glsl").glob("*.glsl")))
         self.assertTrue(list((STATIC / "wgsl").glob("*.wgsl")))
+        self.assertFalse((STATIC / "gl.js").exists())
+        self.assertFalse(list((STATIC / "glsl").glob("*")))
+
+    def test_baked_player_is_webgpu_only_with_a_clear_fallback_message(self):
+        html = (STATIC / "player.html").read_text()
+        source = (STATIC / "player.js").read_text()
+        self.assertIn('<script src="webgpu.js"></script>', html)
+        self.assertNotIn("gl.js", html)
+        self.assertNotIn("ManimlGL", source)
+        self.assertIn("const EXPORT_FORMAT_VERSION = 1;", source)
+        self.assertIn("Re-export this scene", source)
+        self.assertIn("This browser doesn't support WebGPU.", source)
 
     def test_presentation_playback_is_wired(self):
         """Present-from-video: the standalone presenter ships whole, and

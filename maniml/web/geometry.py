@@ -1,7 +1,7 @@
 """Geometry snapshot serialization for the Stage-2 client renderer.
 
 Serializes the scene's current draw list into a self-contained binary
-message the browser (or the test harness in tests/test_gl_port.py) can
+message the browser (or the fidelity harness in tests/test_wgpu_port.py) can
 render with its own GPU:
 
     [0x03][u32le header_len][JSON header][vertex data]
@@ -33,9 +33,10 @@ stroke shader applies, evaluated at the current frame_scale), so the
 client can draw that many vertices per instance instead of the
 worst-case 64.
 
-Not expressible here (client falls back to the pixel stream, declared
-in `unsupported`): images, surfaces, depth-tested winding fills, clip
-planes — see the parity ledger in TODO.md.
+Not expressible here (the live client falls back to the Pixel stream and
+records the type in `unsupported`): unknown custom drawables and
+depth-tested winding fills that were not triangulated. Images, surfaces,
+texture data, dot clouds, triangulated fills, and clip planes are supported.
 """
 
 from __future__ import annotations
@@ -56,6 +57,10 @@ if TYPE_CHECKING:
     from maniml.scene.scene import Scene
 
 GEOMETRY_MESSAGE_TYPE = 0x03
+# Increment when a geometry header or payload change is not backward
+# compatible. Baked exports copy this into scene.json so the standalone
+# player can reject stale data before attempting to render it.
+GEOMETRY_FORMAT_VERSION = 1
 
 
 class GeometryCache:
@@ -271,7 +276,7 @@ def _merge_records(records):
     """Merge consecutive records with identical draw state — the
     native renderer's batching (assemble_draw_batches in
     utils/family_ops.py; the split rules here must mirror it, and
-    tests/test_gl_port.py pixel-diffs the two pipelines). Triangulated
+    tests/test_wgpu_port.py pixel-diffs the two pipelines). Triangulated
     fill chunks concatenate with re-based indices.
 
     A record whose early-pass content (fill; stroke when stroke_behind)
@@ -418,6 +423,7 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
             cache.sent.add(f"tex:{tex_hash}")
 
     header = {
+        "format_version": GEOMETRY_FORMAT_VERSION,
         "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
         "background": _jsonable(list(camera.background_rgba)),
         "resolution": list(camera.draw_fbo.size),

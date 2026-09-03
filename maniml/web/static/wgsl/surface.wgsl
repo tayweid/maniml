@@ -1,5 +1,4 @@
-// WGSL port of web/static/glsl/vsurface.{vert,frag} — serves both the
-// triangulated-fill path and Surface mobjects.
+// Serves both the triangulated-fill path and Surface mobjects.
 
 struct SurfaceIn {
     @location(0) point: vec3f,

@@ -74,8 +74,8 @@ maniml script.py SceneName --export-checkpoints
 # Browser viewer: same interactive development (checkpoints, watcher,
 # click-to-inspect), viewed in a browser tab instead of the pyglet
 # window; combines with --present. --no-browser skips the auto-open.
-# The viewer bar has a three-way renderer control: Pixel (server
-# stream), WebGL2, WebGPU (client-rendered), plus a split toggle.
+# The viewer bar has a two-way renderer control: Pixel (server stream)
+# or WebGPU (client-rendered), plus a split comparison toggle.
 maniml script.py SceneName --web
 
 # The app: persistent local server. The landing page is an Open action and
@@ -144,8 +144,8 @@ until the WebGPU transition retires it (`TODO.md`). Module map:
 - `cli.py` — `run_app`, `running_engine`, and the handoff to an engine already on the port. What `maniml app` runs.
 - `assets.py` — static serving from `web/static/`, the CSP, version-stamping.
 - `security.py` — the Origin check, scene-root confinement, bounded JSON parsing.
-- `geometry.py`, `reference_renderer.py`, `wgpu_renderer.py`, `export.py` — Stage 2 client rendering and the baked player (below).
-- `static/` — `viewer.html` and `app.html` (each one file; shared tokens, the pod run, *and the controls a pod holds* — slug, icon button, word tag — in `shell.css`, since the landing page is the same bar as the viewer's — the chrome is Plass's toolbar with its metrics, not an imitation: 60px bar, 42px pods pressed into a run with stadium ends, contents asleep until the pointer nears, flyouts as pills laid over their trigger), `gl.js`/`glsl/` (WebGL2), `webgpu.js`/`wgsl/` (WebGPU), `player.*` (the baked player, deliberately standalone — no `shell.css`), `manifest.webmanifest` + `sw.js` (the installable local app).
+- `geometry.py`, `wgpu_renderer.py`, `export.py` — Stage 2 client rendering and the baked player (below).
+- `static/` — `viewer.html` and `app.html` (each one file; shared tokens, the pod run, *and the controls a pod holds* — slug, icon button, word tag — in `shell.css`, since the landing page is the same bar as the viewer's — the chrome is Plass's toolbar with its metrics, not an imitation: 60px bar, 42px pods pressed into a run with stadium ends, contents asleep until the pointer nears, flyouts as pills laid over their trigger), `webgpu.js`/`wgsl/` (WebGPU), `player.*` (the baked player, deliberately standalone — no `shell.css`), `manifest.webmanifest` + `sw.js` (the installable local app).
 
 ### The viewer
 
@@ -167,9 +167,17 @@ End-to-end tested headlessly in `tests/test_web_viewer.py`.
 
 ### Client-side rendering (Stage 2)
 
-The client's renderer toggles request a geometry snapshot (message 0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) and render it with the browser's own GPU beside — or instead of — the pixel stream. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `gl_VertexID` picks the strip vertex).
+The renderer control requests a geometry snapshot (message 0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) and renders it with the browser's own GPU beside — or instead of — the pixel stream. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `vertex_index` picks the strip vertex).
 
-Two backends against the same payload: WebGL2 (`static/gl.js` + `static/glsl/`, mirrored on desktop GL by `web/reference_renderer.py` — **edit gl.js and reference_renderer.py together**, pixel-diffed in `tests/test_gl_port.py`) and WebGPU (`static/webgpu.js` + `static/wgsl/`, mirrored natively by `web/wgpu_renderer.py` — **keep all three in sync**, pixel-diffed in `tests/test_wgpu_port.py`). The live viewer starts on WebGPU and falls back visibly to Pixel. WebGPU is the decided endgame; the WebGL2 path retires after dogfooding (`TODO.md`). Anything unsupported is declared in the payload's `unsupported` list and stays on the pixel stream.
+The one client backend is WebGPU (`static/webgpu.js` + `static/wgsl/`), mirrored natively by `web/wgpu_renderer.py` — **keep all three in sync**, pixel-diffed in `tests/test_wgpu_port.py`. The live viewer starts on WebGPU and falls back visibly to Pixel. WebGL2 remains in the repository history as the differential harness that established the shared serializer before WebGPU became canonical; it is not a shipped renderer. Anything unsupported is declared in the payload's `unsupported` list and falls back to the Pixel stream.
+
+The geometry player produced by `--export` is WebGPU-only. If WebGPU is not
+available it says so directly and points to the MP4 presentation export; it
+does not ship a second renderer as a compatibility fallback. The student
+bundle (`--export-present`) is ordinary video and needs no browser GPU.
+`GEOMETRY_FORMAT_VERSION` appears in every geometry header and in the
+export's `scene.json`; the player checks the metadata before loading frames
+and tells an incompatible folder to re-export instead of rendering garbage.
 
 ## Delivery: one artifact, local only
 
@@ -271,9 +279,9 @@ A future Pyodide target would run the engine in the page with no local process.
 Two things are kept deliberately intact for it, and should not be entangled with
 the local transport:
 
-- **The client-side renderers** — `static/gl.js`, `static/webgpu.js`,
-  `static/glsl/`, `static/wgsl/`, `web/geometry.py`, `web/reference_renderer.py`,
-  and the baked player (`web/export.py`, `static/player.*`). These already draw
+- **The client-side renderer** — `static/webgpu.js`, `static/wgsl/`,
+  `web/geometry.py`, `web/wgpu_renderer.py`, and the baked player
+  (`web/export.py`, `static/player.*`). These already draw
   scenes with no Python in the loop; they are the basis of a browser-only build.
 - **The transport seam in `viewer.html`.** The WebSocket is confined to `wsUrl`,
   `send()`, and the message pump; everything else speaks only in protocol

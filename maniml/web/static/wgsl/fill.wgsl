@@ -1,5 +1,4 @@
-// WGSL port of web/static/glsl/vfill.{vert,frag} — the instanced
-// winding-number fill. One instance per bezier triple, 6 vertices
+// Instanced winding-number fill. One instance per bezier triple, 6 vertices
 // reproducing the geometry shader's two triangles.
 
 struct FillIn {

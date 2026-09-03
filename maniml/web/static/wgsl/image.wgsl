@@ -1,4 +1,4 @@
-// WGSL port of web/static/glsl/vimage.{vert,frag} — ImageMobject.
+// ImageMobject texture pipeline.
 
 @group(1) @binding(0) var image_texture: texture_2d<f32>;
 @group(1) @binding(1) var image_sampler: sampler;

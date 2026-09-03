@@ -16,7 +16,6 @@ REQUIRED_ASSETS = {
     "maniml/web/static/viewer.html",
     "maniml/web/static/player.html",
     "maniml/web/static/player.js",
-    "maniml/web/static/gl.js",
     "maniml/web/static/webgpu.js",
     # The installed app's identity: without these the engine serves a page
     # that cannot be installed, and the icon and offline shell disappear.
@@ -27,6 +26,8 @@ REQUIRED_ASSETS = {
     "maniml/utils/safe_text_cache.py",
 }
 REQUIRED_LICENSES = {"LICENSE", "LICENSE.community"}
+RETIRED_ASSETS = {"maniml/web/static/gl.js"}
+RETIRED_PREFIXES = ("maniml/web/static/glsl/",)
 
 
 def check_wheel(path: Path) -> None:
@@ -38,6 +39,12 @@ def check_wheel(path: Path) -> None:
         missing = sorted(REQUIRED_ASSETS - names)
         if missing:
             raise SystemExit(f"wheel is missing packaged assets: {missing}")
+        retired = sorted(
+            name for name in names
+            if name in RETIRED_ASSETS or name.startswith(RETIRED_PREFIXES)
+        )
+        if retired:
+            raise SystemExit(f"wheel contains retired WebGL2 assets: {retired[:5]}")
         leaked = sorted(
             name for name in names if name.startswith(("tests/", "example_scenes/"))
         )

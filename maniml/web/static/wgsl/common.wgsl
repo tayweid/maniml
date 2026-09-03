@@ -1,5 +1,5 @@
-// WebGPU port of web/static/glsl/common.glsl. One uniform struct
-// serves every pipeline (WebGPU has no loose uniforms); the Python and
+// One uniform struct serves every WebGPU pipeline (there are no loose
+// uniforms); the Python and
 // JS sides pack it with matching layout — see UNIFORM_FIELDS in
 // web/wgpu_renderer.py before touching field order.
 

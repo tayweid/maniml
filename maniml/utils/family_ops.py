@@ -26,7 +26,7 @@ def extract_mobject_family_members(
 
 # Draw-order batching (shared by the native renderer and the web
 # geometry serializer, which must partition families identically —
-# tests/test_gl_port.py pixel-diffs the two).
+# tests/test_wgpu_port.py pixel-diffs the two).
 #
 # CE paints each family member completely (fill, then stroke) in family
 # order, with the whole family stably sorted by z_index first.  maniml
