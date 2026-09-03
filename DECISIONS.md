@@ -440,6 +440,17 @@ table ships as `present_meta.js` because the page must open from
 file://, where fetch() does not exist. Episode-sized reality check: all
 of EpisodeA1 is a 4.3 MB folder.
 
+**Follow-up (2026-08-26): recorded playback starts only after live endpoint
+prebuild.** The viewer used to enter the movie immediately, even when the live
+engine had built only a prefix of the movie's checkpoints. Exiting playback at
+a later point could therefore fail to park the engine at the visible endpoint.
+Present now has an explicit readiness handshake: prebuild every live endpoint,
+rewind, advertise `presentation_ready`, require a fresh recording with the
+same checkpoint count, then let the movie own motion. Exiting first restores
+the corresponding live checkpoint and then leaves present mode. `--present`
+uses the same path. A missing or stale movie is rendered only after the user
+explicitly enters Present; ordinary live WebGPU still writes no media.
+
 ## Family draw order is CE's (decided 2026-09-02)
 
 The symptom, reported from course production as "VGroup children render

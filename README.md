@@ -107,7 +107,11 @@ In the preview window:
 - **Click a mobject** — prints its variable name; drag to move it, and a
   paste-ready `name.move_to([x, y, z])` prints on release
 - `--present` — pre-runs the whole scene and adds a clickable checkpoint
-  timeline at the bottom edge of the window
+  timeline at the bottom edge of the window. In the browser, Present then
+  uses a fresh MP4 for smooth forward and reverse motion and restores the
+  live engine at the recorded endpoint on exit. Entering Present explicitly
+  renders the cache if it is missing or stale; ordinary live viewing does
+  not write video or image files.
 - `--render` — headless: writes an MP4
 - `--export-checkpoints` — headless: writes a PNG per checkpoint, and
   nothing else. Its own export (and its own button beside Download in

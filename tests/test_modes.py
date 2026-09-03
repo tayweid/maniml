@@ -54,6 +54,7 @@ class TestPresentMode(ModeSceneTest):
         self.assertEqual(len(scene.animation_checkpoints), 5)
         self.assertEqual(scene.current_animation_index, 0)
         self.assertFalse(scene.auto_reload_enabled)
+        self.assertTrue(scene._presentation_ready)
         # live namespace tracks the displayed checkpoint
         self.assertIn('self', scene._live_namespace)
 

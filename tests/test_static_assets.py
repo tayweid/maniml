@@ -314,6 +314,9 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('<script src="presentation.js"></script>', viewer)
         self.assertIn('<script src="rail.js"></script>', viewer)
         self.assertIn('stageSource === "playback"', viewer)
+        self.assertIn("data.presentation_ready", viewer)
+        self.assertIn('send({ type: "present" });', viewer)
+        self.assertIn("endpointsMatch", viewer)
         # the playback key branch claims-and-returns BEFORE the forwarder
         keyboard = viewer[viewer.index("// -- Keyboard --"):]
         playback_claim = keyboard.index('stageSource === "playback"')
