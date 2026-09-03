@@ -234,7 +234,29 @@ class SceneFileWriter(object):
         width, height = self.scene.camera.get_pixel_shape()
 
         vf_arg = 'vflip'
-        vf_arg += f',eq=saturation={self.saturation}:gamma={self.gamma}'
+        if self.saturation != 1.0 or self.gamma != 1.0:
+            # eq works in YUV, so with RGBA input ffmpeg inserts an extra
+            # RGB->YUV conversion in front of it; as a no-op it still costs
+            # a rounding pass that tints neutral greys (measured (24,26,26)
+            # for a #1a1a1a background). Only pay for it when asked.
+            vf_arg += f',eq=saturation={self.saturation}:gamma={self.gamma}'
+        # Tag the stream as BT.709 limited range and convert with that
+        # matrix. Untagged H.264 gets converted with swscale's BT.601
+        # default and then decoded by browsers as BT.709, so the recorded
+        # colours drift from the live WebGPU canvas (a maniml BLUE square
+        # measured (80,188,225) in the video against (89,197,223) live;
+        # tagged it plays back as (90,197,222)). Greys are unaffected by
+        # the matrix, so the mismatch shows on saturated colour, not the
+        # background.
+        color_tags = []
+        if self.pixel_format and self.pixel_format.startswith('yuv'):
+            vf_arg += ',scale=out_color_matrix=bt709:out_range=tv'
+            color_tags = [
+                '-colorspace', 'bt709',
+                '-color_primaries', 'bt709',
+                '-color_trc', 'bt709',
+                '-color_range', 'tv',
+            ]
 
         command = [
             self.ffmpeg_bin,
@@ -256,6 +278,7 @@ class SceneFileWriter(object):
             command += ['-g', str(fps)]
         if self.pixel_format:
             command += ['-pix_fmt', self.pixel_format]
+        command += color_tags
         command += [self.temp_file_path]
         try:
             self.writing_process = sp.Popen(command, stdin=sp.PIPE)

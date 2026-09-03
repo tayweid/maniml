@@ -159,6 +159,41 @@ class FFmpegProcessTests(unittest.TestCase):
             writer.abort()
             self.assertFalse(staging_dir.exists())
 
+    @patch("maniml.scene.scene_file_writer.sp.Popen")
+    def test_movie_pipe_tags_bt709(self, popen):
+        # Untagged H.264 is converted with swscale's BT.601 default and
+        # decoded by browsers as BT.709, so recorded colours drift from the
+        # live canvas. The pipe must convert with, and tag, BT.709 limited.
+        with tempfile.TemporaryDirectory() as directory:
+            writer = self.writer()
+            writer.ffmpeg_bin = "ffmpeg"
+            writer.scene = MagicMock()
+            writer.scene.camera.fps = 24
+            writer.scene.camera.get_pixel_shape.return_value = (4, 4)
+            writer.saturation = 1.0
+            writer.gamma = 1.0
+            writer.video_codec = "libx264"
+            writer.pixel_format = "yuv420p"
+            writer.quiet = True
+            process = MagicMock()
+            process.poll.return_value = 0
+            popen.return_value = process
+
+            writer.open_movie_pipe(Path(directory) / "movie.mp4")
+            command = [str(part) for part in popen.call_args.args[0]]
+            writer.abort()
+
+        vf = command[command.index("-vf") + 1]
+        self.assertIn("scale=out_color_matrix=bt709:out_range=tv", vf)
+        for flag, value in (("-colorspace", "bt709"),
+                            ("-color_primaries", "bt709"),
+                            ("-color_trc", "bt709"),
+                            ("-color_range", "tv")):
+            self.assertIn(flag, command)
+            self.assertEqual(command[command.index(flag) + 1], value)
+        # Output options must precede the output path
+        self.assertLess(command.index("-colorspace"), len(command) - 1)
+
     def test_interrupted_movie_is_preserved_without_overwriting_final(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
