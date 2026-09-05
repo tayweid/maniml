@@ -37,6 +37,26 @@ signal. What it has surfaced so far, and what is ready regardless:
      never mutate in place, module objects, functions already handled
      by `_rebind_functions`) can be shared. Add byte and time
      accounting per checkpoint so the win is visible.
+     *A potential path further along this line, not yet tried:* the
+     checkpoint ledger from JAnim (`../simlab/JANIM.md`). Keep
+     `deepcopy_namespace`, but pre-seed its memo so a mobject that has
+     not changed since its last frozen copy reuses that copy, and
+     only changed mobjects are copied; the per-play cost becomes what
+     moved. The 2026-08 revision store (tag
+     `archive/perf-systematic-viewer`) foundered on the change signal
+     — partial hooks missed writes silently and hashing arrays cost
+     as much as copying. The cheap signal is to forbid unsanctioned
+     writes rather than detect them: freeze `mobject.data` and the
+     array uniforms with numpy's `flags.writeable = False` (field
+     views inherit it; verified on numpy 2.5), have the
+     `affects_data` / family / updater mutators unfreeze, bump a
+     per-mobject `revision`, and refreeze, so a bypassing write fails
+     loudly in the suite (about 29 such sites outside `mobject.py`)
+     instead of going stale. Derived caches stay outside the frozen
+     region. Deep copies come back writeable, so ledger entries are
+     frozen explicitly. User code writing into `get_points()` would
+     break and needs a clear error; that is the compatibility cost to
+     weigh before choosing this path.
    - **Copy later.** A play's checkpoint is needed only if the user
      navigates back to it. Take the copy after the frame has been
      sent, not before it, so the stall moves off the animation's first
