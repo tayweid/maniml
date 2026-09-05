@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import contextvars
 import copy
 from functools import wraps
 import itertools as it
@@ -57,6 +59,22 @@ if TYPE_CHECKING:
     TimeBasedUpdater = Callable[["Mobject", float], "Mobject" | None]
     NonTimeUpdater = Callable[["Mobject"], "Mobject" | None]
     Updater = Union[TimeBasedUpdater, NonTimeUpdater]
+
+
+# How Mobject.__deepcopy__ treats parent links and array flags. None is a
+# plain deep copy. "freeze" makes a checkpoint (no parent links, read-only
+# arrays); "thaw" makes a live graph from one (parent links rebuilt from
+# the submobject side, arrays writeable again as copies always are).
+_COPY_MODE: contextvars.ContextVar = contextvars.ContextVar("maniml_copy_mode", default=None)
+
+
+@contextmanager
+def copy_mode(mode: str | None):
+    token = _COPY_MODE.set(mode)
+    try:
+        yield
+    finally:
+        _COPY_MODE.reset(token)
 
 
 class Mobject(object):
@@ -585,6 +603,8 @@ class Mobject(object):
 
     def insert_submobject(self, index: int, new_submob: Mobject) -> Self:
         self.submobjects.insert(index, new_submob)
+        if self not in new_submob.parents:
+            new_submob.parents.append(self)
         self.note_changed_family()
         return self
 
@@ -756,8 +776,30 @@ class Mobject(object):
         result = cls.__new__(cls)
         memo[id(self)] = result
         shared = self._copy_by_reference
+        mode = _COPY_MODE.get()
         for key, value in self.__dict__.items():
-            result.__dict__[key] = value if key in shared else copy.deepcopy(value, memo)
+            if key in shared:
+                result.__dict__[key] = value
+            elif key == "parents" and mode is not None:
+                # A checkpoint graph carries no parent links: a link would
+                # reach every dead group that ever held this mobject, and a
+                # frozen copy shared between checkpoints could not point at
+                # each one's parent. Thaw rebuilds the links from the
+                # submobject side (below).
+                result.__dict__[key] = []
+            else:
+                result.__dict__[key] = copy.deepcopy(value, memo)
+        if mode == "freeze":
+            # History is read-only: a write into a checkpoint fails here
+            # instead of silently corrupting what navigation restores.
+            result.data.flags.writeable = False
+            for value in result.uniforms.values():
+                if isinstance(value, np.ndarray):
+                    value.flags.writeable = False
+        elif mode == "thaw":
+            for submob in result.submobjects:
+                if result not in submob.parents:
+                    submob.parents.append(result)
         return result
 
     def copy(self, deep: bool = False) -> Self:

@@ -95,19 +95,24 @@ fought, and here it is inert: a stale derived column in a frozen copy
 is harmless because the copy's `_data_has_changed` flag makes the
 render pass recompute it.
 
-**The reuse rule is conservative.** An entry is reusable when its
-revision is unchanged **and** the mobject is a *leaf entry*: at freeze
-time it had no updaters, no `target`, no `saved_state`, and every
-Mobject-valued attribute in its `__dict__` other than `submobjects` /
-`family` / `parents` was inside its own family. Why: a frozen copy is
-immutable and shared, so it cannot be re-pointed. If an unchanged
-mobject referenced a *changed* one (an updater closure over a tracker,
-a `target` that was edited), reusing it would carry a stale reference
-into the new checkpoint and the restore would drag the old object in —
-the ghost class of bug. Children are safe because a child change bumps
-the parent's revision. Mobjects with updaters change every frame
-anyway; targets and saved states are rare. The rule can widen later
-(below) once the numbers say it should.
+**The reuse rule follows references.** A frozen copy is immutable and
+shared, so it cannot be re-pointed: if an unchanged mobject referenced
+a *changed* one, reusing it would carry a stale reference into the new
+checkpoint and the restore would drag the old object in — the ghost
+class of bug. So an entry is reusable only when its revision is
+unchanged **and** everything it reaches is reusable too: its
+submobjects, and the mobjects behind its reference attributes
+(`target`, `saved_state`, a `SurroundingRectangle.mobject`, any
+attribute or one-level container holding a mobject), transitively. The
+attribute names are recorded on the entry at freeze time, so the walk
+costs a few dictionary reads per mobject. The one thing that makes a
+copy unshareable outright is an updater: its closure holds mobjects
+the walk cannot see. Mobjects with updaters change every frame anyway.
+(The plan first said "leaf entries only: no target, no saved state".
+That would have copied every mobject ever animated with `.animate`
+forever, because `.animate` leaves `target` behind; the reference walk
+replaced it before Phase 2 landed.) Children are additionally safe
+because a child change bumps the parent's revision.
 
 **Parents are stripped from frozen copies and rebuilt on restore.**
 Mobject has no `__deepcopy__`, so a plain deep copy copies `parents`
@@ -218,8 +223,22 @@ Same render after sharing the svg path (everything else unchanged):
 | `checkpoint.execution_copy` | 188 → 48 ms | 979 → 595 ms | 3,151 → 933 ms | 31.3 → 10.8 s |
 
 A four-fold cut from one attribute. What remains is the per-object
-traversal of the accumulated namespace, which is the ledger's job; the
-target in "The number to move" stands.
+traversal of the accumulated namespace, which is the ledger's job.
+
+Same render again with the ledger (Phase 2) and the frontier skip
+(Phase 2b, forward half):
+
+| Run | Save p50 | Save p95 | Save max | Thaw p50 | Copy time over the episode |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Before | 192 ms | 933 ms | 2,898 ms | 188 ms | 64.6 s |
+| Shared svg path | 46 ms | 112 ms | 1,010 ms | 48 ms | 18.6 s |
+| + ledger | 9 ms | 34 ms | 135 ms | 80 ms | 12.5 s |
+| + frontier skip | 10 ms | 30 ms | 111 ms | skipped, 92 of 93 | 1.3 s |
+
+Over the episode the ledger reused 208,406 mobject copies and made
+21,113. The remaining 10 ms median is the mobjects each play actually
+moved plus the walk over the reusable ones (an integer compare and a
+few dictionary reads per mobject; about 4,500 of them by the end).
 
 Note `animation.begin` separately: the audit's 37 ms per play was
 roughly 17 ms of `begin_animations` plus 19 ms of copy. This plan
@@ -293,6 +312,18 @@ Tests: `tests/test_checkpoint_ledger.py`.
 Exit: `checkpoint.save_copy` under 2 ms on a static play in the Phase 0
 scene; typical plays cost the moved mobjects only; counters show reuse.
 
+*Landed 2026-09-05.* `deepcopy_namespace(..., ledger=, mode=)`;
+`Mobject.__deepcopy__` reads a copy mode (`copy_mode()` in
+`mobject.py`): "freeze" drops parent links and marks the arrays
+read-only, "thaw" rebuilds parent links from the submobject side, None
+is a plain deep copy (what `SceneState.copy()` for undo still uses).
+`CheckpointLedger` lives on the scene as `checkpoint_ledger`. The two
+places that used to put a stored checkpoint's state on screen directly
+(the edit re-anchor and the exec-error rollback) go through
+`thaw_state` now. `insert_submobject` sets the child's parent link,
+which it never did. Tests: the `LedgerReuse` and
+`VerifyModeCatchesABypass` cases in `tests/test_checkpoint_ledger.py`.
+
 ### Phase 2b — Reuse on thaw (one to two days)
 
 The baseline showed the other half of the stall: `run_next_animation`
@@ -315,7 +346,27 @@ not match that checkpoint's frozen ones).
 Exit: `checkpoint.execution_copy` and `restore_copy` under 2 ms when
 stepping forward through a static stretch.
 
+*Landed 2026-09-05, the forward half.* After a unit finishes, the live
+scene and `_live_namespace` are exactly what the last save froze from,
+so `run_next_animation` runs the next unit against them and skips the
+thaw entirely (`_live_is_checkpoint`; `Scene.restore_state` and a
+rebuilt checkpoint zero clear it). That is the case the other session's
+measurement called "skip the execution copy at the frontier", and it
+removes the thaw from every RIGHT press. The reverse — a step back
+still thaws the whole checkpoint — is the remaining part of this
+phase.
+
 ### Phase 3 — Dogfood under verify, then decide (during course work)
+
+*First run, 2026-09-05:* `EpisodeA3 --render` under
+`MANIML_VERIFY_LEDGER=1` raised once, at unit 87: `Table` changed in
+`mob_table`. The table's entries live in `mob_table`, a list of lists,
+and the reference walk only looked one container level deep, so an
+entry that changed after leaving the table's family did not spoil the
+table's reuse. The walk follows nested containers now (four levels),
+and the render runs clean. That is the mode working as designed: a
+miss became a named exception at the next save instead of a stale
+checkpoint.
 
 Run the course episodes and the dogfood scenes with verify mode on
 for a week of real use. Every `LedgerStale` is a missed bump with its

@@ -737,3 +737,93 @@ Native GL removal (beeline step 4) is explicitly **held** by Taylor as
 of the same day: it stays the next structural step and the
 instruction-stream plan's prerequisite, but it waits for the dogfood
 pause to produce confidence.
+
+## Checkpoints are a ledger (2026-09-05)
+
+The stall at every play boundary — TODO "Now" item 1, the thing dogfood
+kept reporting — was the checkpoint copy, and on a real course episode
+it was an order of magnitude worse than the August audit had measured
+on the benchmark scene: 192 ms at the median and 2.9 s at worst for
+the save after each play on EpisodeA3, plus the same again for the
+thaw before each unit. Three measurements decided the shape of the
+fix, all recorded in `docs_checkpoint_ledger_plan.md`:
+
+- `copy.deepcopy` costs about 27 µs per mobject and nothing per byte
+  (a 13 MB circle in 0.4 ms, a thousand squares in 27 ms). The cost is
+  the traversal, so the only fix is to not visit unchanged mobjects.
+- The namespace keeps every mobject ever made — 31 to 122 variables
+  over the episode, all off screen by the end — and every one was
+  copied at every play. Two thirds of the objects visited were the
+  svgelements path caches every Tex glyph keeps from construction.
+- Every unit paid twice: the thaw before exec, the save after.
+
+What shipped, in order of payoff:
+
+1. **Glyphs share their parsed svg path across copies**
+   (`Mobject.__deepcopy__` with a per-class `_copy_by_reference`;
+   `VMobjectFromSVGPath` names `path_obj`). Four-fold on its own.
+2. **The ledger.** `Mobject.revision` is bumped by every mutation a
+   checkpoint must see: the existing `note_changed_data` and
+   `note_changed_family` choke points (both recurse up the parents,
+   so a child change bumps every ancestor) and a new
+   `note_changed_state` for uniforms, updaters, locks, targets, the
+   `z_index` setter, tracker values, camera orientation. A save
+   pre-seeds the deep copy's memo so a mobject whose revision is
+   unchanged — and whose submobjects and referenced mobjects
+   (`target`, `saved_state`, a `SurroundingRectangle.mobject`, any
+   attribute holding one) are unchanged too — hands back the frozen
+   copy it got last time. A mobject with updaters is never shared:
+   its closures hold mobjects the walk cannot see. The per-play cost
+   becomes what moved; history holds objects + changes instead of
+   objects × checkpoints.
+3. **Frozen graphs carry no parent links and read-only arrays.**
+   Parent links would reach every dead group that ever held a
+   mobject (the course's `VGroup(*scene.mobjects)` stage grabs), and a
+   copy shared between checkpoints could not point at each one's
+   parent. A thaw rebuilds the links from the submobject side. The
+   read-only flag turns "someone mutated history" into an immediate
+   error; the two paths that used to put a stored checkpoint's state
+   on screen directly (edit re-anchor, exec-error rollback) go through
+   a thaw now.
+4. **No thaw at the frontier.** After a save, the live scene and
+   namespace are exactly what the checkpoint was frozen from, and the
+   checkpoint holds its own copies; the next unit runs against the
+   live graph. Any restore clears that, so navigation still thaws.
+
+Why the August revision store failed and this does not: it tried to
+*detect* change after the fact (partial hooks, blake2b hashes of the
+arrays, derived columns excluded by name) and every miss was silent.
+Here the signal is an integer per mobject at the sites that already
+mark data as changed, derived columns never pass those sites so they
+cannot false-positive, and a miss is loud: `MANIML_VERIFY_LEDGER=1`
+compares every reuse against the live object and raises naming the
+attribute. The whole suite runs clean under it, and its first run on
+the real episode caught one real miss — a `Table` keeps `mob_table`, a
+list of lists of its entries, and the reference walk only looked one
+container deep, so an entry that changed after leaving the table's
+family would have left a stale table in history; the walk now follows
+nested containers. Two writes it cannot see are recorded as such: a plain attribute reassigned to a different
+mobject (an added or removed attribute is caught by an attribute
+count on the entry), and a numpy view taken before a freeze — the
+optional live-array freeze in the plan's Phase 4 would close the
+second if dogfood ever finds it.
+
+Measured on the same EpisodeA3 render, checkpoint copy per play:
+
+| Run | Save p50 | Save max | Thaw p50 | Copy time over the episode |
+| --- | ---: | ---: | ---: | ---: |
+| Before | 192 ms | 2,898 ms | 188 ms | 64.5 s |
+| Shared svg path | 46 ms | 1,010 ms | 48 ms | 18.6 s |
+| + the ledger | 9 ms | 135 ms | 80 ms | 12.5 s |
+| + no thaw at the frontier | 10 ms | 111 ms | skipped (92 of 93 units) | 1.3 s |
+
+The thaw got slower under the ledger alone (each thaw enters a whole
+new live generation in the ledger) and then vanished from forward
+stepping. What is left is the save at 10 ms median, which is the
+mobjects that actually moved in each play, and one thaw per
+navigation.
+
+Explicitly not done, on purpose: copy-on-write on the live objects
+(the instruction-stream architecture makes checkpoints free by
+construction), and reuse on thaw for backward navigation (the same
+trick reversed; queued in the plan as Phase 2b's remainder).

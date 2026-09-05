@@ -10,16 +10,19 @@ are deep-copied *together* so variable-to-mobject references survive
 """
 from __future__ import annotations
 
+import copy
 import inspect
 import os
 import random
 import traceback
+import weakref
 from contextlib import contextmanager
 
 import numpy as np
 
 from maniml.logger import log
 from maniml.mobject.mobject import Mobject
+from maniml.mobject.mobject import copy_mode
 from maniml.performance import performance
 from maniml.scene.file_watcher import FileWatcher
 from maniml.scene.source_map import SourceMapError
@@ -30,6 +33,24 @@ from maniml.scene.source_map import unit_for_line
 
 
 class CheckpointMixin:
+    @property
+    def checkpoint_ledger(self) -> "CheckpointLedger":
+        """The scene's record of which live mobjects already have a frozen
+        copy in some checkpoint (see CheckpointLedger). Created on first
+        use so the mixin needs no __init__."""
+        ledger = self.__dict__.get("_checkpoint_ledger")
+        if ledger is None:
+            ledger = self.__dict__["_checkpoint_ledger"] = CheckpointLedger()
+        return ledger
+
+    def _live_is_checkpoint(self, index: int) -> bool:
+        """True while the live scene and `_live_namespace` are the very
+        objects checkpoint `index` was frozen from: set when a unit
+        finishes, cleared by anything that puts a thawed copy on screen
+        (Scene.restore_state) or rebuilds checkpoint zero."""
+        return (self.__dict__.get('_live_matches_checkpoint') == index
+                and bool(self.__dict__.get('_live_namespace')))
+
     def _create_checkpoint_zero(self, namespace: dict | None = None) -> None:
         """
         Create checkpoint 0 with the full namespace from the scene file.
@@ -90,7 +111,8 @@ class CheckpointMixin:
         
         # Deep copy to create checkpoint
         with performance.stage("checkpoint.save_copy"):
-            checkpoint_namespace = deepcopy_namespace(namespace)
+            checkpoint_namespace = deepcopy_namespace(
+                namespace, ledger=self.checkpoint_ledger, mode="freeze")
         checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
         
         # Create checkpoint 0
@@ -107,6 +129,7 @@ class CheckpointMixin:
         self.animation_checkpoints.append(checkpoint_zero)
         self.current_animation_index = 0
         self.frontier_index = 0
+        self._live_matches_checkpoint = None
         performance.gauge("checkpoint.count", 1)
         performance.sample_process("checkpoint_saved", checkpoint=0)
 
@@ -186,7 +209,8 @@ class CheckpointMixin:
 
         if self.current_animation_index != safe_idx:
             self.current_animation_index = safe_idx
-            self.restore_state(self.animation_checkpoints[safe_idx]['state'])
+            self.restore_state(thaw_state(
+                self.animation_checkpoints[safe_idx]['state'], self.checkpoint_ledger))
             self.update_frame(dt=0, force_draw=True)
         log.info(f"Replaying from checkpoint {safe_idx} to unit {affected.index}")
 
@@ -296,7 +320,9 @@ class CheckpointMixin:
         with performance.stage("checkpoint.display_restore"):
             self.current_animation_index = index
             with performance.stage("checkpoint.restore_copy"):
-                temp = deepcopy_namespace(self.animation_checkpoints[index])
+                temp = deepcopy_namespace(
+                    self.animation_checkpoints[index],
+                    ledger=self.checkpoint_ledger, mode="thaw")
             self.restore_state(temp['state'])
             namespace = temp['namespace']
             namespace['self'] = self
@@ -384,14 +410,11 @@ class CheckpointMixin:
         # namespace variables and on-screen mobjects are preserved
         namespace['__checkpoint_state__'] = self.get_state()
         with performance.stage("checkpoint.save_copy"):
-            checkpoint_namespace = deepcopy_namespace(namespace)
+            checkpoint_namespace = deepcopy_namespace(
+                namespace, ledger=self.checkpoint_ledger, mode="freeze")
         checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
         if performance.enabled:
-            # How much the copy had to visit. Until the ledger lands every
-            # mobject is copied; afterwards `reused` is the win.
-            n = _count_family(checkpoint_state.mobjects)
-            performance.gauge("checkpoint.mobjects", n)
-            performance.increment("checkpoint.ledger.copied", n)
+            performance.gauge("checkpoint.mobjects", _count_family(checkpoint_state.mobjects))
 
         self.current_animation_index += 1
         checkpoint = {
@@ -535,18 +558,35 @@ class CheckpointMixin:
                 return
             unit = tail
 
-        # Work on a deep copy so the stored checkpoint stays pristine.
-        # State and namespace are copied together, preserving references
-        # between namespace variables and on-screen mobjects.
-        with performance.stage("checkpoint.execution_copy"):
-            checkpoint_temporary = deepcopy_namespace(current_checkpoint)
+        if self._live_is_checkpoint(self.current_animation_index):
+            # At the frontier: the live scene and namespace are exactly
+            # what the current checkpoint was frozen from, and the
+            # checkpoint holds its own (immutable) copies. Running the
+            # next unit against the live graph is what one straight run
+            # of construct() would have done; the thaw only earns its
+            # keep after a navigation replaced the live graph.
+            performance.increment("checkpoint.execution_copy.skipped")
+            state = current_checkpoint['state']
+            self.time = state.time
+            self.num_plays = state.num_plays
+            if state.camera_frame_points is not None and hasattr(self.camera, 'frame'):
+                self.camera.frame.set_points(state.camera_frame_points)
+            self._reset_pacing_clocks()
+            namespace = self._live_namespace
+        else:
+            # Work on a deep copy so the stored checkpoint stays pristine.
+            # State and namespace are copied together, preserving references
+            # between namespace variables and on-screen mobjects.
+            with performance.stage("checkpoint.execution_copy"):
+                checkpoint_temporary = deepcopy_namespace(
+                    current_checkpoint, ledger=self.checkpoint_ledger, mode="thaw")
 
-        with performance.stage("checkpoint.execution_restore"):
-            with self.mobject_list_transaction():
-                self.clear()
-                self.restore_state(checkpoint_temporary['state'])
+            with performance.stage("checkpoint.execution_restore"):
+                with self.mobject_list_transaction():
+                    self.clear()
+                    self.restore_state(checkpoint_temporary['state'])
 
-        namespace = checkpoint_temporary['namespace']
+            namespace = checkpoint_temporary['namespace']
         namespace['self'] = self
         self._restore_checkpoint_random_state(current_checkpoint)
         # Anchor for the checkpoint(s) saved during exec
@@ -568,7 +608,7 @@ class CheckpointMixin:
             checkpoint = self.animation_checkpoints[self.current_animation_index]
             with self.mobject_list_transaction():
                 self.clear()
-                self.restore_state(checkpoint['state'])
+                self.restore_state(thaw_state(checkpoint['state'], self.checkpoint_ledger))
             self.update_frame(dt=0, force_draw=True)
             if self._strict_animation_errors():
                 raise
@@ -585,6 +625,7 @@ class CheckpointMixin:
         # The exec namespace holds the objects now on screen; keep it
         # for click-to-inspect name lookup
         self._live_namespace = namespace
+        self._live_matches_checkpoint = self.current_animation_index
 
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
@@ -821,7 +862,9 @@ def _rebind_functions(old_namespace: dict, new_namespace: dict, memo: dict) -> N
 
     for value in list(memo.values()):
         if isinstance(value, Mobject) and getattr(value, 'updaters', None):
-            value.updaters = [rebind(u) for u in value.updaters]
+            rebound = [rebind(u) for u in value.updaters]
+            if any(a is not b for a, b in zip(rebound, value.updaters)):
+                value.updaters = rebound
 
 
 VERIFY_LEDGER_ENV = "MANIML_VERIFY_LEDGER"
@@ -834,13 +877,14 @@ DERIVED_DATA_KEYS = frozenset({"joint_angle", "base_normal", "d_normal_point"})
 
 # Attributes that are render-only, rebuilt on restore, or handled by the
 # ledger's own rules (submobjects through the memo, parents relinked on
-# thaw, updaters / target / saved_state by the leaf rule).
+# thaw, updaters by the no-updaters rule).
 _LEDGER_IGNORED_ATTRS = frozenset({
     "data", "uniforms", "submobjects", "parents", "family", "updaters",
-    "target", "saved_state", "revision", "shader_wrapper", "bounding_box",
+    "revision", "shader_wrapper", "bounding_box",
     "_needs_new_bounding_box", "_data_has_changed", "_is_animating",
     "_has_updaters_in_family", "_triangulation_cache", "needs_new_joint_angles",
-    "needs_new_unit_normal", "subpath_end_indices", "_shader_wrapper_id",
+    "needs_new_unit_normal", "subpath_end_indices", "outer_vert_indices",
+    "_shader_wrapper_id",
 })
 
 
@@ -858,31 +902,43 @@ def _count_family(mobjects) -> int:
     return sum(len(mob.get_family()) for mob in mobjects)
 
 
-def _values_differ(a, b) -> bool:
+def _values_differ(a, b, ledger=None) -> bool:
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
         try:
             return not np.array_equal(np.asarray(a), np.asarray(b))
         except Exception:
             return True
     if isinstance(a, Mobject) or isinstance(b, Mobject):
-        return False   # references are the leaf rule's business, not a diff
+        if ledger is None or not (isinstance(a, Mobject) and isinstance(b, Mobject)):
+            return ledger is not None
+        entry = ledger.entries.get(a)
+        return entry is None or entry.frozen is not b
     if isinstance(a, (list, tuple)):
         if not isinstance(b, (list, tuple)) or len(a) != len(b):
             return True
-        return any(_values_differ(x, y) for x, y in zip(a, b))
+        return any(_values_differ(x, y, ledger) for x, y in zip(a, b))
     if isinstance(a, dict):
         if not isinstance(b, dict) or a.keys() != b.keys():
             return True
-        return any(_values_differ(a[k], b[k]) for k in a)
+        return any(_values_differ(a[k], b[k], ledger) for k in a)
     if callable(a) or callable(b):
         return False   # functions are rebound by _rebind_functions
+    if a is b:
+        return False
+    if type(a) is not type(b):
+        return True
+    if type(a).__eq__ is object.__eq__:
+        # An opaque object that compares by identity (a scipy Rotation, an
+        # EventListener): a copy can never be "equal", so nothing can be
+        # said either way. Not a difference.
+        return False
     try:
         return bool(a != b)
     except Exception:
         return False
 
 
-def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = None) -> str | None:
+def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = None, ledger=None) -> str | None:
     """Name the first attribute in which `live` differs from `frozen`, or
     None when the two are the same checkpoint-relevant state.
 
@@ -903,7 +959,7 @@ def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = N
     if live.uniforms.keys() != frozen.uniforms.keys():
         return "uniforms.keys"
     for key, value in live.uniforms.items():
-        if _values_differ(value, frozen.uniforms[key]):
+        if _values_differ(value, frozen.uniforms[key], ledger):
             return f"uniforms.{key}"
     if len(live.submobjects) != len(frozen.submobjects):
         return "submobjects"
@@ -911,22 +967,22 @@ def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = N
         if memo is not None:
             if memo.get(id(sub_live)) is not sub_frozen:
                 return "submobjects"
+        elif ledger is not None:
+            entry = ledger.entries.get(sub_live)
+            if entry is None or entry.frozen is not sub_frozen:
+                return "submobjects"
         else:
             inner = ledger_stale_attribute(sub_live, sub_frozen)
             if inner is not None:
                 return f"submobjects.{inner}"
     if len(live.updaters) != len(frozen.updaters):
         return "updaters"
-    if (live.target is None) != (frozen.target is None):
-        return "target"
-    if (live.saved_state is None) != (frozen.saved_state is None):
-        return "saved_state"
     for name, value in live.__dict__.items():
         if name in _LEDGER_IGNORED_ATTRS:
             continue
         if name not in frozen.__dict__:
             return name
-        if _values_differ(value, frozen.__dict__[name]):
+        if _values_differ(value, frozen.__dict__[name], ledger):
             return name
     for name in frozen.__dict__:
         if name not in live.__dict__ and name not in _LEDGER_IGNORED_ATTRS:
@@ -934,7 +990,263 @@ def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = N
     return None
 
 
-def deepcopy_namespace(namespace_or_checkpoint):
+class LedgerEntry:
+    """What the ledger knows about one live mobject: the frozen copy it
+    got at its last checkpoint, the revision it had then, whether that
+    copy may be shared at all (not while it has updaters: their closures
+    hold other mobjects the copy could not be re-pointed to), and the
+    names of its attributes that held other mobjects (target,
+    saved_state, a SurroundingRectangle's mobject, ...). A frozen copy is
+    reused only when everything it reaches through submobjects and those
+    attributes is unchanged too, since the shared copy keeps pointing at
+    their old frozen copies. `nattrs` is the attribute count at freeze
+    time: a plain attribute write bumps nothing, so a mobject that gained
+    or lost an attribute since is copied afresh (an attribute
+    reassigned to a different mobject is the one write this cannot see;
+    verify mode does)."""
+    __slots__ = ("revision", "frozen", "reusable", "refs", "nattrs")
+
+    def __init__(self, revision: int, frozen: Mobject, reusable: bool, refs: tuple, nattrs: int):
+        self.revision = revision
+        self.frozen = frozen
+        self.reusable = reusable
+        self.refs = refs
+        self.nattrs = nattrs
+
+
+class CheckpointLedger:
+    """live mobject -> LedgerEntry, keyed by identity and dropped with the
+    live object. A checkpoint save pre-seeds the deep copy's memo from it
+    so an unchanged mobject hands back its previous frozen copy instead of
+    being walked again; a thaw seeds it from the checkpoint being thawed
+    so the next save after a step back also copies only what moved."""
+
+    def __init__(self):
+        self.entries: "weakref.WeakKeyDictionary[Mobject, LedgerEntry]" = weakref.WeakKeyDictionary()
+        # frozen copy -> (reusable, refs, nattrs), learned when it was made,
+        # so a thaw can enter its live copies without rescanning each one
+        self.frozen_meta: "weakref.WeakKeyDictionary[Mobject, tuple]" = weakref.WeakKeyDictionary()
+
+
+_STRUCTURE_ATTRS = frozenset({"submobjects", "parents", "family"})
+
+
+_REF_DEPTH = 4   # Table.mob_table is a list of lists; allow a little more
+
+
+def _mobjects_in(value, out: list, depth: int = _REF_DEPTH) -> None:
+    """Append the mobjects held by `value`: itself, or the members of a
+    list / tuple / set / dict nested up to `depth` levels."""
+    if isinstance(value, Mobject):
+        out.append(value)
+    elif depth and isinstance(value, (list, tuple, set)):
+        for item in value:
+            _mobjects_in(item, out, depth - 1)
+    elif depth and isinstance(value, dict):
+        for item in value.values():
+            _mobjects_in(item, out, depth - 1)
+
+
+def _mobject_refs(mob: Mobject) -> tuple:
+    """Names of the attributes through which `mob` reaches other mobjects,
+    other than the family structure itself."""
+    names = []
+    found: list = []
+    for name, value in mob.__dict__.items():
+        if name in _STRUCTURE_ATTRS:
+            continue
+        if isinstance(value, Mobject):
+            names.append(name)
+        elif isinstance(value, (list, tuple, set, dict)):
+            del found[:]
+            _mobjects_in(value, found)
+            if found:
+                names.append(name)
+    return tuple(names)
+
+
+def _referenced(mob: Mobject, names) -> list:
+    out: list = []
+    for name in names:
+        _mobjects_in(mob.__dict__.get(name), out)
+    return out
+
+
+def _new_entry(mob: Mobject, frozen: Mobject) -> LedgerEntry:
+    return LedgerEntry(mob.revision, frozen, not mob.updaters, _mobject_refs(mob), len(mob.__dict__))
+
+
+def _entry_from_meta(frozen: Mobject, meta: tuple | None) -> LedgerEntry:
+    if meta is None:
+        return _new_entry(frozen, frozen)
+    reusable, refs, nattrs = meta
+    return LedgerEntry(frozen.revision, frozen, reusable, refs, nattrs)
+
+
+def _entry_is_current(entry: LedgerEntry | None, mob: Mobject) -> bool:
+    return (entry is not None and entry.revision == mob.revision
+            and entry.nattrs == len(mob.__dict__))
+
+
+def _top_level_mobjects(must_copy: dict) -> list[Mobject]:
+    """The mobjects a checkpoint copy starts from: namespace values, the
+    members of one level of container, and the scene state's list."""
+    from maniml.scene.scene import SceneState
+    seen: set[int] = set()
+    tops: list[Mobject] = []
+
+    def take(value):
+        if isinstance(value, Mobject) and id(value) not in seen:
+            seen.add(id(value))
+            tops.append(value)
+
+    for value in must_copy.values():
+        if isinstance(value, Mobject):
+            take(value)
+        elif isinstance(value, SceneState):
+            for mob in value.mobjects:
+                take(mob)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                take(item)
+        elif isinstance(value, dict):
+            for item in value.values():
+                take(item)
+    return tops
+
+
+def _reusable_closure(ledger: CheckpointLedger, top: Mobject):
+    """The (live, entry) pairs for everything `top` reaches — its family
+    and the mobjects behind its reference attributes, transitively — when
+    every one of them has a shareable frozen copy at its current
+    revision; else None. All of them are required, not just `top`: the
+    shared copy keeps pointing at their old frozen copies."""
+    pairs = []
+    seen: set[int] = set()
+    stack = [top]
+    while stack:
+        mob = stack.pop()
+        if id(mob) in seen:
+            continue
+        seen.add(id(mob))
+        entry = ledger.entries.get(mob)
+        if not _entry_is_current(entry, mob) or not entry.reusable:
+            return None
+        pairs.append((mob, entry))
+        stack.extend(mob.submobjects)
+        stack.extend(_referenced(mob, entry.refs))
+    return pairs
+
+
+def _closure(top: Mobject, ledger: CheckpointLedger | None):
+    """Every mobject `top` reaches through submobjects and reference
+    attributes. Uses the ledger's recorded attribute names for mobjects
+    whose entry is current, and scans the rest."""
+    seen: set[int] = set()
+    stack = [top]
+    while stack:
+        mob = stack.pop()
+        if id(mob) in seen:
+            continue
+        seen.add(id(mob))
+        yield mob
+        stack.extend(mob.submobjects)
+        entry = ledger.entries.get(mob) if ledger is not None else None
+        names = entry.refs if _entry_is_current(entry, mob) else _mobject_refs(mob)
+        stack.extend(_referenced(mob, names))
+
+
+def _freeze(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dict]:
+    """Deep-copy live -> checkpoint. Returns (copied, memo)."""
+    memo: dict = {}
+    reused_frozen: set[int] = set()
+    tops = _top_level_mobjects(must_copy)
+    if ledger is not None:
+        verify = verify_ledger_enabled()
+        for top in tops:
+            pairs = _reusable_closure(ledger, top)
+            if pairs is None:
+                continue
+            if verify:
+                for mob, entry in pairs:
+                    attr = ledger_stale_attribute(mob, entry.frozen, ledger=ledger)
+                    if attr is not None:
+                        raise LedgerStale(
+                            f"{type(mob).__name__} changed in '{attr}' since its last "
+                            f"checkpoint without a revision bump")
+            for mob, entry in pairs:
+                memo[id(mob)] = entry.frozen
+                reused_frozen.add(id(entry.frozen))
+    with copy_mode("freeze"):
+        copied = copy.deepcopy(must_copy, memo)
+    if ledger is not None:
+        n_reused = n_copied = 0
+        seen: set[int] = set()
+        for top in tops:
+            for mob in _closure(top, ledger):
+                if id(mob) in seen:
+                    continue
+                seen.add(id(mob))
+                frozen = memo.get(id(mob))
+                if frozen is None:
+                    continue
+                if id(frozen) in reused_frozen:
+                    n_reused += 1
+                    continue
+                entry = ledger.entries[mob] = _new_entry(mob, frozen)
+                ledger.frozen_meta[frozen] = (entry.reusable, entry.refs, entry.nattrs)
+                n_copied += 1
+        performance.increment("checkpoint.ledger.reused", n_reused)
+        performance.increment("checkpoint.ledger.copied", n_copied)
+        performance.gauge("checkpoint.ledger.entries", len(ledger.entries))
+    return copied, memo
+
+
+def _thaw(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dict]:
+    """Deep-copy checkpoint -> live. Returns (copied, memo). The new live
+    objects are entered in the ledger against the frozen ones they came
+    from, so an untouched mobject is reused at the very next save."""
+    memo: dict = {}
+    with copy_mode("thaw"):
+        copied = copy.deepcopy(must_copy, memo)
+    if ledger is not None:
+        meta_of = ledger.frozen_meta
+        seen: set[int] = set()
+        stack = list(_top_level_mobjects(must_copy))
+        while stack:
+            frozen = stack.pop()
+            if id(frozen) in seen:
+                continue
+            seen.add(id(frozen))
+            meta = meta_of.get(frozen)
+            entry = _entry_from_meta(frozen, meta)
+            if meta is None:
+                meta_of[frozen] = (entry.reusable, entry.refs, entry.nattrs)
+            live = memo.get(id(frozen))
+            if live is not None and live is not frozen:
+                ledger.entries[live] = entry
+            stack.extend(frozen.submobjects)
+            stack.extend(_referenced(frozen, entry.refs))
+    return copied, memo
+
+
+def _copy_items(must_copy: dict, ledger, mode) -> tuple[dict, dict]:
+    if mode == "freeze":
+        return _freeze(must_copy, ledger)
+    if mode == "thaw":
+        return _thaw(must_copy, ledger)
+    memo: dict = {}
+    return copy.deepcopy(must_copy, memo), memo
+
+
+def thaw_state(state, ledger: CheckpointLedger | None = None):
+    """A live copy of a frozen SceneState, parent links rebuilt. What a
+    stored checkpoint's state has to go through before it can be shown."""
+    copied, _ = _thaw({"__state__": state}, ledger)
+    return copied["__state__"]
+
+
+def deepcopy_namespace(namespace_or_checkpoint, *, ledger: CheckpointLedger | None = None, mode: str | None = None):
     """
     Deep copy a namespace or checkpoint, using selective copying.
 
@@ -942,9 +1254,14 @@ def deepcopy_namespace(namespace_or_checkpoint):
     1. Type-based classification instead of test copies (avoids N+1 copy problem)
     2. Skip immutable values (primitives, modules, functions, classes)
     3. Only deep copy Mobjects and mutable collections that contain them
-    """
-    import copy
 
+    `mode` is "freeze" when making a checkpoint from the live scene and
+    "thaw" when making a live scene from a checkpoint (see
+    Mobject.copy_mode); None is a plain deep copy. With a `ledger`, a
+    freeze reuses the frozen copies of mobjects unchanged since their
+    last checkpoint, and a thaw records what it produced so the next
+    freeze can.
+    """
     # Names to always skip (these are never useful to copy)
     SKIP_NAMES = {'__builtins__', '__loader__', '__spec__', '__cached__', 'self'}
 
@@ -972,8 +1289,7 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
         # Single deepcopy call for items that need it
         try:
-            memo = {}
-            copied_items = copy.deepcopy(must_copy, memo)
+            copied_items, memo = _copy_items(must_copy, ledger, mode)
 
             # Extract the state
             state = copied_items.pop('__checkpoint_state__', checkpoint['state'])
@@ -994,6 +1310,8 @@ def deepcopy_namespace(namespace_or_checkpoint):
                 'namespace': copied_items
             }
 
+        except LedgerStale:
+            raise
         except Exception as e:
             print(f"Warning: Checkpoint deepcopy failed ({e}), falling back")
             # Fall through to regular handling
@@ -1017,8 +1335,7 @@ def deepcopy_namespace(namespace_or_checkpoint):
 
     # Single deepcopy call for items that need it
     try:
-        memo = {}
-        copied_items = copy.deepcopy(must_copy, memo)
+        copied_items, memo = _copy_items(must_copy, ledger, mode)
 
         # Add references (no copying needed)
         for name, value in references.items():
@@ -1027,6 +1344,8 @@ def deepcopy_namespace(namespace_or_checkpoint):
         _rebind_functions(namespace, copied_items, memo)
         return copied_items
 
+    except LedgerStale:
+        raise
     except Exception as e:
         # If deepcopy fails, try copying items individually. A single
         # memo shared across all the calls (and with the state, which
@@ -1040,13 +1359,14 @@ def deepcopy_namespace(namespace_or_checkpoint):
         memo = {}
         degraded = []
 
-        for name, value in must_copy.items():
-            try:
-                new_namespace[name] = copy.deepcopy(value, memo)
-            except Exception:
-                # If individual copy fails, keep reference
-                new_namespace[name] = value
-                degraded.append(name)
+        with copy_mode(mode):
+            for name, value in must_copy.items():
+                try:
+                    new_namespace[name] = copy.deepcopy(value, memo)
+                except Exception:
+                    # If individual copy fails, keep reference
+                    new_namespace[name] = value
+                    degraded.append(name)
 
         if degraded:
             log.warning(

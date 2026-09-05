@@ -1032,6 +1032,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     def restore_state(self, scene_state: SceneState):
         scene_state.restore_scene(self)
         self._reset_pacing_clocks()
+        # The live graph is a copy now, not what the current checkpoint
+        # was frozen from (CheckpointMixin._live_is_checkpoint)
+        self._live_matches_checkpoint = None
         # The affects_mobject_list wrapper rebuilds draw batches once after
         # the complete restore.
 
