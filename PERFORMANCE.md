@@ -1,5 +1,15 @@
 # Performance scalability review
 
+> **Status (2026-09-04).** This is the 2026-08 measurement record, kept
+> for its evidence. Read it with two things in mind: the pixel stream
+> and the pyglet window it measures were deleted on 2026-09-02, so the
+> JPEG/PNG encode, readback, and window-swap costs no longer exist; and
+> the "Proposed delivery order" at the end is superseded by the
+> instruction-stream plan in `../simlab/INSTRUCTION_STREAM_PLAN.md`
+> (DECISIONS.md, "The roadmap is pruned"). The near-term items that
+> survive are in `TODO.md`.
+
+
 Reviewed 2026-08-20 at commit `4f59cc27`.
 
 This document audits ManimLive's interactive engine, checkpoint system, native

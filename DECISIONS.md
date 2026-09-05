@@ -688,3 +688,44 @@ navigation and present-mode prebuild are covered by the headless
 checkpoint and mode tests and by the end-to-end web viewer suite; the
 3D depth/MSAA scenario is covered by the wgpu fidelity cases. The
 MSAA letterbox blit it also checked no longer exists.
+
+## The roadmap is pruned to the pause, the held step, and the instruction stream (2026-09-04)
+
+`TODO.md` had grown into a record of every idea since August, most of
+it written before the one-renderer strip and the instruction-stream
+design (`../simlab/ARCHITECTURE.md`, 2026-09-03). On 2026-09-04 it was
+cut to what is actually planned. Nothing removed was implemented —
+this entry exists so that no one reads the removal as "done":
+
+- **Superseded by the instruction stream** and removed: the
+  `PERFORMANCE.md` delivery order (revision store, copy-on-write /
+  delta checkpoints, bounded geometry chunks, transform deltas,
+  keyframed exports — the engine core in the plan is all of these at
+  once), the geometry-stream recorded-playback layer (the clock running
+  backward over immutable buffers is the same thing), the parked-scene
+  streaming rewrite and the "should idle frames be client-rendered"
+  question (the GPU clock owns updaters), and the end-to-end
+  presentation clock (the plan's clock). `PERFORMANCE.md` stays as the
+  measurement record; its "Proposed delivery order" is no longer the
+  plan.
+- **Closed by deletion**: the 2026-08-18 duplicate-mobject bug entry.
+  Its suspect, the display-only reverse morph, was deleted on
+  2026-08-23, and the headless ghost regression that drives the same
+  back-and-forward path passes. If it is seen again it is a new bug.
+- **No longer planned**: promoting the installed-app measurement
+  scratch harnesses (the files are not in the repo and the throttle
+  they measured is fixed), checkpoint byte accounting on the current
+  engine, `.py` double-click and the PWA install confirmation, process
+  controls and multi-scene tabs on the landing page, splitting the
+  fragile static-asset pins into their own file.
+- **Kept, compactly**: the small fidelity gaps (cross-group z_index, 3D
+  gradient fills, re-triangulation, MathTex join drift,
+  `AddTextWordByWord`), the 2026-08-18 test debt (verified still
+  untested), and the design questions that are not scheduled (cell
+  markers, function rebinding, Typst, the notes track, the baked
+  player).
+
+Native GL removal (beeline step 4) is explicitly **held** by Taylor as
+of the same day: it stays the next structural step and the
+instruction-stream plan's prerequisite, but it waits for the dogfood
+pause to produce confidence.

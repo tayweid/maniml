@@ -1,437 +1,147 @@
 # TODO
 
-The forward roadmap. What was decided, shipped, or tried-and-deleted —
-and why — lives in `DECISIONS.md`; the architecture as it stands lives
-in `CLAUDE.md`. The large-scene performance audit, measurements, and
-implementation order live in `PERFORMANCE.md`.
+The forward roadmap, pruned on 2026-09-04 to what is actually planned.
+What was decided, shipped, or dropped — and why — lives in
+`DECISIONS.md`; the architecture as it stands lives in `CLAUDE.md`;
+`PERFORMANCE.md` is the 2026-08 measurement record. The target
+architecture after the beeline lives beside this repo in
+`../simlab/ARCHITECTURE.md`, sequenced in
+`../simlab/INSTRUCTION_STREAM_PLAN.md`.
 
-## The milestone: WebGPU as the one canonical renderer
+## Where things stand
 
-Decided 2026-08-14; sequence reset 2026-09-02 (see DECISIONS.md, "One
-renderer: the beeline"). The wgpu backend covers the full parity ledger
-in the browser (`static/webgpu.js` + `static/wgsl/`) and natively
-(`web/wgpu_renderer.py`); WebGL2 is gone; the live viewer starts on
-WebGPU with a Pixel fallback that is about to go too. CE is the
-arbiter when renderers disagree — native GL is a convenience oracle,
-not ground truth (the 2026-09-02 draw-order bug was wrong in native GL
-as well). Steps, in order:
+One live surface: the browser, rendering every frame itself with
+WebGPU from the geometry stream. The pyglet window, the pixel stream,
+and WebGL2 are gone (2026-09-02). Native GL remains for exactly two
+things: headless `--render` / `--export-checkpoints`, and the oracle
+the fidelity tests diff the WebGPU port against. The suite is clean
+except the two long-standing `test_app.AppShellE2E` failures.
 
-1. **Make the viewer WebGPU-only: delete the Pixel stream.** Done
-   2026-09-02 (DECISIONS.md, "The browser is the only live viewer"):
-   the JPEG/PNG path, `_pixel_mode`, the split view, the renderer
-   switcher, and the fallback protocol are gone; a browser without
-   WebGPU gets a notice on the stage. Native capture is skipped
-   whenever a client renders. `--render` still uses native GL.
-2. **Retire pyglet.** Done 2026-09-02 (DECISIONS.md, "The pyglet
-   window is retired"): the browser is the default and only live
-   surface (`--web` is a no-op alias), `rendering/window.py` and the
-   pyglet / moderngl-window dependencies are gone, the key and mouse
-   constants are maniml's own, and the GL timeline overlay is deleted
-   in favour of the viewer's rail. The native GL pipeline is now used
-   by exactly one thing: headless `--render`/`--export-checkpoints`
-   through a standalone context.
-3. **Pause.** Dogfood real course scenes with the browser as the only
-   live surface for a while before touching the render path. The
-   burn-in signal is course production, not the test suite.
-4. **Move `--render` onto wgpu-py**, then delete the native GL pipeline
-   (`rendering/`, `camera/` GL parts, the geometry shaders). Fold 2x
-   supersampling into the wgpu render. Offline output, the browser, and
-   the fidelity reference are then literally the same WGSL. WebGPU
-   compute can then restore GPU-side adaptive tessellation, replacing
-   the fixed-strip instancing compromise. The fidelity tests turn into
-   golden-image regression tests plus CE conformance.
-5. After the transition: Windows/Linux CI matrices and cross-platform
-   packaging return (scoped out during the macOS developer preview).
+## Now: the dogfood pause
 
-Fidelity ledger for the pause in step 3:
+Course production on the browser as the only surface is the burn-in
+signal. What it has surfaced so far, and what is ready regardless:
 
-- The full-suite fidelity flake is fixed (2026-09-02): the per-program
-  uniform mirror was keyed by `id(program)` and outlived freed programs
-  (DECISIONS.md). The full `discover` run is clean except the two
-  long-standing `test_app.AppShellE2E` failures.
-- Rendered video colour drift is fixed (BT.709 tagging, 2026-09-02).
-  The A0/A1 "axis label" and "colour" reports from the gate review are
-  closed: not reproducible in solo WebGPU per the 2026-09-02 dogfood.
+1. **The hitch at every play boundary.** The one thing that keeps
+   coming up in dogfood (Taylor, 2026-09-04): a visible stall at the
+   start of every animation. The audit put it at roughly 37 ms per
+   play — `begin_animations` plus the checkpoint deep copy — and 8 to
+   14 ms per copy in the boids run; it does not shrink for small
+   scenes. Attack it in this order, measuring on a real course scene
+   with `MANIML_PERF_PATH` first (`checkpoint.*` stages):
+   - **Copy less.** `deepcopy_namespace` copies the scene state and
+     the whole exec namespace together. Anything render-only or
+     derived (shader wrappers, triangulation caches, bounding-box
+     caches, GPU-side objects) is dead weight in a checkpoint and is
+     rebuilt on restore anyway; anything immutable (numpy arrays that
+     never mutate in place, module objects, functions already handled
+     by `_rebind_functions`) can be shared. Add byte and time
+     accounting per checkpoint so the win is visible.
+   - **Copy later.** A play's checkpoint is needed only if the user
+     navigates back to it. Take the copy after the frame has been
+     sent, not before it, so the stall moves off the animation's first
+     frame; or defer interior (non-pausepoint) copies to idle time
+     while keeping the pausepoint copy eager.
+   - **Do not** build copy-on-write checkpoints on this engine: the
+     instruction-stream architecture makes checkpoints free, so the
+     redesign lands there. Everything above is bounded work that
+     helps now and survives the transition.
+2. **Skip the per-frame walk of unchanged batches.** The serializer
+   walks, packs, and hashes every batch every frame even when nothing
+   moved — about 9 ms at 1,000 objects. Key batches by
+   `(id, geometry_revision)` and skip the work when the revision is
+   unchanged. A day or two, no shader changes (`simlab/AGENT_SIMS.md`,
+   "What actually makes simple scenes lag").
+3. **Read instrumentation.** `performance` counters for raw point reads
+   (`get_points`, direct `data["point"]` sites) versus reduction reads
+   (bounding box, centre, endpoints, tracker values), tagged by
+   whether they happen inside a play, inside an updater, or between
+   plays. A day; it is the plan's stated prerequisite and decides its
+   sync policy.
 
-## Performance: near-term work and the large-scene gate
+Also: fix or delete the two `AppShellE2E` failures
+(`missing_module_hint`, `open_scene_from_landing`); they have been red
+since before 2026-08-26 and make every full run need a caveat.
 
-The installed small-scene path is healthy after the launchd, relay,
-client-queue, and short-animation fixes, and the 2026-08-26 perf branch
-landed on main: render batches are non-owning, the pacing clocks reset
-on checkpoint restore, retained-history navigation no longer re-executes
-Python, a parked viewer sleeps, and supported solo-WebGPU frames bypass
-native capture. Do **not** begin a wholesale renderer rewrite merely to
-improve that path. The measurements, evidence, correctness constraints,
-and full implementation sequence live in `PERFORMANCE.md`.
+Profile anything that lags with `MANIML_PERF_PATH` before choosing:
+the two engine costs show up in different stages (`checkpoint.*`
+versus `geometry.*`).
 
-The shadow-mode revision-store gate was **closed on 2026-09-02**
-(DECISIONS.md): no background scale work until the one-renderer strip
-is done. The prototype is kept as tag `archive/perf-systematic-viewer`.
+## Held: native GL removal (beeline step 4)
 
-Item 2's Pixel-only encode costs went with the pixel stream
-(2026-09-02); what remains of it is the idle native capture, which now
-only runs when no client renders. Remaining, in this order:
+Move `--render` onto wgpu-py, fold 2x supersampling into that render,
+then delete the native GL pipeline (`rendering/`, the GL parts of
+`camera/`, the geometry shaders). Offline output, the browser, and the
+fidelity reference become literally the same WGSL, and the fidelity
+tests turn into golden-image regression plus CE conformance. **Held by
+Taylor on 2026-09-04** until the pause has produced confidence. It is
+also the instruction-stream plan's first prerequisite (compute shaders
+have to exist in both mirrors), so nothing in that plan starts before
+it. Windows/Linux CI and packaging return after it.
 
-1. **Preserve the installed-app measurement path.** Promote the working
-   scratch harnesses (`relaycheck.mjs`, `ab.mjs`, `appshot.mjs`,
-   `timeline.py`, `refmp4.py`) into maintained tooling and add a regression
-   assertion for `ProcessType=Interactive`. Keep process origin
-   (shell/launchd) independent from network route (direct/relay); a
-   hand-started process was structurally unable to reproduce the original
-   throttle.
-2. **Stop rendering and encoding identical waits/idle frames.** The measured
-   viewer encoded roughly twelve identical 1080p frames per static `wait()`.
-   Pump events separately, retain clocks for real updaters, and send a hold
-   duration/state change rather than repeatedly rendering a clean scene.
-   Two further measured costs belong to this item (2026-08-26):
-   - The idle loop runs `camera.capture` every pass with a client
-     connected even when nothing changed — `update_frame`'s early-out
-     only applies to `dt == 0` calls, and the interact loop always
-     passes `1/fps`. A parked static scene renders at 30fps forever.
-   - The streaming policy treats "any mobject has updaters" as
-     animating, so a scene parked with `always_redraw`/label updaters
-     (most course scenes) JPEG-encodes visually identical 1080p frames
-     at up to 45fps indefinitely — measured 20–60 ms per encode, most
-     of a core by itself. Replace the updater inference with a real
-     did-the-picture-change test, or freeze streaming when parked and
-     tracker values are unchanged. (The JPEG/PNG encode costs went with
-     the pixel stream on 2026-09-02; the geometry stream is
-     delta-cached and cheap. What is left of this item is the idle
-     native capture, which now runs only when no client renders, and
-     the updater inference that keeps payloads flowing for a parked
-     scene.)
-3. **Reduce checkpoint damage before redesigning checkpoints.** Add copy-time
-   and byte accounting; exclude render-only/immutable/derived state; avoid
-   retaining full history in modes that do not need navigation; and enforce a
-   replay-backed budget. `_save_checkpoint()` already contributed about
-   19 ms around the measured `play()`. Full copy-on-write/delta checkpoints
-   remain a later architecture project.
-4. **Fix `AddTextWordByWord` if course scenes use it.** This is a semantic
-   bug, not transport pacing: it groups label/isolate spans rather than words,
-   so ordinary text becomes one 0.2-second chunk before rendering. Add a
-   dedicated word-group path without changing generic `build_groups()`, and
-   cover the separate `MarkupText.isolate` forwarding bug. See the focused
-   diagnosis and tests in `PERFORMANCE.md`.
+## After: the instruction stream
 
-Then take the contained next milestone:
+`../simlab/ARCHITECTURE.md`: points live on the GPU permanently, every
+operation is an instruction (map / reduce over immutable row buffers,
+a scalar table, a clock, a draw list), Python sends instructions at
+play boundaries and is idle between them. Checkpoints and true reverse
+playback fall out of immutable buffers plus a clock. Phased in
+`../simlab/INSTRUCTION_STREAM_PLAN.md`: engine core in shadow, flip the
+truth, updaters, the clock owns playback, stateful ops.
 
-- Batch scene-list mutations so a large `play(*animations)` rebuilds render
-  groups once, not repeatedly.
-- Put explicit byte limits and lifecycle cleanup on browser, texture, GL, and
-  scene-process caches.
-- Add stage timers/counters for update, animation setup, checkpointing,
-  serialization, native capture, encoding, queue age, and browser presentation.
-- Re-run the same installed-app fixtures and preserve image/state/navigation
-  correctness alongside the timing result.
+It supersedes three things that used to be planned here and are now
+removed: the `PERFORMANCE.md` delivery order (revision store, delta
+checkpoints, bounded geometry chunks — all of it is what the engine
+core is), the geometry-stream recorded-playback layer (reverse
+playback is the clock running backward over immutable buffers), and
+the parked-scene streaming question (the GPU clock owns updaters, so
+Python has nothing to stream for a parked scene).
 
-Before claiming support for genuinely large scenes, complete the architecture
-gate from `PERFORMANCE.md`: stable resource/revision IDs, bounded geometry
-chunks and dirty uploads, transform/uniform deltas, copy-on-write/delta
-checkpoints, and streaming/keyframed exports. This is mandatory at that scale:
-serializing an unchanged 5,000-object scene already took about 45 ms, and moving
-one object resent the full 4.08 MB merged batch.
+## Still open, small
 
-An end-to-end timestamped presentation clock belongs in that scale/robustness
-phase, not at the front of the current queue. The shallow relay and rAF-aligned
-client are behaving now, but they still present on arrival and cannot absorb
-future OS/network jitter. Build the clock before remote or variable-latency
-viewing becomes a product promise.
+- **z_index across top-level groups.** CE sorts one flattened list, so
+  a z_index=10 child of group A still draws under group B added after
+  A; and a top-level mobject's z_index change after add() reorders only
+  on its next add. Within a family it is CE's since 2026-09-02.
+- **3D fills.** Triangulated fill flattens each submobject to one
+  colour (no gradients), and a mobject morphing under depth test
+  re-triangulates every frame (measurable for large Text).
+- **`AddTextWordByWord`** groups label/isolate spans rather than words.
+  Fix if a course scene uses it; diagnosis in `PERFORMANCE.md`.
+- **Typography drift vs CE** for multi-part `MathTex` joins. Cosmetic.
+- **Test debt** (2026-08-18 review, still true): `web/cli.py`'s
+  `hand_off_to_a_running_engine` restart/reuse branches; `agent`
+  `status`/`restart`/`uninstall`/`serve` against the mocked launchctl;
+  relay failure paths in `web/app.py`; recents/choose over the real
+  control socket; log messages through the app relay.
 
-## Known bugs
+## Design questions, not scheduled
 
-- **BUG: navigation can leave two copies of a moved mobject on screen**
-  (seen 2026-08-18). In `ECON_0100/F26/blocks/A0_The_Landscape/03_Code.py`,
-  `Animation0`, the live viewer showed the `MICROECONOMICS` block
-  letters twice — once at the pre-move position and once where
-  `Squares.animate.to_edge(UP, buff=1)` puts them — after arrowing
-  around and landing on the last pausepoint.
-
-  Already ruled out, so nobody re-does it: **not the client renderers**
-  (the viewer was on Pixel, i.e. the native GL render), **not the
-  scene** (it adds one `Squares` and moves it), and **not a regression
-  from the same-origin work** (that touched no code under `rendering/`,
-  `mobject/`, `scene/`, `camera/`, `animation/`). A forward-only
-  `--render` of the same scene on the same build is correct —
-  checkpoint 032 shows one title — so it is reachable only through
-  interactive navigation.
-
-  Where to look: `_play_reverse_to` in `scene/interaction.py` pairs
-  mobjects by variable name, Transforms matched pairs and fades
-  unmatched ones, and is meant to be display-only
-  (`_no_checkpoints()`); and `_restore_checkpoint_for_display` in
-  `scene/checkpoints.py`. The suspicion is that a display-only morph
-  leaves a mobject in `self.mobjects` that the next restore does not
-  clear, so the restored copy joins it rather than replacing it.
-  Reproduce headlessly the way `tests/test_web_viewer.py` drives the
-  viewer: RIGHT to the end, LEFT/UP back a few, RIGHT forward again,
-  then count top-level mobjects rather than eyeballing a frame.
-
-- **Stepping forward runs a whole unit, not a whole pausepoint.** A
-  unit ends at the statement containing a `play()`, so a `for` loop of
-  plays is one unit: a single forward press fires all of them. Opening
-  no longer auto-runs (2026-08-18), which removed the worst of it, and
-  the rail no longer misrepresents it (2026-08-19): such a unit is drawn
-  as a stack of chips rather than one, because `AnimationUnit` now
-  reports `plays`/`loops` and the viewer sends `many` with each future
-  unit. That is an honest label, not a fix — per-play stepping
-  inside a loop would mean running a unit as something suspendable — a
-  coroutine or a thread that parks at each `play()`. Related: a scene's
-  `self.add(...)` preamble lives in the same unit as its first play, so
-  a scene now opens on an empty frame. Rendering the preamble needs
-  `source_map` to split a unit at its play statement, and checkpoint 0
-  re-baked to match — doable, but it must not let the preamble run
-  twice, or it reproduces the duplicate-mobject bug above. See
-  "Cell-marked scene files" below for the version of this that stops
-  being a bug rather than getting fixed.
-
-## App and viewer
-
-- **`.py` double-click.** Blocked on a real problem, not effort:
-  `launchQueue` delivers a browser file handle with no filesystem path,
-  and the watcher and the scene's `__file__`-relative imports both need
-  one. Knuth measured the machinery itself working from a loopback PWA
-  (see `DECISIONS.md`). Options if it matters: resolve the handle's
-  name against the app root and recents (ambiguous for duplicate
-  basenames), or keep the native dialog as the only path in.
-- **Confirm the install in a real browser.** Chrome's installability
-  criteria and the offline shell have not been exercised here — Knuth
-  got file handlers, `launchQueue`, and an offline shell all working
-  from a loopback origin on Chrome 151/macOS 26.
-- **A live demo on the preview.** `--export` already bakes a scene into
-  a self-contained page that runs with no Python at all, which would
-  let a visitor to `maniml.tayweid.io` actually scrub through a real
-  scene instead of reading about one.
-- **Bring the baked player into the visual language.**
-  `static/player.html`/`player.js` predate the 2026-08-16 redesign and
-  share no styling with the viewer. They deliberately do not link
-  `shell.css` (an export must stay self-contained), so this is a
-  restyle in place: warm graphite, glass slugs, the viewer's transport
-  idiom. Now the only part of the frontend still off the shared
-  language — the viewer and the landing page moved onto Plass's pod run
-  on 2026-08-19, and the player's bottom bar is the same shape as the
-  viewer's new presenter bar, so it is a copy job with the pod styles
-  inlined.
-- **Notes track for the student bundle** (not urgent; scoped
-  2026-08-26). Per-pausepoint text beside the `--export-present`
-  player, switching as students step — the lecture narration a course
-  page can't get from a silent recording. The page work is small (a
-  panel driven from `onRest`; the writer folds a notes file into
-  `present_meta.js`, backward-compatibly — old bundles just have no
-  `notes` field). The real design problem is KEYING: which beat a note
-  belongs to. Indices silently shift whenever a `pause()` is added or
-  removed mid-scene; names (`pause(name=...)`) are stable but must be
-  authored for every beat before notes can attach. Decide the key
-  before building anything — a likely shape is names for anchors plus
-  index-order fill between them, with the export warning on notes it
-  could not place. The authoring itself is lecture-prep work and the
-  larger ongoing cost; the tooling should not pretend otherwise.
-- Later: process controls on the landing page, multi-scene tabs.
-
-## Test debt (from the 2026-08-18 review)
-
-Coverage gaps around the newest features, in risk order:
-
-1. `hand_off_to_a_running_engine` (`web/cli.py`) — the
-   version-mismatch restart and reuse branches are untested.
-2. `agent` subcommands beyond install/offer — `status`, `restart`,
-   `uninstall`, `serve` have no tests against the mocked launchctl.
-3. Relay failure paths (`web/app.py`) — a scene dying mid-relay, the
-   upstream connect failing; only the happy path and unknown-id are
-   covered.
-4. The recents/choose control ops are tested at the Python level but
-   never over the actual control WebSocket the landing page uses.
-5. Log messages are tested through a standalone `--web` process but not
-   through the app relay — the one place the console panel matters
-   most.
-
-Also noted: `tests/test_static_assets.py` mixes stable content
-contracts with deliberately fragile source-shape pins (index-slicing,
-call counts). Splitting the fragile half into its own file would make
-the refactor risk visible in the file list. And the daemon-thread
-websocket bootstrap is duplicated between `server.py` and `app.py`
-(bind → serve → ready event → closing event); worth a shared helper
-only when that code is being touched anyway.
-
-## Quality tier (polish; none block course production)
-
-- **Supersampled `--render` output (~1 hour).** macOS caps live-window
-  MSAA at 4 samples, but offline rendering has no cap: render each
-  frame at 2x and downscale before writing — effectively unlimited edge
-  AA for published videos. The live-preview cap is then irrelevant.
-- **3D fills flatten gradients.** `render_triangulated_fill` samples
-  one flat fill color per family member; a gradient-filled shape in a
-  ThreeDScene loses its gradient. Fix: carry per-vertex colors through
-  the triangulation.
-- **Re-triangulation cost for animated 3D fills.** Under depth test, a
-  mobject whose points change re-runs earclip every frame. Fine for
-  shapes; measurable when morphing large Text in 3D. Fix:
-  transform-aware cache so rigid motions reuse the mesh.
-- **z_index cannot lift a child over a different top-level group.**
-  Within a family z_index now sorts (stable, CE-style — see DECISIONS
-  "Family draw order is CE's", 2026-09-02), and top-level mobjects sort
-  at add(); but CE sorts one flattened scene-wide list, so a
-  z_index=10 child of group A still draws under a whole group B added
-  after A. Also: changing a TOP-LEVEL mobject's z_index after add()
-  only reorders on its next add (any play touching it); a child's
-  change takes effect immediately.
-- **Minor typography drift vs CE.** Multi-part `MathTex(...)` parts
-  join with TeX's natural math spacing, slightly tighter than CE's
-  joining. Cosmetic.
-
-(LEFT-arrow reverse being an approximate morph rather than true
-reversal is a design property, documented in CLAUDE.md's weak spots.)
-
-## Cell-marked scene files (a format question, not a viewer one)
-
-Raised 2026-08-19, from writing scenes rather than reading code: every
-scene here is one `class X(Scene)` with one `construct()` and the whole
-animation inside it, so what is the class doing? In CE it earns its
-keep three ways — the body must not run at import (flags are read and
-the camera and file writer are built before `construct()` is called),
-the class name is how `manim file.py SceneName` addresses one render
-out of a file, and subclassing is how `ThreeDScene` and friends swap
-the environment underneath you. Only the third applies to a plain
-`Scene`, where the class is a container for a single method and `self`
-is a handle to the renderer.
-
-**In maniml it is already vestigial.** The engine never calls
-`construct()`. Checkpoint 0 is built from `vars(module)` — the module
-namespace, not a method's locals (`_create_checkpoint_zero`,
-`checkpoints.py`) — and each unit is `exec`'d flat against that
-namespace with `self` planted as an ordinary variable, from source
-`_unit_source` produced by taking the raw lines and wrapping them in
-`if True:`. No class, no method, no frame. `_find_construct` exists to
-see *through* the wrapper to the statements inside it.
-
-So the interesting move is not "drop the class" but **`# %%` cell
-markers**, which is Knuth's percent format — the two suites would share
-one file format, and Plass's convergence argument for Typst applies
-here for the same reason. What makes it worth more than tidiness:
-**it dissolves the whole-unit stepping bug above rather than fixing
-it.** Animation units stop being an AST heuristic that guesses
-boundaries from where `.play()` appears and cannot see inside a `for`
-loop; the author marks where each pausepoint is. The `many` stacked
-chip on the rail becomes unnecessary, because the count stops being
-unknowable. It also gives the preamble somewhere to live — its own
-cell before the first play — which is the other half of that bug.
-
-What blocks it, specifically:
-
-- **A script-style file runs itself on import.** `load_scene_module`
-  gets checkpoint 0 by importing the file; for a class-based file that
-  merely defines a class, but a file whose animation is at module level
-  would play the whole scene during the import. The fix is contained
-  but real: exec only the preamble (up to the first play or the first
-  cell marker) and hand the rest to the unit machinery.
-- **CE compatibility is the spine.** Unmodified CE files working is
-  what `_CEAliasFinder` and the conformance suite are for, so this can
-  only ever be a *second* front door — never a replacement, and never a
-  reason to make the class path second-class.
-- **One file would be one scene**, which costs the viewer's scene
-  picker and `library.py`'s AST scan. Unless a cell marker can also
-  name a scene, in which case it does not — worth deciding early,
-  because it changes the format.
-
-Not now: course production is running on the checkpoint engine, which
-is the riskiest code here. But this is a better milestone than the
-per-play stepping item under "Known bugs", because it subsumes it.
-
-## Typst text backend (independent of the viewer; do whenever)
-
-Replace LaTeX/dvisvgm with Typst for Tex/MathTex: mitex accepts LaTeX
-math syntax, so `MathTex(r"\frac{a}{b}")` keeps its API while Typst
-renders → SVG → mobject paths. Kills the texlive install burden (the
-single worst student-install pain), much faster text builds, same
-engine as Plass (suite convergence), and a prerequisite for any future
-in-browser authoring. Watch: Typst-rendered math will drift differently
-from the CE typography drift already noted above — keep the conformance
-eye on it.
-
-## Open questions
-
-- Frame pacing/backpressure in the geometry stream (nothing is
-  droppable, so a slow client queues).
-- Multi-client (presenter + audience views?).
-- Baked-format size for long, animation-dense scenes (per-submobject
-  deltas if it ever matters).
-- Whether idle frames should be the client's own render or stay
-  server-authoritative once WebGPU is canonical.
-- Idle-loop updater scenes stream via a per-tick `has_updaters()` scan
-  of top-level mobjects; nested-family-only updaters would be missed.
-
-### Snapshots copy objects, not the functions that read them (fixed by a corrective pass; wants a real design)
-
-The checkpoint snapshot deep-copies mobjects and trackers, but a function
-written in a unit keeps reading the *originals*: its `__globals__` is the old
-exec dict, and closures / default args / bound methods hold the old objects.
-So `t = ValueTracker(); dot = always_redraw(lambda: ...t...)` then
-`self.play(t.animate...)` in a later unit animated a copy the drawing never
-read (Episode 0's unemployment scroll froze). The standard tracker idiom,
-so it had to work.
-
-What's in place (`checkpoints._rebind_functions`, 2026-08-22): after every
-deepcopy, walk the functions reachable from the namespace and from copied
-mobjects' updaters, and re-create each as code + new environment --
-`__globals__` -> the new namespace (recognised by the `SCENE_NS_MARKER` key
-planted at checkpoint zero), cells / defaults / `__self__` -> the copy in
-the deepcopy memo. It chains across generations and is covered by
-`TestTrackerAcrossUnits`. Known gaps: functions buried in arbitrary
-containers aren't walked; a self-referential closure keeps the old function
-in its own cell.
-
-Why it's ugly: it is a *repair* of the copy, done after the fact, reaching
-into function internals. It exists because execution happens on copies of
-the world. Ideas for an elegant replacement, not pursued yet:
-- execute forward on the live objects and keep copies only for looking back
-  (rewind + continue = fast-forward replay from source; removes the
-  copy-on-the-execution-path entirely, but makes rewind O(units) and re-rolls
-  nondeterminism);
-- make the snapshot itself identity-preserving (restore *into* the existing
-  objects rather than replacing them), so references never go stale -- the
-  same mapping problem, moved to restore;
-- treat a function as a *pointer to source* and re-evaluate its definition in
-  the new namespace (Taylor's instinct) -- covers globals cleanly; cells and
-  defaults still need the memo.
-Decide when `pause()`-anchored units have settled; the rebinding pass is
-independent of where boundaries fall.
-
-## Recorded playback
-
-**Shipped 2026-08-22 as present-from-video** (see DECISIONS.md, "The
-presentation cache is the mp4"): `--render` writes
-`media/<Scene>_present/` — the mp4 plus the generated pausepoint table —
-and the viewer's Present button plays it with stepped scrubbing both
-directions (t1-web's model), the engine fully silent. True reverse in the
-presenter is done. What remains below is the *geometry-stream* variant of
-the same idea, kept for what only it can do (vector-crisp zoom, Pyodide,
-navigation-as-playback in the live dev viewer) — but its export format
-must first shrink: the 2026-08-22 audit measured Episode0 at 772 MB vs a
-7.7 MB mp4 (one merged batch re-ships the scene on any motion; 99.5%
-inter-frame redundancy invisible to gzip's 32 KB window — zstd measured
-327x, XOR-delta+gzip 35x; 52/68 B/vertex replicated constants; 1.5x index
-expansion; no keyframes, so seeks replay from frame 0; the player buffers
-the stream twice). Revisit after the performance track's per-submobject
-chunking changes that math.
-
-The original sketch — **record what the
-renderer is sent** and treat navigation over visited ground as *playback*:
-
-- During a real forward run, cache the per-frame render payload for each
-  pausepoint stretch — the geometry stream already exists as message 0x03,
-  and `--export`'s `GeometryRecorder` + the baked player already record and
-  replay exactly this format. Segment boundaries are already on the wire as
-  `move` messages.
-- LEFT plays the stretch's frames backward: exact reversal of anything —
-  Creates undraw, tracker sweeps rewind — because it is literally the
-  forward render in reverse. RIGHT over visited ground replays forward
-  without re-executing code; `pause(loop=True)` laps a recording instead of
-  re-running the stretch. Code executes only at the frontier and after
-  edits (restore the pause before the edit, re-run, re-record from there).
-- Prefer the **client-side cache**: the viewer already receives every frame
-  (pixels or geometry); caching per segment in the browser makes playback
-  local, keeps the server out of navigation, and is the shape a Pyodide
-  build and remote viewing both need. It also converges the live viewer
-  with the baked player — export becomes "save the cache".
-- Landing on a pausepoint restores the real checkpoint state, so parked is
-  live (inspectable, updaters running) and motion is film. Sound cues and
-  a memory/disk bound (the export folder is the on-disk format) ride along.
+- **Cell-marked scene files.** Stepping runs a whole unit (a `for` loop
+  of plays is one press) and a scene opens on an empty frame because
+  its `self.add(...)` preamble shares the first play's unit. Both
+  dissolve if authors mark pausepoints with `# %%` cells (Knuth's
+  percent format): boundaries stop being an AST guess, the preamble
+  gets its own cell, the `many` stacked chip becomes unnecessary. The
+  engine already execs units flat against the module namespace, so the
+  class is vestigial. Blocks: a script-style file runs on import (exec
+  only the preamble, hand the rest to the unit machinery); CE files
+  must stay the front door; one file would be one scene unless a cell
+  can name one. Not while course production runs on the checkpoint
+  engine.
+- **Snapshots copy objects, not the functions that read them.**
+  `checkpoints._rebind_functions` repairs closures, defaults, and
+  `__globals__` after every deep copy. It works (`TestTrackerAcrossUnits`)
+  and it is ugly. The instruction stream removes copy-on-execute
+  entirely, so the real design lands there; do not redesign it here.
+- **Typst text backend** for Tex/MathTex via mitex: kills the texlive
+  install burden, faster builds, the same engine as Plass. Independent
+  of everything above; do whenever. Watch the conformance drift.
+- **Student bundle notes track.** Per-pausepoint text beside the
+  `--export-present` player. Small page work; the real question is
+  keying (indices shift when a pause is added, names must be authored).
+  Decide the key before building.
+- **The baked geometry player** (`--export`): restyle onto the shared
+  visual language; a live demo of it on the preview site. Its export
+  format is ~100x the mp4 until frames are deltas over immutable
+  buffers, which the instruction stream gives for free.
