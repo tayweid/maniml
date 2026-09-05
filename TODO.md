@@ -129,19 +129,12 @@ Python has nothing to stream for a parked scene).
   must stay the front door; one file would be one scene unless a cell
   can name one. Not while course production runs on the checkpoint
   engine.
-- **Snapshots copy objects, not the functions that read them.**
-  `checkpoints._rebind_functions` repairs closures, defaults, and
-  `__globals__` after every deep copy. It works (`TestTrackerAcrossUnits`)
-  and it is ugly. The instruction stream removes copy-on-execute
-  entirely, so the real design lands there; do not redesign it here.
 - **Typst text backend** for Tex/MathTex via mitex: kills the texlive
   install burden, faster builds, the same engine as Plass. Independent
   of everything above; do whenever. Watch the conformance drift.
-- **Student bundle notes track.** Per-pausepoint text beside the
-  `--export-present` player. Small page work; the real question is
-  keying (indices shift when a pause is added, names must be authored).
-  Decide the key before building.
-- **The baked geometry player** (`--export`): restyle onto the shared
-  visual language; a live demo of it on the preview site. Its export
-  format is ~100x the mp4 until frames are deltas over immutable
-  buffers, which the instruction stream gives for free.
+
+Dropped on 2026-09-04 (see DECISIONS.md, "The roadmap is pruned"): the
+snapshot function-rebinding redesign (the instruction stream removes
+copy-on-execute, so it lands there), the student-bundle notes track,
+and the baked geometry player's restyle and site demo (the player has
+no user; the mp4 bundle is the distribution format).

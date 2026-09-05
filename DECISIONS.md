@@ -721,9 +721,17 @@ this entry exists so that no one reads the removal as "done":
 - **Kept, compactly**: the small fidelity gaps (cross-group z_index, 3D
   gradient fills, re-triangulation, MathTex join drift,
   `AddTextWordByWord`), the 2026-08-18 test debt (verified still
-  untested), and the design questions that are not scheduled (cell
-  markers, function rebinding, Typst, the notes track, the baked
-  player).
+  untested), and two design questions that are not scheduled: cell
+  markers (the one item that fixes whole-unit stepping and the blank
+  opening frame) and the Typst text backend. Dropped from that list
+  the same day, on Taylor's call: the function-rebinding redesign
+  (the instruction stream removes copy-on-execute, so it lands
+  there), the student-bundle notes track (authoring cost; re-add when
+  a course page needs it), and the baked geometry player's restyle
+  and site demo (no user; the mp4 bundle is the distribution format).
+  The preamble split is not listed separately because it is the
+  half-measure of cell markers, and 2x supersampling is one clause of
+  the held wgpu-py render step.
 
 Native GL removal (beeline step 4) is explicitly **held** by Taylor as
 of the same day: it stays the next structural step and the
