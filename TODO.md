@@ -27,45 +27,49 @@ signal. What it has surfaced so far, and what is ready regardless:
    start of every animation. The audit put it at roughly 37 ms per
    play — `begin_animations` plus the checkpoint deep copy — and 8 to
    14 ms per copy in the boids run; it does not shrink for small
-   scenes. Attack it in this order, measuring on a real course scene
-   with `MANIML_PERF_PATH` first (`checkpoint.*` stages):
-   - **Copy less.** `deepcopy_namespace` copies the scene state and
-     the whole exec namespace together. Anything render-only or
-     derived (shader wrappers, triangulation caches, bounding-box
-     caches, GPU-side objects) is dead weight in a checkpoint and is
-     rebuilt on restore anyway; anything immutable (numpy arrays that
-     never mutate in place, module objects, functions already handled
-     by `_rebind_functions`) can be shared. Add byte and time
-     accounting per checkpoint so the win is visible.
-     *A potential path further along this line, not yet tried:* the
-     checkpoint ledger from JAnim (`../simlab/JANIM.md`). Keep
-     `deepcopy_namespace`, but pre-seed its memo so a mobject that has
-     not changed since its last frozen copy reuses that copy, and
-     only changed mobjects are copied; the per-play cost becomes what
-     moved. The 2026-08 revision store (tag
-     `archive/perf-systematic-viewer`) foundered on the change signal
-     — partial hooks missed writes silently and hashing arrays cost
-     as much as copying. The cheap signal is to forbid unsanctioned
-     writes rather than detect them: freeze `mobject.data` and the
+   scenes. Measure first on a real course scene with
+   `MANIML_PERF_PATH` (`checkpoint.*` stages). Possible measures, in
+   the order they pay off if the instruction-stream architecture
+   (`../simlab/ARCHITECTURE.md`) is the destination — the first two
+   are prerequisite work for it, so nothing here is thrown away:
+   - **Freeze the data, count revisions.** The 2026-08 revision store
+     (tag `archive/perf-systematic-viewer`) foundered on the change
+     signal: partial hooks missed writes silently, and hashing arrays
+     cost as much as copying. The cheap signal forbids unsanctioned
+     writes instead of detecting them. Freeze `mobject.data` and the
      array uniforms with numpy's `flags.writeable = False` (field
-     views inherit it; verified on numpy 2.5), have the
-     `affects_data` / family / updater mutators unfreeze, bump a
-     per-mobject `revision`, and refreeze, so a bypassing write fails
-     loudly in the suite (about 29 such sites outside `mobject.py`)
-     instead of going stale. Derived caches stay outside the frozen
-     region. Deep copies come back writeable, so ledger entries are
-     frozen explicitly. User code writing into `get_points()` would
-     break and needs a clear error; that is the compatibility cost to
-     weigh before choosing this path.
-   - **Copy later.** A play's checkpoint is needed only if the user
-     navigates back to it. Take the copy after the frame has been
-     sent, not before it, so the stall moves off the animation's first
-     frame; or defer interior (non-pausepoint) copies to idle time
-     while keeping the pausepoint copy eager.
+     views inherit it; verified on numpy 2.5); the `affects_data` /
+     family / updater mutators unfreeze, bump a per-mobject
+     `revision`, and refreeze, so a bypassing write fails loudly in
+     the suite (about 29 such sites outside `mobject.py`, mostly in
+     `vectorized_mobject.py` and `surface.py`) instead of going stale.
+     Derived caches (joint angles, bounding boxes, triangulation,
+     shader wrappers) stay outside the frozen region and the
+     revision. Compatibility cost: user code that writes into
+     `get_points()` breaks and needs a clear error naming the
+     sanctioned method. Serves item 2 below and the architecture's
+     handle model directly.
+   - **The checkpoint ledger** (from JAnim, `../simlab/JANIM.md`).
+     Keep `deepcopy_namespace`, but pre-seed its memo so a mobject
+     whose revision is unchanged since its last frozen copy reuses
+     that copy; only changed mobjects are copied, and a play costs
+     what moved. Deep copies come back writeable, so ledger entries
+     are frozen explicitly. A day on top of the freeze; the interim
+     payoff until the architecture makes checkpoints free by
+     construction, and not worth elaborating beyond that.
+   - **Copy less.** Anything render-only or derived is dead weight in
+     a checkpoint and is rebuilt on restore anyway; anything immutable
+     (module objects, functions already handled by
+     `_rebind_functions`) can be shared. Cheap regardless; add byte
+     and time accounting per checkpoint so every win is visible.
+   - **Copy later** — only if the two above do not land. Take the
+     copy after the first frame has been sent, or defer interior
+     (non-pausepoint) copies to idle time while keeping the
+     pausepoint copy eager. It works around a cost the architecture
+     deletes, so it is the fallback, not the plan.
    - **Do not** build copy-on-write checkpoints on this engine: the
      instruction-stream architecture makes checkpoints free, so the
-     redesign lands there. Everything above is bounded work that
-     helps now and survives the transition.
+     redesign lands there.
 2. **Skip the per-frame walk of unchanged batches.** The serializer
    walks, packs, and hashes every batch every frame even when nothing
    moved — about 9 ms at 1,000 objects. Key batches by
