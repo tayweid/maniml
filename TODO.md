@@ -22,54 +22,56 @@ except the two long-standing `test_app.AppShellE2E` failures.
 Course production on the browser as the only surface is the burn-in
 signal. What it has surfaced so far, and what is ready regardless:
 
-1. **The hitch at every play boundary.** The one thing that keeps
-   coming up in dogfood (Taylor, 2026-09-04): a visible stall at the
-   start of every animation. The audit put it at roughly 37 ms per
-   play — `begin_animations` plus the checkpoint deep copy — and 8 to
-   14 ms per copy in the boids run; it does not shrink for small
-   scenes. Measure first on a real course scene with
-   `MANIML_PERF_PATH` (`checkpoint.*` stages). Possible measures, in
-   the order they pay off if the instruction-stream architecture
-   (`../simlab/ARCHITECTURE.md`) is the destination — the first two
-   are prerequisite work for it, so nothing here is thrown away:
-   - **Freeze the data, count revisions.** The 2026-08 revision store
-     (tag `archive/perf-systematic-viewer`) foundered on the change
-     signal: partial hooks missed writes silently, and hashing arrays
-     cost as much as copying. The cheap signal forbids unsanctioned
-     writes instead of detecting them. Freeze `mobject.data` and the
-     array uniforms with numpy's `flags.writeable = False` (field
-     views inherit it; verified on numpy 2.5); the `affects_data` /
-     family / updater mutators unfreeze, bump a per-mobject
-     `revision`, and refreeze, so a bypassing write fails loudly in
-     the suite (about 29 such sites outside `mobject.py`, mostly in
-     `vectorized_mobject.py` and `surface.py`) instead of going stale.
-     Derived caches (joint angles, bounding boxes, triangulation,
-     shader wrappers) stay outside the frozen region and the
-     revision. Compatibility cost: user code that writes into
-     `get_points()` breaks and needs a clear error naming the
-     sanctioned method. Serves item 2 below and the architecture's
-     handle model directly.
-   - **The checkpoint ledger** (from JAnim, `../simlab/JANIM.md`).
-     Keep `deepcopy_namespace`, but pre-seed its memo so a mobject
-     whose revision is unchanged since its last frozen copy reuses
-     that copy; only changed mobjects are copied, and a play costs
-     what moved. Deep copies come back writeable, so ledger entries
-     are frozen explicitly. A day on top of the freeze; the interim
-     payoff until the architecture makes checkpoints free by
-     construction, and not worth elaborating beyond that.
-   - **Copy less.** Anything render-only or derived is dead weight in
-     a checkpoint and is rebuilt on restore anyway; anything immutable
-     (module objects, functions already handled by
-     `_rebind_functions`) can be shared. Cheap regardless; add byte
-     and time accounting per checkpoint so every win is visible.
-   - **Copy later** — only if the two above do not land. Take the
-     copy after the first frame has been sent, or defer interior
-     (non-pausepoint) copies to idle time while keeping the
-     pausepoint copy eager. It works around a cost the architecture
-     deletes, so it is the fallback, not the plan.
-   - **Do not** build copy-on-write checkpoints on this engine: the
-     instruction-stream architecture makes checkpoints free, so the
-     redesign lands there.
+1. **The stall at every play boundary.** The one thing that keeps
+   coming up in dogfood (Taylor, 2026-09-04). Measured 2026-09-05 on
+   the real episodes, headless, `skip_animations`, per unit:
+
+   | scene | early units | late units | on screen late |
+   |---|---|---|---|
+   | A1 The PPF | 70–120 ms | 400–950 ms | 9–150 members |
+   | A3 Trade | 80–180 ms | 900–1,480 ms | often 0 |
+
+   Three facts decide the fix:
+   - **It is the copier, not the data.** Copying every point array raw
+     in the benchmark scene costs 0.35 ms; the generic `copy.deepcopy`
+     of the same 236-object graph costs 22 ms. A mobject carries 47
+     attributes, and `parents`/`family` links drag the whole graph in,
+     so one leaf costs 5.9 ms through deepcopy and 0.01 ms through the
+     project's own `Mobject.copy()`.
+   - **It scales with the episode, not the frame.** A checkpoint copies
+     everything reachable from the namespace. At A3's last checkpoint
+     nothing is on screen, 2,366 family members (38 `Tex`, 28 `VGroup`,
+     …) are reachable from 643 names, and one copy costs 429 ms — 400 ms
+     of it off-screen objects that have not changed in minutes.
+   - **Every unit pays twice.** `run_next_animation` deep-copies the
+     current checkpoint before exec (`checkpoint.execution_copy`) and
+     `_save_checkpoint` deep-copies again after (`checkpoint.save_copy`).
+
+   The plan, in order, each step measurable on the table above:
+   - **A fast, memo-aware `Mobject.__deepcopy__`.** Structural copy in
+     the shape of `Mobject.copy()` (data and uniforms by numpy copy,
+     submobjects recursively, render-only state — shader wrappers,
+     triangulation and bounding-box caches, `_data_has_changed` —
+     dropped) that registers itself in the memo so namespace identity
+     and `_rebind_functions` keep working. 7–11x on everything, no
+     prerequisites. Measured upper bound: `Mobject.copy()` over A3's
+     whole namespace is 37 ms against 429.
+   - **Skip the execution copy at the frontier.** After a save, the live
+     scene and `_live_namespace` already agree and the stored checkpoint
+     already holds its own copies; the pre-exec copy only earns its keep
+     after a navigation. A flag set by `_save_checkpoint` and cleared by
+     any restore halves the remaining cost.
+   - **The ledger.** Per-mobject revision counter driven by freezing the
+     numpy arrays read-only and unfreezing inside the change-marking
+     decorators (design and the history of the failed hashing attempt in
+     `../simlab/JANIM.md`, "a ledger, not a deep copy"); pre-seed the
+     deepcopy memo so an unchanged mobject maps to its previous frozen
+     copy. Per-play cost becomes proportional to what changed, and the
+     off-screen 2,366 cost nothing. This is the piece that survives into
+     the instruction stream unchanged.
+   - **Do not** build copy-on-write checkpoints beyond that: the
+     instruction-stream architecture makes checkpoints free.
+
 2. **Skip the per-frame walk of unchanged batches.** The serializer
    walks, packs, and hashes every batch every frame even when nothing
    moved — about 9 ms at 1,000 objects. Key batches by
