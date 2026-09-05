@@ -52,6 +52,7 @@ class CameraFrame(Mobject):
 
     def set_orientation(self, rotation: Rotation):
         self.uniforms["orientation"][:] = rotation.as_quat()
+        self.note_changed_state()
         return self
 
     def get_orientation(self):

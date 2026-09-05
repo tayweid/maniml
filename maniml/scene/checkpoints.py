@@ -386,6 +386,12 @@ class CheckpointMixin:
         with performance.stage("checkpoint.save_copy"):
             checkpoint_namespace = deepcopy_namespace(namespace)
         checkpoint_state = checkpoint_namespace.pop('__checkpoint_state__')
+        if performance.enabled:
+            # How much the copy had to visit. Until the ledger lands every
+            # mobject is copied; afterwards `reused` is the win.
+            n = _count_family(checkpoint_state.mobjects)
+            performance.gauge("checkpoint.mobjects", n)
+            performance.increment("checkpoint.ledger.copied", n)
 
         self.current_animation_index += 1
         checkpoint = {
@@ -816,6 +822,116 @@ def _rebind_functions(old_namespace: dict, new_namespace: dict, memo: dict) -> N
     for value in list(memo.values()):
         if isinstance(value, Mobject) and getattr(value, 'updaters', None):
             value.updaters = [rebind(u) for u in value.updaters]
+
+
+VERIFY_LEDGER_ENV = "MANIML_VERIFY_LEDGER"
+
+# Columns the render pass fills lazily (joint angles, unit normals, the
+# nudged surface points). They change under a clean scene and are
+# recomputed from the mobject's refresh flags, so they are neither a
+# revision bump nor a difference the ledger cares about.
+DERIVED_DATA_KEYS = frozenset({"joint_angle", "base_normal", "d_normal_point"})
+
+# Attributes that are render-only, rebuilt on restore, or handled by the
+# ledger's own rules (submobjects through the memo, parents relinked on
+# thaw, updaters / target / saved_state by the leaf rule).
+_LEDGER_IGNORED_ATTRS = frozenset({
+    "data", "uniforms", "submobjects", "parents", "family", "updaters",
+    "target", "saved_state", "revision", "shader_wrapper", "bounding_box",
+    "_needs_new_bounding_box", "_data_has_changed", "_is_animating",
+    "_has_updaters_in_family", "_triangulation_cache", "needs_new_joint_angles",
+    "needs_new_unit_normal", "subpath_end_indices", "_shader_wrapper_id",
+})
+
+
+class LedgerStale(Exception):
+    """A mobject's revision said "unchanged" but its state differs from
+    the frozen copy the ledger would have reused. The message names the
+    attribute; the fix is a missing revision bump at the mutation site."""
+
+
+def verify_ledger_enabled() -> bool:
+    return os.environ.get(VERIFY_LEDGER_ENV) == "1"
+
+
+def _count_family(mobjects) -> int:
+    return sum(len(mob.get_family()) for mob in mobjects)
+
+
+def _values_differ(a, b) -> bool:
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        try:
+            return not np.array_equal(np.asarray(a), np.asarray(b))
+        except Exception:
+            return True
+    if isinstance(a, Mobject) or isinstance(b, Mobject):
+        return False   # references are the leaf rule's business, not a diff
+    if isinstance(a, (list, tuple)):
+        if not isinstance(b, (list, tuple)) or len(a) != len(b):
+            return True
+        return any(_values_differ(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        if not isinstance(b, dict) or a.keys() != b.keys():
+            return True
+        return any(_values_differ(a[k], b[k]) for k in a)
+    if callable(a) or callable(b):
+        return False   # functions are rebound by _rebind_functions
+    try:
+        return bool(a != b)
+    except Exception:
+        return False
+
+
+def ledger_stale_attribute(live: Mobject, frozen: Mobject, memo: dict | None = None) -> str | None:
+    """Name the first attribute in which `live` differs from `frozen`, or
+    None when the two are the same checkpoint-relevant state.
+
+    The comparison is what the ledger must be able to trust when a
+    revision is unchanged: every data column except the derived ones,
+    every uniform, the submobject list (through `memo` when the caller
+    has one, by recursion otherwise), the updater count, and every plain
+    attribute outside the render-only set."""
+    if type(live) is not type(frozen):
+        return "type"
+    if live.data.dtype != frozen.data.dtype or live.data.shape != frozen.data.shape:
+        return "data.shape"
+    for key in live.data.dtype.names:
+        if key in DERIVED_DATA_KEYS:
+            continue
+        if not np.array_equal(live.data[key], frozen.data[key]):
+            return f"data.{key}"
+    if live.uniforms.keys() != frozen.uniforms.keys():
+        return "uniforms.keys"
+    for key, value in live.uniforms.items():
+        if _values_differ(value, frozen.uniforms[key]):
+            return f"uniforms.{key}"
+    if len(live.submobjects) != len(frozen.submobjects):
+        return "submobjects"
+    for sub_live, sub_frozen in zip(live.submobjects, frozen.submobjects):
+        if memo is not None:
+            if memo.get(id(sub_live)) is not sub_frozen:
+                return "submobjects"
+        else:
+            inner = ledger_stale_attribute(sub_live, sub_frozen)
+            if inner is not None:
+                return f"submobjects.{inner}"
+    if len(live.updaters) != len(frozen.updaters):
+        return "updaters"
+    if (live.target is None) != (frozen.target is None):
+        return "target"
+    if (live.saved_state is None) != (frozen.saved_state is None):
+        return "saved_state"
+    for name, value in live.__dict__.items():
+        if name in _LEDGER_IGNORED_ATTRS:
+            continue
+        if name not in frozen.__dict__:
+            return name
+        if _values_differ(value, frozen.__dict__[name]):
+            return name
+    for name in frozen.__dict__:
+        if name not in live.__dict__ and name not in _LEDGER_IGNORED_ATTRS:
+            return name
+    return None
 
 
 def deepcopy_namespace(namespace_or_checkpoint):

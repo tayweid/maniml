@@ -311,6 +311,10 @@ class SVGMobject(VMobject):
 
 
 class VMobjectFromSVGPath(VMobject):
+    # The parsed svgelements path is read only while building the points
+    # and never mutated; copies share it (see Mobject.__deepcopy__).
+    _copy_by_reference = ("path_obj", "transform_cache")
+
     def __init__(
         self,
         path_obj: se.Path,

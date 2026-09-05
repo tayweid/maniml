@@ -123,6 +123,7 @@ class DotCloud(PMobject):
 
     def set_glow_factor(self, glow_factor: float) -> Self:
         self.uniforms["glow_factor"] = glow_factor
+        self.note_changed_state()
         return self
 
     def get_glow_factor(self) -> float:

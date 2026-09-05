@@ -412,6 +412,7 @@ class VMobject(Mobject):
     def set_joint_type(self, joint_type: str, recurse: bool = True) -> Self:
         for mob in self.get_family(recurse):
             mob.uniforms["joint_type"] = self.joint_type_map[joint_type]
+            mob.note_changed_state()
         return self
 
     def get_joint_type(self) -> float:

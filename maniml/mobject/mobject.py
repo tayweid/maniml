@@ -108,6 +108,13 @@ class Mobject(object):
         self._needs_new_bounding_box: bool = True
         self._data_has_changed: bool = True
         self.shader_code_replacements: dict[str, str] = dict()
+        # Bumped by every mutation a checkpoint must see (note_changed_data,
+        # note_changed_family, note_changed_state), and by those of every
+        # descendant: the checkpoint ledger treats an unchanged revision as
+        # "this family is byte-for-byte what it was at the last checkpoint".
+        # Derived columns filled lazily by the render pass (joint angles,
+        # unit normals) never bump it; they are recomputed from the flags.
+        self.revision: int = 0
 
         self.init_data()
         self.init_uniforms()
@@ -155,6 +162,7 @@ class Mobject(object):
             if isinstance(value, np.ndarray):
                 value = value.copy()
             self.uniforms[key] = value
+        self.note_changed_state()
         return self
 
     @property
@@ -230,6 +238,7 @@ class Mobject(object):
         if old is not None and old != value and 'parents' in self.__dict__:
             for mob in (self, *self.get_ancestors()):
                 mob._data_has_changed = True
+            self.note_changed_state()
 
     @property
     def always(self) -> _UpdaterBuilder:
@@ -265,12 +274,24 @@ class Mobject(object):
 
     def note_changed_data(self, recurse_up: bool = True) -> Self:
         self._data_has_changed = True
+        self.revision += 1
         # Clear triangulation cache if it exists
         if hasattr(self, '_triangulation_cache'):
             delattr(self, '_triangulation_cache')
         if recurse_up:
             for mob in self.parents:
                 mob.note_changed_data()
+        return self
+
+    def note_changed_state(self) -> Self:
+        """Record a change that leaves ``data`` alone but that a checkpoint
+        must still see: uniforms, updaters, z_index, locks, a generated
+        target. Bumps ``revision`` up through the parents, as
+        note_changed_data does, so an ancestor is never taken as unchanged
+        while something below it moved."""
+        self.revision += 1
+        for parent in self.parents:
+            parent.note_changed_state()
         return self
 
     @staticmethod
@@ -477,6 +498,7 @@ class Mobject(object):
     @affects_data
     def note_changed_family(self, only_changed_order=False) -> Self:
         self.family = None
+        self.revision += 1
         if not only_changed_order:
             self.refresh_has_updater_status()
             self.refresh_bounding_box()
@@ -722,6 +744,22 @@ class Mobject(object):
     def deepcopy(self) -> Self:
         return copy.deepcopy(self)
 
+    # Attributes a deep copy shares by reference instead of copying:
+    # construction-time inputs that are never mutated afterwards. The
+    # svgelements path behind every glyph is the big one — it is about
+    # nine tenths of the objects a Tex deep copy visits, and a checkpoint
+    # deep-copies every mobject in the namespace at every play.
+    _copy_by_reference: tuple[str, ...] = ()
+
+    def __deepcopy__(self, memo):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        shared = self._copy_by_reference
+        for key, value in self.__dict__.items():
+            result.__dict__[key] = value if key in shared else copy.deepcopy(value, memo)
+        return result
+
     def copy(self, deep: bool = False) -> Self:
         if deep:
             return self.deepcopy()
@@ -766,11 +804,13 @@ class Mobject(object):
     def generate_target(self, use_deepcopy: bool = False) -> Self:
         self.target = self.copy(deep=use_deepcopy)
         self.target.saved_state = self.saved_state
+        self.note_changed_state()
         return self.target
 
     def save_state(self, use_deepcopy: bool = False) -> Self:
         self.saved_state = self.copy(deep=use_deepcopy)
         self.saved_state.target = self.target
+        self.note_changed_state()
         return self
 
     def restore(self) -> Self:
@@ -903,6 +943,7 @@ class Mobject(object):
 
     def add_updater(self, update_func: Updater, call: bool = True) -> Self:
         self.updaters.append(update_func)
+        self.note_changed_state()
         if call:
             self.update(dt=0)
         self.refresh_has_updater_status()
@@ -911,12 +952,14 @@ class Mobject(object):
 
     def insert_updater(self, update_func: Updater, index=0):
         self.updaters.insert(index, update_func)
+        self.note_changed_state()
         self.refresh_has_updater_status()
         return self
 
     def remove_updater(self, update_func: Updater) -> Self:
         while update_func in self.updaters:
             self.updaters.remove(update_func)
+        self.note_changed_state()
         self.refresh_has_updater_status()
         return self
 
@@ -924,17 +967,20 @@ class Mobject(object):
         for mob in self.get_family(recurse):
             mob.updaters = []
             mob._has_updaters_in_family = False
+            mob.note_changed_state()
         for parent in self.get_ancestors():
             parent._has_updaters_in_family = False
         return self
 
     def match_updaters(self, mobject: Mobject) -> Self:
         self.updaters = list(mobject.updaters)
+        self.note_changed_state()
         self.refresh_has_updater_status()
         return self
 
     def suspend_updating(self, recurse: bool = True) -> Self:
         self.updating_suspended = True
+        self.note_changed_state()
         if recurse:
             for submob in self.submobjects:
                 submob.suspend_updating(recurse)
@@ -942,6 +988,7 @@ class Mobject(object):
 
     def resume_updating(self, recurse: bool = True, call_updater: bool = True) -> Self:
         self.updating_suspended = False
+        self.note_changed_state()
         if recurse:
             for submob in self.submobjects:
                 submob.resume_updating(recurse)
@@ -1920,12 +1967,14 @@ class Mobject(object):
         if self.has_updaters():
             return self
         self.locked_data_keys = set(keys)
+        self.note_changed_state()
         return self
 
     def lock_uniforms(self, keys: Iterable[str]) -> Self:
         if self.has_updaters():
             return self
         self.locked_uniform_keys = set(keys)
+        self.note_changed_state()
         return self
 
     def lock_matching_data(self, mobject1: Mobject, mobject2: Mobject) -> Self:
@@ -1961,6 +2010,7 @@ class Mobject(object):
             mob.locked_data_keys = set()
             mob.const_data_keys = set()
             mob.locked_uniform_keys = set()
+            mob.note_changed_state()
         return self
 
     # Operations touching shader uniforms
@@ -1978,6 +2028,7 @@ class Mobject(object):
     def set_uniform(self, recurse: bool = True, **new_uniforms) -> Self:
         for mob in self.get_family(recurse):
             mob.uniforms.update(new_uniforms)
+            mob.note_changed_state()
         return self
 
     @affects_shader_info_id
@@ -1997,12 +2048,14 @@ class Mobject(object):
     def apply_depth_test(self, recurse: bool = True) -> Self:
         for mob in self.get_family(recurse):
             mob.depth_test = True
+            mob.note_changed_state()
         return self
 
     @affects_shader_info_id
     def deactivate_depth_test(self, recurse: bool = True) -> Self:
         for mob in self.get_family(recurse):
             mob.depth_test = False
+            mob.note_changed_state()
         return self
 
     def set_clip_plane(
@@ -2016,10 +2069,12 @@ class Mobject(object):
                 submob.uniforms["clip_plane"][:3] = vect
             if threshold is not None:
                 submob.uniforms["clip_plane"][3] = threshold
+            submob.note_changed_state()
         return self
 
     def deactivate_clip_plane(self) -> Self:
         self.uniforms["clip_plane"][:] = 0
+        self.note_changed_state()
         return self
 
     # Shader code manipulation
