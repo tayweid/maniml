@@ -460,6 +460,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.increment_time(dt)
         with performance.stage("scene.update_mobjects"):
             self.update_mobjects(dt)
+        if getattr(self, '_replay_hidden', False):
+            return  # reconstruct a replay prefix without capture or pacing
         if self.skip_animations and not force_draw:
             return
 
@@ -494,7 +496,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             time.sleep(max(vt - rt, 0))
 
     def emit_frame(self) -> None:
-        if not self.skip_animations:
+        if not self.skip_animations and not getattr(self, '_replay_hidden', False):
             self.file_writer.write_frame(self.camera)
 
     # Related to updating
@@ -790,11 +792,14 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         return self.get_time_progression(duration, **kw)
 
     def pre_play(self):
-        if self.presenter_mode and self.num_plays == 0:
+        if (self.presenter_mode and self.num_plays == 0
+                and not getattr(self, '_replay_hidden', False)):
             self.hold_loop()
 
         self.update_skipping_status()
 
+        if getattr(self, '_replay_hidden', False):
+            return
         if not self.skip_animations:
             self.file_writer.begin_animation()
 
@@ -804,6 +809,10 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self._web_viewer.begin_animation()
 
     def post_play(self):
+        if getattr(self, '_replay_hidden', False):
+            self._is_playing = False
+            self.num_plays += 1
+            return
         if self._web_viewer is not None:
             self._web_viewer.end_animation()
         self._is_playing = False
@@ -939,6 +948,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             namespace = self._capture_caller_namespace()
             self._save_checkpoint(line_no, unit_index, namespace, name=name)
             self._remember_scene_filepath()
+            if getattr(self, '_checkpoint_replay', None) is not None:
+                return  # retained pause flags belong to the original history
             checkpoint = self.animation_checkpoints[self.current_animation_index]
             checkpoint['stop'] = True
             if loop:
@@ -960,7 +971,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             duration = self.default_wait_time
         self.pre_play()
         self.update_mobjects(dt=0)  # Any problems with this?
-        if self.presenter_mode and not self.skip_animations and not ignore_presenter_mode:
+        if (self.presenter_mode and not self.skip_animations and not ignore_presenter_mode
+                and not getattr(self, '_replay_hidden', False)):
             if note:
                 log.info(note)
             self.hold_loop()
@@ -1005,7 +1017,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         gain: float | None = None,
         gain_to_background: float | None = None
     ):
-        if self.skip_animations:
+        if self.skip_animations or getattr(self, '_replay_hidden', False):
             return
         time = self.get_time() + time_offset
         self.file_writer.add_sound(sound_file, time, gain, gain_to_background)

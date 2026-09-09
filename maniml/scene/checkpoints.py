@@ -32,6 +32,10 @@ from maniml.scene.source_map import pause_anchored
 from maniml.scene.source_map import unit_for_line
 
 
+class _ReplayComplete(BaseException):
+    """Unwind source execution at a retained checkpoint, including in loops."""
+
+
 class CheckpointMixin:
     @property
     def checkpoint_ledger(self) -> "CheckpointLedger":
@@ -402,6 +406,22 @@ class CheckpointMixin:
         then. A pause's checkpoint has none — nothing played between it
         and the play before it, which is also how the reverse path knows
         that hop is an instant one."""
+        replay = getattr(self, '_checkpoint_replay', None)
+        if replay is not None:
+            start, target = replay
+            if self.current_animation_index >= target:
+                raise _ReplayComplete()
+            next_index = self.current_animation_index + 1
+            if self.animation_checkpoints[next_index].get('unit_index') != unit_index:
+                raise RuntimeError("Scene execution changed during replay; reload the scene")
+            # Replay uses a temporary live graph. Keep all retained snapshots
+            # and the execution frontier intact for instant UP/DOWN jumps.
+            self.current_animation_index = next_index
+            self._replay_hidden = next_index < start
+            if next_index >= target:
+                raise _ReplayComplete()
+            return
+
         namespace = dict(namespace)
         namespace.pop('__animation_line_number__', None)
         namespace.pop('__animation_unit_index__', None)
@@ -630,12 +650,11 @@ class CheckpointMixin:
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
 
     def advance_to_next_pausepoint(self) -> None:
-        """RIGHT: restore retained history, or execute at the frontier.
+        """RIGHT: play to the next stop, including previously visited history.
 
-        Before the execution frontier, RIGHT selects an existing checkpoint
-        exactly like fine navigation and never runs scene Python.  At the
-        frontier it runs units until the next authored pause.  A file with
-        no pauses treats every play checkpoint as a stop.
+        Retained history is replayed from source while its saved checkpoints
+        remain intact. At the frontier, execute and save new checkpoints.
+        A file with no pauses treats every play checkpoint as a stop.
         """
         pause_anchored = self._pause_anchored()
         frontier = min(
@@ -650,9 +669,7 @@ class CheckpointMixin:
                 )
             else:
                 target = self.current_animation_index + 1
-            print(f"→ Restore animation {target}/{len(self.animation_checkpoints) - 1}")
-            self._restore_checkpoint_for_display(target)
-            self.update_frame(dt=0, force_draw=True)
+            self._replay_retained_checkpoint(target)
             return
 
         if not pause_anchored:
@@ -673,6 +690,62 @@ class CheckpointMixin:
                     return
         finally:
             self._advancing = False
+
+    def _replay_retained_checkpoint(self, target: int) -> None:
+        """Play saved history without replacing it or skipping loop bodies.
+
+        Python cannot resume midway through a loop/helper, so reconstruct
+        that source unit from its entry. Its already-seen prefix runs with
+        normal simulation timesteps and no output; the requested span plays
+        visibly. A checkpoint boundary ends execution even inside a loop.
+        """
+        start = self.current_animation_index
+        checkpoints = self.animation_checkpoints
+        unit_index = checkpoints[start + 1].get('unit_index')
+        entry = start
+        while entry > 0 and checkpoints[entry].get('unit_index') == unit_index:
+            entry -= 1
+
+        previous_advancing = getattr(self, '_advancing', False)
+        previous_skipping = self.skip_animations
+        previous_propagating = getattr(self, '_propagate_animation_errors', False)
+        previous_strict = self._strict_animation_errors()
+        self._checkpoint_replay = (start, target)
+        self._replay_hidden = entry < start
+        self._advancing = True
+        self._propagate_animation_errors = True
+        completed = False
+        try:
+            # run_next_animation thaws state and namespace together. Avoid
+            # a redundant display thaw of the same unit-entry checkpoint.
+            self.current_animation_index = entry
+            self._live_matches_checkpoint = None
+            while self.current_animation_index < target:
+                last = self.current_animation_index
+                self.run_next_animation()
+                if self.current_animation_index == last:
+                    break  # source error or no next unit
+        except _ReplayComplete:
+            completed = True
+        except Exception:
+            if previous_strict:
+                raise
+            traceback.print_exc()
+        finally:
+            self._checkpoint_replay = None
+            self._replay_hidden = False
+            self._advancing = previous_advancing
+            self.skip_animations = previous_skipping
+            self._propagate_animation_errors = previous_propagating
+            self._is_playing = False
+            if self._web_viewer is not None:
+                self._web_viewer.end_animation()
+            # Restore the exact saved endpoint (or the starting point after
+            # failure), with a matching namespace and stochastic state.
+            landing = target if completed else start
+            self._restore_checkpoint_for_display(landing)
+            self._restore_checkpoint_random_state(checkpoints[landing])
+            self.update_frame(dt=0, force_draw=True)
 
     def _strict_animation_errors(self) -> bool:
         return any((

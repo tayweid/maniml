@@ -1,7 +1,7 @@
 """Interactive input for maniml scenes.
 
 Arrow-key checkpoint navigation (RIGHT re-executes from source,
-UP/DOWN jump, LEFT plays an animated reverse morph), click-to-inspect
+UP/DOWN jump by checkpoint, LEFT jumps to the previous pausepoint), click-to-inspect
 and drag-to-move, and the viewer mouse/keyboard callbacks.
 """
 from __future__ import annotations
@@ -250,7 +250,7 @@ class InteractionMixin:
             else:
                 print("Already at first animation")
 
-        # Handle LEFT arrow - play animation in reverse
+        # Handle LEFT arrow - jump to the previous pausepoint
         elif symbol == WindowKeys.LEFT:
             # Prevent handling if we're already processing a key
             if hasattr(self, '_processing_key') and self._processing_key:

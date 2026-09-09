@@ -848,3 +848,20 @@ This is an internal sampling optimization, with no scene-code changes or
 persistent transform cache. `always_redraw` and `become` keep their existing
 behavior. Vectorizing the user's equation is a separate capability; it is
 not required for the engine to batch its own coordinate arithmetic.
+
+## Right replays visited animations (2026-09-09)
+
+The August 26 navigation stabilization made RIGHT restore an already
+visited endpoint instantly. Taylor wants playback on RIGHT; UP/DOWN are
+the instant per-checkpoint controls, and LEFT keeps its instant jump to
+the previous pausepoint.
+
+Retained playback re-executes source on a temporary live graph and restores
+the exact saved destination afterward. It preserves all checkpoint objects
+and the execution frontier. From inside a loop or helper, execution starts
+at the source unit's entry, reconstructs the prefix without rendering,
+pacing or sound, then visibly plays the requested span. The prefix uses
+normal simulation timesteps: animation skipping would change updater and
+random-number behavior. A checkpoint boundary stops execution even inside
+a loop; replay errors restore the starting checkpoint and clear the
+temporary playback flags.

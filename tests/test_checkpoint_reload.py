@@ -10,7 +10,8 @@ import random
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import MagicMock
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -35,11 +36,36 @@ BASE = textwrap.dedent('''\
 ''')
 
 
+@contextmanager
+def observe_playback(scene):
+    """Run real animation interpolation without rendering or writing frames.
+
+    Record visible plays after pre_play applies its normal policy. Hidden
+    reconstruction still needs ordinary frame steps, while the requested
+    animation must run visibly and without temp_skip().
+    """
+    plays = []
+    original_pre_play = scene.pre_play
+
+    def pre_play():
+        original_pre_play()
+        visible = not scene.skip_animations and not getattr(scene, '_replay_hidden', False)
+        plays.append((scene._playing_unit, visible))
+
+    scene.skip_animations = False
+    with patch.object(scene, 'pre_play', side_effect=pre_play), \
+            patch.object(scene.camera, 'capture'), \
+            patch.object(scene, 'emit_frame'):
+        yield plays
+
+
 class CheckpointSceneTest(unittest.TestCase):
+    scene_source = BASE
+
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.scene_file = os.path.join(self.tmpdir.name, 'edit_scene.py')
-        self.write_scene(BASE)
+        self.write_scene(self.scene_source)
         module = load_scene_module(self.scene_file)
         self.scene = module.EditScene(window=None)
         self.scene._scene_filepath = self.scene_file
@@ -90,30 +116,136 @@ class TestForwardExecution(CheckpointSceneTest):
         self.assertEqual(self.scene.current_animation_index, 5)
         self.assertEqual(len(self.scene.animation_checkpoints), n)
 
-    def test_right_after_jump_restores_retained_checkpoint(self):
+    def test_right_after_jump_plays_to_the_next_retained_checkpoint(self):
         self.run_all()
         scene = self.scene
         original_units = [cp['unit_index'] for cp in scene.animation_checkpoints]
         original_checkpoints = list(scene.animation_checkpoints)
         scene._restore_checkpoint_for_display(1)
-        scene.run_next_animation = MagicMock(
-            wraps=scene.run_next_animation)
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
 
-        scene.advance_to_next_pausepoint()
-
+        self.assertEqual([unit for unit, visible in plays if visible], [1])
         self.assertEqual(scene.current_animation_index, 2)
         self.assertEqual(len(scene.animation_checkpoints), 6)
         self.assertEqual(
             [cp['unit_index'] for cp in scene.animation_checkpoints],
             original_units,
         )
-        for retained, original in zip(scene.animation_checkpoints, original_checkpoints):
+        for retained, original in zip(
+                scene.animation_checkpoints[3:], original_checkpoints[3:]):
             self.assertIs(retained, original)
         self.assertEqual(scene.frontier_index, 5)
-        scene.run_next_animation.assert_not_called()
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            original_checkpoints[2]['namespace']['circle'].get_points(),
+        )
+
+    def test_left_then_right_replays_an_existing_animation(self):
+        scene = self.scene
+        for _ in range(3):
+            scene.run_next_animation()
+        self.assertEqual(scene.current_animation_index, 4)
+        expected = scene.animation_checkpoints[4]['namespace']['circle'].get_points().copy()
+
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.LEFT, 0)
+            self.assertEqual(scene.current_animation_index, 3)
+            self.assertEqual(plays, [], "LEFT must remain an instant jump")
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [2])
+        self.assertEqual(scene.current_animation_index, 4)
+        self.assertEqual(len(scene.animation_checkpoints), 5)
+        np.testing.assert_array_equal(scene._live_namespace['circle'].get_points(), expected)
 
 
 class TestNavigation(CheckpointSceneTest):
+    def test_up_down_jump_without_replaying_source(self):
+        self.run_all()
+        scene = self.scene
+        original_checkpoints = list(scene.animation_checkpoints)
+        scene._restore_checkpoint_for_display(2)
+        with observe_playback(scene) as plays, \
+                patch.object(scene, 'run_next_animation', wraps=scene.run_next_animation) as execute:
+            scene.on_key_press(WindowKeys.UP, 0)
+            self.assertEqual(scene.current_animation_index, 3)
+            np.testing.assert_array_equal(
+                scene._live_namespace['circle'].get_points(),
+                original_checkpoints[3]['namespace']['circle'].get_points(),
+            )
+            scene.on_key_press(WindowKeys.DOWN, 0)
+            self.assertEqual(scene.current_animation_index, 2)
+
+        self.assertEqual(plays, [])
+        execute.assert_not_called()
+        for retained, original in zip(scene.animation_checkpoints, original_checkpoints):
+            self.assertIs(retained, original)
+
+    def test_right_from_inside_a_loop_replays_only_the_remaining_play(self):
+        self.run_all()
+        scene = self.scene
+        original_checkpoints = list(scene.animation_checkpoints)
+        scene._restore_checkpoint_for_display(2)
+
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [1])
+        self.assertEqual(scene.current_animation_index, 3)
+        self.assertEqual(scene.frontier_index, 5)
+        self.assertEqual(
+            [cp['unit_index'] for cp in scene.animation_checkpoints],
+            [-1, 0, 1, 1, 2, 3],
+        )
+        self.assertAlmostEqual(scene._live_namespace['circle'].get_center()[0], 1.0)
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            original_checkpoints[3]['namespace']['circle'].get_points(),
+        )
+        for index in (4, 5):
+            self.assertIs(scene.animation_checkpoints[index], original_checkpoints[index])
+
+    def test_replay_error_after_hidden_prefix_restores_start_and_stops(self):
+        self.run_all()
+        scene = self.scene
+        original_checkpoints = list(scene.animation_checkpoints)
+        scene._restore_checkpoint_for_display(2)
+        original_begin = scene.begin_animations
+        failure_cursors = []
+
+        def fail_on_visible_loop_play(animations):
+            if scene._playing_unit == 1 and not getattr(scene, '_replay_hidden', False):
+                failure_cursors.append(scene.current_animation_index)
+                scene.skip_animations = True
+                raise RuntimeError('failure after reconstructing the first loop iteration')
+            original_begin(animations)
+
+        with observe_playback(scene) as plays, \
+                patch.object(scene, 'begin_animations', side_effect=fail_on_visible_loop_play), \
+                patch.object(scene, 'run_next_animation', wraps=scene.run_next_animation) as execute, \
+                patch('maniml.scene.checkpoints.traceback.print_exc'):
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual(failure_cursors, [2], "failure must follow the hidden checkpoint save")
+        self.assertEqual([unit for unit, visible in plays if visible], [1])
+        execute.assert_called_once_with()
+        self.assertEqual(scene.current_animation_index, 2)
+        self.assertEqual(scene.frontier_index, 5)
+        self.assertEqual(len(scene.animation_checkpoints), len(original_checkpoints))
+        for retained, original in zip(scene.animation_checkpoints, original_checkpoints):
+            self.assertIs(retained, original)
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            original_checkpoints[2]['namespace']['circle'].get_points(),
+        )
+        self.assertIsNone(scene._checkpoint_replay)
+        self.assertFalse(scene._replay_hidden)
+        self.assertFalse(scene._advancing)
+        self.assertFalse(scene._is_playing)
+        self.assertFalse(scene.skip_animations)
+        self.assertFalse(scene._propagate_animation_errors)
+
     def test_render_batches_are_not_checkpoint_parents(self):
         self.run_all()
 
@@ -242,6 +374,102 @@ class TestRecordedSpans(CheckpointSceneTest):
             self.assertAlmostEqual(run_time, 0.05, places=6)
 
 
+class TestRandomReplay(CheckpointSceneTest):
+    scene_source = textwrap.dedent('''\
+        from maniml import *
+        import random
+        import numpy as np
+
+        class EditScene(Scene):
+            def construct(self):
+                circle = Circle()
+                self.play(Create(circle), run_time=0.05)
+                distance = random.random() + np.random.random()
+                self.play(circle.animate.shift(RIGHT * distance), run_time=0.05)
+    ''')
+
+    def test_replaying_random_animation_restores_its_original_rng_state(self):
+        scene = self.scene
+        scene.run_next_animation()
+        scene.run_next_animation()
+        expected = scene.animation_checkpoints[2]
+        scene._restore_checkpoint_for_display(1)
+        random.random()
+        np.random.random()
+
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [1])
+        self.assertEqual(scene.current_animation_index, 2)
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            expected['namespace']['circle'].get_points(),
+        )
+        self.assertEqual(scene._live_namespace['distance'], expected['namespace']['distance'])
+        self.assertEqual(random.getstate(), expected['python_random_state'])
+        np.testing.assert_equal(np.random.get_state(), expected['numpy_random_state'])
+
+
+class TestUpdaterReplay(CheckpointSceneTest):
+    scene_source = textwrap.dedent('''\
+        from maniml import *
+        import random
+
+        class EditScene(Scene):
+            def construct(self):
+                circle = Circle()
+                energy = ValueTracker(0)
+                def evolve(tracker, dt):
+                    if dt:
+                        tracker.increment_value(dt * (1 + tracker.get_value() + random.random()))
+                energy.add_updater(evolve)
+                self.add(energy)
+                for i in range(2):
+                    self.play(circle.animate.shift(RIGHT), run_time=0.2)
+    ''')
+
+    def test_hidden_loop_prefix_keeps_simulation_steps_and_random_draws(self):
+        from maniml.mobject.value_tracker import ValueTracker
+
+        scene = self.scene
+        with observe_playback(scene):
+            scene.run_next_animation()
+        self.assertEqual(scene.current_animation_index, 2)
+        start = scene.animation_checkpoints[1]
+        expected = scene.animation_checkpoints[2]
+        scene._restore_checkpoint_for_display(1)
+        visible_starts = []
+        original_begin = scene.begin_animations
+
+        def begin_animations(animations):
+            if not getattr(scene, '_replay_hidden', False):
+                energy = next(m for m in scene.mobjects if isinstance(m, ValueTracker))
+                visible_starts.append((energy.get_value(), random.getstate(), scene.skip_animations))
+            original_begin(animations)
+
+        with observe_playback(scene) as plays, \
+                patch.object(scene, 'begin_animations', side_effect=begin_animations):
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [0])
+        self.assertEqual(visible_starts, [(
+            start['namespace']['energy'].get_value(),
+            start['python_random_state'],
+            False,
+        )])
+        self.assertEqual(scene.current_animation_index, 2)
+        self.assertEqual(
+            scene._live_namespace['energy'].get_value(),
+            expected['namespace']['energy'].get_value(),
+        )
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            expected['namespace']['circle'].get_points(),
+        )
+        self.assertEqual(random.getstate(), expected['python_random_state'])
+
+
 class TestFileChange(CheckpointSceneTest):
     def test_edit_inside_construct_truncates_and_replays(self):
         self.run_all()
@@ -338,7 +566,7 @@ PAUSE_BASE = textwrap.dedent('''\
 
 class PauseAnchoredSceneTest(unittest.TestCase):
     """The checkpoint system in a pause-anchored file: plays extend the
-    current stretch, only self.pause() saves."""
+    current stretch, and self.pause() marks the navigation stops."""
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -399,18 +627,38 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         scene.advance_to_next_pausepoint()   # no-op at the end
         self.assertEqual(scene.current_animation_index, 6)
 
-    def test_right_before_frontier_restores_the_next_pause(self):
+    def test_right_before_frontier_plays_the_stretch_to_the_next_pause(self):
         self.run_all()
         scene = self.scene
         scene._restore_checkpoint_for_display(0)
-        scene.run_next_animation = MagicMock(
-            wraps=scene.run_next_animation)
+        original_checkpoints = list(scene.animation_checkpoints)
 
-        scene.advance_to_next_pausepoint()
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
 
+        self.assertEqual([unit for unit, visible in plays if visible], [0, 1])
         self.assertEqual(scene.current_animation_index, 3)
         self.assertEqual(scene.frontier_index, 6)
-        scene.run_next_animation.assert_not_called()
+        self.assertTrue(scene.animation_checkpoints[3].get('stop'))
+        for index in (4, 5, 6):
+            self.assertIs(scene.animation_checkpoints[index], original_checkpoints[index])
+
+    def test_left_then_right_replays_a_paused_stretch(self):
+        self.run_all()
+        scene = self.scene
+        scene._restore_checkpoint_for_display(5)
+        expected = scene.animation_checkpoints[5]['namespace']['circle'].get_points().copy()
+
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.LEFT, 0)
+            self.assertEqual(scene.current_animation_index, 3)
+            self.assertEqual(plays, [])
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [3])
+        self.assertEqual(scene.current_animation_index, 5)
+        self.assertEqual(scene.frontier_index, 6)
+        np.testing.assert_array_equal(scene._live_namespace['circle'].get_points(), expected)
 
     def test_plays_record_their_spans_and_pauses_record_none(self):
         self.run_all()
@@ -452,6 +700,60 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         cp = scene.animation_checkpoints[4]
         self.assertEqual(cp['unit_index'], 3)
         self.assertEqual(cp['namespace'].get('marker'), 123)
+
+
+class TestPauseInsideLoop(CheckpointSceneTest):
+    scene_source = textwrap.dedent('''\
+        from maniml import *
+
+        class EditScene(Scene):
+            def construct(self):
+                circle = Circle()
+                self.add(circle)
+                for i in range(2):
+                    self.play(circle.animate.shift(RIGHT), run_time=0.05)
+                    self.pause()
+                self.play(circle.animate.shift(UP), run_time=0.05)
+                self.pause()
+    ''')
+
+    def test_right_from_a_pause_inside_a_loop_plays_to_the_next_pause(self):
+        self.run_all()
+        scene = self.scene
+        original_checkpoints = list(scene.animation_checkpoints)
+        scene._restore_checkpoint_for_display(2)
+        self.assertTrue(scene.animation_checkpoints[2].get('stop'))
+
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+
+        self.assertEqual([unit for unit, visible in plays if visible], [0])
+        self.assertEqual(scene.current_animation_index, 4)
+        self.assertTrue(scene.animation_checkpoints[4].get('stop'))
+        self.assertEqual(scene.frontier_index, 6)
+        np.testing.assert_array_equal(
+            scene._live_namespace['circle'].get_points(),
+            original_checkpoints[4]['namespace']['circle'].get_points(),
+        )
+        self.assertAlmostEqual(scene._live_namespace['circle'].get_center()[0], 2.0)
+        for index in (5, 6):
+            self.assertIs(scene.animation_checkpoints[index], original_checkpoints[index])
+
+    def test_replay_keeps_retained_pause_flags(self):
+        self.run_all()
+        scene = self.scene
+        original_flags = [(cp.get('stop'), cp.get('loop'))
+                          for cp in scene.animation_checkpoints]
+        scene._restore_checkpoint_for_display(2)
+        original_pause = scene.pause
+        with observe_playback(scene), patch.object(
+                scene, 'pause', side_effect=lambda: original_pause(loop=True)):
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+        self.assertEqual(scene.current_animation_index, 4)
+        self.assertEqual(
+            [(cp.get('stop'), cp.get('loop')) for cp in scene.animation_checkpoints],
+            original_flags,
+        )
 
 
 if __name__ == '__main__':
@@ -560,8 +862,8 @@ class TestGhostMobjects(unittest.TestCase):
     """Ported from the retired windowed scenario tests/interactive/
     ghost_regression.py (2026-09-02): animating a group whose .animate
     builders were stored in a namespace variable must not leave a stale
-    duplicate behind, and RIGHT over a retained checkpoint must restore
-    it rather than re-run the source beside the old copy."""
+    duplicate behind, including when RIGHT replays an existing animation
+    from the restored namespace."""
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -600,10 +902,13 @@ class TestGhostMobjects(unittest.TestCase):
         self.assertGreater(group.get_center()[1], 1, "group did not move up")
 
         # The reported failure needed a step back and forward over the
-        # retained checkpoint: RIGHT must restore it, not re-run source.
+        # retained checkpoint: replay must use the on-screen group's
+        # namespace, not leave a copy beside the group being animated.
         scene.on_key_press(WindowKeys.LEFT, 0)
         self.assertEqual(len(self.content()), 1)
-        scene.on_key_press(WindowKeys.RIGHT, 0)
+        with observe_playback(scene) as plays:
+            scene.on_key_press(WindowKeys.RIGHT, 0)
+        self.assertEqual([unit for unit, visible in plays if visible], [1])
         mobs = self.content()
         self.assertEqual(len(mobs), 1, "ghost after retained forward step")
         group = scene._live_namespace.get("group")

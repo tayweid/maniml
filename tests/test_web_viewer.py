@@ -527,8 +527,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
         with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
             # Make the test self-contained: when run alone this executes the
-            # first frontier unit; after test_full_loop it restores that
-            # already-retained endpoint without re-executing Python.
+            # first frontier unit; after test_full_loop it replays that
+            # already-visited animation.
             ws.send(json.dumps(
                 {"type": "key", "action": "down", "key": "ArrowRight"}))
             self._collect(ws, 3)
@@ -593,9 +593,8 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
     """Geometry streaming needs fresh frontier animations.
 
     Keep it in its own process: WebViewerE2E intentionally shares scene
-    history across tests, and its future-chip test advances to the end.  A
-    visited RIGHT is now an exact endpoint restore, not a source re-run that
-    can be borrowed to manufacture test frames.
+    history across tests, and its future-chip test advances to the end.
+    These checks should exercise first execution independently of replay.
     """
 
     def test_frontier_animations_stream_geometry(self):
@@ -623,6 +622,73 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
             self.assertEqual(frames, [], "frames sent with no renderer")
             self.assertTrue(any(s.get("type") == "state" for s in states),
                             "state must still flow without a renderer")
+
+
+class RightReplayE2E(_ViewerHarness, unittest.TestCase):
+    """RIGHT replays visited animations; UP/DOWN keep instant navigation."""
+
+    SOURCE = """
+from manim import *
+
+class RightReplayDemo(Scene):
+    def construct(self):
+        dot = Dot()
+        self.add(dot)
+        self.play(dot.animate.shift(RIGHT), run_time=0.4)
+        for _ in range(2):
+            self.play(dot.animate.shift(UP), run_time=0.4)
+"""
+    SCENE = "RightReplayDemo"
+    FILENAME = "right_replay_scene.py"
+
+    def test_visited_right_streams_but_up_and_down_jump(self):
+        logs = []
+
+        def press(ws, key, current, count, seconds, animated=False):
+            ws.send(json.dumps({"type": "key", "action": "down", "key": key}))
+            ws.send(json.dumps({"type": "key", "action": "up", "key": key}))
+            frames, messages = self._collect(ws, seconds, logs=logs)
+            states = [m for m in messages if m.get("type") == "state"]
+            self.assertTrue(states, f"no checkpoint state after {key}")
+            self.assertEqual(states[-1]["current"], current)
+            self.assertEqual(states[-1]["count"], count)
+            starts = [m for m in messages
+                      if m.get("type") == "move" and m["from"] is not None]
+            if animated:
+                geometry = [frame for frame in frames if frame[0] == 0x03]
+                self.assertGreater(len(geometry), 3,
+                                   "RIGHT restored an endpoint without streaming")
+                self.assertTrue(starts, "RIGHT did not announce an animation")
+                self.assertTrue(all(not m["back"] for m in starts))
+            else:
+                # A forced geometry snapshot is fine; a jump must not open
+                # the rail's animation indicator.
+                self.assertEqual(starts, [], f"{key} unexpectedly animated")
+            return starts
+
+        with self._connect() as ws:
+            self._collect(ws, 0.5, logs=logs)
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            self._collect(ws, 0.2, logs=logs)
+
+            press(ws, "ArrowRight", 1, 2, 1, animated=True)
+            press(ws, "ArrowLeft", 0, 2, 0.3)
+            replay = press(ws, "ArrowRight", 1, 2, 1, animated=True)
+            self.assertEqual([(m["from"], m["to"]) for m in replay], [(0, 1)])
+
+            # First execution reaches both checkpoints within the loop.
+            press(ws, "ArrowRight", 3, 4, 1.4, animated=True)
+            press(ws, "ArrowLeft", 2, 4, 0.3)
+            replay = press(ws, "ArrowRight", 3, 4, 1, animated=True)
+            self.assertEqual([(m["from"], m["to"]) for m in replay], [(2, 3)],
+                             "replaying inside a loop animated an earlier play")
+
+            press(ws, "ArrowDown", 2, 4, 0.3)
+            press(ws, "ArrowUp", 3, 4, 0.3)
+            self.assertNotRegex(
+                "\n".join(line["text"] for line in logs),
+                r"(?i)\b(?:traceback|error|exception|ledgerstale)\b",
+            )
 
 
 class CurveRedrawStreamingE2E(_ViewerHarness, unittest.TestCase):
