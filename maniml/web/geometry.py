@@ -48,6 +48,7 @@ import struct
 import numpy as np
 
 from maniml.performance import performance
+from maniml.web.fill_bounds import fill_composite_rects
 from maniml.utils.family_ops import DrawBatchHazard
 from maniml.utils.family_ops import draw_pass_content
 from maniml.utils.family_ops import padded_draw_bbox
@@ -344,10 +345,13 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
         records = _collect_records(scene, unsupported)
     with performance.stage("geometry.merge_batches"):
         records = _merge_records(records)
+    with performance.stage("geometry.fill_bounds"):
+        fill_rects = fill_composite_rects(
+            records, camera.uniforms, camera.draw_fbo.size)
     cached_batches = 0
     vertices = 0
     with performance.stage("geometry.pack_and_hash"):
-        for record in records:
+        for record, fill_rect in zip(records, fill_rects):
             data = record["data"]
             vertices += len(data)
             raw = np.ascontiguousarray(data).tobytes()
@@ -371,6 +375,8 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
                 batch["stroke_behind"] = record["stroke_behind"]
                 batch["fill_mode"] = record["fill_mode"]
                 batch["stroke_verts"] = _stroke_verts(data, frame_scale)
+                if fill_rect is not None:
+                    batch["fill_rect"] = fill_rect
             if record["textures"]:
                 batch["textures"] = record["textures"]
                 for tex_hash in record["textures"].values():

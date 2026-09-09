@@ -1,5 +1,20 @@
 # Performance dogfood
 
+## Vector fill regions
+
+`python -m benchmarks.vector_fill --samples 8` compares the B0 raster
+wordmark's full-frame and bounded winding-fill paths on the same geometry,
+plus a large single-batch control. Requires `wgpu` and GPU access, and runs
+from a checkout to reuse the regression fixture. It checks rendered pixels,
+warms pipelines and buffers, and alternates variants. Submission-through-
+completion timings include a one-pixel readback; Python command encoding is
+reported separately. They are not full viewer frame times or GPU timestamps.
+
+On Apple M3 at 2160x1080, the original 135-batch wordmark measured 48.2 ms
+with full-frame fills and 23.4 ms with bounded targets (2.06x), with identical
+pixels. A large single batch remained about 1.4–1.5 ms. Per-batch command
+encoding remains a separate cost; these changes preserve the batch count.
+
 `live_profile.py` drives the same `--web` process and WebSocket route as the
 viewer. It records bounded engine-stage timings through `MANIML_PERF_PATH` and
 a companion summary of socket arrival cadence and bytes.

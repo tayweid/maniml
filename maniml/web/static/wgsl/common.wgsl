@@ -22,6 +22,7 @@ struct Uniforms {
     border_mode: f32,
     _pad0: f32,
     _pad1: f32,
+    clip_transform: vec4f,
 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -42,6 +43,11 @@ fn emit_gl_position(point: vec3f) -> vec4f {
     // projection's depth semantics (ordering AND near/far clipping)
     // carry over exactly.
     result.z = (result.z + result.w) * 0.5;
+    // A bounded winding target uses the same pixel grid as the full
+    // frame. Remap after projection so depth, lighting, and stroke widths
+    // retain their original scene-space meanings.
+    result = vec4f(result.xy * u.clip_transform.xy
+                   + u.clip_transform.zw * result.w, result.zw);
     return result;
 }
 

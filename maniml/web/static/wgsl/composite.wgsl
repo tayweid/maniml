@@ -2,6 +2,7 @@
 
 @group(0) @binding(0) var fill_texture: texture_2d<f32>;
 @group(0) @binding(1) var fill_sampler: sampler;
+@group(0) @binding(2) var<uniform> uv_scale: vec2f;
 
 struct QuadOut {
     @builtin(position) position: vec4f,
@@ -15,7 +16,7 @@ fn vs_main(@location(0) texcoord: vec2f) -> QuadOut {
     // top-down, so flip v to keep the fill texture upright
     out.position = vec4f(2.0 * texcoord.x - 1.0, 2.0 * texcoord.y - 1.0,
                          0.0, 1.0);
-    out.uv = vec2f(texcoord.x, 1.0 - texcoord.y);
+    out.uv = vec2f(texcoord.x, 1.0 - texcoord.y) * uv_scale;
     return out;
 }
 

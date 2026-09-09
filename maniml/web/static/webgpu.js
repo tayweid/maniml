@@ -8,7 +8,7 @@
 const ManimlWGPU = (() => {
   const VERTEX_STRIDE = 68;
   const INSTANCE_STRIDE = 3 * VERTEX_STRIDE;
-  const UNIFORM_FLOATS = 44;  // must match UNIFORM_FIELDS / struct Uniforms
+  const UNIFORM_FLOATS = 48;  // must match UNIFORM_FIELDS / struct Uniforms
   const DEPTH_FORMAT = "depth24plus";
 
   // Field order mirrors wgpu_renderer.UNIFORM_FIELDS
@@ -23,6 +23,7 @@ const ManimlWGPU = (() => {
     ["scale_stroke_with_zoom", 1, 1], ["glow_factor", 1, 0],
     ["num_textures", 1, 0], ["border_mode", 1, 0],
     ["_pad0", 1, 0], ["_pad1", 1, 0],
+    ["clip_transform", 4, [1, 1, 0, 0]],
   ];
 
   const attr = (format, offset, shaderLocation) =>
@@ -141,9 +142,11 @@ const ManimlWGPU = (() => {
   let canvas = null, context = null, device = null, canvasFormat = null;
   let modules = {}, pipelines = new Map(), blitPipeline = null;
   let quadBuffer, sampler;
-  let outTexture, resolveTexture, depthTexture, fillTexture;
-  let outView, resolveView, depthView, fillView;
+  let outTexture, resolveTexture, depthTexture;
+  let outView, resolveView, depthView;
   let targetKey = null;
+  const fillTargets = new Map();
+  let usedFillTargets = new Set();
   const textureCache = new Map();
   const batchCache = new Map();
   const CACHE_MAX = 512;
@@ -236,9 +239,11 @@ const ManimlWGPU = (() => {
     targetKey = key;
     canvas.width = width;
     canvas.height = height;
-    for (const t of [outTexture, resolveTexture, depthTexture, fillTexture]) {
+    for (const t of [outTexture, resolveTexture, depthTexture]) {
       if (t) t.destroy();
     }
+    for (const target of fillTargets.values()) target.texture.destroy();
+    fillTargets.clear();
     const attach = GPUTextureUsage.RENDER_ATTACHMENT;
     resolveTexture = null; resolveView = null;
     if (samples > 1) {
@@ -259,10 +264,37 @@ const ManimlWGPU = (() => {
       size: [width, height], format: DEPTH_FORMAT, sampleCount: samples,
       usage: attach });
     depthView = depthTexture.createView();
-    fillTexture = device.createTexture({
-      size: [2 * width, 2 * height], format: "rgba16float",
-      usage: attach | GPUTextureUsage.TEXTURE_BINDING });
-    fillView = fillTexture.createView();
+  }
+
+  function fillRect(batch, width, height) {
+    const rect = batch.fill_rect;
+    if (!Array.isArray(rect) || rect.length !== 4
+        || !rect.every(Number.isSafeInteger)) return [0, 0, width, height];
+    const [x, y, w, h] = rect;
+    if (x < 0 || y < 0 || w < 0 || h < 0
+        || x + w > width || y + h > height) return [0, 0, width, height];
+    return w === 0 || h === 0 ? null : rect;
+  }
+
+  function fillTarget(width, height, outputWidth, outputHeight) {
+    // Keep the original 2x sampling grid, while sharing small scratch
+    // allocations among batches whose bounds fit the same bucket.
+    const bucketWidth = Math.min(2 * outputWidth,
+      2 ** Math.ceil(Math.log2(width)));
+    const bucketHeight = Math.min(2 * outputHeight,
+      2 ** Math.ceil(Math.log2(height)));
+    const key = bucketWidth + "x" + bucketHeight;
+    usedFillTargets.add(key);
+    let target = fillTargets.get(key);
+    if (!target) {
+      const texture = device.createTexture({
+        size: [bucketWidth, bucketHeight], format: "rgba16float",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      target = { texture, view: texture.createView(),
+                 width: bucketWidth, height: bucketHeight };
+      fillTargets.set(key, target);
+    }
+    return target;
   }
 
   function outPass(encoder, clearColor) {
@@ -364,6 +396,7 @@ const ManimlWGPU = (() => {
       textureCache.set(texHash, texture);
     }
 
+    usedFillTargets = new Set();
     const encoder = device.createCommandEncoder();
     outPass(encoder, header.background).end();
 
@@ -393,6 +426,14 @@ const ManimlWGPU = (() => {
     blitPass.end();
 
     device.queue.submit([encoder.finish()]);
+    // Never destroy a target while this frame's unsubmitted commands
+    // may still refer to it. Retain only buckets used by the new frame.
+    for (const [key, target] of fillTargets) {
+      if (!usedFillTargets.has(key)) {
+        target.texture.destroy();
+        fillTargets.delete(key);
+      }
+    }
     for (const b of frameBuffers) b.destroy();
     frameBuffers = [];
     if (cacheMissed && ManimlWGPU.onCacheMiss) ManimlWGPU.onCacheMiss();
@@ -461,30 +502,47 @@ const ManimlWGPU = (() => {
     const buffer = res.buffers[0];
 
     const drawWindingFill = () => {
+      const [width, height] = header.resolution;
+      const rect = fillRect(batch, width, height);
+      if (rect === null) return;
+      const [x, y, w, h] = rect;
+      const target = fillTarget(2 * w, 2 * h, width, height);
+      const fillUniforms = { ...uniforms, clip_transform: [
+        width / w, height / h,
+        (width - 2 * x - w) / w, (2 * y + h - height) / h,
+      ] };
       const fillPipeline = getPipeline("fill", 1);
       const borderPipeline = getPipeline("border", 1);
       const fillPass = encoder.beginRenderPass({ colorAttachments: [{
-        view: fillView, loadOp: "clear", storeOp: "store",
+        view: target.view, loadOp: "clear", storeOp: "store",
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
       }] });
+      fillPass.setViewport(0, 0, 2 * w, 2 * h, 0, 1);
       fillPass.setPipeline(fillPipeline);
-      fillPass.setBindGroup(0, uniformBindGroup(fillPipeline, uniforms));
+      fillPass.setBindGroup(0, uniformBindGroup(fillPipeline, fillUniforms));
       fillPass.setVertexBuffer(0, buffer);
       fillPass.draw(6, instances);
       fillPass.setPipeline(borderPipeline);
-      fillPass.setBindGroup(0, uniformBindGroup(borderPipeline, uniforms, 1));
+      fillPass.setBindGroup(0, uniformBindGroup(borderPipeline, fillUniforms, 1));
       fillPass.setVertexBuffer(0, buffer);
       fillPass.draw(strokeVerts, instances);
       fillPass.end();
 
       const compositePipeline = getPipeline("composite", samples);
+      const uvScale = makeBuffer(new Float32Array([
+        2 * w / target.width, 2 * h / target.height, 0, 0,
+      ]).buffer, GPUBufferUsage.UNIFORM);
+      frameBuffers.push(uvScale);
       const pass = outPass(encoder);
+      pass.setViewport(x, y, w, h, 0, 1);
+      pass.setScissorRect(x, y, w, h);
       pass.setPipeline(compositePipeline);
       pass.setBindGroup(0, device.createBindGroup({
         layout: compositePipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: fillView },
+          { binding: 0, resource: target.view },
           { binding: 1, resource: sampler },
+          { binding: 2, resource: { buffer: uvScale } },
         ],
       }));
       pass.setVertexBuffer(0, quadBuffer);

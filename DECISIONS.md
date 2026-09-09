@@ -865,3 +865,25 @@ normal simulation timesteps: animation skipping would change updater and
 random-number behavior. A checkpoint boundary stops execution even inside
 a loop; replay errors restore the starting checkpoint and clear the
 temporary playback flags.
+
+## 2026-09-09: Bound winding-fill work to its screen footprint
+
+B0's 211 touching raster squares become 135 batches to preserve fill/stroke
+ordering. Processing full-frame winding textures for every batch measured
+about 48 ms per frame on M3. Preserve those batches and their appearance;
+send conservative screen rectangles and render their fills into pooled small
+textures, then composite only the occupied region. Camera-only changes update
+rectangles even when geometry is cached. Uncertain bounds retain full-frame
+rendering; offscreen/transparent fills skip their fill passes.
+
+Projection runs on batches of NumPy arrays without persistent caches or scene
+API changes. Shader clipping preserves the original 2x sample grid, lighting,
+and stroke sizing. Textures are reused and unused buckets released only after
+submission/completion. Browser commands and the native mirror share the same
+192-byte uniform layout and WGSL.
+
+The original wordmark is pixel-identical and measures 48.2→23.4 ms (2.06x)
+for submission through completion. This is an isolated renderer measurement,
+not full viewer timing; command preparation and remaining per-batch overhead
+are still material. Large single-batch output remains about 1.4–1.5 ms.
+The plan and experiment history are in `docs_bounded_fill_plan.md`.

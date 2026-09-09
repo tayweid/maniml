@@ -12,7 +12,7 @@ images, surfaces, textured surfaces, clip planes.
 WebGPU-vs-GL differences handled here rather than in shaders:
 - blend and depth state are baked per pipeline (a lazy cache keyed on
   (name, sample_count) instead of dynamic GL state);
-- uniforms travel in one packed 176-byte buffer (see UNIFORM_FIELDS,
+- uniforms travel in one packed 192-byte buffer (see UNIFORM_FIELDS,
   which must match struct Uniforms in wgsl/common.wgsl);
 - MSAA is a multisampled color target resolved into a plain texture,
   declared per pipeline;
@@ -49,8 +49,9 @@ UNIFORM_FIELDS = [
     ("scale_stroke_with_zoom", 1, 1.0), ("glow_factor", 1, 0.0),
     ("num_textures", 1, 0.0), ("border_mode", 1, 0.0),
     ("_pad0", 1, 0.0), ("_pad1", 1, 0.0),
+    ("clip_transform", 4, (1.0, 1.0, 0.0, 0.0)),
 ]
-UNIFORM_BYTES = sum(n for _, n, _ in UNIFORM_FIELDS) * 4  # 176
+UNIFORM_BYTES = sum(n for _, n, _ in UNIFORM_FIELDS) * 4  # 192
 
 
 def pack_uniforms(values: dict, border_mode: float = 0.0) -> bytes:
@@ -225,6 +226,8 @@ class WgpuRenderer:
         # batch marked "cached" whose hash is absent is a protocol
         # error here (the browser driver requests a reset instead).
         self.batch_cache: dict[str, dict] = {}
+        self._fill_targets = {}
+        self._fill_targets_used = set()
         self._size = None
 
     def _resources(self, batch, builder):
@@ -270,6 +273,10 @@ class WgpuRenderer:
     def _ensure_targets(self, size, samples):
         if self._size == (size, samples):
             return
+        for target in self._fill_targets.values():
+            target["texture"].destroy()
+        self._fill_targets.clear()
+        self._fill_targets_used.clear()
         self._size = (size, samples)
         device = self.device
         usage = wgpu.TextureUsage.RENDER_ATTACHMENT
@@ -291,10 +298,36 @@ class WgpuRenderer:
             size=(*size, 1), format=DEPTH_FORMAT, sample_count=samples,
             usage=wgpu.TextureUsage.RENDER_ATTACHMENT)
         self.depth_view = self.depth_texture.create_view()
-        self.fill_texture = device.create_texture(
-            size=(2 * size[0], 2 * size[1], 1), format="rgba16float",
-            usage=usage | wgpu.TextureUsage.TEXTURE_BINDING)
-        self.fill_view = self.fill_texture.create_view()
+
+    def _fill_target(self, width, height):
+        """Reuse a small winding target; keep its pixels on the 2x grid."""
+        frame_size = self._size[0]
+        bucket = tuple(min(2 * limit, 1 << (2 * extent - 1).bit_length())
+                       for extent, limit in zip((width, height), frame_size))
+        self._fill_targets_used.add(bucket)
+        target = self._fill_targets.get(bucket)
+        if target is None:
+            texture = self.device.create_texture(
+                size=(*bucket, 1), format="rgba16float",
+                usage=wgpu.TextureUsage.RENDER_ATTACHMENT
+                | wgpu.TextureUsage.TEXTURE_BINDING)
+            target = {"texture": texture, "view": texture.create_view(),
+                      "size": bucket}
+            self._fill_targets[bucket] = target
+        return target
+
+    @staticmethod
+    def _fill_rectangle(header, batch):
+        """Optional metadata: older/invalid payloads retain full-frame drawing."""
+        width, height = header["resolution"]
+        rect = batch.get("fill_rect")
+        if (isinstance(rect, (list, tuple)) and len(rect) == 4
+                and all(isinstance(v, int) and not isinstance(v, bool) for v in rect)):
+            x, y, w, h = rect
+            if (0 <= x <= width and 0 <= y <= height
+                    and 0 <= w <= width - x and 0 <= h <= height - y):
+                return rect
+        return (0, 0, width, height)
 
     def _out_pass(self, encoder, clear_color=None):
         color = {
@@ -347,6 +380,7 @@ class WgpuRenderer:
         size = tuple(header["resolution"])
         samples = 4 if header.get("samples") else 1
         self._ensure_targets(size, samples)
+        self._fill_targets_used.clear()
         device = self.device
 
         for tex_hash, ref in header.get("texture_data", {}).items():
@@ -384,6 +418,10 @@ class WgpuRenderer:
             {"offset": 0, "bytes_per_row": size[0] * 4,
              "rows_per_image": size[1]},
             (*size, 1))
+        # The readback has completed all commands that could reference these.
+        for key in list(self._fill_targets):
+            if key not in self._fill_targets_used:
+                self._fill_targets.pop(key)["texture"].destroy()
         # WebGPU framebuffer rows are top-down already — no flip
         return Image.frombytes("RGBA", size, bytes(raw))
 
@@ -445,21 +483,32 @@ class WgpuRenderer:
         buffer = resources["buffer"]
 
         def draw_winding_fill():
-            # Pass A: accumulate winding fill + border into fill_texture
+            x, y, width, height = self._fill_rectangle(header, batch)
+            if width == 0 or height == 0:
+                return  # Empty/offscreen fill; ordinary strokes still draw.
+            target = self._fill_target(width, height)
+            frame_width, frame_height = header["resolution"]
+            fill_uniforms = {**uniforms, "clip_transform": (
+                frame_width / width, frame_height / height,
+                (frame_width - 2 * x - width) / width,
+                (2 * y + height - frame_height) / height,
+            )}
+            # Pass A: preserve the existing 2x sample grid in a small target.
             fill_pipeline = self._pipeline("fill", 1)
             border_pipeline = self._pipeline("border", 1)
             fill_pass = encoder.begin_render_pass(color_attachments=[{
-                "view": self.fill_view, "load_op": "clear",
+                "view": target["view"], "load_op": "clear",
                 "store_op": "store", "clear_value": (0.0, 0.0, 0.0, 0.0),
             }])
+            fill_pass.set_viewport(0, 0, 2 * width, 2 * height, 0, 1)
             fill_pass.set_pipeline(fill_pipeline)
             fill_pass.set_bind_group(
-                0, self._uniform_bind_group(fill_pipeline, uniforms))
+                0, self._uniform_bind_group(fill_pipeline, fill_uniforms))
             fill_pass.set_vertex_buffer(0, buffer)
             fill_pass.draw(6, instances)
             fill_pass.set_pipeline(border_pipeline)
             fill_pass.set_bind_group(
-                0, self._uniform_bind_group(border_pipeline, uniforms,
+                0, self._uniform_bind_group(border_pipeline, fill_uniforms,
                                             border_mode=1.0))
             fill_pass.set_vertex_buffer(0, buffer)
             fill_pass.draw(stroke_verts, instances)
@@ -467,12 +516,20 @@ class WgpuRenderer:
             # Pass B: composite onto the scene target
             composite_pipeline = self._pipeline("composite", samples)
             out_pass = self._out_pass(encoder)
+            out_pass.set_viewport(x, y, width, height, 0, 1)
+            out_pass.set_scissor_rect(x, y, width, height)
             out_pass.set_pipeline(composite_pipeline)
+            uv_scale = device.create_buffer_with_data(
+                data=np.array([2 * width / target["size"][0],
+                               2 * height / target["size"][1], 0, 0],
+                              dtype=np.float32).tobytes(),
+                usage=wgpu.BufferUsage.UNIFORM)
             out_pass.set_bind_group(0, self.device.create_bind_group(
                 layout=composite_pipeline.get_bind_group_layout(0),
                 entries=[
-                    {"binding": 0, "resource": self.fill_view},
+                    {"binding": 0, "resource": target["view"]},
                     {"binding": 1, "resource": self.sampler},
+                    {"binding": 2, "resource": {"buffer": uv_scale}},
                 ]))
             out_pass.set_vertex_buffer(0, self.quad_buffer)
             out_pass.draw(4)

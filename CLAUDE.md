@@ -178,6 +178,15 @@ bundle (`--export-present`) is ordinary video and needs no browser GPU.
 export's `scene.json`; the player checks the metadata before loading frames
 and tells an incompatible folder to re-export instead of rendering garbage.
 
+Winding fills carry optional `fill_rect` screen bounds, calculated together
+by `web/fill_bounds.py` from shader geometry and current camera uniforms.
+Both WebGPU drivers use pooled small scratch textures and composite within
+that rectangle, preserving the 2x pixel grid and batch ordering. Unsupported
+bounds and old payloads use the full frame; empty rectangles skip fill work
+while keeping strokes. Bounds refresh even when vertex data is cached.
+Coverage lives in `tests/test_fill_bounds.py` and the Node-backed
+`tests/test_webgpu_commands.py`; `benchmarks/vector_fill.py` measures the gain.
+
 ## Delivery: one artifact, local only
 
 The interface is served by the engine that runs the scenes. `maniml app` (and
