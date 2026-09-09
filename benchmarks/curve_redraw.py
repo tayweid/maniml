@@ -1,4 +1,4 @@
-"""Compare bulk corner construction with the previous scalar append loop.
+"""Compare original redraw, bulk corners, and batched coordinate conversion.
 
 Runs mobject updates only: no scene, renderer, browser, or output files.
 Run from the repository with ``python -m benchmarks.curve_redraw``.
@@ -31,29 +31,54 @@ def legacy_append(mobject, points):
     return mobject
 
 
-def compare(operation, samples):
-    timings = {"scalar": [], "bulk": []}
+def scalar_graph_samples(axes, function, ts):
+    return np.array([axes.c2p(t, function(t)) for t in ts])
+
+
+def compare(operation, samples, *, graph=False):
     bulk_corners = VMobject.add_points_as_corners
     bulk_append = Mobject.append_points
-    methods = {"scalar": scalar_corners, "bulk": bulk_corners}
-    append_methods = {"scalar": legacy_append, "bulk": bulk_append}
-    # Warm both paths, then alternate their order to reduce timing bias.
+    batch_samples = Axes._get_graph_sample_points
+    stages = {
+        "original": (scalar_corners, legacy_append, scalar_graph_samples),
+        "bulk_corners": (bulk_corners, bulk_append, scalar_graph_samples),
+    }
+    if graph:
+        stages["batch_coordinates"] = (bulk_corners, bulk_append, batch_samples)
+    names = tuple(stages)
+    timings = {name: [] for name in names}
+    # Warm every path. Rotate and reverse the order across measured rounds
+    # so none of the three stages consistently runs first, middle, or last.
     for iteration in range(samples + 1):
-        order = ("scalar", "bulk") if iteration % 2 == 0 else ("bulk", "scalar")
+        offset = iteration % len(names)
+        order = names[offset:] + names[:offset]
+        if len(names) > 2 and iteration % 2:
+            order = order[::-1]
         for name in order:
-            with (patch.object(VMobject, "add_points_as_corners", methods[name]),
-                  patch.object(Mobject, "append_points", append_methods[name])):
+            corners, append, sample_points = stages[name]
+            with (patch.object(VMobject, "add_points_as_corners", corners),
+                  patch.object(Mobject, "append_points", append),
+                  patch.object(Axes, "_get_graph_sample_points", sample_points)):
                 start = perf_counter()
                 operation()
                 elapsed = (perf_counter() - start) * 1000
             if iteration:
                 timings[name].append(elapsed)
-    scalar_ms, bulk_ms = (median(timings[name]) for name in ("scalar", "bulk"))
-    return {
-        "scalar_median_ms": round(scalar_ms, 3),
-        "bulk_median_ms": round(bulk_ms, 3),
-        "speedup": round(scalar_ms / bulk_ms, 2),
-    }
+    medians = {name: median(values) for name, values in timings.items()}
+    results = {f"{name}_median_ms": round(value, 3) for name, value in medians.items()}
+    results["bulk_corners_speedup_vs_original"] = round(
+        medians["original"] / medians["bulk_corners"], 2,
+    )
+    if graph:
+        results.update({
+            "batch_coordinates_speedup_vs_bulk_corners": round(
+                medians["bulk_corners"] / medians["batch_coordinates"], 2,
+            ),
+            "batch_coordinates_speedup_vs_original": round(
+                medians["original"] / medians["batch_coordinates"], 2,
+            ),
+        })
+    return results
 
 
 def main():
@@ -88,7 +113,9 @@ def main():
     results = {"samples": args.samples, "corners_1001": compare(corners, args.samples)}
     for value in (1.0, 1.5):
         alpha.set_value(value)
-        results[f"redraw_alpha_{value}"] = compare(lambda: group.update(1 / 30), args.samples)
+        results[f"redraw_alpha_{value}"] = compare(
+            lambda: group.update(1 / 30), args.samples, graph=True,
+        )
     print(json.dumps(results, indent=2))
 
 

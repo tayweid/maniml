@@ -827,3 +827,24 @@ Explicitly not done, on purpose: copy-on-write on the live objects
 (the instruction-stream architecture makes checkpoints free by
 construction), and reuse on thaw for backward navigation (the same
 trick reversed; queued in the plan as Phase 2b's remainder).
+
+## Curve redraw batches array work (2026-09-09)
+
+The dogfood PPF's two-curve `always_redraw` updater spent its time
+constructing curves and converting coordinates. Bulk corner construction
+and direct point-array growth brought CPU redraw from about 47 ms to
+20 ms. Batching coordinate conversion brings it to about 5 ms. These are
+local medians from `python -m benchmarks.curve_redraw --samples 20`, which
+compares all three implementations; they exclude transport and rendering.
+
+`Axes.plot` / `get_graph` still call the equation once per scalar sample,
+in the same order. Each sample records the current axis endpoints and
+ranges, then NumPy converts the samples together before the existing
+corner construction and smoothing. Those local snapshots preserve even
+callbacks that directly edit the axes' point arrays. Custom mappings and
+numeric types that need their original precision use scalar conversion.
+
+This is an internal sampling optimization, with no scene-code changes or
+persistent transform cache. `always_redraw` and `become` keep their existing
+behavior. Vectorizing the user's equation is a separate capability; it is
+not required for the engine to batch its own coordinate arithmetic.

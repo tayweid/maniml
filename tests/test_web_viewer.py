@@ -625,6 +625,74 @@ class GeometryStreamingE2E(_ViewerHarness, unittest.TestCase):
                             "state must still flow without a renderer")
 
 
+class CurveRedrawStreamingE2E(_ViewerHarness, unittest.TestCase):
+    """Dense, scalar-callback plots redraw through the live scene protocol."""
+
+    SOURCE = """
+from manim import *
+
+class CurveRedrawDemo(Scene):
+    def construct(self):
+        axes = Axes(
+            x_range=(0, 100, 100), y_range=(0, 100, 100),
+            width=7, height=7,
+        ).scale(0.7)
+        alpha = ValueTracker(1)
+
+        def bowed(x):
+            a = alpha.get_value()
+            return (100**a - x**a)**(1 / a)
+
+        curves = always_redraw(lambda: VGroup(
+            axes.plot(lambda x: 100 - x, x_range=(0, 100)),
+            axes.plot(bowed, x_range=(0, 100, 0.1)),
+        ))
+        self.add(axes, curves)
+        self.play(alpha.animate.set_value(1.5), run_time=0.5)
+        self.play(alpha.animate.set_value(1.2), run_time=0.5)
+"""
+    SCENE = "CurveRedrawDemo"
+    FILENAME = "curve_redraw_scene.py"
+
+    def test_two_redraw_animations_stream_and_save_checkpoints(self):
+        from maniml.web.geometry import parse_geometry_message
+
+        with self._connect() as ws:
+            logs = []
+            _, messages = self._collect(ws, 0.5, logs=logs)
+            initial = [m for m in messages if m.get("type") == "state"]
+            self.assertTrue(initial, "no initial checkpoint state")
+            self.assertEqual(initial[-1]["current"], 0)
+
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            for checkpoint in (1, 2):
+                ws.send(json.dumps(
+                    {"type": "key", "action": "down", "key": "ArrowRight"}))
+                ws.send(json.dumps(
+                    {"type": "key", "action": "up", "key": "ArrowRight"}))
+                frames, messages = self._collect(ws, 2, logs=logs)
+                geometry = [frame for frame in frames if frame[0] == 0x03]
+                self.assertGreater(
+                    len(geometry), 3,
+                    f"redraw animation {checkpoint} did not stream geometry")
+                self.assertEqual(len(frames), len(geometry))
+                headers = [parse_geometry_message(frame)[0] for frame in geometry]
+                self.assertTrue(any(
+                    sum(batch["num_verts"] for batch in header["batches"]) >= 2000
+                    for header in headers
+                ), "streamed frames did not contain the densely sampled curves")
+                self.assertTrue(all(not header["unsupported"] for header in headers))
+                landed = [m for m in messages if m.get("type") == "state"]
+                self.assertTrue(landed, "redraw animation did not publish its checkpoint")
+                self.assertEqual(landed[-1]["current"], checkpoint)
+                self.assertEqual(landed[-1]["count"], checkpoint + 1)
+            self.assertEqual(landed[-1]["future"], [])
+            self.assertNotRegex(
+                "\n".join(line["text"] for line in logs),
+                r"(?i)\b(?:traceback|error|exception|ledgerstale)\b",
+            )
+
+
 class UnsupportedGeometryE2E(_ViewerHarness, unittest.TestCase):
     """Unsupported custom drawables are declared in the payload header and
     left out of the picture; there is no server-side frame to fall back to,

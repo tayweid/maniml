@@ -210,6 +210,7 @@ class CoordinateSystem(ABC):
         graph = ParametricCurve(
             parametric_function,
             t_range=tuple(t_range),
+            _sample_points=lambda ts: self._get_graph_sample_points(function, ts),
             **kwargs
         )
         graph.underlying_function = function
@@ -219,6 +220,9 @@ class CoordinateSystem(ABC):
             self.bind_graph_to_func(graph, function)
 
         return graph
+
+    def _get_graph_sample_points(self, function, ts):
+        return np.array([self.c2p(t, function(t)) for t in ts])
 
     def plot(
         self,
@@ -570,6 +574,85 @@ class Axes(VGroup, CoordinateSystem):
             axis.number_to_point(coord) - origin
             for axis, coord in zip(self.get_axes(), coords)
         )
+
+    def _get_graph_sample_points(self, function, ts):
+        # Keep scalar callbacks in order, but do the coordinate arithmetic
+        # on arrays. Capture endpoints/ranges AFTER each callback: a callback
+        # may move the axes, even by writing directly into their point arrays.
+        # These small local snapshots need no persistent transform cache.
+        if "raise" in np.geterr().values():
+            # Numeric exceptions must stop before the next callback runs.
+            return super()._get_graph_sample_points(function, ts)
+        states = np.empty((len(ts), 2, 8))
+        coords = np.empty((len(ts), 2))
+        points = []
+        batched = []
+        scalar_types = (float, int, np.float64)
+        point_types = (np.dtype("float32"), np.dtype("float64"))
+        for i, t in enumerate(ts):
+            # Match Python's evaluation order in self.c2p(t, function(t)).
+            mapper = self.c2p
+            y = function(t)
+            axes = getattr(self, "axes", None)
+            standard = (
+                getattr(mapper, "__func__", None) is CoordinateSystem.c2p
+                and getattr(self.coords_to_point, "__func__", None) is Axes.coords_to_point
+                and getattr(self.get_axes, "__func__", None) in (Axes.get_axes, NumberPlane.get_axes)
+                and self._origin_shift is Axes._origin_shift
+                and type(axes) is VGroup and len(axes.submobjects) == 2
+                and axes.submobjects[0] is self.x_axis
+                and type(y) in scalar_types
+                and (type(y) is not int or abs(y) <= 2**53)
+            )
+            if standard:
+                for j, axis in enumerate(axes.submobjects):
+                    if (getattr(axis.number_to_point, "__func__", None) is not NumberLine.number_to_point
+                            or getattr(axis.get_points, "__func__", None) is not Mobject.get_points):
+                        standard = False
+                        break
+                    lo, hi = axis.x_min, axis.x_max
+                    if (type(lo) not in scalar_types or type(hi) not in scalar_types
+                            or lo == hi
+                            or (type(lo) is int and abs(lo) > 2**53)
+                            or (type(hi) is int and abs(hi) > 2**53)):
+                        standard = False
+                        break
+                    vertices = axis.get_points()
+                    if vertices.dtype not in point_types:
+                        standard = False
+                        break
+                    states[i, j, :3] = vertices[0]
+                    states[i, j, 3:6] = vertices[-1]
+                    states[i, j, 6:] = lo, hi
+            if standard:
+                coords[i] = t, y
+                batched.append(i)
+                points.append(None)
+            else:
+                # Custom mappings and other numeric types retain their
+                # scalar dispatch and precision, without retrying callbacks.
+                points.append(mapper(t, y))
+
+        if not batched:
+            return np.array(points)
+        all_batched = len(batched) == len(ts)
+        if not all_batched:
+            states, coords = states[batched], coords[batched]
+        starts, ends = states[:, :, :3], states[:, :, 3:6]
+        lows, highs = states[:, :, 6], states[:, :, 7]
+        crossing = np.where(lows[:, 0] > 0, lows[:, 0], np.minimum(highs[:, 0], 0))
+        alpha = ((crossing - lows[:, 0]) / (highs[:, 0] - lows[:, 0]))[:, None]
+        origin = (1 - alpha) * starts[:, 0] + alpha * ends[:, 0]
+        alpha = ((coords - lows) / (highs - lows))[:, :, None]
+        mapped = (1 - alpha) * starts + alpha * ends
+        # Preserve the scalar interpolation and addition order, including
+        # the sum's initial zero, to keep the resulting geometry identical.
+        result = origin + ((0 + (mapped[:, 0] - origin)) + (mapped[:, 1] - origin))
+        if all_batched:
+            return result
+        for i, point in zip(batched, result):
+            points[i] = point
+        return np.array(points)
 
     def point_to_coords(self, point: Vect3 | Vect3Array) -> tuple[float | VectN, ...]:
         return tuple([

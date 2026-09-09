@@ -23,10 +23,20 @@ so the harness samples a bounded active window instead of waiting for idle.
 
 ## Curve construction and redraw
 
-`python -m benchmarks.curve_redraw --samples 20` compares bulk corner
-construction with the previous per-corner append loop in the same process.
-It measures both a 1,001-anchor path and the dogfood PPF's two-curve
-`always_redraw` updater at alpha 1 and 1.5. The scalar reference replaces
-`add_points_as_corners` and the old `append_points` resizing during the
-measurement; callback evaluation, smoothing, and `become` are unchanged.
-This is a CPU microbenchmark, with no scene rendering or browser frame timing.
+`python -m benchmarks.curve_redraw --samples 20` measures the dogfood PPF's
+two-curve `always_redraw` updater at alpha 1 and 1.5 across three stages:
+
+- `original`: per-corner appends, the old array resizing, and scalar coordinate
+  conversion.
+- `bulk_corners`: the bulk construction improvement, with scalar coordinate
+  conversion (the behavior at `fcf7dc4f`).
+- `batch_coordinates`: bulk construction and the current coordinate batching.
+
+The earlier stages are reconstructed with independent implementations of the
+old methods, patched in the same process. Every stage calls the real updater;
+scalar equation evaluation, smoothing, and `become` remain part of the timing.
+A separate 1,001-anchor path compares just the first two construction stages.
+Each stage gets a warmup before 20 measured calls by default, with the order
+rotated and reversed across rounds. JSON output reports median milliseconds
+and the speedups between stages. This is a CPU microbenchmark, with no scene
+rendering or browser frame timing.

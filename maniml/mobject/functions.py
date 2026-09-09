@@ -23,6 +23,7 @@ class ParametricCurve(VMobject):
         # TODO, automatically figure out discontinuities
         discontinuities: Sequence[float] = [],
         use_smoothing: bool = True,
+        _sample_points: Callable[[Sequence[float]], np.ndarray] | None = None,
         **kwargs
     ):
         self.t_func = t_func
@@ -30,6 +31,9 @@ class ParametricCurve(VMobject):
         self.epsilon = epsilon
         self.discontinuities = discontinuities
         self.use_smoothing = use_smoothing
+        # Plotting can batch its coordinate conversion while t_func keeps
+        # the ordinary scalar interface used by point lookups.
+        self._sampling = (t_func, _sample_points)
         super().__init__(**kwargs)
 
     def get_point_from_function(self, t: float) -> Vect3:
@@ -44,7 +48,11 @@ class ParametricCurve(VMobject):
         boundary_times.sort()
         for t1, t2 in zip(boundary_times[0::2], boundary_times[1::2]):
             t_range = [*np.arange(t1, t2, step), t2]
-            points = np.array([self.t_func(t) for t in t_range])
+            scalar_func, sample_points = self._sampling
+            if sample_points is not None and self.t_func is scalar_func:
+                points = sample_points(t_range)
+            else:
+                points = np.array([self.t_func(t) for t in t_range])
             self.start_new_path(points[0])
             self.add_points_as_corners(points[1:])
         if self.use_smoothing:
