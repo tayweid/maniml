@@ -363,8 +363,20 @@ class Mobject(object):
 
     @affects_data
     def append_points(self, new_points: Vect3Array) -> Self:
+        def grow_array(array: np.ndarray, length: int) -> np.ndarray:
+            if len(array) == length:
+                return array
+            # Fill new rows with the last style directly. np.resize would
+            # first tile the old rows, repeatedly promoting their structured
+            # dtype when growing from a single point, only to overwrite them.
+            result = np.empty(length, dtype=array.dtype)
+            result[:len(array)] = array
+            if len(array):
+                result[len(array):] = array[-1]
+            return result
+
         n = self.get_num_points()
-        self.resize_points(n + len(new_points))
+        self.resize_points(n + len(new_points), resize_func=grow_array)
         # Have most data default to the last value
         self.data[n:] = self.data[n - 1]
         # Then read in new points

@@ -638,6 +638,30 @@ class VMobject(Mobject):
         return self
 
     def add_points_as_corners(self, points: Iterable[Vect3]) -> Self:
+        # Materialized points can be appended together. Growing the structured
+        # data array once per corner otherwise copies O(n**2) rows. Preserve
+        # sequential evaluation for generators and custom line/append methods.
+        if (isinstance(points, (np.ndarray, list, tuple))
+                and getattr(self.add_line_to, "__func__", None) is VMobject.add_line_to
+                and getattr(self.append_points, "__func__", None) is VMobject.append_points
+                and len(points)):
+            ends = np.asarray(points)
+            if ends.ndim == 2 and ends.shape[1] == 3 and ends.dtype.kind in "fiu":
+                self.throw_error_if_no_points()
+                # Each scalar add_line_to starts from the previous endpoint
+                # AFTER storage rounded it, but interpolates toward the next
+                # endpoint at its original precision.
+                starts = np.empty(ends.shape, dtype=self.get_points().dtype)
+                starts[0] = self.get_last_point()
+                starts[1:] = ends[:-1]
+                if np.isfinite(starts).all() and np.isfinite(ends).all():
+                    alphas = np.linspace(0, 1, 5 if self.long_lines else 3)[1:]
+                    new_points = (
+                        (1 - alphas)[None, :, None] * starts[:, None, :]
+                        + alphas[None, :, None] * ends[:, None, :]
+                    )
+                    return self.append_points(new_points.reshape(-1, 3))
+
         for point in points:
             self.add_line_to(point)
         return self
