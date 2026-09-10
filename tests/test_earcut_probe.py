@@ -9,7 +9,7 @@ from benchmarks.earcut_probe import (
     evaluate_case, flatten_contours, mesh_coverage, probe_cases,
     source_oracle, tessellate_existing_earcut, tessellate_single_ring_earcut,
 )
-from maniml.web.triangle_geometry import LyonFillTessellator
+from maniml.web.triangle_geometry import LyonFillTessellator, _packaged_library
 
 
 def _case(name):
@@ -77,7 +77,8 @@ class EarcutProbeGeometry(unittest.TestCase):
             flatten_contours([np.zeros((4, 2))], .01)
 
 
-@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY"), "optional Lyon helper not built")
+@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(),
+                     "Lyon helper is neither packaged nor explicitly built")
 class EarcutVersusLyon(unittest.TestCase):
     def test_required_crossing_morphs_fail_direct_earcut_but_pass_lyon(self):
         tess = LyonFillTessellator()

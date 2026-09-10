@@ -27,7 +27,7 @@ from maniml.constants import BLUE, GREEN, RED, WHITE, YELLOW
 from maniml.mobject.geometry import Circle, Square
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.utils.color import color_to_rgb
-from maniml.web.triangle_geometry import LyonFillTessellator
+from maniml.web.triangle_geometry import LyonFillTessellator, _packaged_library
 from maniml.web.geometry import SURFACE_DTYPE
 from tests.renderer_fixtures import (
     build_scene, closed_contours, concave_quad, get_fixture, renderer_cases,
@@ -295,7 +295,8 @@ class TriangleSceneCapabilityGate(unittest.TestCase):
         tessellator.tessellate.assert_not_called()
 
 
-@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY"), "optional Lyon helper not built")
+@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(),
+                     "Lyon helper is neither packaged nor explicitly built")
 class TriangleSceneMeshes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -402,7 +403,8 @@ class TriangleSceneMeshes(unittest.TestCase):
         np.testing.assert_array_equal(_covered(last, probes), [True, False])
 
 
-@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY"), "optional Lyon helper not built")
+@unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(),
+                     "Lyon helper is neither packaged nor explicitly built")
 class TriangleSceneMeshCache(unittest.TestCase):
     def setUp(self):
         self.tessellator = LyonFillTessellator()
