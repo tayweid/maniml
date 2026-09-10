@@ -8,12 +8,17 @@ it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 ## Phase A is shared; Original 2D remains a viewer comparison (2026-09-10)
 
 Taylor requested the shared triangle renderer as the default on main and
-explicitly allowed native GL retirement provided the original 2D renderer
-remains selectable in the viewer. The September 4 removal hold is therefore
-superseded with that condition. Keep the original browser winding renderer
-and serializer packaged; switching resends complete geometry at the current
-checkpoint. Native movies, images and new recordings use Phase A. Historical
-native GL and winding implementations remain test references, outside wheels.
+Original 2D selectable at the current viewer checkpoint. I interpreted that
+as permission to remove native GL from the package; the sixth review carries
+Taylor's clarification that native GL must remain packaged as a reference.
+The earlier claim of explicit removal authorization is withdrawn. Restore
+native GL, its wrappers/shaders and runtime dependencies, while retaining the
+Phase A default and the separate Original 2D browser option.
+
+At `67f779dc`, native GL is test-only and native movies/images/new recordings
+use Phase A. GL restoration is pending; this corrected direction does not
+claim it has happened. See the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+for the restoration scope and verified follow-up issues.
 
 Use a shared 2× spatial resolve with 4× MSAA for predictable default fill AA.
 Border triangles share per-sample stencil ownership with fills, avoiding both
@@ -26,7 +31,8 @@ CPU-owned; Phase B is a separate source-update/geometry-generation project.
 The Lyon helper is a required build artifact now that the default needs it.
 An optional extension would permit a successful install that cannot render.
 Source/editable installs need Cargo and a linker; compatible wheels need
-neither. Custom native GLSL wrappers are retired with GL. Ordinary nonplanar
+neither. Custom native GLSL wrappers were removed with GL and are included in
+the restoration direction. Ordinary nonplanar
 filled outlines still need an explicitly defined surface rather than an
 arbitrary fan. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
 contains the measured performance, quality exceptions and validation scope.
@@ -34,10 +40,11 @@ contains the measured performance, quality exceptions and validation scope.
 The default cutover accepts one measured performance regression for this
 dogfood rollout: moving-camera TeX is 15.91 ms versus 6.87 ms, while the
 original ordered-square control improves from 80.57 to 25.31 ms. This is an
-explicit revision of the proposed universal no-regression gate, justified by
-the measured ordered-output win and current shared-renderer behavior. It is
-not a universal speed claim or credit for unfinished Phase B work. Camera
-border preparation and its resubmitted geometry are the remaining text cost.
+implementation decision to permit the default dogfood rollout, not a passed
+no-regression test or closure of A2. The text performance and zero-border AA
+gates remain open. It is not a universal speed claim or credit for unfinished
+Phase B work. Camera border preparation and its resubmitted geometry are the
+remaining text cost.
 
 ## The browser is the viewer (decided 2026-08-12)
 

@@ -14,7 +14,8 @@ The browser and native movie/checkpoint output share the Phase A triangle
 WebGPU backend. Source points and fill generation remain on the CPU. The
 viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
 2026-09-10; **Phase A** is the default. Native GL survives only in test
-references, excluded from the package. See the
+references, excluded from the package. The sixth review clarifies that it
+must return to the package as a reference; that restoration is next. See the
 [cutover record](docs_unified_triangle_renderer_phase_a.md) for validation and
 explicit limits.
 
@@ -103,12 +104,20 @@ remove it without Taylor's direction. Detailed GPU source/geometry work is in
 
 ## Native GL cutover (beeline step 4)
 
-Taylor's 2026-09-10 authorization supersedes the September 4 hold, conditional
-on keeping Original 2D selectable in the viewer. Native rendering now uses
-wgpu-py and the common shader/resolve path. GL runtime dependencies and assets
-are retired from the wheel; independent historical references live in tests.
-The custom native `ShaderWrapper` export is intentionally retired with GL,
-and its CE name baseline is updated rather than replaced with a dummy symbol.
+The sixth review corrects the earlier interpretation of Taylor's direction:
+**restore native GL to the package as a runnable reference**, keep Phase A
+default, and retain Original 2D in the browser. At `67f779dc`, native rendering
+uses wgpu-py and GL exists only in tests. Restore the camera-owned GL reference,
+`ShaderWrapper`, GLSL assets and runtime dependencies, then verify the wheel
+can run GL without importing tests. Restore the public-name baseline with the
+real wrapper. Do not reverse the shared-renderer default.
+
+Follow with indexed-digest normalization, authoritative renderer negotiation,
+Original 2D GPU texture retirement, explicit fixed-frame ordering, reusable
+paint definitions and a general GPU fill-border generator. GPU border work is
+planned, not implemented. A2 text performance and zero-border AA remain open.
+The [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.
 
 ## After: the instruction stream

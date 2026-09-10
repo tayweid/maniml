@@ -91,6 +91,20 @@ curve evaluation. Preserve the source path separately from the sampled mesh.
 A nonlinear operation on sampled mesh vertices is not generally equivalent to
 applying that operation to Bézier control points and then evaluating the curve.
 
+**Bounded first candidate after the sixth review (2026-09-10): general GPU
+fill-border expansion.** This is planned, not implemented. Keep retained fill
+meshes separate from expanded curve-source buffers and perform border
+subdivision/expansion on the GPU. Initially the CPU still updates source
+points; later GPU source evaluation can feed the same generator. Zoom-only
+border changes should update uniforms without uploading replacement border
+or unchanged fill geometry. Genuine fill-quality refinements remain separate.
+Preserve operation order, opacity/paint coverage, fixed-frame/camera-facing
+behavior and depth, and measure opaque batching as well as upload reduction.
+The [sixth-round response](docs_unified_triangle_renderer_review_response.md#gpu-borders-a-reusable-first-step-within-phase-b)
+records comparison fixtures, transport measurements and the need to validate
+against the CPU emitter. Border expansion alone does not solve general fill
+topology or complete Phase B.
+
 General fills need a correct topology pipeline. The initial research candidate
 is adaptive path flattening, intersection discovery/splitting, fill-rule
 classification, decomposition into non-overlapping regions, and triangle

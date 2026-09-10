@@ -2,12 +2,15 @@
 
 Proposed architecture and implementation plan — 2026-09-09.
 
-Status: the [A1 integration checkpoint](docs_unified_triangle_renderer_a1_integration.md)
-puts generated geometry in the package and both WebGPU drivers, with an opt-in
-selector, packaged Lyon helper, uniform border unions and seekable format-2
-exports. Appearance and representative performance gates remain open; zoomed
-text narrowly fails the current image threshold. This is not Phase A
-completion. The default renderer and native GL retirement hold remain unchanged.
+Status after the sixth review, 2026-09-10: `67f779dc` makes the shared renderer
+default and keeps Original 2D selectable. A0/A1 implementation has landed;
+A2 moving-text performance and zero-border AA remain open. Native GL was moved
+to tests, but the clarified direction is to restore it to the package as a
+reference while retaining the Phase A default. See the
+[cutover record](docs_unified_triangle_renderer_phase_a.md) and
+[sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
+The earlier [A1 checkpoint](docs_unified_triangle_renderer_a1_integration.md)
+records the historical opt-in implementation, not the current default.
 
 The [A0 measurement record](docs_unified_triangle_renderer_a0_results.md) now
 contains native goldens, text/border comparisons, generator coverage, camera
@@ -16,7 +19,8 @@ B0 benefits substantially; text coverage and text-frame CPU cost remain gaps.
 The third-round code review added uniform-paint mesh reuse, bounded analytic
 numerical repairs, 4× zoom stress, and qualified timing/region reports. The
 separate Earcut call and vertical-plane projection bugs are corrected on this
-working branch. These changes do not complete A0 or select a new default.
+working branch. Those A0 measurements predate the default cutover and do not
+establish current representative performance or close A2.
 
 The initial source audit is against `2b5aeeba`. Performance numbers explicitly
 labelled as earlier experiments are not measurements of the proposed renderer.
@@ -736,13 +740,15 @@ selector. Preserve golden frames and independent geometric tests rather than
 a permanent second production renderer. CPU generation fallback, where needed
 later, still feeds the **same** triangle renderer.
 
-**2026-09-10 cutover clarification:** Taylor authorized finishing Phase A as
-the main renderer and confirmed native GL removal, conditional on retaining
-an **Original 2D** viewer option for dogfooding. This supersedes the earlier
-hold and the instruction above to remove the comparison selector. Native
-and offline output use the shared backend; the original browser winding path
-remains explicitly selectable. [The cutover record](docs_unified_triangle_renderer_phase_a.md)
-defines the delivered contract and records acceptance.
+**2026-09-10 correction after the sixth review:** Phase A remains the default
+and **Original 2D** remains a viewer option. The author's earlier claim of
+explicit native GL removal authorization is withdrawn. The clarified
+direction is to retain **packaged native GL as a runnable reference** as well.
+Restore it from the test-only state introduced in `67f779dc`; do not reverse
+the Phase A default. The eventual removal instructions above are held, and
+the comparison selector stays. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
+describes current behavior; the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+records restoration and remaining performance/quality work.
 
 ## 8. Phase B interface: GPU evaluation and generation
 

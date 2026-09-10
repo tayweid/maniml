@@ -69,8 +69,8 @@ one cheap pass. Intersections, coverage classification, connectivity, bounded
 storage, and valid draw counts still belong to Phase B.
 
 Native GL also uses the `0.95`/`1.06` adjustment, in
-[fill fragment output](maniml/rendering/shaders/quadratic_bezier/fill/frag.glsl#L32)
-and [compositing](maniml/rendering/shader_wrapper.py#L635). Its goldens therefore
+[fill fragment output](tests/gl_reference_glsl/quadratic_bezier/fill/frag.glsl#L32)
+and [compositing](tests/gl_reference_shader_wrapper.py#L635). Its goldens therefore
 record that artifact too. Direct stroke/triangulated-fill alpha `0.25` for
 styled opacity `0.5` over transparency is a separate blend-state defect.
 
@@ -109,9 +109,13 @@ small-scene timings prevent treating that pilot as general fidelity or speed
 acceptance. Text/hairline AA, full border/material behavior, representative
 animated-frame performance, packaging, and the selected route's remaining
 quality gates were still open at this checkpoint. Native GL retirement
-remained held; the September 10 authorization below supersedes that status.
+remained held. The sixth-round correction below supersedes the fifth round's
+interpretation of the removal authorization.
 
 ## Fifth-round disposition and Phase A cutover
+
+Historical cutover disposition. The sixth-round response below corrects its
+native GL authorization claim and qualifies the digest-reuse implementation.
 
 The [fifth code review](docs_unified_triangle_renderer_code_review.md) audited
 `a7eb644b`, before the cutover work. The [Phase A record](docs_unified_triangle_renderer_phase_a.md)
@@ -162,3 +166,125 @@ explicitly accepts that case for the requested default-renderer dogfood
 rollout, records its payload cost and preserves Original 2D for comparison.
 This decision rests on current shared-renderer/ordered-output benefits, not
 an assumed Phase B speedup.
+
+## Sixth-round response: retain native GL and target the measured regressions
+
+2026-09-10, checked against `67f779dc` and the review in `10e5020b`.
+This round verifies findings and records the implementation order. No renderer
+code changed during this response. GPU border generation has been discussed
+but **has not started**; it is not work already running in the background.
+
+### Native GL direction and correction to the record
+
+My earlier statement that Taylor explicitly authorized native GL retirement
+was too strong. The clarified direction carried by the sixth review is to
+keep native GL **packaged and runnable as a reference**, keep Phase A as the
+default, and retain the separate Original 2D browser option. I accept that
+direction and have corrected the plan, decision and cutover records. Native
+GL is still test-only in the current code; restoration is the first next
+implementation task, not a completed change claimed by this document.
+
+The smallest restoration can promote the existing adapted GL reference
+camera, wrapper, shader helpers and GLSL into package modules. The adapted
+camera owns its wrappers and already consumes current mobjects through
+`get_shader_data`; it does not need GPU resources put back into mobjects or
+checkpoint graphs. The wrapper differs from the previous production version
+only in imports/docstring, and all 29 GLSL assets match it byte for byte.
+Restore `ShaderWrapper` as a packaged/public symbol, runtime `moderngl` and
+`PyOpenGL`, shader package data, and wheel checks requiring those assets.
+Keep the default camera as WebGPU and expose an explicit native GL camera.
+
+Copying the old camera alone would fail because it calls removed
+`Mobject.render` and render-batch methods. Conversely, blindly restoring all
+old methods would revive an invalid `StringMobject.get_shader_wrapper_list`
+override whose signature omitted `ctx`. The camera-owned reference avoids
+both problems. Validate packaged GL without importing `tests`, its pixels
+against the frozen reference/goldens, and depth/style changes after capture.
+
+### Findings and decisions
+
+| Finding | Verified result and disposition |
+|---|---|
+| 1. Fixed-frame order | **Confirmed browser behavior change, with an important qualification.** Before the cutover, our native `Camera.capture` already partitioned fixed-frame groups last; the old browser serializer did not. Moving the partition into `Scene.assemble_render_groups` preserved our native behavior but changed both browser modes. Upstream ManimGL's add-order behavior is a third reference. A global revert would therefore change our old native behavior. Recommend preserving the original browser's stable z/add ordering for Original 2D and making Phase A's native-aligned overlay policy explicit in its own preparation path. Test mixed fixed/world groups with conflicting z values, ties, clipping and depth. |
+| 2. Text zoom and transport | **Accepted; performance gate remains open.** Static squares and zooming text are different workloads. Pan can reuse border data; zoom changes border subdivision and can resend roughly 1.2 MB of combined geometry. For the default zoom-with-scaling style, world border width need not change. The archived fill-regeneration count is initial fill creation, not rebuilding every letter's fill on every zoom step. Separate fill and border resources and generate borders on the GPU to target this cost. Measure transport as well as preparation and complete-frame time. |
+| 3. Indexed digest reuse | **Reproduced, but not every indexed fill is affected.** Nine unchanged, uncoalesced Lyon fills made nine full-byte hashes on both frames despite retaining the same immutable source arrays. On this NumPy build, converting their explicit little-endian index dtype to `<u4` creates a fresh view with a native-endian descriptor, defeating the identity key. Nine bordered coverage draws used canonical indices and correctly made nine hashes then zero. Skip conversion when dtype is equivalent and storage is already contiguous. Add a regression using real Lyon indices or an explicit byte-order descriptor. Mutable/coalesced arrays must continue to hash actual bytes; this small fix does not solve their repeated assembly or the zoom resend. |
+| 4. Gradient paint | **Bandwidth reproduced; coefficient rebuilding is overstated.** A static 400-corner polygon produced a 94,302-byte cached-frame header, including 93,366 bytes of paint JSON. `build_paint` ran once across three preparations, and both drivers reuse matching GPU material buffers. The waste is repeated list/array conversion, validation and JSON transmission. Use independently hashed, immutable paint definitions with active-frame retention; cover paint-only updates, missing definitions, reverse/random seeks and recording reconstruction. The large non-affine inverse-distance fallback is not surfaced in frame limitations and should be. Affine fields remain compact even above 256 samples. No new visual probe was run here, so the reviewer's blotchy example is not independently verified. Also, 16 coverage samples per final pixel do not necessarily mean 16 fragment-shader invocations; the shader does not request per-sample shading. The long per-fragment loop still needs a measured cost limit. |
+| 5. Renderer selection | **Confirmed.** A new/reloaded tab starts triangles before adopting server state, then announces that choice and changes other tabs. Negotiate the authoritative server mode before announcing renderer readiness, including reconnects. An explicit user selection is a separate action. Local storage alone would still override another tab's newer selection. Validate two tabs, reload/reconnect, rapid switches and checkpoint preservation. |
+| 6. Nonplanar fills | **Compatibility gap accepted; blanket automatic fallback declined.** A nonplanar outline has no unique 3D interior, but a camera-projected painter fill is a possible separately specified behavior. Keep the current explicit unsupported result until a representative scene establishes the required semantics; do not silently flatten or switch renderers inside a supposedly shared frame. Restored native GL and Original 2D provide explicit legacy comparison routes. Compare projected coverage, clipping, depth and paint before choosing a supported shared implementation. |
+| 7. Zero-border AA | **Open.** The independent coverage evidence supports the selected AA, and all five production-style fixtures pass, but zero-border zoom still misses the old threshold. Keep both statements. A default dogfood rollout and a documented exception do not make that acceptance test pass. |
+
+The Original 2D GPU texture leak is also confirmed independently of the CPU
+file cache. Running the shipped JavaScript drivers with the existing fake GPU
+device, four frames each showing a different texture retained `[1,2,3,4]`
+textures in Original 2D, then four after an empty frame. Phase A retained
+`[1,1,1,1]`, then zero. Retire absent Original textures **after submission**,
+including references in cached batches. Its sender already resends returning
+textures. The bounded CPU file cache never established a GPU retention bound.
+
+Keep each comparison renderer's original AA defaults for historical evidence;
+report the sample policy and add matched-policy controls when isolating
+performance. Forcing Original 2D to Phase A's AA would change the baseline.
+The stale `__main__` OpenGL description should be corrected when GL returns:
+Phase A is default, GL is an explicit reference. The video pixel-format
+assumption is an older issue and is not evidence of this cutover's regression.
+
+### GPU borders: a reusable first step within Phase B
+
+The review's direction agrees with our discussion: use a **general vector
+fill-border generator**, not a text-only path. Existing expanded curve
+records carry points, endpoint widths, normals and joint angles; camera/style
+uniforms determine the current expansion. A border path driven by those
+records can receive CPU-updated points first and GPU-updated points later.
+The ordinary GPU stroke expansion provides reusable math, while its old AA
+fringe/premultiplication cannot simply be enabled in the new border pipeline.
+Preserve Phase A's hard coverage and shared final AA unless new image evidence
+justifies a separate appearance change.
+
+Implementation constraints for this bounded step:
+
+1. Keep immutable fill meshes separate from retained border-source buffers.
+   Zoom-only border work must not cause full fill/combined-geometry uploads.
+   Fill quality checks and genuine fill refinements still apply independently.
+2. Preserve authored operations and per-sample ownership across the fill and
+   GPU border operations. Translucency, varying paint, camera-facing borders,
+   clipping, fixed-frame interpolation and depth-only replay remain required.
+   Do not regroup all objects' fills ahead of all their borders. Also preserve
+   or measure the existing opaque-text batching benefit; a low-byte protocol
+   that reintroduces hundreds of CPU draw operations is not automatically fast.
+3. Compare GPU-emitted positions/counts against the existing CPU emitter and
+   then compare final pixels. Use the ten existing fixtures plus subdivision
+   thresholds and degenerate/partial paths. GPU floating-point math can differ
+   by ulps, so exact float32 equality where attainable plus bounded numeric
+   error and coverage checks are more defensible than a universal bitwise claim.
+   Keep the CPU reference until this evidence is complete.
+4. Measure pan separately from repeated 5% zoom steps, plus 1→4→1 zoom, tilt,
+   resize and changing paths. Report generation/preparation, CPU command work,
+   upload bytes, transport and complete-frame distributions. Target metadata-
+   only border updates—about 1 KB for the existing text control—when source and
+   retained fill quality are unchanged. A real fill refinement legitimately
+   uploads a new mesh, so this is not a universal zero-upload promise.
+5. Keep browser/native, device recreation, recording/seek and source lifetime
+   contracts aligned. Choose bounded instanced expansion or compute emission
+   based on the smallest implementation that meets these constraints. A full
+   general-fill topology engine is not a prerequisite for this border step.
+
+### Implementation order and remaining status
+
+1. Restore packaged native GL and verify the explicit reference route, while
+   retaining the Phase A default and Original 2D browser selector.
+2. Fix digest normalization, selector negotiation and Original GPU texture
+   retirement; record and isolate the fixed-frame ordering policy.
+3. Make paint definitions independently reusable and expose the large-field
+   fallback; validate its appearance/cost on the reviewer's gradient control.
+4. Implement and measure the general GPU border step against all three current
+   references, preserving ordering, coverage and opaque batching.
+
+A0/A1 work is implemented. Phase A is on main for dogfooding, with A2 text
+performance and the zero-border AA gate still open. Packaged native GL needs
+restoration. The broader Phase B source evaluation and general fill generation
+remain planned; this response does not claim to have implemented them.
+
+Evidence in this round: actual Python cache/hash and static-gradient transport
+probes, a JavaScript fake-device texture-retention probe, six focused
+selector/ordering CPU checks, and comparison of the previous native camera,
+browser source and GLSL assets. No fresh GPU image or timing run was performed.

@@ -192,7 +192,11 @@ and `web/generated_geometry.py`. Both WebGPU drivers draw the same operations,
 including per-sample border ownership and source-space paint. Native movie and
 checkpoint output uses `WgpuRenderer`; the camera converts premultiplied output
 to straight RGBA at the image boundary. GL code lives only under `tests/` as
-an independent historical reference and is excluded from wheels.
+an independent historical reference and is excluded from wheels. This is
+current implementation state, not the intended endpoint: the sixth review
+clarifies that native GL must return to the package as a runnable reference,
+with Phase A remaining default. Restoration is pending; see the sixth-round
+response in `docs_unified_triangle_renderer_review_response.md`.
 
 The viewer's **Scene renderer** selector retains **Original 2D** for dogfood
 comparisons. It uses `winding_geometry.py`, `static/winding_webgpu.js` and

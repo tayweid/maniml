@@ -7,16 +7,20 @@ integration and preserves its measured tradeoffs for dogfooding.
 
 The requested outcome is Phase A as the default renderer on main. Native
 movie and checkpoint output uses the same WebGPU backend as the browser.
-Taylor explicitly confirmed the native GL removal on September 10 with one
-condition: retain a selectable **Original 2D** renderer in the viewer for
-dogfooding. **Phase A** is the default; switching renderers must preserve the
-scene, source arrays, camera and current checkpoint and resend complete data.
+Taylor requires a selectable **Original 2D** renderer in the viewer for
+dogfooding. My earlier interpretation that this explicitly authorized native
+GL removal was too broad. The sixth review relays the clarified direction:
+native GL must also remain packaged as a runnable reference while **Phase A**
+stays the default. Switching browser renderers must preserve the scene,
+source arrays, camera and current checkpoint and resend complete data.
 
 The original browser winding renderer and its serializer therefore remain
 packaged as an explicit comparison path. Native GL, its wrappers and GLSL,
 and the former native winding WebGPU implementation live under `tests/` as
 historical references. Tests are excluded from wheels. The original browser
-option is not the native movie renderer.
+option is not the native movie renderer. This describes `67f779dc`; restoring
+packaged GL is pending and is the first follow-up in the
+[sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
 
 ## Rendering contract
 
@@ -144,7 +148,8 @@ Source construction, TeX compilation and camera updates are outside timing.
 
 The text regression **does not pass the plan's proposed 10%/0.5 ms
 no-regression gate**. The cutover decision explicitly accepts this measured
-case for the requested default-renderer dogfood rollout. Current benefits
+case for the requested default-renderer dogfood rollout. This implementation
+decision does not close the A2 performance gate, which remains open. Current benefits
 are the large ordered-square improvement, a common native/browser output
 path, general fill coverage and source-space paint. Original 2D remains
 selectable for immediate comparison. This is not a claim of universal speedup
