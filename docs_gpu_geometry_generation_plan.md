@@ -91,15 +91,55 @@ curve evaluation. Preserve the source path separately from the sampled mesh.
 A nonlinear operation on sampled mesh vertices is not generally equivalent to
 applying that operation to Bézier control points and then evaluating the curve.
 
-**Bounded first candidate after the sixth review (2026-09-10): general GPU
-fill-border expansion.** This is planned, not implemented. Keep retained fill
-meshes separate from expanded curve-source buffers and perform border
-subdivision/expansion on the GPU. Initially the CPU still updates source
-points; later GPU source evaluation can feed the same generator. Zoom-only
-border changes should update uniforms without uploading replacement border
-or unchanged fill geometry. Genuine fill-quality refinements remain separate.
-Preserve operation order, opacity/paint coverage, fixed-frame/camera-facing
-behavior and depth, and measure opaque batching as well as upload reduction.
+**First increment after the sixth review (2026-09-10): general GPU
+fill-border expansion.** The implementation retains fill meshes separately
+from curve-source buffers and runs border subdivision/expansion in a compute
+stage before the ordered draw pass. Python still updates public source
+points; later GPU source evaluation can write the same source layout, including
+its derived density/normal/join inputs. A camera-only border change updates
+uniforms without uploading expanded border or unchanged fill geometry. Genuine
+fill-quality refinements remain separate. The CPU border emitter remains an
+explicit reference selected with `MANIML_BORDER_GENERATOR=cpu`.
+
+Each active quadratic contributes 44 little-endian float32 words: the three
+existing 48-byte source records, a retained subdivision density, activity flag,
+a density-overflow flag, a reserved word and the object's actual RGBA. The
+overflow flag preserves the old CPU policy of 32 samples when finite source
+coordinates overflow the float32 density calculation. One 64-thread workgroup emits
+32 vertex pairs into the existing 40-byte surface layout. The 186 fixed indices
+per curve clamp unused samples to the final pair, producing zero-area tails.
+This first kernel uses fixed capacity; it does not claim compact variable-count
+output or general fill topology. Compact prefix allocation/indirect arguments
+remain a measured alternative if padding costs justify them.
+
+Fill vertices occupy the start of each output buffer, border vertices its
+tail. Static indices preserve fill A, border A, fill B, border B even when the
+opaque operations coalesce. Constant-color opaque painter objects retain their
+one-draw batching; other bordered objects retain the same per-object stencil
+ownership and depth replay. No historical AA fringe is reintroduced.
+
+Input definitions are immutable and content-addressed. Writable output belongs
+to a draw occurrence as well as its input identities: two uses of the same
+source with different camera/style inputs cannot overwrite each other. A
+generation's reuse state is committed only after submission. Missing inputs
+request the existing reset/recovery path, and failed frames discard their new
+resources. Recordings reconstruct format 5 source definitions for arbitrary
+seeks, independently of the device's retained history.
+
+The padded border allocation is 2,560 vertex bytes plus 744 index bytes and
+176 source bytes per active curve, excluding fill buffers and other resources.
+Compared with CPU triangle expansion this can use more memory for nearly
+straight curves and less for heavily subdivided curves. Compatible runs split
+at the portable 128 MiB output budget. A larger individual object binds only
+its aligned border tail for compute; the full buffer and each storage view are
+checked against separate device limits. The original per-object active triangle
+limit still applies before coalescing, rather than treating padded capacity as
+actual geometry. Host source/recipe retention shares the fill cache's 64 MiB bound, counting
+the immutable input references pinned by an assembly as well as its arrays.
+
+Validation compares operation order, opacity/paint coverage, fixed-frame and
+camera-facing behavior, depth, opaque batching, upload bytes and full completion
+against CPU-border Phase A, packaged native GL and Original 2D.
 The [sixth-round response](docs_unified_triangle_renderer_review_response.md#gpu-borders-a-reusable-first-step-within-phase-b)
 records comparison fixtures, transport measurements and the need to validate
 against the CPU emitter. Border expansion alone does not solve general fill

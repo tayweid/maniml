@@ -6,7 +6,13 @@ Status after the sixth review, 2026-09-10: `67f779dc` makes the shared renderer
 default and keeps Original 2D selectable. A0/A1 implementation has landed;
 A2 moving-text performance and zero-border AA remain open. Native GL has been
 restored as the packaged `NativeGLCamera` reference while retaining the Phase A
-default. See the
+default. The approved follow-up now retains independent paint definitions and
+expands general fill borders on the GPU; CPU source evaluation and general
+fill generation remain. Small-zoom text uploads fall to about 1 KB and frames
+improve against CPU-border Phase A, while Original 2D remains faster on text.
+The fixed-capacity GPU border allocation uses more memory in that control.
+See the [measured follow-up](docs_unified_triangle_renderer_review_response.md#7-general-gpu-fill-borders)
+and the
 [cutover record](docs_unified_triangle_renderer_phase_a.md) and
 [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
 The earlier [A1 checkpoint](docs_unified_triangle_renderer_a1_integration.md)

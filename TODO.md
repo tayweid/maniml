@@ -11,7 +11,8 @@ architecture after the beeline lives beside this repo in
 ## Where things stand
 
 The browser and native movie/checkpoint output share the Phase A triangle
-WebGPU backend. Source points and fill generation remain on the CPU. The
+WebGPU backend. Source points and general fill generation remain on the CPU;
+fill-border expansion now runs on the GPU. The
 viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
 2026-09-10; **Phase A** is the default. Native GL is restored to the package
 as the explicit `NativeGLCamera` reference, including its original shaders,
@@ -114,8 +115,8 @@ wrapper again. The shared-renderer default stays unchanged.
 
 Indexed-digest normalization, authoritative renderer negotiation, Original 2D
 GPU texture retirement, explicit fixed-frame ordering and reusable binary
-paint definitions are implemented. Next is a general GPU fill-border
-generator compared against packaged GL, Original 2D and CPU-border Phase A.
+paint definitions are implemented. General GPU fill borders are implemented
+and compared against packaged GL, Original 2D and CPU-border Phase A.
 A2 text performance, large non-affine paint fragment cost and zero-border AA
 remain open.
 The [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)

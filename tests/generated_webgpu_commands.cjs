@@ -25,17 +25,18 @@ function payload(specs, overrides = {}) {
     if (base === "paint" && !("paint" in batch) && !batch.paint_hash) batch.paint = constantPaint([1, 0, 0, .5]);
     if (!batch.cached) {
       batch.offset = offset;
-      const data = Buffer.alloc(batch.num_verts * batch.stride, i % 255);
+      const data = Buffer.alloc((batch.fill_num_verts ?? batch.num_verts) * batch.stride, i % 255);
       parts.push(data); offset += data.length;
       if (batch.indexed) {
         batch.index_offset = offset;
-        const indices = new Uint32Array(Array.from({ length: batch.index_count }, (_, j) => j));
+        const indices = new Uint32Array(spec.index_values || Array.from({ length: batch.index_count }, (_, j) => j));
+        delete batch.index_values;
         parts.push(Buffer.from(indices.buffer)); offset += indices.byteLength;
       }
     }
     return batch;
   });
-  const {paint_definitions, paint_padding = 0, ...headerOverrides} = overrides;
+  const {paint_definitions, border_definitions, paint_padding = 0, ...headerOverrides} = overrides;
   const paint_data = {};
   if (paint_padding) { parts.push(Buffer.alloc(paint_padding)); offset += paint_padding; }
   for (const [hash, values] of Object.entries(paint_definitions || {})) {
@@ -43,9 +44,15 @@ function payload(specs, overrides = {}) {
     paint_data[hash] = {offset, nbytes: data.length};
     parts.push(data); offset += data.length;
   }
+  const border_data = {};
+  for (const [hash, values] of Object.entries(border_definitions || {})) {
+    const data = Buffer.isBuffer(values) ? values : Buffer.from(new Float32Array(values).buffer);
+    border_data[hash] = {offset, nbytes: data.length};
+    parts.push(data); offset += data.length;
+  }
   const header = { renderer: "triangles", resolution: [320, 180], samples: 1, supersample: 1,
     background: [0.2, 0.4, 0.6, 0.5], camera: CAMERA, batches,
-    ...(paint_definitions ? {paint_data} : {}), ...headerOverrides };
+    ...(paint_definitions ? {paint_data} : {}), ...(border_definitions ? {border_data} : {}), ...headerOverrides };
   const json = Buffer.from(JSON.stringify(header));
   const out = Buffer.alloc(5 + json.length + offset);
   out[0] = 3; out.writeUInt32LE(json.length, 1); json.copy(out, 5);
@@ -65,12 +72,16 @@ async function driver(options = {}) {
     textures.push(texture); return texture;
   };
   const device = {
+    limits: options.limits || {},
     destroy() { events.push(["device_destroy"]); },
     createShaderModule: descriptor => descriptor,
     createRenderPipeline(descriptor) {
       const pipeline = { descriptor, id: ++sequence,
         getBindGroupLayout(index) { return { pipeline: this, index }; } };
       return pipeline;
+    },
+    createComputePipeline(descriptor) {
+      return {descriptor, id: ++sequence, getBindGroupLayout(index) { return {pipeline: this, index}; }};
     },
     createSampler: descriptor => ({ descriptor }),
     createBindGroup: descriptor => descriptor,
@@ -85,6 +96,23 @@ async function driver(options = {}) {
     createCommandEncoder() {
       const passes = [];
       return {
+        copyBufferToBuffer(source, sourceOffset, target, targetOffset, size) {
+          passes.push({copy: [source, sourceOffset, target, targetOffset, size], ended: true});
+        },
+        beginComputePass() {
+          const pass = {compute: true, draws: [], bindings: new Map(), ended: false};
+          passes.push(pass);
+          return {
+            setPipeline(pipeline) { pass.pipeline = pipeline; },
+            setBindGroup(index, binding) { pass.bindings.set(index, binding); },
+            dispatchWorkgroups(count) {
+              assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
+              assert.equal(pass.bindings.get(1).layout.pipeline, pass.pipeline);
+              pass.draws.push({bindings: new Map(pass.bindings), count});
+            },
+            end() { pass.ended = true; },
+          };
+        },
         beginRenderPass(descriptor) {
           const pass = { descriptor, draws: [], bindings: new Map(), vertices: [], ended: false };
           passes.push(pass);
@@ -115,6 +143,28 @@ async function driver(options = {}) {
       submit(commands) {
         for (const passes of commands) {
           for (const pass of passes) {
+            if (pass.copy) {
+              const [source, from, target, to, size] = pass.copy;
+              assert.ok(!source.destroyed && !target.destroyed, "copy uses live buffers");
+              new Uint8Array(target.bytes, to, size).set(new Uint8Array(source.bytes, from, size));
+              continue;
+            }
+            if (pass.compute) {
+              for (const draw of pass.draws) {
+                for (const binding of draw.bindings.values()) {
+                  for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
+                }
+                const params = new Uint32Array(draw.bindings.get(0).entries[1].resource.buffer.bytes);
+                const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
+                assert.ok((params[0] + params[1]) * 176 <= source.size);
+                assert.ok((params[2] + params[1] * 64) * 40 <= output.size);
+                assert.equal(output.offset % (device.limits.minStorageBufferOffsetAlignment ?? 256), 0);
+                assert.ok(output.size <= (device.limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2));
+                assert.equal(draw.count, params[1]);
+                assert.ok(draw.count <= (device.limits.maxComputeWorkgroupsPerDimension ?? 65535));
+              }
+              continue;
+            }
             for (const attachment of pass.descriptor.colorAttachments) {
               assert.ok(!attachment.view.texture.destroyed, "attachment destroyed before submission");
             }
@@ -140,7 +190,7 @@ async function driver(options = {}) {
   const context = {
     navigator: { gpu: { requestAdapter: async () => ({ requestDevice: async () => device }),
       getPreferredCanvasFormat: () => "bgra8unorm" } },
-    GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4, STORAGE: 8 },
+    GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4, STORAGE: 8, COPY_SRC: 16, COPY_DST: 32 },
     GPUTextureUsage: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_DST: 4 },
     fetch: async name => ({ ok: true, text: async () => fs.readFileSync(path.join(STATIC, name), "utf8") }),
     createImageBitmap: options.decode || (async () => ({ width: 2, height: 2, close() {} })),
@@ -162,6 +212,30 @@ async function driver(options = {}) {
 const uniformBuffer = draw => draw.bindings.get(0).entries[0].resource.buffer;
 const uniform = draw => new Float32Array(uniformBuffer(draw).bytes);
 const near = (actual, expected) => expected.forEach((v, i) => assert.ok(Math.abs(actual[i] - v) < 1e-6));
+
+function borderFixture(count = 3, fillCount = 40, hash = "c".repeat(32)) {
+  const records = [];
+  for (let i = 0; i < count; i++) {
+    const curve = Array(44).fill(0);
+    for (let point = 0; point < 3; point++) {
+      curve[12 * point] = point - 1;
+      curve[12 * point + 7] = 20;
+      curve[12 * point + 11] = 1;
+    }
+    curve[37] = 1; curve[40] = 1; curve[43] = .5; records.push(...curve);
+  }
+  const indices = [0, 1, 2, 0, 2, 3];
+  for (let curve = 0; curve < count; curve++) {
+    for (let i = 0; i < 31; i++) {
+      const base = fillCount + curve * 64 + i * 2;
+      indices.push(base, base + 1, base + 2, base + 1, base + 2, base + 3);
+    }
+  }
+  return {spec: {pipeline: "surface", hash: "fill", indexed: true, coverage: true,
+    fill_num_verts: fillCount, num_verts: fillCount + 64 * count, count: indices.length,
+    index_count: indices.length, index_values: indices, border: {hash, num_curves: count}},
+    options: {format_version: 5, border_definitions: {[hash]: records}, paint_padding: 1}, records};
+}
 
 const cases = {
   async lifecycle() {
@@ -350,6 +424,77 @@ const cases = {
     const missing = await d.render([{ pipeline: "image", textures: { Texture: "unknown" } }]);
     assert.equal(missing[0].draws.length, 0);
     assert.equal(d.cacheMisses(), 1);
+  },
+  async borderCompute() {
+    const d = await driver({limits: {maxComputeWorkgroupsPerDimension: 2}});
+    const fixture = borderFixture();
+    const specs = [fixture.spec, {...fixture.spec, uniforms: {camera_position: [0, -10, 10]}}];
+    const first = await d.render(specs, fixture.options);
+    const compute = first.filter(pass => pass.compute);
+    assert.deepEqual(compute.flatMap(pass => pass.draws.map(draw => draw.count)), [2, 1, 2, 1]);
+    const scene = first.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    assert.ok(first.indexOf(compute.at(-1)) < first.indexOf(scene));
+    assert.equal(first.filter(pass => pass.copy).length, 2);
+    const outputs = scene.draws.map(draw => draw.vertices[0]);
+    assert.notEqual(...outputs, "same source with distinct uniforms needs distinct writable outputs");
+    const views = compute.map(pass => pass.draws[0].bindings.get(1).entries[1].resource);
+    views.forEach(view => { assert.equal(view.offset, 1280); assert.equal(view.size, (8 + 64 * 3) * 40); });
+    assert.equal(compute[0].draws[0].bindings.get(1).entries[0].resource.buffer,
+      compute[1].draws[0].bindings.get(1).entries[0].resource.buffer, "immutable source storage is shared");
+    const cached = specs.map(spec => ({...spec, cached: true}));
+    const same = await d.render(cached, {format_version: 5});
+    assert.ok(same.every(pass => !pass.compute && !pass.copy), "static frames need no generation or fill copies");
+    const zoom = await d.render(cached, {format_version: 5, camera: {...CAMERA, frame_scale: .95}});
+    assert.equal(zoom.filter(pass => pass.compute).length, 2);
+    assert.equal(zoom.filter(pass => pass.copy).length, 0);
+    assert.deepEqual(zoom.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment).draws.map(draw => draw.vertices[0]), outputs);
+    await d.render([], {format_version: 5});
+    outputs.forEach(output => assert.ok(output.destroyed));
+    const returning = await d.render([fixture.spec], fixture.options);
+    assert.notEqual(returning.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment).draws[0].vertices[0], outputs[0]);
+    const missing = await d.render([{...fixture.spec, cached: true,
+      border: {...fixture.spec.border, hash: "f".repeat(32)}}], {format_version: 5});
+    assert.equal(missing[0].draws.length, 0);
+    assert.equal(d.cacheMisses(), 1);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  async borderComputeFailures() {
+    const d = await driver({limits: {maxStorageBufferBindingSize: 3000, maxBufferSize: 5000}});
+    const fixture = borderFixture(1);
+    await d.render([fixture.spec], fixture.options);
+    const retained = () => d.buffers.filter(buffer => !buffer.destroyed);
+    const previous = retained();
+    for (let i = 0; i < 6; i++) {
+      const next = borderFixture(1, 40, (i + 1).toString(16).repeat(32));
+      await assert.rejects(d.render([{...next.spec, hash: `failed-fill-${i}`}, {pipeline: "invalid", stride: 40}], next.options),
+        /unsupported generated pipeline/);
+      assert.deepEqual(retained(), previous, "failed late batches must not accumulate source/output/fill/uniform storage");
+    }
+    for (const [field, value] of [[7, -1], [36, -1], [37, .5], [38, .5], [39, 1], [0, NaN]]) {
+      const bad = [...fixture.records]; bad[field] = value;
+      await assert.rejects(d.render([fixture.spec], {format_version: 5,
+        border_definitions: {[fixture.spec.border.hash]: bad}}), /border/);
+      assert.deepEqual(retained(), previous);
+    }
+    const malformed = [null, [], 1, true];
+    for (const border_data of malformed) {
+      await assert.rejects(d.render([fixture.spec], {format_version: 5, border_data}), /border/);
+    }
+    // A failed frame must not record changed camera generation as complete.
+    const changed = {...fixture.options, camera: {...CAMERA, frame_scale: .95}};
+    await assert.rejects(d.render([fixture.spec, {pipeline: "invalid", stride: 40}], changed), /unsupported/);
+    const retry = await d.render([fixture.spec], changed);
+    assert.equal(retry.filter(pass => pass.compute).length, 1);
+    assert.equal(retry.filter(pass => pass.copy).length, 0);
+    const capped = borderFixture(1, 40, "d".repeat(32));
+    capped.records[38] = 1;
+    const cappedFrame = await d.render([capped.spec], capped.options);
+    assert.equal(cappedFrame.filter(pass => pass.compute).length, 1, "finite capped-density records are accepted");
+    const large = borderFixture(2, 40, "e".repeat(32));
+    await assert.rejects(d.render([large.spec], large.options), /output exceeds/);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
   async paintDefinitions() {
     const d = await driver();

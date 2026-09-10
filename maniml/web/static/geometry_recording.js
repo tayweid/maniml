@@ -33,8 +33,46 @@ globalThis.ManimlRecording = (() => {
     validatePaint(bytes);
   }
 
+  function validateBorder(bytes) {
+    if (!bytes.length || bytes.length % 176 || bytes.length > 52428 * 176) {
+      throw new Error("Invalid recorded border length");
+    }
+    const values = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let i = 0; i < bytes.length / 4; i++) {
+      const value = values.getFloat32(i * 4, true), field = i % 44;
+      if (!Number.isFinite(value) || ([7, 19, 31, 36].includes(field) && value < 0)
+          || ((field === 37 || field === 38) && value !== 0 && value !== 1)
+          || (field === 39 && value !== 0)) {
+        throw new Error("Invalid recorded border coefficients");
+      }
+    }
+    return bytes;
+  }
+
+  function borderLayout(header, batch) {
+    if (!("border" in batch)) {
+      if ("fill_num_verts" in batch) throw new Error("Recorded fill count requires a border descriptor");
+      return batch.num_verts;
+    }
+    const border = batch.border;
+    if (!Number.isSafeInteger(header.format_version) || header.format_version < 5
+        || !border || typeof border !== "object" || Array.isArray(border)
+        || typeof border.hash !== "string" || !/^[0-9a-f]{32}$/.test(border.hash)
+        || !Number.isSafeInteger(border.num_curves) || border.num_curves < 1 || border.num_curves > 52428
+        || !Number.isSafeInteger(batch.fill_num_verts) || batch.fill_num_verts < 0
+        || !Number.isSafeInteger(batch.num_verts) || batch.num_verts !== batch.fill_num_verts + 64 * border.num_curves
+        || !Number.isSafeInteger(batch.num_verts * 40) || batch.num_verts > 0xffffffff
+        || batch.kind !== "generated" || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)
+        || batch.stride !== 40 || batch.indexed !== true || batch.instances !== 1
+        || !Number.isSafeInteger(batch.index_count) || batch.index_count < 186 * border.num_curves
+        || batch.index_count % 3 || batch.count !== batch.index_count) {
+      throw new Error("Invalid recorded border geometry layout");
+    }
+    return batch.fill_num_verts;
+  }
+
   function index(messages) {
-    const geometry = new Map(), textures = new Map(), paints = new Map();
+    const geometry = new Map(), textures = new Map(), paints = new Map(), borders = new Map();
     const frames = messages.map(message => {
       const bytes = message instanceof Uint8Array ? message : new Uint8Array(message);
       if (bytes.length < 5 || bytes[0] !== 3) throw new Error("Invalid recorded geometry frame");
@@ -65,9 +103,25 @@ globalThis.ManimlRecording = (() => {
         }
         paints.set(hash, bytes);
       }
+      if (header.border_data !== undefined && (!header.border_data
+          || typeof header.border_data !== "object" || Array.isArray(header.border_data))) {
+        throw new Error("Invalid recorded border definitions");
+      }
+      for (const [hash, info] of Object.entries(header.border_data || {})) {
+        if (!/^[0-9a-f]{32}$/.test(hash) || !info || typeof info !== "object" || Array.isArray(info)) {
+          throw new Error("Invalid recorded border definition");
+        }
+        const bytes = validateBorder(span(info.offset, info.nbytes));
+        const previous = borders.get(hash);
+        if (previous && (previous.length !== bytes.length || previous.some((value, i) => value !== bytes[i]))) {
+          throw new Error(`Conflicting recorded border definition: ${hash}`);
+        }
+        borders.set(hash, bytes);
+      }
       const batches = header.batches.map(batch => {
+        const vertexCount = borderLayout(header, batch);
         if (!batch.cached) {
-          const content = {vertices: span(batch.offset, batch.num_verts * batch.stride)};
+          const content = {vertices: span(batch.offset, vertexCount * batch.stride)};
           if (batch.kind === "generated" && batch.indexed) {
             content.indices = span(batch.index_offset, batch.index_count * 4);
           }
@@ -94,9 +148,27 @@ globalThis.ManimlRecording = (() => {
         } else if (batch.pipeline === "paint" || batch.pipeline === "paint_depth") {
           validateInlinePaint(batch.paint);
         }
+        let border = null;
+        if (batch.border) {
+          border = borders.get(batch.border.hash);
+          if (!border) throw new Error(`Missing recorded border: ${batch.border.hash}`);
+          if (border.length !== batch.border.num_curves * 176
+              || content.vertices.length !== vertexCount * 40
+              || !content.indices || content.indices.length !== batch.index_count * 4) {
+            throw new Error("Recorded border geometry or source count mismatch");
+          }
+          const vertices = new DataView(content.vertices.buffer, content.vertices.byteOffset, content.vertices.byteLength);
+          for (let i = 0; i < vertices.byteLength; i += 4) {
+            if (!Number.isFinite(vertices.getFloat32(i, true))) throw new Error("Nonfinite recorded border fill vertices");
+          }
+          const indices = new DataView(content.indices.buffer, content.indices.byteOffset, content.indices.byteLength);
+          for (let i = 0; i < indices.byteLength; i += 4) {
+            if (indices.getUint32(i, true) >= batch.num_verts) throw new Error("Recorded border index exceeds output vertex count");
+          }
+        }
         // Capture the definition now. A reverse seek must not resolve through
         // whichever material happened to be most recently sent to the GPU.
-        return {batch, content, material, paint};
+        return {batch, content, material, paint, border};
       });
       return {header, batches};
     });
@@ -105,14 +177,14 @@ globalThis.ManimlRecording = (() => {
       frame(index) {
         const source = frames[index];
         if (!source) throw new RangeError("Recorded frame is out of range");
-        const blobs = [], materials = new Map(), paints = new Map();
+        const blobs = [], materials = new Map(), paints = new Map(), borders = new Map();
         let offset = 0;
         function append(bytes) {
           const start = offset;
           blobs.push(bytes); offset += bytes.length;
           return start;
         }
-        const batches = source.batches.map(({batch, content, material, paint}) => {
+        const batches = source.batches.map(({batch, content, material, paint, border}) => {
           const full = {...batch, offset: append(content.vertices)};
           delete full.cached;
           if (content.indices) full.index_offset = append(content.indices);
@@ -122,13 +194,16 @@ globalThis.ManimlRecording = (() => {
           }
           for (const [hash, bytes] of Object.entries(material)) materials.set(hash, bytes);
           if (paint) paints.set(batch.paint_hash, paint);
+          if (border) borders.set(batch.border.hash, border);
           return full;
         });
         const texture_data = {};
         for (const [hash, bytes] of materials) texture_data[hash] = {offset: append(bytes), nbytes: bytes.length};
         const paint_data = {};
         for (const [hash, bytes] of paints) paint_data[hash] = {offset: append(bytes), nbytes: bytes.length};
-        const header = encoder.encode(JSON.stringify({...source.header, batches, texture_data, paint_data}));
+        const border_data = {};
+        for (const [hash, bytes] of borders) border_data[hash] = {offset: append(bytes), nbytes: bytes.length};
+        const header = encoder.encode(JSON.stringify({...source.header, batches, texture_data, paint_data, border_data}));
         const output = new Uint8Array(5 + header.length + offset);
         output[0] = 3;
         new DataView(output.buffer).setUint32(1, header.length, true);

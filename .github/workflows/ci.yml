@@ -65,6 +65,10 @@ jobs:
           tests.test_fill_paint
           tests.test_texture_retention
           tests.test_border_geometry
+          tests.test_gpu_border_geometry
+          tests.test_gpu_border_audit
+          tests.test_border_compute
+          tests.test_gpu_border_quality
           tests.test_fill_bounds
           tests.test_geometry_cache
           tests.test_earclip_triangulation
@@ -81,6 +85,8 @@ jobs:
           tests.test_animations
           tests.test_creation
           tests.test_native_camera
+          tests.test_native_gl_camera
+          tests.test_renderer_ordering
           tests.test_renderer_selection
           tests.test_winding_texture_retention
           tests.test_coordinate_systems

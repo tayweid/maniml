@@ -16,6 +16,7 @@ from maniml.web.geometry import (
     GEOMETRY_FORMAT_VERSION, GEOMETRY_MESSAGE_TYPE, _jsonable, _TEXTURE_BY_HASH,
 )
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
+from maniml.web.gpu_border_geometry import CURVE_WORDS
 
 
 PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
@@ -60,6 +61,29 @@ def _paint_payload(value, previous, retained):
     return content_hash, paint
 
 
+def _border_payload(value, previous, retained):
+    curves = np.asarray(value)
+    if curves.ndim != 2 or curves.shape[1] != CURVE_WORDS or not len(curves):
+        raise ValueError("invalid generated border source layout")
+    if curves.dtype != np.dtype("<f4") or not curves.flags.c_contiguous:
+        curves = np.ascontiguousarray(curves, dtype="<f4")
+    memo = previous.get(id(curves))
+    if memo is not None and memo[0] is curves:
+        digest = memo[1]
+    else:
+        if (not np.isfinite(curves).all() or np.any(curves[:, [7, 19, 31, 36]] < 0)
+                or np.any((curves[:, 37:39] != 0) & (curves[:, 37:39] != 1))
+                or np.any(curves[:, 39] != 0)):
+            raise ValueError("invalid generated border source values")
+        identity = hashlib.blake2b(digest_size=16)
+        identity.update(b"maniml.border.f32.v1\0")
+        identity.update(memoryview(curves).cast("B"))
+        digest = identity.hexdigest()
+    if _immutable(curves):
+        retained[id(curves)] = (curves, digest)
+    return digest, curves
+
+
 def serialize_generated_frame(frame, camera_uniforms, cache=None):
     """Pack a prepared frame; both drivers consume exactly these operations."""
     supersample = getattr(frame, "supersample", 1)
@@ -71,6 +95,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     retained_payloads = {}
     previous_paints = getattr(cache, "generated_paints", {})
     retained_paints, paints = {}, {}
+    previous_borders = getattr(cache, "generated_borders", {})
+    retained_borders, borders = {}, {}
     for draw in frame.draws:
         base = draw.pipeline.removesuffix("_depth")
         if base not in PIPELINE_STRIDES:
@@ -84,13 +110,23 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 raise ValueError(f"{name} must be a nonnegative integer")
         if draw.count == 0 or draw.instances == 0:
             continue
+        border = getattr(draw, "border_sources", None)
+        border_hash = None
+        if border is not None:
+            if base not in ("surface", "paint") or draw.indices is None or draw.instances != 1:
+                raise ValueError("GPU border recipe requires one indexed surface operation")
+            border_hash, border = _border_payload(border, previous_borders, retained_borders)
+            borders[border_hash] = border
+        output_vertices = len(vertices) + (0 if border is None else 64 * len(border))
         indices = None if draw.indices is None else np.asarray(draw.indices)
         if indices is not None:
             if (base not in ("surface", "paint") or indices.ndim != 1
                     or not np.issubdtype(indices.dtype, np.integer)
-                    or np.any(indices < 0) or np.any(indices >= len(vertices))
+                    or np.any(indices < 0) or np.any(indices >= output_vertices)
                     or draw.count > len(indices) or draw.count % 3):
                 raise ValueError("invalid generated triangle indices or draw count")
+            if border is not None and (draw.count != len(indices) or len(indices) < 186 * len(border)):
+                raise ValueError("GPU border recipes require their complete ordered index range")
             # An equivalent explicit-endian dtype can produce a fresh view
             # when NumPy normalizes it to native byte order. Preserve the
             # original immutable array so its retained digest remains usable.
@@ -105,7 +141,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         elif base == "stroke":
             if draw.count < 4 or draw.count > 64 or draw.count % 2 or draw.instances * 3 > len(vertices):
                 raise ValueError("invalid generated stroke draw count")
-        payload_key = (draw.pipeline, id(vertices), id(indices))
+        payload_key = (draw.pipeline, id(vertices), id(indices), output_vertices)
         retained = previous_payloads.get(payload_key)
         if retained is not None and retained[0] is vertices and retained[1] is indices:
             content_hash = retained[2]
@@ -113,6 +149,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             identity = hashlib.blake2b(digest_size=16)
             identity.update(draw.pipeline.encode())
             identity.update(b"\0indexed\0" if indices is not None else b"\0plain\0")
+            if border is not None:
+                identity.update(b"\0border\0" + struct.pack("<Q", len(border)))
             # Frame both byte streams, and hash their views without allocating
             # another frame-sized copy. Mutable diagnostic data is always read.
             identity.update(struct.pack("<QQ", vertices.nbytes, 0 if indices is None else indices.nbytes))
@@ -140,11 +178,14 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             if key not in camera or normalized != camera[key]:
                 uniforms[key] = normalized
         batch = {"kind": "generated", "pipeline": draw.pipeline,
-                 "hash": content_hash, "num_verts": len(vertices),
+                 "hash": content_hash, "num_verts": output_vertices,
                  "stride": vertices.dtype.itemsize, "uniforms": uniforms,
                  "count": int(draw.count), "instances": int(draw.instances),
                  "indexed": indices is not None,
                  "index_count": 0 if indices is None else len(indices)}
+        if border is not None:
+            batch["fill_num_verts"] = len(vertices)
+            batch["border"] = {"hash": border_hash, "num_curves": len(border)}
         if getattr(draw, "coverage", False):
             if base not in ("surface", "paint"):
                 raise ValueError("coverage ownership requires triangle surface geometry")
@@ -179,6 +220,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             paint_data[key] = {"offset": offset, "nbytes": len(raw)}
             blobs.append(raw)
             offset += len(raw)
+    border_data = {}
+    for key, border in borders.items():
+        if cache is None or f"border:{key}" not in cache.sent:
+            raw = border.tobytes()
+            border_data[key] = {"offset": offset, "nbytes": len(raw)}
+            blobs.append(raw)
+            offset += len(raw)
     texture_data = {}
     for key in sorted(texture_hashes):
         if cache is None or f"tex:{key}" not in cache.sent:
@@ -192,7 +240,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
               "camera": camera, "background": list(frame.background),
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,
-              "batches": batches, "paint_data": paint_data, "texture_data": texture_data,
+              "batches": batches, "paint_data": paint_data, "border_data": border_data,
+              "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
     encoded = json.dumps(header).encode()
     message = b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
@@ -200,6 +249,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     if cache is not None:
         cache.sent = (current_hashes | {f"tex:{key}" for key in texture_hashes}
                       | {f"paint:{key}" for key in paints})
+        cache.sent.update(f"border:{key}" for key in borders)
         cache.generated_payloads = retained_payloads
         cache.generated_paints = retained_paints
+        cache.generated_borders = retained_borders
     return message

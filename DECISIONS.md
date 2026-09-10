@@ -5,6 +5,45 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Retained GPU fill borders are the first generation increment (2026-09-10)
+
+After restoring GL and fixing transport, lifetime, ordering and paint reuse,
+move the general fill-border emitter into a shared WGSL compute stage. This
+reuses Phase A's material, stencil ownership, ordered indices and opaque
+batching. Public points and general fill triangulation stay on the CPU. A
+future GPU point evaluator can produce the same curve inputs; this step does
+not implement Phase B's general topology or compact variable-count allocation.
+
+Retain fill vertices, static indices and independently hashed curve sources.
+Camera-only border work changes uniforms and regenerates the output locally;
+pan of flat borders reuses it. Fill-quality refinement still resends geometry.
+Outputs belong to draw occurrences, so identical inputs used with different
+uniforms cannot overwrite each other. New resources roll back on failure;
+successful submission commits reuse state and retires absent resources.
+Source/recipe retention shares the fill cache's bounded host memory budget.
+Formats 1–4 still load; format 5 recordings restore sources for every seek.
+
+Choose fixed capacity for this increment: 32 vertex pairs per curve and static
+indices, with unused tails clamped to zero-area triangles. It keeps the
+101-glyph opaque control at one scene draw and removes small-zoom border
+uploads. It also adds about 9.82 MiB of retained geometry buffers over CPU
+borders for that control (11.54 MB versus 1.24 MB, excluding AA attachments).
+Compact allocation is a future measured optimization, not an implemented gain.
+
+The eight-case, four-reference measurement records the trade: repeated 5%
+text zoom takes 10.65 ms versus 14.37 ms for CPU-border Phase A, 5.49 ms for
+Original 2D and 8.24 ms for packaged GL. With a real loopback WebSocket echo,
+Phase A improves from 16.09 to 11.06 ms; the unchanged-source GPU packet is
+1,077–1,138 bytes versus up to 1,468,384 for CPU borders. Large zooms still
+refine fills. Static text and pan improve modestly; the changing-path control
+and one resize measurement are slightly slower. Full distributions and scope
+are in the [GPU border evidence](benchmarks/results/triangle_followup_20260910/gpu_borders/README.md).
+
+Use GPU borders by default with the explicit `MANIML_BORDER_GENERATOR=cpu`
+reference retained. Keep packaged `NativeGLCamera` and the Original 2D viewer
+option. This is a measured reduction of the text regression, not closure of
+A2, the zero-border AA gate, nonplanar fill support or large-field paint cost.
+
 ## Fixed-frame ordering belongs to each renderer (2026-09-10)
 
 Before the triangle cutover, native GL stably partitioned fixed-frame groups

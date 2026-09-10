@@ -24,7 +24,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 4
+GEOMETRY_FORMAT_VERSION = 5
 
 
 class GeometryCache:
@@ -40,6 +40,8 @@ class GeometryCache:
         self.triangle_meshes = None
         self.generated_payloads = {}
         self.generated_paints = {}
+        self.generated_borders = {}
+        self.border_generator = None
 
     def reset(self):
         self.sent.clear()
@@ -142,12 +144,21 @@ def _serialize_triangle_scene(scene, cache):
     from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 
     state = cache if cache is not None else GeometryCache()
+    border_generator = os.environ.get("MANIML_BORDER_GENERATOR", "gpu")
+    if border_generator not in ("cpu", "gpu"):
+        raise ValueError("MANIML_BORDER_GENERATOR must be 'cpu' or 'gpu'")
+    if state.border_generator != border_generator:
+        state.reset()
+        state.border_generator = border_generator
+        if state.triangle_meshes is not None:
+            state.triangle_meshes.gpu_border_cache.clear()
     if state.triangle_tessellator is None:
         state.triangle_tessellator = LyonFillTessellator()
         state.triangle_meshes = TriangleMeshCache()
     with performance.stage("geometry.triangle_prepare"):
         frame = prepare_triangle_frame(scene, state.triangle_tessellator,
-                                       mesh_cache=state.triangle_meshes, fill_borders=True)
+                                       mesh_cache=state.triangle_meshes, fill_borders=True,
+                                       gpu_borders=border_generator == "gpu")
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):

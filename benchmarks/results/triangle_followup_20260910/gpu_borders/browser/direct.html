@@ -1,0 +1,38 @@
+<!doctype html><meta charset=utf-8><title>Actual WebGPU paint and border validation</title><style>body{background:#111;color:white;font:13px monospace}canvas{border:1px solid #555}pre{white-space:pre-wrap}</style><h1>Actual WebGPU paint and border validation</h1><canvas id=canvas></canvas><pre id=report>Starting</pre>
+<script src=observer.js></script><script src=webgpu.js></script><script src=geometry_recording.js></script><script>
+(async()=>{
+ const manifest=await(await fetch('frames.json')).json(),names=[...manifest.paint,...manifest.border,'paint-legacy3','border-cpu-reference','border-zoom-cpu-reference'];
+ const frames=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch(name+'.bin')).arrayBuffer()])));
+ const canvas=document.getElementById('canvas'),probes={},comparisons={};
+ await ManimlWGPU.init(canvas);ManimlWGPU.onCacheMiss=()=>qa.cacheMisses++;
+ async function draw(frame){await ManimlWGPU.render(frame);qa.frames++;return pixels(canvas);}
+ const paintGeometry=header(frames['paint-red']).batches[0].hash;
+ assert(header(frames['paint-blue']).batches[0].hash===paintGeometry,'paint fixture changed geometry');
+ for(const name of manifest.paint){const rgba=await draw(frames[name]);probes[name]=center(rgba,canvas);const expected=name.includes('empty')?[0,0,0,255]:name.includes('blue')?[0,0,255,255]:[255,0,0,255];assert(String(probes[name])===String(expected),'wrong paint pixels '+name+': '+probes[name]);}
+ qa.cases.push('format4 same geometry changing paint pixels, cached, empty and return');
+ await draw(frames['paint-empty']);let misses=qa.cacheMisses;
+ await draw(frames['paint-red-cached']);assert(qa.cacheMisses===misses+1,'missing paint did not request reset');
+ assert(String(center(await draw(frames['paint-return']),canvas))==='255,0,0,255','paint reset recovery failed');
+ qa.cases.push('missing paint requests reset and full payload recovers');
+ await ManimlWGPU.destroy();await ManimlWGPU.init(canvas);
+ assert(String(center(await draw(frames['paint-legacy3']),canvas))==='255,0,0,255','format3 inline paint failed');
+ qa.cases.push('destroy/reinit and format3 inline paint');
+ const recording=ManimlRecording.index(manifest.paint.map(name=>frames[name]));
+ for(const i of [3,0,4,2,5,1]){const rgba=await draw(recording.frame(i));const name=manifest.paint[i];const expected=name.includes('empty')?[0,0,0,255]:name.includes('blue')?[0,0,255,255]:[255,0,0,255];assert(String(center(rgba,canvas))===String(expected),'paint seek pixel mismatch '+i);}
+ qa.cases.push('format4 reverse and random recording seek pixels');
+ const borderPixels={};for(const name of manifest.border){const rgba=await draw(frames[name]);probes[name]=center(rgba,canvas);borderPixels[name]=rgba;}comparisons.normal=delta(borderPixels['border-return'],await draw(frames['border-cpu-reference']));comparisons.zoom=delta(borderPixels['border-zoom'],await draw(frames['border-zoom-cpu-reference']));
+ assert(comparisons.normal.max===0&&comparisons.zoom.max===0,'GPU border pixels differ from CPU: '+JSON.stringify(comparisons));
+ assert(probes['border-green'][1]>120&&probes['border-red'][0]>120,'border fixture not visible');
+ qa.cases.push('format5 GPU border compute, translucent ownership, changed color, zoom, pixel-exact CPU border reference');
+ await draw(frames['border-empty']);misses=qa.cacheMisses;await draw(frames['border-red-cached']);assert(qa.cacheMisses===misses+1,'missing border did not request reset');
+ await draw(frames['border-return']);qa.cases.push('missing border requests reset and full payload recovers');
+ const borderRecording=ManimlRecording.index(manifest.border.map(name=>frames[name]));
+ for(const i of [3,0,4,6,1,5]){const rgba=await draw(borderRecording.frame(i));const expected=probes[manifest.border[i]];assert(String(center(rgba,canvas))===String(expected),'border seek mismatch '+i);}
+ qa.cases.push('format5 reverse and random seek with independently rehydrated source recipes');
+ await ManimlWGPU.destroy();await ManimlWGPU.init(canvas);const last=await draw(borderRecording.frame(6));
+ assert(String(center(last,canvas))===String(probes['border-zoom']),'border reinit recovery failed');
+ qa.cases.push('format5 destroy/reinit and source replay');
+ await qa.device.queue.onSubmittedWorkDone();assert(!qa.errors.length,'GPU validation errors');
+ await finish({status:'PASS',page:'direct',frames:qa.frames,cases:qa.cases,probes,comparisons,expectedCacheMisses:2,readback:'GPU canvas COPY_SRC to MAP_READ buffer; canvas configuration only adds COPY_SRC usage'});
+})().catch(error=>finish({status:'FAIL',page:'direct',error:error.stack,cases:qa.cases}));
+</script>

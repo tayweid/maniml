@@ -187,8 +187,9 @@ while keeping strokes. Bounds refresh even when vertex data is cached.
 Coverage lives in `tests/test_fill_bounds.py` and the Node-backed
 `tests/test_webgpu_commands.py`; `benchmarks/vector_fill.py` measures the gain.
 
-The default is format-3 ordered generated geometry from `web/triangle_scene.py`
-and `web/generated_geometry.py`. Both WebGPU drivers draw the same operations,
+The default is format-5 ordered generated geometry from `web/triangle_scene.py`
+and `web/generated_geometry.py`, with independently retained binary paint
+definitions and GPU border sources. Both WebGPU drivers draw the same operations,
 including per-sample border ownership and source-space paint. Native movie and
 checkpoint output uses `WgpuRenderer`; the camera converts premultiplied output
 to straight RGBA at the image boundary. The package retains `NativeGLCamera`,
@@ -208,8 +209,18 @@ remove this comparison option without Taylor's direction.
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
 Default AA is 4× MSAA plus 2× spatial resolve independently of Camera.samples.
-Retained meshes inspect exact public array contents, source paint and border
-geometry cache separately, and immutable derived payloads reuse digests.
+Retained meshes inspect exact public array contents; source paint and border
+inputs cache separately, and immutable derived payloads reuse digests. Python
+still updates source points and Lyon generates general fills. The shared
+`border_compute.wgsl` expands fill borders from retained curve records before
+drawing. Small camera changes update uniforms; genuine fill refinements still
+upload a new mesh. `MANIML_BORDER_GENERATOR=cpu` selects the preserved CPU
+emitter for comparison through the same renderer. GPU recipes share the fill
+cache's 64 MiB host budget; output reserves 32 vertex pairs per curve, which
+trades additional GPU memory for stable allocation and fewer uploads. Both
+drivers retire absent sources/outputs after submission and roll back new
+resources on failure. Recordings reconstruct sources for arbitrary seeks;
+formats 1–4 remain readable. These resources never enter checkpoints.
 See `docs_unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 

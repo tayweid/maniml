@@ -26,8 +26,9 @@ to the `67f779dc` cutover described in the
 ## Rendering contract
 
 - Python continues to own and update source points. Lyon generates filled
-  meshes on the CPU. Rasterization, shading, depth and compositing run on the
-  GPU. GPU source updates and GPU geometry generation remain Phase B.
+  meshes on the CPU. General fill borders now expand retained curve inputs
+  in a GPU compute stage. Rasterization, shading, depth and compositing run on
+  the GPU. GPU source updates and general fill topology remain Phase B.
 - Planar vector fills use nonzero winding coverage, including concavity,
   holes and intersections. Tessellation uses a conservative 0.25 final-pixel
   curve-error budget; the cache spends half initially as zoom headroom.
@@ -49,6 +50,15 @@ The border emitter reproduces Manim's existing curve subdivision, endpoint
 widths, partial-path sentinels and join formulas. Those formulas differ from
 the SVG styles with the same names. It emits actual world-space triangles,
 including camera-facing borders. The source is never rewritten.
+
+The default GPU generator stores 32 vertex pairs per active curve and clamps
+unused pairs to a degenerate tail. Fill storage and border sources are retained
+separately; small camera-only updates send uniforms instead of replacement
+border triangles. The original CPU emitter remains available explicitly with
+`MANIML_BORDER_GENERATOR=cpu`, through the same Phase A renderer. This is a
+diagnostic reference, not an automatic fallback. The
+[GPU generation specification](docs_gpu_geometry_generation_plan.md#23-generation-work-and-research-gate)
+describes its source layout, dependencies, memory tradeoff and remaining work.
 
 A bordered object contains its fill triangles followed by border triangles.
 A stencil reference marks samples already painted by that object. This gives
@@ -83,6 +93,13 @@ documented degree-one RBF formulation, while the shader consumes explicit
 coefficients rather than renderer-selected vertex colors.
 [SciPy RBFInterpolator](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.RBFInterpolator.html)
 
+Format 4 introduced independent binary coefficient definitions. Unchanged
+fields use a small content-hash reference; readers retain one coefficient
+buffer across pipeline/sample bindings. The large inverse-distance fragment
+loop is unchanged and remains expensive. The follow-up paint controls preserve
+both the large-field regression and the deliberate interior semantic difference
+from historical fan interpolation.
+
 ### Explicit limits
 
 A nonplanar closed contour has no unique filled surface. An ordinary filled
@@ -100,7 +117,10 @@ renderer internals, not supported shared-backend shader extensions.
 ## Retention and transport
 
 Mesh entries hold immutable source snapshots and derived arrays, limited to
-64 MiB and 2,048 entries. Exact source-array checks detect direct writes that
+64 MiB and 2,048 fill entries. GPU source/recipe retention shares that byte
+budget and is disabled when retention is configured off. Its identity proofs
+count the input arrays they pin as well as their assembled arrays.
+Exact source-array checks detect direct writes that
 bypass revisions. Fill paint changes preserve connectivity. Border source and
 camera dependencies are cached separately from fill tessellation. Digest
 reuse trusts only immutable bytes-backed arrays, never an ordinary ndarray
@@ -113,10 +133,11 @@ limited to 64 MiB/128 files and detects file replacements. These are retained
 payload limits, not total process or GPU allocation limits. Scene targets,
 readback and temporary generation allocations are additional memory.
 
-Format 3 carries ordered operations, source paint, coverage ownership and
-supersampling. Recorded playback reconstructs requested frames from CPU
+Format 5 adds retained GPU border sources and fill/index recipes to the ordered
+operations, paint definitions, coverage ownership and supersampling contract.
+Recorded playback reconstructs requested frames from CPU
 payloads, so reverse and random seek do not require historical GPU buffers.
-The player recognizes older format 1/2 recordings and uses their original
+The player recognizes older format 1–4 recordings and uses their original
 renderer where required. Corrupt recording errors have a visible surface.
 
 ## Installation decision
@@ -135,6 +156,15 @@ Evidence is archived in
 [`benchmarks/results/triangle_phase_a_20260910/`](benchmarks/results/triangle_phase_a_20260910/).
 
 ### Performance decision
+
+The numbers below record the initial CPU-border cutover. The later
+[four-reference GPU border measurements](benchmarks/results/triangle_followup_20260910/gpu_borders/README.md)
+separate static, pan, zoom, tilt, resize and changing paths. GPU borders now
+reduce repeated 5% text zoom from 14.37 to 10.65 ms (16.09 to 11.06 ms with
+WebSocket echo), while Original 2D remains faster on text. Small-zoom packets
+fall to about 1 KB; retained text geometry grows by about 9.82 MiB over the
+CPU-border reference. Those measured tradeoffs supersede the earlier
+implementation's border-cost description below; A2 remains open.
 
 `python -m benchmarks.generated_output --samples 12 --output /tmp/phase-a`
 alternates the two variants on each frame, after three excluded warmups.
@@ -214,9 +244,11 @@ release and owned-image-file cleanup, **92 affected tests** passed with real
 GPU rendering and `ResourceWarning` treated as an error. This includes native
 output, historical GL comparison, image sampling and texture retention.
 
-The wheel and source distribution build offline. Wheel-content checks verify
-all Original 2D shaders, exclude native GL/tests, and load the Lyon helper from
-an extracted wheel; these checks and `twine check` pass. Python compilation
+The wheel and source distribution build offline. The initial wheel excluded
+native GL and tests; the approved follow-up restores packaged native GL.
+Current wheel-content checks require Original 2D, native GL and GPU border
+assets, exclude tests, and capture with both native cameras from extracted
+wheels using the packaged Lyon helper. These checks and `twine check` pass. Python compilation
 and the offline lockfile check pass. Only the local macOS arm64/Python 3.13
 configuration was executed here; the configured CI Python matrix and
 Windows/Linux distributions are not claimed as run.

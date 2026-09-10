@@ -1,0 +1,50 @@
+{
+  "chrome": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/152.0.7977.83",
+    "revision": "@79460ebecaa5625e57a5fb679a735659e73dc687",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "jsVersion": "15.2.124.21"
+  },
+  "flags": [
+    "--headless=new",
+    "--remote-debugging-port=0",
+    "--user-data-dir=/private/tmp/maniml-border-browser-profile-wjlvm9pt",
+    "--enable-unsafe-webgpu",
+    "--use-angle=metal",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--window-size=1000,750",
+    "about:blank"
+  ],
+  "url": "http://127.0.0.1:50822",
+  "profile": "/private/tmp/maniml-border-browser-profile-wjlvm9pt",
+  "assets": {
+    "geometry_recording.js": "0bb6280bb6efaabf9d68c8065565db2108d207955243b66e8bc3c518a47c0ba7",
+    "webgpu.js": "7b703afa835a245868435f96ec7b533be75a815ddcca2660fc04d853a61f367c",
+    "player.js": "655da677a37216f5a1d11b9d89b8e357e5cdec30c69a32c0e859f17181e891c4",
+    "winding_wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "winding_wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "winding_wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "winding_wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "winding_wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "winding_wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "winding_wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "winding_wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "winding_wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+    "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "wgsl/border_compute.wgsl": "91ff2e46978d9c01191143a60673dc2af51290b148045e29b962edc943a1bb19",
+    "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+    "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "wgsl/paint.wgsl": "8f042440a812b5f6be425dc91995566a3357d903a46bf4e9e0908ed261f0694b",
+    "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b"
+  }
+}

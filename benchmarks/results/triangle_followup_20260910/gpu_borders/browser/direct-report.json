@@ -1,0 +1,116 @@
+{
+  "status": "PASS",
+  "page": "direct",
+  "frames": 35,
+  "cases": [
+    "format4 same geometry changing paint pixels, cached, empty and return",
+    "missing paint requests reset and full payload recovers",
+    "destroy/reinit and format3 inline paint",
+    "format4 reverse and random recording seek pixels",
+    "format5 GPU border compute, translucent ownership, changed color, zoom, pixel-exact CPU border reference",
+    "missing border requests reset and full payload recovers",
+    "format5 reverse and random seek with independently rehydrated source recipes",
+    "format5 destroy/reinit and source replay"
+  ],
+  "probes": {
+    "paint-red": [
+      255,
+      0,
+      0,
+      255
+    ],
+    "paint-red-cached": [
+      255,
+      0,
+      0,
+      255
+    ],
+    "paint-blue": [
+      0,
+      0,
+      255,
+      255
+    ],
+    "paint-blue-cached": [
+      0,
+      0,
+      255,
+      255
+    ],
+    "paint-empty": [
+      0,
+      0,
+      0,
+      255
+    ],
+    "paint-return": [
+      255,
+      0,
+      0,
+      255
+    ],
+    "border-green": [
+      0,
+      140,
+      0,
+      255
+    ],
+    "border-green-cached": [
+      0,
+      140,
+      0,
+      255
+    ],
+    "border-red": [
+      140,
+      0,
+      0,
+      255
+    ],
+    "border-red-cached": [
+      140,
+      0,
+      0,
+      255
+    ],
+    "border-empty": [
+      0,
+      0,
+      0,
+      255
+    ],
+    "border-return": [
+      140,
+      0,
+      0,
+      255
+    ],
+    "border-zoom": [
+      140,
+      0,
+      0,
+      255
+    ]
+  },
+  "comparisons": {
+    "normal": {
+      "changedChannels": 0,
+      "max": 0,
+      "mae": 0
+    },
+    "zoom": {
+      "changedChannels": 0,
+      "max": 0,
+      "mae": 0
+    }
+  },
+  "expectedCacheMisses": 2,
+  "readback": "GPU canvas COPY_SRC to MAP_READ buffer; canvas configuration only adds COPY_SRC usage",
+  "errors": [],
+  "cacheMisses": 2,
+  "adapters": [
+    {},
+    {},
+    {}
+  ]
+}

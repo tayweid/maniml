@@ -3,6 +3,7 @@
 from copy import deepcopy
 import importlib.util
 import io
+import hashlib
 import os
 from types import SimpleNamespace
 import tempfile
@@ -57,6 +58,30 @@ def _binary_paint_message(*colors, samples=1):
     return header, raw
 
 
+def _border_wire(*, curves=1, fill_count=4, copies=1, samples=4):
+    from tests.test_border_compute import source_records, strip_indices
+    from tests.test_border_geometry import segment
+    data = np.concatenate([segment(points=((-2, -2, 0), (0, -3, 0), (2, -2, 0)),
+                           widths=(40, 40, 40)) for _ in range(curves)])
+    data["fill_rgba"] = [1, 0, 0, .5]
+    records = source_records(data)
+    fill = np.resize(_draw().vertices, fill_count)
+    indices = np.concatenate([np.array([0, 1, 2, 0, 2, 3] if fill_count else [], dtype="<u4"),
+        *(strip_indices().reshape(-1) + fill_count + 64 * i for i in range(curves))]).astype("<u4")
+    header, _ = _message(_draw(), samples=samples, supersample=2)
+    key = hashlib.blake2b(records.tobytes(), digest_size=16).hexdigest()
+    raw = fill.tobytes() + indices.tobytes() + b"x"
+    header.update(format_version=5, border_data={key: {"offset": len(raw), "nbytes": records.nbytes}})
+    raw += records.tobytes()
+    batch = header["batches"][0]
+    batch.update(hash="border-fill", offset=0, index_offset=fill.nbytes,
+        fill_num_verts=fill_count, num_verts=fill_count + 64 * curves,
+        index_count=len(indices), count=len(indices), border={"hash": key, "num_curves": curves},
+        coverage=True, uniforms={"flat_stroke": 0, "scale_stroke_with_zoom": 0})
+    header["batches"] = [deepcopy(batch) for _ in range(copies)]
+    return header, raw, data, fill
+
+
 class _Buffer:
     def __init__(self, data, events):
         self.data = bytes(data)
@@ -85,6 +110,13 @@ class _Encoder:
         self.events.append(("begin_render_pass", descriptor))
         return _Pass(self.events)
 
+    def begin_compute_pass(self):
+        self.events.append(("begin_compute_pass",))
+        return _Pass(self.events)
+
+    def copy_buffer_to_buffer(self, source, source_offset, target, target_offset, size):
+        self.events.append(("copy_buffer_to_buffer", source, source_offset, target, target_offset, size))
+
     def finish(self):
         self.events.append(("finish",))
         return self
@@ -93,6 +125,7 @@ class _Encoder:
 class _Device:
     def __init__(self):
         self.events, self.buffers = [], []
+        self.limits = {}
         self.queue = SimpleNamespace(
             write_texture=Mock(),
             submit=lambda commands: self.events.append(("submit", commands)),
@@ -106,6 +139,12 @@ class _Device:
         buffer.usage = usage
         self.buffers.append(buffer)
         return buffer
+
+    def create_buffer(self, *, size, usage):
+        return self.create_buffer_with_data(data=bytes(size), usage=usage)
+
+    def create_compute_pipeline(self, **descriptor):
+        return SimpleNamespace(name="border_compute", get_bind_group_layout=lambda group: ("compute", group))
 
     def create_bind_group(self, **descriptor):
         return descriptor
@@ -128,10 +167,13 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._generated_textures = {}
         self.renderer._generated_paints = {}
         self.renderer._generated_paint_bindings = {}
+        self.renderer._border_sources = {}
+        self.renderer._border_outputs = {}
+        self.renderer._border_compute_pipeline = None
         self.renderer.texture_cache = {}
         self.renderer.sampler = object()
         self.renderer._ensure_targets = Mock()
-        self.renderer._modules = {"resolve2": object()}
+        self.renderer._modules = {"resolve2": object(), "border_compute": object()}
         self.renderer._spatial_pipeline = None
         self.renderer._spatial_texture = None
         self.renderer._spatial_binding = None
@@ -343,6 +385,85 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer.render(header, raw)
         values = np.frombuffer(next(iter(self.renderer._generated_paints.values()))[1], dtype="<f4")
         np.testing.assert_array_equal(values[12:16], [1, .5, 0, .75])
+
+    def test_gpu_border_retains_source_fill_and_separate_occurrence_outputs(self):
+        header, raw, _, _ = _border_wire(curves=3, fill_count=40, copies=2)
+        self.renderer.device.limits["max-compute-workgroups-per-dimension"] = 2
+        header["batches"][1]["uniforms"]["camera_position"] = [0, -10, 10]
+        self.renderer.render(header, raw)
+        self.assertEqual(len(self.renderer._generated_geometry), 1)
+        self.assertEqual(len(self.renderer._border_sources), 1)
+        self.assertEqual(len(self.renderer._border_outputs), 2)
+        outputs = [resource["buffer"] for resource in self.renderer._border_outputs.values()]
+        self.assertIsNot(*outputs)
+        events = self.renderer.device.events
+        self.assertEqual([event[1] for event in events if event[0] == "dispatch_workgroups"], [2, 1, 2, 1])
+        first_scene = next(i for i, event in enumerate(events) if event[0] == "begin_render_pass")
+        self.assertTrue(all(i < first_scene for i, event in enumerate(events) if event[0] == "dispatch_workgroups"))
+        copies = [event for event in events if event[0] == "copy_buffer_to_buffer"]
+        self.assertEqual(len(copies), 2)
+        self.assertEqual(copies[0][-1], 40 * 40)
+        for resource in self.renderer._border_outputs.values():
+            view = resource["binding"]["entries"][1]["resource"]
+            self.assertEqual(view["offset"], 1280)
+            self.assertEqual(view["size"], (8 + 3 * 64) * 40)
+        header["border_data"] = {}
+        for batch in header["batches"]:
+            batch["cached"] = True
+        self.renderer.device.events.clear()
+        self.renderer.render(header, b"")
+        self.assertFalse(any(event[0] in ("dispatch_workgroups", "copy_buffer_to_buffer") for event in self.renderer.device.events))
+        header["camera"]["frame_scale"] *= .95
+        self.renderer.device.events.clear()
+        self.renderer.render(header, b"")
+        self.assertEqual([event[1] for event in self.renderer.device.events if event[0] == "dispatch_workgroups"], [2, 1, 2, 1])
+        self.assertEqual([resource["buffer"] for resource in self.renderer._border_outputs.values()], outputs)
+        header["batches"] = []
+        self.renderer.render(header, b"")
+        self.assertFalse(self.renderer._border_sources)
+        self.assertFalse(self.renderer._border_outputs)
+        self.assertTrue(all(buffer.destroyed for buffer in outputs))
+
+    def test_gpu_border_validates_spans_counts_widths_indices_and_failed_generation_state(self):
+        header, raw, _, _ = _border_wire(fill_count=40)
+        # Whole output exceeds this fake storage limit; its aligned tail fits.
+        self.renderer.device.limits.update({"max-storage-buffer-binding-size": 3000, "max-buffer-size": 5000})
+        self.renderer.render(header, raw)
+        old_sources, old_outputs = self.renderer._border_sources.copy(), self.renderer._border_outputs.copy()
+        def reject(bad, payload, message="border"):
+            self.renderer.device.events.clear()
+            with self.assertRaisesRegex((ValueError, KeyError), message):
+                self.renderer.render(bad, payload)
+            self.assertFalse(any(event[0] == "submit" for event in self.renderer.device.events))
+            self.assertEqual(self.renderer._border_sources, old_sources)
+            self.assertEqual(self.renderer._border_outputs, old_outputs)
+        for field, value in (("fill_num_verts", -1), ("num_verts", 1), ("count", 1), ("index_offset", len(raw)),
+                             ("offset", len(raw)), ("instances", True)):
+            bad = deepcopy(header); bad["batches"][0][field] = value
+            reject(bad, raw)
+        for field, value in ((7, -1), (36, -1), (37, .5), (38, .5), (39, 1), (0, np.nan)):
+            payload = bytearray(raw)
+            ref = next(iter(header["border_data"].values()))
+            payload[ref["offset"] + 4 * field:ref["offset"] + 4 * (field + 1)] = np.float32(value).tobytes()
+            reject(header, payload)
+        bad = deepcopy(header); bad["batches"][0]["border"]["hash"] = "f" * 32; bad["border_data"] = {}
+        reject(bad, raw, "border cache miss")
+        # Failed encoding after dispatch never commits the new camera state.
+        bad = deepcopy(header); bad["batches"][0]["uniforms"]["frame_scale"] = .9
+        bad["batches"].append({"kind": "generated", "pipeline": "invalid"})
+        state = next(iter(old_outputs.values()))["state"]
+        reject(bad, raw, "unsupported generated pipeline")
+        self.assertEqual(next(iter(old_outputs.values()))["state"], state)
+        for index in range(5):
+            late = deepcopy(bad)
+            late["batches"][0]["hash"] = f"failed-fill-{index}"
+            resident = [buffer for buffer in self.renderer.device.buffers if not buffer.destroyed]
+            reject(late, raw, "unsupported generated pipeline")
+            self.assertEqual([buffer for buffer in self.renderer.device.buffers if not buffer.destroyed], resident)
+        bad["batches"].pop()
+        self.renderer.device.events.clear(); self.renderer.render(bad, raw)
+        self.assertTrue(any(event[0] == "dispatch_workgroups" for event in self.renderer.device.events))
+        self.assertNotEqual(next(iter(old_outputs.values()))["state"], state)
 
     def test_spatial_resolve_preserves_wire_uniforms_and_final_output_size(self):
         header, raw = _message(_draw(uniforms={"pixel_size": .02, "anti_alias_width": 1.25}),
@@ -574,6 +695,101 @@ class GeneratedWgpuPixels(unittest.TestCase):
             self.assertEqual((left.vertices.tobytes(), right.vertices.tobytes()), source)
         finally:
             renderer.close()
+
+    def test_gpu_border_output_matches_cpu_emitter_and_keeps_source_immutable(self):
+        from maniml.web.border_geometry import emit_border_triangles
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        header, raw, source, fill = _border_wire(copies=2)
+        header["batches"][1]["uniforms"].update(camera_position=[0, -10, 10], clip_plane=[1, 0, 0, 0])
+        header["batches"][0]["uniforms"]["clip_plane"] = [-1, 0, 0, 0]
+        source_bytes = source.tobytes(), fill.tobytes(), raw
+        renderer = WgpuRenderer()
+        try:
+            for scale in (1, .95):
+                header["camera"]["frame_scale"] = scale
+                actual = np.asarray(renderer.render(header, raw))
+                self.assertEqual(len(renderer._border_outputs), 2)
+                cpu_draws = []
+                for batch in header["batches"]:
+                    uniforms = {**header["camera"], **batch["uniforms"]}
+                    triangles, normals = emit_border_triangles(source, uniforms, return_normals=True)
+                    vertices = np.zeros(len(fill) + triangles.size // 3, dtype=SURFACE_DTYPE)
+                    vertices[:len(fill)] = fill
+                    vertices["point"][len(fill):] = triangles.reshape(-1, 3)
+                    vertices["d_normal_point"][len(fill):] = (triangles + .001 * normals).reshape(-1, 3)
+                    vertices["rgba"][len(fill):] = [1, 0, 0, .5]
+                    indices = np.r_[np.array([0, 1, 2, 0, 2, 3], dtype="u4"), np.arange(len(fill), len(vertices), dtype="u4")]
+                    cpu_draws.append(SimpleNamespace(pipeline="surface", vertices=vertices, indices=indices,
+                        count=len(indices), instances=1, uniforms=uniforms, coverage=True))
+                expected = np.asarray(renderer.render(*_message(*cpu_draws, samples=4, supersample=2)))
+                np.testing.assert_allclose(actual, expected, atol=1)
+            self.assertEqual((source.tobytes(), fill.tobytes(), raw), source_bytes)
+        finally:
+            renderer.close()
+
+    def test_gpu_border_only_geometry_with_empty_fill_renders(self):
+        from maniml.web.border_geometry import emit_border_triangles
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        header, raw, source, _ = _border_wire(fill_count=0)
+        renderer = WgpuRenderer()
+        try:
+            actual = np.asarray(renderer.render(header, raw))
+            self.assertTrue(np.any(actual[..., 3] > 0))
+            uniforms = {**header["camera"], **header["batches"][0]["uniforms"]}
+            triangles, normals = emit_border_triangles(source, uniforms, return_normals=True)
+            vertices = np.zeros(triangles.size // 3, dtype=SURFACE_DTYPE)
+            vertices["point"] = triangles.reshape(-1, 3)
+            vertices["d_normal_point"] = (triangles + .001 * normals).reshape(-1, 3)
+            vertices["rgba"] = [1, 0, 0, .5]
+            draw = SimpleNamespace(pipeline="surface", vertices=vertices, indices=None,
+                count=len(vertices), instances=1, uniforms=uniforms, coverage=True)
+            expected = np.asarray(renderer.render(*_message(draw, samples=4, supersample=2)))
+            np.testing.assert_allclose(actual, expected, atol=1)
+        finally:
+            renderer.close()
+
+    def test_production_gpu_border_preserves_paint_depth_clip_fixed_family_and_stroke(self):
+        from maniml import Circle, Square, VGroup
+        from maniml.web.triangle_scene import prepare_triangle_frame, TriangleMeshCache
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.renderer_quality_fixtures import _source_digest
+        gradient = Square(fill_opacity=.45, fill_border_width=35, stroke_width=4).shift([-2, 0, 0])
+        x = gradient.data["point"][:, 0]
+        gradient.data["fill_rgba"][:, 0] = (x - x.min()) / (x.max() - x.min())
+        gradient.data["fill_rgba"][:, 1] = .3
+        gradient.data["fill_rgba"][:, 2] = .7
+        depth = Circle(fill_opacity=.6, fill_border_width=25, stroke_width=3).shift([2, 0, .2])
+        depth.apply_depth_test().set_clip_plane([1, 0, 0], -1.7).set_shading(.2, .1, .1)
+        fixed = VGroup(Square(side_length=.6, fill_opacity=.35, fill_border_width=20,
+                              stroke_width=2).shift([0, 1.5, 0])).fix_in_frame()
+        scene = build_scene(gradient, depth, fixed, resolution=(160, 90))
+        before = _source_digest(scene.mobjects)
+        drivers = [WgpuRenderer(), WgpuRenderer()]
+        caches = [TriangleMeshCache(), TriangleMeshCache()]
+        from maniml.web.geometry import GeometryCache
+        wires = [GeometryCache(), GeometryCache()]
+        try:
+            for scale in (1, .95):
+                scene.camera.frame.scale(scale)
+                scene.camera.refresh_uniforms()
+                images, frames = [], []
+                for gpu, driver, cache, wire in zip((False, True), drivers, caches, wires):
+                    frame = prepare_triangle_frame(scene, LyonFillTessellator(), mesh_cache=cache,
+                        fill_borders=True, gpu_borders=gpu)
+                    frame.samples, frame.supersample = 4, 2
+                    frames.append(frame)
+                    header, payload = parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, wire))
+                    images.append(np.asarray(driver.render(header, payload)))
+                np.testing.assert_allclose(images[0], images[1], atol=1)
+                cpu_strokes = [draw.vertices.tobytes() for draw in frames[0].draws if draw.pipeline.startswith("stroke")]
+                gpu_strokes = [draw.vertices.tobytes() for draw in frames[1].draws if draw.pipeline.startswith("stroke")]
+                self.assertTrue(cpu_strokes)
+                self.assertEqual(cpu_strokes, gpu_strokes)
+                self.assertEqual(_source_digest(scene.mobjects), before)
+        finally:
+            for driver in drivers:
+                driver.close()
 
     def test_more_spatial_samples_converge_toward_exact_pixel_coverage(self):
         from benchmarks.renderer_aa import area_control

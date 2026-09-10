@@ -21,6 +21,8 @@ from __future__ import annotations
 import io
 import os
 import re
+import struct
+from math import lcm
 
 import numpy as np
 from PIL import Image
@@ -146,6 +148,7 @@ MODULE_SOURCES = {
     "image": ("common.wgsl", "image.wgsl"),
     "texsurface": ("common.wgsl", "texsurface.wgsl"),
     "resolve2": ("resolve2.wgsl",),
+    "border_compute": ("common.wgsl", "border_compute.wgsl"),
 }
 
 
@@ -179,6 +182,9 @@ class WgpuRenderer:
         self._generated_textures = {}
         self._generated_paints = {}  # paint identity -> (storage buffer, exact bytes)
         self._generated_paint_bindings = {}
+        self._border_sources = {}
+        self._border_outputs = {}
+        self._border_compute_pipeline = None
         self._size = None
         self._spatial_texture = None
         self._spatial_pipeline = None
@@ -298,7 +304,8 @@ class WgpuRenderer:
 
     def _generated_resources(self, batch, vertex_bytes):
         layout = (batch["pipeline"], batch["stride"], batch["num_verts"],
-                  bool(batch.get("indexed")), batch.get("index_count", 0))
+                  bool(batch.get("indexed")), batch.get("index_count", 0),
+                  batch.get("fill_num_verts", batch["num_verts"]))
         resources = self._generated_geometry.get(batch["hash"])
         if resources is not None:
             if resources["layout"] != layout:
@@ -308,18 +315,165 @@ class WgpuRenderer:
             raise KeyError(f"generated geometry cache miss for batch {batch['hash']}")
 
         def buffer(offset, size, usage):
-            if not 0 <= offset <= len(vertex_bytes) or not 0 <= size <= len(vertex_bytes) - offset:
+            if (type(offset) is not int or type(size) is not int
+                    or not 0 <= offset <= len(vertex_bytes) or not 0 <= size <= len(vertex_bytes) - offset):
                 raise ValueError("generated geometry buffer extends beyond payload")
+            if size == 0:
+                # Border-only paths have no fill prefix; no map or copy is needed.
+                return self.device.create_buffer(size=4, usage=usage)
             return self.device.create_buffer_with_data(
                 data=vertex_bytes[offset:offset + size], usage=usage)
 
+        fill_count = batch.get("fill_num_verts", batch["num_verts"])
+        vertex_usage = wgpu.BufferUsage.VERTEX | (wgpu.BufferUsage.COPY_SRC if batch.get("border") else 0)
         resources = {"layout": layout, "buffer": buffer(
-            batch["offset"], batch["num_verts"] * batch["stride"], wgpu.BufferUsage.VERTEX)}
-        if batch.get("indexed"):
-            resources["index_buffer"] = buffer(
-                batch["index_offset"], batch["index_count"] * 4, wgpu.BufferUsage.INDEX)
+            batch["offset"], fill_count * batch["stride"], vertex_usage)}
+        try:
+            if batch.get("indexed"):
+                resources["index_buffer"] = buffer(
+                    batch["index_offset"], batch["index_count"] * 4, wgpu.BufferUsage.INDEX)
+        except Exception:
+            resources["buffer"].destroy()
+            raise
         self._generated_geometry[batch["hash"]] = resources
         return resources
+
+    def _prepare_borders(self, header, payload, encoder, temporary):
+        """Generate changed border tails before the ordered render pass begins."""
+        records = header.get("border_data", {})
+        if not isinstance(records, dict):
+            raise ValueError("border definitions must be an object")
+        definitions = {}
+        for key, ref in records.items():
+            if not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None:
+                raise ValueError("invalid border hash")
+            if not isinstance(ref, dict):
+                raise ValueError("invalid border definition span")
+            offset, size = ref.get("offset"), ref.get("nbytes")
+            if (type(offset) is not int or type(size) is not int or size <= 0
+                    or size % 176 or size > 52428 * 176 or offset < 0
+                    or offset > len(payload) or size > len(payload) - offset):
+                raise ValueError("invalid border definition span or curve count")
+            data = bytes(payload[offset:offset + size])
+            values = np.frombuffer(data, dtype="<f4").reshape(-1, 44)
+            if (not np.isfinite(values).all() or np.any(values[:, [7, 19, 31, 36]] < 0)
+                    or np.any((values[:, 37:39] != 0) & (values[:, 37:39] != 1))
+                    or np.any(values[:, 39] != 0)):
+                raise ValueError("invalid border coefficients, widths, density or active flags")
+            previous = self._border_sources.get(key)
+            if previous is not None and previous["data"] != data:
+                raise ValueError("border hash redefined with different coefficients")
+            definitions[key] = data
+        limits = getattr(self.device, "limits", {})
+        max_buffer = limits.get("max-buffer-size", 256 * 1024 ** 2)
+        max_storage = limits.get("max-storage-buffer-binding-size", 128 * 1024 ** 2)
+        max_dispatch = limits.get("max-compute-workgroups-per-dimension", 65535)
+        alignment = limits.get("min-storage-buffer-offset-alignment", 256)
+        outputs, used_sources, used_outputs, completed = {}, set(), set(), []
+        uniform_buffers = {}
+        for ordinal, batch in enumerate(header["batches"]):
+            if "border" not in batch:
+                continue
+            border = batch["border"]
+            if header.get("format_version", 0) < 5 or not isinstance(border, dict):
+                raise ValueError("GPU border requires a format 5 border descriptor")
+            key, count = border.get("hash"), border.get("num_curves")
+            fill_count, vertex_count = batch.get("fill_num_verts"), batch.get("num_verts")
+            index_count = batch.get("index_count")
+            if (not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None
+                    or type(count) is not int or not 1 <= count <= 52428
+                    or type(fill_count) is not int or fill_count < 0
+                    or type(vertex_count) is not int or vertex_count != fill_count + 64 * count
+                    or batch.get("pipeline") not in ("surface", "surface_depth", "paint", "paint_depth")
+                    or batch.get("stride") != 40 or batch.get("indexed") is not True
+                    or type(index_count) is not int or index_count < 186 * count or index_count % 3
+                    or type(batch.get("count")) is not int or batch["count"] != index_count
+                    or type(batch.get("instances")) is not int or batch["instances"] != 1):
+                raise ValueError("invalid GPU border geometry layout or draw count")
+            size = vertex_count * 40
+            # Align the storage view to a whole Surface vertex as well as the
+            # device requirement. Only the border tail is bound for compute.
+            vertex_alignment = lcm(40, alignment)
+            storage_offset = fill_count * 40 // vertex_alignment * vertex_alignment
+            storage_size = size - storage_offset
+            if size > max_buffer or storage_size > max_storage:
+                raise ValueError("GPU border output exceeds device buffer limits")
+            source = self._border_sources.get(key)
+            data = definitions.get(key) if source is None else source["data"]
+            if data is None:
+                raise KeyError(f"border cache miss for {key}")
+            if len(data) != count * 176 or len(data) > max_storage:
+                raise ValueError("border definition curve count does not match geometry")
+            if not batch.get("cached"):
+                offset = batch.get("index_offset")
+                if (type(offset) is not int or offset < 0 or offset > len(payload)
+                        or 4 * index_count > len(payload) - offset):
+                    raise ValueError("border indices extend beyond payload")
+                vertex_offset = batch.get("offset")
+                if (type(vertex_offset) is not int or vertex_offset < 0 or vertex_offset > len(payload)
+                        or fill_count * 40 > len(payload) - vertex_offset):
+                    raise ValueError("border fill vertices extend beyond payload")
+                if not np.isfinite(np.frombuffer(payload[vertex_offset:vertex_offset + fill_count * 40], dtype="<f4")).all():
+                    raise ValueError("border fill vertices must be finite")
+                indices = np.frombuffer(payload[offset:offset + 4 * index_count], dtype="<u4")
+                if np.any(indices >= vertex_count):
+                    raise ValueError("border index exceeds generated vertex count")
+            values = {**header["camera"], **batch.get("uniforms", {})}
+            packed = pack_uniforms(values)
+            floats = np.frombuffer(packed, dtype="<f4")
+            factor = float(floats[23]) * (1 - float(floats[38])) + float(floats[38])
+            if (not np.isfinite(floats).all() or floats[23] <= 0 or not np.isfinite(factor) or factor < 0
+                    or floats[36] not in (0, 1, 2, 3)):
+                raise ValueError("invalid GPU border generation uniforms")
+            flat = floats[37] != 0 or floats[19] != 0
+            state = floats[[23, 38, 36, 37, 19]].tobytes() + (b"" if flat else floats[20:23].tobytes())
+            resources = self._generated_resources(batch, payload)
+            if source is None:
+                source = {"data": data, "buffer": self.device.create_buffer_with_data(
+                    data=data, usage=wgpu.BufferUsage.STORAGE)}
+                self._border_sources[key] = source
+            used_sources.add(key)
+            output_key = (batch["hash"], key, ordinal)
+            used_outputs.add(output_key)
+            output = self._border_outputs.get(output_key)
+            if self._border_compute_pipeline is None:
+                self._border_compute_pipeline = self.device.create_compute_pipeline(layout="auto",
+                    compute={"module": self._modules["border_compute"], "entry_point": "cs_main"})
+            pipeline = self._border_compute_pipeline
+            if output is None:
+                buffer = self.device.create_buffer(size=size,
+                    usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.VERTEX | wgpu.BufferUsage.COPY_DST)
+                output = {"buffer": buffer, "state": None}
+                self._border_outputs[output_key] = output
+                output["binding"] = self.device.create_bind_group(layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": source["buffer"], "size": len(data)}},
+                    {"binding": 1, "resource": {"buffer": buffer, "offset": storage_offset, "size": storage_size}}])
+                if fill_count:
+                    encoder.copy_buffer_to_buffer(resources["buffer"], 0, buffer, 0, fill_count * 40)
+            outputs[id(batch)] = output["buffer"]
+            if output["state"] == state:
+                continue
+            camera = uniform_buffers.get(packed)
+            if camera is None:
+                camera = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
+                uniform_buffers[packed] = camera
+                temporary.append(camera)
+            compute = encoder.begin_compute_pass()
+            compute.set_pipeline(pipeline)
+            compute.set_bind_group(1, output["binding"])
+            for offset in range(0, count, max_dispatch):
+                chunk = min(max_dispatch, count - offset)
+                params = self.device.create_buffer_with_data(data=struct.pack("<IIIf", offset, chunk,
+                    fill_count - storage_offset // 40 + 64 * offset, .0001), usage=wgpu.BufferUsage.UNIFORM)
+                temporary.append(params)
+                group = self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": camera, "size": UNIFORM_BYTES}},
+                    {"binding": 1, "resource": {"buffer": params, "size": 16}}])
+                compute.set_bind_group(0, group)
+                compute.dispatch_workgroups(chunk)
+            compute.end()
+            completed.append((output, state))
+        return outputs, used_sources, used_outputs, completed
 
     @staticmethod
     def _validate_paint(data):
@@ -392,7 +546,7 @@ class WgpuRenderer:
                 self._generated_paints[key] = (buffer, data)
         return keys
 
-    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys):
+    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys, border_outputs):
         """Replay all generated operations into exactly one ordered scene pass."""
         background = np.asarray(header["background"], dtype=float).copy()
         background[:3] *= background[3]
@@ -463,7 +617,7 @@ class WgpuRenderer:
                     if texture_key not in self._generated_textures:
                         self._generated_textures[texture_key] = self._texture_bind_group(pipeline, batch)
                     render_pass.set_bind_group(1, self._generated_textures[texture_key])
-                render_pass.set_vertex_buffer(0, resources["buffer"])
+                render_pass.set_vertex_buffer(0, border_outputs.get(id(batch), resources["buffer"]))
                 if batch.get("indexed"):
                     render_pass.set_index_buffer(resources["index_buffer"], "uint32")
                     render_pass.draw_indexed(batch["count"], batch["instances"])
@@ -503,6 +657,9 @@ class WgpuRenderer:
         device = self.device
         previous_paints = set(self._generated_paints)
         previous_bindings = set(self._generated_paint_bindings)
+        previous_sources, previous_outputs = set(self._border_sources), set(self._border_outputs)
+        previous_geometry, previous_uniforms = set(self._generated_geometry), set(self._generated_uniforms)
+        temporary = []
         try:
             paint_keys = self._prepare_paints(header, vertex_bytes)
             for tex_hash, ref in header.get("texture_data", {}).items():
@@ -519,9 +676,13 @@ class WgpuRenderer:
                     (*image.size, 1))
                 self.texture_cache[tex_hash] = texture
             encoder = device.create_command_encoder()
-            used = self._encode_generated(encoder, header, vertex_bytes, samples, supersample=supersample, paint_keys=paint_keys)
+            borders, used_sources, used_outputs, completed = self._prepare_borders(header, vertex_bytes, encoder, temporary)
+            used = self._encode_generated(encoder, header, vertex_bytes, samples,
+                supersample=supersample, paint_keys=paint_keys, border_outputs=borders)
             output = self._resolve_generated(encoder, size, supersample)
             device.queue.submit([encoder.finish()])
+            for border_output, state in completed:
+                border_output["state"] = state
         except Exception:
             # Failed decoding/encoding must preserve the last submitted frame
             # without accumulating materials that never reached the queue.
@@ -529,7 +690,25 @@ class WgpuRenderer:
                 del self._generated_paint_bindings[key]
             for key in self._generated_paints.keys() - previous_paints:
                 self._generated_paints.pop(key)[0].destroy()
+            for key in self._border_outputs.keys() - previous_outputs:
+                self._border_outputs.pop(key)["buffer"].destroy()
+            for key in self._border_sources.keys() - previous_sources:
+                self._border_sources.pop(key)["buffer"].destroy()
+            for key in self._generated_geometry.keys() - previous_geometry:
+                resource = self._generated_geometry.pop(key)
+                resource["buffer"].destroy()
+                if "index_buffer" in resource:
+                    resource["index_buffer"].destroy()
+            for key in self._generated_uniforms.keys() - previous_uniforms:
+                self._generated_uniforms.pop(key)[0].destroy()
             raise
+        finally:
+            for buffer in temporary:
+                buffer.destroy()
+        for key in self._border_outputs.keys() - used_outputs:
+            self._border_outputs.pop(key)["buffer"].destroy()
+        for key in self._border_sources.keys() - used_sources:
+            self._border_sources.pop(key)["buffer"].destroy()
         self._retire_generated(used, {
             value for batch in header["batches"]
             for value in batch.get("textures", {}).values()})
@@ -586,6 +765,11 @@ class WgpuRenderer:
             destroy(buffer)
         for buffer, _ in self._generated_paints.values():
             destroy(buffer)
+        for cache in (self._border_outputs, self._border_sources):
+            for resource in cache.values():
+                destroy(resource["buffer"])
+            cache.clear()
+        self._border_compute_pipeline = None
         for texture in self.texture_cache.values():
             destroy(texture)
         for name in ("out_texture", "resolve_texture", "depth_texture", "_spatial_texture"):

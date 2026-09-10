@@ -424,8 +424,11 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
         # Keep knowledge bounded to this frame. A returning object or texture
         # can be resent safely even if the original driver's LRU still has it.
         cache.sent = current_hashes | {f"tex:{key}" for key in texture_hashes}
-        if hasattr(cache, "generated_payloads"):
-            cache.generated_payloads.clear()
+        for name in ("generated_payloads", "generated_paints", "generated_borders"):
+            if hasattr(cache, name):
+                getattr(cache, name).clear()
+        if getattr(cache, "triangle_meshes", None) is not None:
+            cache.triangle_meshes.clear()
     performance.increment("geometry.serialize.calls")
     performance.increment("geometry.serialized_bytes", len(message))
     performance.increment("geometry.vertices", vertices)

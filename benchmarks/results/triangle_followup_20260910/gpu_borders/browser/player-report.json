@@ -1,0 +1,201 @@
+{
+  "status": "PASS",
+  "page": "player",
+  "frames": 20,
+  "draws": [
+    {
+      "name": "paint-red",
+      "pixel": [
+        255,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-zoom",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "paint-blue",
+      "pixel": [
+        0,
+        0,
+        255,
+        255
+      ]
+    },
+    {
+      "name": "paint-empty",
+      "pixel": [
+        0,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-green",
+      "pixel": [
+        0,
+        140,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-return",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-empty",
+      "pixel": [
+        0,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "paint-red-cached",
+      "pixel": [
+        255,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "paint-red-cached",
+      "pixel": [
+        255,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "paint-blue",
+      "pixel": [
+        0,
+        0,
+        255,
+        255
+      ]
+    },
+    {
+      "name": "paint-blue-cached",
+      "pixel": [
+        0,
+        0,
+        255,
+        255
+      ]
+    },
+    {
+      "name": "paint-empty",
+      "pixel": [
+        0,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-green",
+      "pixel": [
+        0,
+        140,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-green-cached",
+      "pixel": [
+        0,
+        140,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-red",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-red-cached",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-empty",
+      "pixel": [
+        0,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-return",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-zoom",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "name": "border-return",
+      "pixel": [
+        140,
+        0,
+        0,
+        255
+      ]
+    }
+  ],
+  "cases": [
+    "production player format5 containing format4 paint and format5 border frames",
+    "first and single-frame segments",
+    "forward and reverse playback",
+    "random backward seek",
+    "empty and returning geometry",
+    "independent paint and border rehydration",
+    "actual GPU canvas pixel probes"
+  ],
+  "errors": [],
+  "cacheMisses": 0,
+  "adapters": [
+    {}
+  ]
+}

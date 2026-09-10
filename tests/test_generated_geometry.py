@@ -234,7 +234,8 @@ class GeneratedGeometryWire(unittest.TestCase):
         first, cache = painted_quad(), GeometryCache()
         second = replace(first, paint=painted_quad((0, 0, 1, .75)).paint)
         header, raw = parse_geometry_message(encode([first, second, first], cache))
-        self.assertEqual(header["format_version"], 4)
+        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+        self.assertEqual(header["format_version"], GEOMETRY_FORMAT_VERSION)
         self.assertEqual(len({batch["hash"] for batch in header["batches"]}), 1)
         self.assertEqual(len(header["paint_data"]), 2)
         for batch, draw in zip(header["batches"], (first, second, first)):
@@ -338,6 +339,19 @@ class GeneratedGeometryWire(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "Node is required for recording replay")
 class RecordedGeometryReplay(unittest.TestCase):
+    @staticmethod
+    def border_draw(color=(1, 0, 0, .5), *, fill=True):
+        from maniml.web.gpu_border_geometry import border_indices, readonly
+        draw = painted_quad()
+        curves = np.zeros((1, 44), dtype="<f4")
+        curves[0, 37] = 1
+        curves[0, 40:44] = color
+        vertices = draw.vertices if fill else draw.vertices[:0]
+        indices = np.concatenate((draw.indices if fill else draw.indices[:0],
+                                  border_indices(1, len(vertices))))
+        return replace(draw, vertices=vertices, indices=readonly(indices), count=len(indices),
+                       border_sources=readonly(curves))
+
     def run_player(self, mode):
         harness = Path(__file__).with_name("player_commands.cjs")
         result = subprocess.run([shutil.which("node"), str(harness), mode],
@@ -359,6 +373,124 @@ class RecordedGeometryReplay(unittest.TestCase):
 
     def test_player_rehydrates_paint_across_reverse_seek_and_render_failure(self):
         self.run_player("paint")
+
+    def test_player_rehydrates_gpu_borders_across_seeks_and_render_failure(self):
+        self.run_player("border")
+
+    def test_gpu_border_sources_and_fill_bytes_survive_random_seek_and_sender_reset(self):
+        red, blue, cache = self.border_draw(), self.border_draw((0, 0, 1, .75)), GeometryCache()
+        messages = [encode([red], cache), encode([red], cache), encode([blue], cache),
+                    encode([blue], cache), encode([], cache), encode([red], cache)]
+        cache.reset()
+        messages.append(encode([blue], cache))
+        first, _ = parse_geometry_message(messages[0])
+        changed, _ = parse_geometry_message(messages[2])
+        self.assertEqual(first["batches"][0]["hash"], changed["batches"][0]["hash"])
+        self.assertEqual(first["batches"][0]["paint_hash"], changed["batches"][0]["paint_hash"])
+        self.assertNotEqual(first["batches"][0]["border"], changed["batches"][0]["border"])
+        for index in (1, 3):
+            header, raw = parse_geometry_message(messages[index])
+            self.assertTrue(header["batches"][0]["cached"])
+            self.assertEqual(header["border_data"], {})
+            self.assertEqual(raw, b"")
+        order = [3, 1, 6, 4, 2, 5, 0, 3]
+        for index, message in zip(order, self.run_recording(messages, order)):
+            header, raw = parse_geometry_message(message)
+            if index == 4:
+                self.assertEqual(header["batches"], [])
+                self.assertEqual(header["border_data"], {})
+                continue
+            batch = header["batches"][0]
+            expected = blue if index in (2, 3, 6) else red
+            self.assertEqual(batch["num_verts"], 68)
+            self.assertEqual(batch["fill_num_verts"], 4)
+            self.assertNotIn("cached", batch)
+            self.assertEqual(raw[batch["offset"]:batch["index_offset"]], expected.vertices.tobytes())
+            self.assertEqual(raw[batch["index_offset"]:batch["index_offset"] + batch["index_count"] * 4],
+                             expected.indices.tobytes())
+            self.assertGreater(int(expected.indices.max()), batch["fill_num_verts"])
+            self.assertEqual(set(header["border_data"]), {batch["border"]["hash"]})
+            info = header["border_data"][batch["border"]["hash"]]
+            self.assertEqual(raw[info["offset"]:info["offset"] + info["nbytes"]],
+                             expected.border_sources.tobytes())
+
+    def test_border_only_draws_shared_sources_and_unaligned_definitions(self):
+        draw = self.border_draw(fill=False)
+        header, raw = parse_geometry_message(encode([draw, draw]))
+        for batch in header["batches"]:
+            batch["offset"] += 1
+            batch["index_offset"] += 1
+        for field in ("paint_data", "border_data"):
+            for info in header[field].values():
+                info["offset"] += 1
+        message, = self.run_recording([self.pack_recording(header, b"x" + raw)], [0])
+        full, payload = parse_geometry_message(message)
+        self.assertEqual(len(full["border_data"]), 1)
+        self.assertEqual(len(full["paint_data"]), 1)
+        for batch in full["batches"]:
+            self.assertEqual(batch["fill_num_verts"], 0)
+            self.assertEqual(batch["num_verts"], 64)
+            self.assertEqual(batch["offset"], batch["index_offset"])
+        info = next(iter(full["border_data"].values()))
+        self.assertEqual(payload[info["offset"]:info["offset"] + info["nbytes"]], draw.border_sources.tobytes())
+
+    def test_recording_rejects_corrupt_gpu_border_layouts_sources_and_cached_counts(self):
+        import struct
+        good = encode([self.border_draw()])
+        failures = ("missing", "truncated", "short", "zero", "fractional_offset", "hash", "conflict",
+                    "nonfinite", "width", "density", "active", "capped", "reserved", "source_count",
+                    "old_version", "descriptor", "curves", "curve_limit", "fill", "output", "stride",
+                    "pipeline", "indexed", "instances", "index_count", "count", "index", "fill_nan",
+                    "cached_fill", "cached_indices", "orphan_fill", "definitions")
+        for failure in failures:
+            with self.subTest(failure=failure):
+                header, raw = parse_geometry_message(good)
+                raw = bytearray(raw)
+                batch = header["batches"][0]
+                info = next(iter(header["border_data"].values()))
+                error = "[Bb]order"
+                preceding = []
+                if failure == "missing":
+                    header["border_data"] = {}
+                elif failure in ("truncated", "short", "zero", "fractional_offset"):
+                    if failure == "fractional_offset": info["offset"] += .5
+                    else: info["nbytes"] = {"truncated": 180, "short": 172, "zero": 0}[failure]
+                    if failure in ("truncated", "fractional_offset"): error = "Truncated recorded geometry payload"
+                elif failure == "hash":
+                    batch["border"]["hash"] = "invalid"
+                elif failure in ("conflict", "nonfinite", "width", "density", "active", "capped", "reserved"):
+                    slot, value = {"conflict": (40, .25), "nonfinite": (0, np.inf), "width": (19, -1),
+                                   "density": (36, -1), "active": (37, .5), "capped": (38, 2),
+                                   "reserved": (39, 1)}[failure]
+                    struct.pack_into("<f", raw, info["offset"] + slot * 4, value)
+                    if failure == "conflict": preceding = [good]
+                elif failure == "source_count":
+                    raw.extend(raw[info["offset"]:info["offset"] + 176])
+                    info["nbytes"] = 352
+                elif failure == "old_version": header["format_version"] = 4
+                elif failure == "descriptor": batch["border"] = []
+                elif failure in ("curves", "curve_limit"):
+                    batch["border"]["num_curves"] = .5 if failure == "curves" else 52429
+                elif failure in ("fill", "output", "stride", "pipeline", "indexed", "instances", "index_count", "count"):
+                    key, value = {"fill": ("fill_num_verts", -1), "output": ("num_verts", 67),
+                                  "stride": ("stride", 68), "pipeline": ("pipeline", "stroke"),
+                                  "indexed": ("indexed", False), "instances": ("instances", 2),
+                                  "index_count": ("index_count", 6), "count": ("count", 189)}[failure]
+                    batch[key] = value
+                elif failure == "index": struct.pack_into("<I", raw, batch["index_offset"], 68)
+                elif failure == "fill_nan": struct.pack_into("<f", raw, batch["offset"], np.nan)
+                elif failure in ("cached_fill", "cached_indices"):
+                    preceding = [good]
+                    batch["cached"] = True
+                    if failure == "cached_fill":
+                        batch["fill_num_verts"] += 1
+                        batch["num_verts"] += 1
+                    else:
+                        batch["index_count"] += 3
+                        batch["count"] += 3
+                elif failure == "orphan_fill": del batch["border"]
+                elif failure == "definitions": header["border_data"] = []
+                self.run_recording(preceding + [self.pack_recording(header, raw)], [0], error=error)
 
     def test_reverse_seek_rehydrates_paint_independently_of_geometry(self):
         red, blue, cache = painted_quad(), painted_quad((0, 0, 1, .75)), GeometryCache()

@@ -426,3 +426,133 @@ tests pass (12 native GPU cases skipped in that CPU invocation); the separate
 26-test native run passes with GPU enabled. Controls include the same mesh
 with two paints in one frame, unaligned definitions, missing/corrupt data,
 failed-frame cleanup, empty/returning scenes and device recreation.
+
+### 7. General GPU fill borders
+
+The default Phase A path now retains compact curve-source records and expands
+fill borders in a shared WGSL compute stage. This applies to general vector
+objects, including text. The existing CPU emitter remains independently
+selectable with `MANIML_BORDER_GENERATOR=cpu`. Python still owns source-point
+updates, derived curve inputs and general fill tessellation; this increment
+does not complete Phase B. Later GPU source evaluation can write these same
+curve records without replacing the ordered renderer.
+
+Format 5 sends immutable fill vertices/static indices separately from a
+content-addressed border definition. Camera-only border changes update
+uniforms; flat-border pan reuses output. Real fill-quality refinement remains
+independent. Fixed capacity holds 32 vertex pairs per curve, clamping unused
+samples into degenerate triangles. This avoids a CPU readback for draw counts
+and preserves fill A, border A, fill B, border B through the static index
+order. Opaque text keeps one scene draw plus one resolve; translucent, painted,
+shaded and depth-tested borders keep per-object coverage. Depth-enabled
+coverage draws also retain depth replay.
+
+Both drivers retain separate source and generated-output buffers. Output is
+identified by draw occurrence as well as input identities, so two uses of the
+same source with different uniforms cannot overwrite each other. Storage
+bindings respect alignment, size and dispatch limits. Generation reuse state
+commits only after successful submission; failed frames discard new buffers
+and preserve the previous frame's resources. Absent resources retire after
+submission. Switching to Original 2D also releases Phase A's host recipes,
+paint/digest memos and fill cache. Returning content resends full definitions.
+The recording index rebuilds format 5 inputs for reverse/random seeks; old
+formats and inline paint remain readable. Cache misses recover through reset.
+
+Source checks still inspect exact public arrays. The host fill and GPU recipe
+caches share the configured 64 MiB budget, including input references pinned
+by immutable assembly proofs; disabling retention disables both. The first
+measurement exposed repeated copying of unchanged curves on static and pan
+frames. Reusing the verified source identity and color removed that work;
+the initial measurement and the correction are retained separately.
+
+#### Measurements against all three references
+
+`benchmarks/gpu_borders.py` runs eight cases through GPU-border Phase A,
+CPU-border Phase A, shipped Original 2D serialization with the frozen native
+WebGPU comparison driver, and packaged `NativeGLCamera`. Each has fresh
+sources/devices/caches, three warmups and twelve rotated/reversed measurements
+through full RGBA readback. Source evaluation is separately measured and
+excluded. The optional real uncompressed localhost WebSocket echo adds two
+wire traversals before parsing. Neither run measures browser presentation or
+GPU timestamps; historical AA policies differ from Phase A's default.
+
+| Native complete-frame median | GPU border | CPU border | Original 2D | Native GL |
+| --- | ---: | ---: | ---: | ---: |
+| Exact 211-square B0 | 24.35 ms | 25.12 ms | 66.95 ms | 265.57 ms |
+| Static 101-glyph text | 6.96 ms | 7.74 ms | 5.54 ms | 7.76 ms |
+| Text pan | 8.80 ms | 9.86 ms | 5.57 ms | 7.77 ms |
+| Repeated 5% text zoom | 10.65 ms | 14.37 ms | 5.49 ms | 8.24 ms |
+| Text 1→4→1 zoom | 10.72 ms | 17.14 ms | 5.75 ms | 8.06 ms |
+| Text tilt | 9.00 ms | 9.84 ms | 5.55 ms | 8.02 ms |
+| Text resize | 12.04 ms | 11.62 ms | 6.95 ms | 8.51 ms |
+| Changing paths | 5.03 ms | 4.68 ms | 3.04 ms | 3.73 ms |
+
+With WebSocket echo, small zoom improves **16.09→11.06 ms**, and 1→4→1 zoom
+improves **19.18→11.23 ms** against CPU borders. Small zoom sends only
+**1,077–1,138 bytes**, compared with CPU-border packets up to **1,468,384**.
+Its 3,200 curve sources are prepared once. Large zoom legitimately doubles
+cumulative fill preparations from 101 to 202 in both modes and can send a
+2,671,229-byte GPU fill/index packet. The metadata-only result is conditional
+on unchanged source data and adequate retained fill quality.
+
+This reduces the measured text regression; Original 2D still wins these text
+controls. Changing paths and one resize median are slightly slower than CPU
+borders. The padded output costs more retained memory: static text geometry
+buffers total **11.54 MB versus 1.24 MB**, about **9.82 MiB extra**, excluding
+AA attachments and allocation overhead. Conservative host mesh/recipe accounting
+is 6.58 MB versus 3.30 MB, including shared proof references counted again;
+these are not unique physical-memory totals. Compact count/allocation/indirect work remains a future measured
+alternative. These are retained sizes, not peak memory claims.
+
+All raw distributions, source hashes, B0's camera packet, adapter details, full
+images, crops and reproduction commands are archived in
+[the GPU border evidence](benchmarks/results/triangle_followup_20260910/gpu_borders/README.md).
+Other camera sequences are reconstructible from the harness and frame indices;
+their full per-frame packets are not archived.
+GPU/CPU images are exact for six benchmark controls; a few large-zoom/tilt
+frames differ by at most 15/255 in one channel. No frame has an RGB difference
+over 24. The saved native and transport images are byte-equal. These are
+diagnostics alongside the dedicated quality controls, not a waiver of the
+existing zero-border AA gate or old/new interior paint differences.
+
+#### Validation and remaining scope
+
+Kernel tests compare the CPU reference's vertices, counts and bounds across
+all joins, subdivision ties, huge-density overflow, variable widths,
+partial/sentinel paths, collapsed tangents, camera-facing and fractional
+fixed-frame inputs. Eight production image controls cover text, hairlines,
+perspective and wide borders at normal and zoomed views; all are byte-exact
+locally. Cross-device checks allow at most one of sixteen AA coverage samples
+within a tightly bounded affected region. Driver tests exercise independent
+same-source outputs, dispatch/storage limits, failed-frame cleanup and
+reinitialization. Wire/player tests cover definitions, corrupt spans, skipped
+operations, cache retirement and arbitrary seeks.
+
+Actual Chrome WebGPU validation passed **35 direct-driver frames and 20
+production-player frames**, with no observed GPU validation errors or
+unhandled rejections. The translucent border control matches CPU output
+exactly at two camera poses. Paint changes, deliberate missing-definition
+recovery, empty/returning content, reinitialization and seeks pass. The
+[browser report](benchmarks/results/triangle_followup_20260910/gpu_borders/browser/README.md)
+states the flags and scope: this is an opaque-canvas correctness check, not a
+timing run or a fresh live-selector validation.
+
+The offline wheel/source distribution builds and Twine checks pass. Isolated
+extracted-wheel captures verify both native GL and the default GPU border
+path while imports from tests/benchmarks are blocked. The packaged Lyon helper
+and compute shader load, visible border coverage is checked, straight-alpha
+output is preserved, source arrays are unchanged, and CPU/GPU images match.
+
+The final full suite with actual native GPU checks and checkpoint-ledger
+verification ran **704 tests in 207.674 seconds**, with no failures/errors and
+one existing skip. Its first run exposed a stale WebSocket snapshot assertion
+that counted GPU-generated output vertices as uploaded bytes. The corrected
+test verifies every payload span, complete definitions and padded index bounds;
+the focused real WebSocket check and full rerun pass. CI's explicit module
+list now includes the new border, GL-boundary and ordering checks. The local
+run used macOS arm64/Python 3.13; other CI platforms/versions were not executed.
+
+General GPU point evaluation and fill topology, the remaining A2 text gap,
+large non-affine paint fragment cost, nonplanar contour support and the
+zero-border AA gate remain open. Original 2D and packaged native GL remain
+available throughout this rollout.

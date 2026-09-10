@@ -97,6 +97,7 @@ const ManimlWGPU = (() => {
     texsurface: ["common.wgsl", "texsurface.wgsl"],
     blit: ["blit.wgsl"],
     resolve2: ["resolve2.wgsl"],
+    border_compute: ["common.wgsl", "border_compute.wgsl"],
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
@@ -111,6 +112,8 @@ const ManimlWGPU = (() => {
   const generatedTextures = new Map();
   const generatedPaints = new Map();  // paint identity -> immutable storage
   const generatedPaintBindings = new Map();
+  const borderSources = new Map(), borderOutputs = new Map();
+  let borderPipeline = null;
   let usedGeneratedGeometry = new Set();
   let usedGeneratedUniforms = new Set();
   let usedGeneratedTextures = new Set();
@@ -171,7 +174,7 @@ const ManimlWGPU = (() => {
   function makeBuffer(arrayBufferLike, usage) {
     const bytes = arrayBufferLike instanceof Uint8Array
       ? arrayBufferLike : new Uint8Array(arrayBufferLike);
-    const size = Math.ceil(bytes.byteLength / 4) * 4;
+    const size = Math.max(4, Math.ceil(bytes.byteLength / 4) * 4);
     const buffer = device.createBuffer(
       { size, usage, mappedAtCreation: true });
     new Uint8Array(buffer.getMappedRange()).set(bytes);
@@ -284,10 +287,16 @@ const ManimlWGPU = (() => {
   function generatedResources(batch, vertexBytes) {
     usedGeneratedGeometry.add(batch.hash);
     let res = generatedGeometry.get(batch.hash);
-    if (res) return res;
+    const descriptor = JSON.stringify([batch.pipeline, batch.stride, batch.num_verts,
+      !!batch.indexed, batch.index_count || 0, batch.fill_num_verts ?? batch.num_verts]);
+    if (res) {
+      if (res.descriptor !== descriptor) throw new Error("cached generated geometry layout changed");
+      return res;
+    }
     if (batch.cached) { cacheMissed = true; return null; }
     const vertex = makeBuffer(vertexBytes.subarray(
-      batch.offset, batch.offset + batch.num_verts * batch.stride), GPUBufferUsage.VERTEX);
+      batch.offset, batch.offset + (batch.fill_num_verts ?? batch.num_verts) * batch.stride),
+      GPUBufferUsage.VERTEX | (batch.border ? GPUBufferUsage.COPY_SRC : 0));
     const buffers = [vertex];
     let index = null;
     if (batch.indexed) {
@@ -295,7 +304,7 @@ const ManimlWGPU = (() => {
         batch.index_offset, batch.index_offset + batch.index_count * 4), GPUBufferUsage.INDEX);
       buffers.push(index);
     }
-    res = { vertex, index, buffers };
+    res = { vertex, index, buffers, descriptor };
     generatedGeometry.set(batch.hash, res);
     return res;
   }
@@ -337,6 +346,161 @@ const ManimlWGPU = (() => {
     });
     generatedTextures.set(key, binding);
     return binding;
+  }
+
+  function prepareBorders(header, payload, encoder, temporary) {
+    const records = "border_data" in header ? header.border_data : {};
+    if (records === null || typeof records !== "object" || Array.isArray(records)) {
+      throw new Error("border definitions must be an object");
+    }
+    const validHash = hash => typeof hash === "string" && /^[0-9a-f]{32}$/.test(hash);
+    const definitions = new Map();
+    for (const [key, ref] of Object.entries(records)) {
+      if (!validHash(key)) throw new Error("invalid border hash");
+      if (ref === null || typeof ref !== "object" || Array.isArray(ref)) {
+        throw new Error("invalid border definition span");
+      }
+      const {offset, nbytes} = ref;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes)
+          || offset < 0 || nbytes <= 0 || nbytes % 176 || nbytes > 52428 * 176
+          || offset > payload.length || nbytes > payload.length - offset) {
+        throw new Error("invalid border definition span or curve count");
+      }
+      const bytes = payload.slice(offset, offset + nbytes);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let i = 0; i < nbytes / 4; i++) {
+        const value = view.getFloat32(4 * i, true), field = i % 44;
+        if (!Number.isFinite(value) || ([7, 19, 31, 36].includes(field) && value < 0)
+            || ((field === 37 || field === 38) && value !== 0 && value !== 1)
+            || (field === 39 && value !== 0)) {
+          throw new Error("invalid border coefficients, widths, density or active flags");
+        }
+      }
+      const previous = borderSources.get(key);
+      if (previous && (previous.bytes.length !== bytes.length
+          || previous.bytes.some((value, i) => value !== bytes[i]))) {
+        throw new Error("border hash redefined with different coefficients");
+      }
+      definitions.set(key, bytes);
+    }
+    const limits = device.limits || {};
+    const maxBuffer = limits.maxBufferSize ?? 256 * 1024 ** 2;
+    const maxStorage = limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2;
+    const maxDispatch = limits.maxComputeWorkgroupsPerDimension ?? 65535;
+    const alignment = limits.minStorageBufferOffsetAlignment ?? 256;
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+    const vertexAlignment = 40 * alignment / gcd(40, alignment);
+    const outputs = new Map(), usedSources = new Set(), usedOutputs = new Set(), completed = [];
+    const cameras = new Map();
+    for (const [ordinal, batch] of header.batches.entries()) {
+      if (!("border" in batch)) continue;
+      const border = batch.border;
+      if ((header.format_version ?? 0) < 5 || border === null
+          || typeof border !== "object" || Array.isArray(border)) {
+        throw new Error("GPU border requires a format 5 border descriptor");
+      }
+      const key = border.hash, count = border.num_curves, fillCount = batch.fill_num_verts;
+      if (!validHash(key) || !Number.isSafeInteger(count) || count < 1 || count > 52428
+          || !Number.isSafeInteger(fillCount) || fillCount < 0
+          || !Number.isSafeInteger(batch.num_verts) || batch.num_verts !== fillCount + 64 * count
+          || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)
+          || batch.stride !== 40 || batch.indexed !== true
+          || !Number.isSafeInteger(batch.index_count) || batch.index_count < 186 * count
+          || batch.index_count % 3 || batch.count !== batch.index_count || batch.instances !== 1) {
+        throw new Error("invalid GPU border geometry layout or draw count");
+      }
+      const size = batch.num_verts * 40;
+      const storageOffset = Math.floor(fillCount * 40 / vertexAlignment) * vertexAlignment;
+      const storageSize = size - storageOffset;
+      if (!Number.isSafeInteger(size) || size > maxBuffer || storageSize > maxStorage) {
+        throw new Error("GPU border output exceeds device buffer limits");
+      }
+      let source = borderSources.get(key);
+      const bytes = source ? source.bytes : definitions.get(key);
+      if (!bytes) { cacheMissed = true; outputs.set(batch, null); continue; }
+      if (bytes.length !== count * 176 || bytes.length > maxStorage) {
+        throw new Error("border definition curve count does not match geometry");
+      }
+      if (!batch.cached) {
+        const offset = batch.index_offset, vertexOffset = batch.offset;
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset > payload.length
+            || batch.index_count * 4 > payload.length - offset
+            || !Number.isSafeInteger(vertexOffset) || vertexOffset < 0 || vertexOffset > payload.length
+            || fillCount * 40 > payload.length - vertexOffset) {
+          throw new Error("border geometry extends beyond payload");
+        }
+        const indices = new DataView(payload.buffer, payload.byteOffset + offset, batch.index_count * 4);
+        for (let i = 0; i < batch.index_count; i++) {
+          if (indices.getUint32(4 * i, true) >= batch.num_verts) {
+            throw new Error("border index exceeds generated vertex count");
+          }
+        }
+        const vertices = new DataView(payload.buffer, payload.byteOffset + vertexOffset, fillCount * 40);
+        for (let i = 0; i < fillCount * 10; i++) {
+          if (!Number.isFinite(vertices.getFloat32(4 * i, true))) {
+            throw new Error("border fill vertices must be finite");
+          }
+        }
+      }
+      const values = {...header.camera, ...batch.uniforms};
+      const packed = packUniforms(values, values.border_mode || 0);
+      const floats = new Float32Array(packed), bits = new Uint32Array(packed);
+      const factor = floats[23] * (1 - floats[38]) + floats[38];
+      if (floats.some(value => !Number.isFinite(value)) || floats[23] <= 0 || factor < 0
+          || ![0, 1, 2, 3].includes(floats[36])) {
+        throw new Error("invalid GPU border generation uniforms");
+      }
+      const flat = floats[37] !== 0 || floats[19] !== 0;
+      const state = [23, 38, 36, 37, 19, ...(flat ? [] : [20, 21, 22])].map(i => bits[i]).join(",");
+      const resources = generatedResources(batch, payload);
+      if (!resources) { outputs.set(batch, null); continue; }
+      if (!source) {
+        source = {bytes, buffer: makeBuffer(bytes, GPUBufferUsage.STORAGE)};
+        borderSources.set(key, source);
+      }
+      usedSources.add(key);
+      const outputKey = JSON.stringify([batch.hash, key, ordinal]);
+      usedOutputs.add(outputKey);
+      let output = borderOutputs.get(outputKey);
+      if (!borderPipeline) borderPipeline = device.createComputePipeline({layout: "auto",
+        compute: {module: modules.border_compute, entryPoint: "cs_main"}});
+      if (!output) {
+        const buffer = device.createBuffer({size,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+        output = {buffer, state: null};
+        borderOutputs.set(outputKey, output);
+        output.binding = device.createBindGroup({layout: borderPipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: source.buffer, size: bytes.length}},
+          {binding: 1, resource: {buffer, offset: storageOffset, size: storageSize}}]});
+        if (fillCount) encoder.copyBufferToBuffer(resources.vertex, 0, buffer, 0, fillCount * 40);
+      }
+      outputs.set(batch, output.buffer);
+      if (output.state === state) continue;
+      const cameraKey = bits.join(",");
+      let camera = cameras.get(cameraKey);
+      if (!camera) {
+        camera = makeBuffer(packed, GPUBufferUsage.UNIFORM);
+        cameras.set(cameraKey, camera); temporary.push(camera);
+      }
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(borderPipeline);
+      compute.setBindGroup(1, output.binding);
+      for (let offset = 0; offset < count; offset += maxDispatch) {
+        const chunk = Math.min(maxDispatch, count - offset);
+        const data = new ArrayBuffer(16), view = new DataView(data);
+        view.setUint32(0, offset, true); view.setUint32(4, chunk, true);
+        view.setUint32(8, fillCount - storageOffset / 40 + 64 * offset, true);
+        view.setFloat32(12, .0001, true);
+        const params = makeBuffer(data, GPUBufferUsage.UNIFORM); temporary.push(params);
+        compute.setBindGroup(0, device.createBindGroup({layout: borderPipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: camera, size: 192}},
+          {binding: 1, resource: {buffer: params, size: 16}}]}));
+        compute.dispatchWorkgroups(chunk);
+      }
+      compute.end();
+      completed.push([output, state]);
+    }
+    return {outputs, usedSources, usedOutputs, completed};
   }
 
   function validatePaint(bytes) {
@@ -426,11 +590,12 @@ const ManimlWGPU = (() => {
     return keys;
   }
 
-  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, depthOnly = false) {
+  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borderBuffers, depthOnly = false) {
     const name = "generated_" + batch.pipeline + (depthOnly ? "_depth_only" : batch.coverage ? "_coverage" : "");
     if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
       throw new Error("unsupported generated pipeline " + batch.pipeline);
     }
+    if (borderBuffers.get(batch) === null) return;
     const painted = batch.pipeline === "paint" || batch.pipeline === "paint_depth";
     const paintKey = paintKeys.get(batch);
     if (painted && paintKey === null) return;  // Request resend; never reuse another material.
@@ -461,7 +626,7 @@ const ManimlWGPU = (() => {
       pass.setBindGroup(1, binding);
     }
     if (textureBinding) pass.setBindGroup(1, textureBinding);
-    pass.setVertexBuffer(0, res.vertex);
+    pass.setVertexBuffer(0, borderBuffers.get(batch) || res.vertex);
     if (batch.indexed) {
       pass.setIndexBuffer(res.index, "uint32");
       pass.drawIndexed(batch.count, batch.instances);
@@ -528,6 +693,10 @@ const ManimlWGPU = (() => {
 
     const previousPaints = new Set(generatedPaints.keys());
     const previousPaintBindings = new Set(generatedPaintBindings.keys());
+    const previousSources = new Set(borderSources.keys()), previousOutputs = new Set(borderOutputs.keys());
+    const previousGeometry = new Set(generatedGeometry.keys()), previousUniforms = new Set(generatedUniforms.keys());
+    const temporary = [];
+    let borders;
     let submitted = false;
     try {
       const paintKeys = preparePaints(header, vertexBytes);
@@ -552,6 +721,7 @@ const ManimlWGPU = (() => {
       usedGeneratedPaints = new Set(paintKeys.values());
       usedGeneratedPaintBindings = new Set();
       const encoder = device.createCommandEncoder();
+      borders = prepareBorders(header, vertexBytes, encoder, temporary);
       const [r, g, b, a] = header.background;
       let pass = outPass(encoder, [r * a, g * a, b * a, a]);
       let coverageRef = 0;
@@ -564,9 +734,9 @@ const ManimlWGPU = (() => {
           }
           pass.setStencilReference(++coverageRef);
         }
-        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys);
+        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs);
         if (batch.coverage && batch.pipeline.endsWith("_depth")) {
-          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, true);
+          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, true);
         }
       }
       pass.end();
@@ -591,6 +761,7 @@ const ManimlWGPU = (() => {
 
       device.queue.submit([encoder.finish()]);
       submitted = true;
+      for (const [output, state] of borders.completed) output.state = state;
     } finally {
       if (!submitted) {
         for (const key of generatedPaintBindings.keys()) {
@@ -602,7 +773,28 @@ const ManimlWGPU = (() => {
             generatedPaints.delete(key);
           }
         }
+        for (const [key, output] of borderOutputs) {
+          if (!previousOutputs.has(key)) { output.buffer.destroy(); borderOutputs.delete(key); }
+        }
+        for (const [key, source] of borderSources) {
+          if (!previousSources.has(key)) { source.buffer.destroy(); borderSources.delete(key); }
+        }
+        for (const [cache, previous] of [[generatedGeometry, previousGeometry], [generatedUniforms, previousUniforms]]) {
+          for (const [key, resource] of cache) {
+            if (!previous.has(key)) {
+              for (const buffer of resource.buffers) buffer.destroy();
+              cache.delete(key);
+            }
+          }
+        }
       }
+      for (const buffer of temporary) buffer.destroy();
+    }
+    for (const [key, output] of borderOutputs) {
+      if (!borders.usedOutputs.has(key)) { output.buffer.destroy(); borderOutputs.delete(key); }
+    }
+    for (const [key, source] of borderSources) {
+      if (!borders.usedSources.has(key)) { source.buffer.destroy(); borderSources.delete(key); }
     }
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
@@ -626,6 +818,11 @@ const ManimlWGPU = (() => {
         }
         generatedTextures.clear();
         generatedPaintBindings.clear();
+        for (const cache of [borderOutputs, borderSources]) {
+          for (const resource of cache.values()) resource.buffer.destroy();
+          cache.clear();
+        }
+        borderPipeline = null;
         for (const texture of textureCache.values()) texture.destroy();
         textureCache.clear();
         for (const texture of [outTexture, resolveTexture, depthTexture]) {

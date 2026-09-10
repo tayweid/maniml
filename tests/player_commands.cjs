@@ -40,8 +40,36 @@ function paintMessage(color, frameId, {cached=false, inline=false, definition=tr
   output[0]=3; output.writeUInt32LE(encoded.length,1); encoded.copy(output,5);
   return Buffer.concat([output,raw]);
 }
+function borderMessage(color, frameId, {cached=false, definition=true, empty=false}={}) {
+  const length=base.readUInt32LE(1), header=JSON.parse(base.subarray(5,5+length));
+  header.renderer='triangles'; header.format_version=5; header.test_frame=frameId;
+  header.paint_data={}; header.border_data={};
+  let raw=Buffer.alloc(0);
+  if(empty) header.batches=[];
+  else {
+    const batch=header.batches[0], fillCount=batch.num_verts;
+    const original=base.subarray(5+length), fill=original.subarray(batch.offset,batch.offset+fillCount*40);
+    const fillIndices=original.subarray(batch.index_offset,batch.index_offset+batch.index_count*4);
+    const tail=Buffer.alloc(186*4);
+    for(let step=0;step<31;step++) [0,1,2,1,2,3].forEach((corner,i)=>
+      tail.writeUInt32LE(fillCount+step*2+corner,(step*6+i)*4));
+    const hash=(color[0]===1?'c':'d').repeat(32);
+    Object.assign(batch,{pipeline:'surface',fill_num_verts:fillCount,num_verts:fillCount+64,
+      count:batch.index_count+186,index_count:batch.index_count+186,border:{hash,num_curves:1}});
+    if(cached) {batch.cached=true; delete batch.offset; delete batch.index_offset;}
+    else {batch.offset=0; batch.index_offset=fill.length; raw=Buffer.concat([fill,fillIndices,tail]);}
+    if(definition) {
+      const data=Buffer.alloc(176); data.writeFloatLE(1,37*4);
+      color.forEach((value,i)=>data.writeFloatLE(value,(40+i)*4));
+      header.border_data[hash]={offset:raw.length,nbytes:data.length}; raw=Buffer.concat([raw,data]);
+    }
+  }
+  const encoded=Buffer.from(JSON.stringify(header)), output=Buffer.alloc(5+encoded.length);
+  output[0]=3; output.writeUInt32LE(encoded.length,1); encoded.copy(output,5);
+  return Buffer.concat([output,raw]);
+}
 async function run(format, messages, transformMeta=x=>x) {
-  const elements=new Map(), listeners=new Map(), rendered=[], initialized=[], frameIds=[], paintColors=[];
+  const elements=new Map(), listeners=new Map(), rendered=[], initialized=[], frameIds=[], paintColors=[], borderColors=[];
   let interval, failNext=false;
   function element() {
     return {children:[], replaceChildren(...children) {this.children=children;},
@@ -67,6 +95,15 @@ async function run(format, messages, transformMeta=x=>x) {
       }
       return batch.paint?[batch.paint.slice(12,16)]:[];
     }));
+    borderColors.push(header.batches.flatMap(batch=>{
+      if(!batch.border) return [];
+      const info=header.border_data?.[batch.border.hash];
+      assert.ok(info,'every requested frame must carry its own border definition');
+      assert.equal(batch.index_offset-batch.offset,batch.fill_num_verts*40);
+      assert.equal(batch.num_verts,batch.fill_num_verts+64*batch.border.num_curves);
+      const values=new DataView(frame,5+length+info.offset,info.nbytes);
+      return [Array.from({length:4},(_,i)=>values.getFloat32((40+i)*4,true))];
+    }));
     if (failNext) {failNext=false; throw new Error('texture decode failed');}
   }});
   const context = {
@@ -81,7 +118,7 @@ async function run(format, messages, transformMeta=x=>x) {
   vm.createContext(context);
   vm.runInContext(indexer,context);
   await vm.runInContext(player,context);
-  return {elements,listeners,rendered,initialized,frameIds,paintColors,fail(){failNext=true;},tick:()=>interval()};
+  return {elements,listeners,rendered,initialized,frameIds,paintColors,borderColors,fail(){failNext=true;},tick:()=>interval()};
 }
 (async()=>{
   const mode=process.argv[2];
@@ -118,12 +155,12 @@ async function run(format, messages, transformMeta=x=>x) {
     await page.tick();
     assert.deepEqual(page.frameIds,[0,1,2,3]);
   } else if(mode==='formats') {
-    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding']]) {
+    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding'],[5,'triangles','triangles'],[5,'winding','winding']]) {
       const page=await run(format,[message(renderer)]);
       assert.deepEqual(page.initialized,[expected]);
       assert.deepEqual(page.rendered,[expected]);
     }
-    const future=await run(5,[message('triangles')]);
+    const future=await run(6,[message('triangles')]);
     assert.equal(future.initialized.length,0);
     assert.equal(future.elements.get('status').textContent,'Re-export required');
   } else if(mode==='paint') {
@@ -150,6 +187,27 @@ async function run(format, messages, transformMeta=x=>x) {
     const legacy=await run(3,[paintMessage(red,0,{inline:true}),paintMessage(blue,1,{inline:true,cached:true})]);
     legacy.elements.get('playbtn').onclick(); await legacy.tick();
     assert.deepEqual(legacy.paintColors.at(-1),[blue]);
+  } else if(mode==='border') {
+    const red=[1,0,0,1],blue=[0,0,1,1];
+    const page=await run(5,[borderMessage(red,0),borderMessage(red,1,{cached:true,definition:false}),
+      borderMessage(red,2,{empty:true}),borderMessage(blue,3),borderMessage(blue,4,{cached:true,definition:false})],
+      meta=>({...meta,segments:3,lines:[1,2,3],frames:meta.frames.map((frame,i)=>({...frame,segment:[0,0,1,2,2][i]}))}));
+    assert.deepEqual(page.borderColors,[[red]]);
+    page.elements.get('chips').children[2].onclick();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(page.borderColors.at(-1),[blue]);
+    await page.tick(); assert.deepEqual(page.borderColors.at(-1),[blue]);
+    const seek=()=>page.listeners.get('keydown')({key:'ArrowLeft',shiftKey:true,preventDefault(){}});
+    await seek(); assert.deepEqual(page.borderColors.at(-1),[]);
+    await seek(); assert.deepEqual(page.borderColors.at(-1),[red]);
+    const unhandled=[];
+    process.on('unhandledRejection',error=>unhandled.push(error));
+    page.fail(); await seek();
+    assert.match(page.elements.get('status').textContent,/Playback error/);
+    await seek(); assert.deepEqual(page.borderColors.at(-1),[red]);
+    assert.equal(page.elements.get('status').textContent,'WebGPU');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(unhandled.length,0);
   } else if(mode==='corrupt') {
     const cases=[
       [3,[message('triangles').subarray(0,-1)]],
@@ -158,6 +216,8 @@ async function run(format, messages, transformMeta=x=>x) {
       [3,[message('triangles')],meta=>({...meta,frames:[{len:1,segment:0}]})],
       [4,[paintMessage([1,0,0,1],0,{definition:false})]],
       [4,[paintMessage([1,0,0,1],0).subarray(0,-1)]],
+      [5,[borderMessage([1,0,0,1],0,{definition:false})]],
+      [5,[borderMessage([1,0,0,1],0).subarray(0,-1)]],
     ];
     for(const args of cases) {
       const page=await run(...args);

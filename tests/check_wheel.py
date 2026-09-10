@@ -27,10 +27,13 @@ REQUIRED_ASSETS = {
     "maniml/web/border_geometry.py",
     "maniml/web/fill_paint.py",
     "maniml/web/static/wgsl/paint.wgsl",
+    "maniml/web/static/wgsl/border_compute.wgsl",
+    "maniml/web/gpu_border_geometry.py",
     "maniml/web/static/wgsl/resolve2.wgsl",
     "maniml/web/generated_geometry.py",
     "maniml/web/triangle_scene.py",
     "maniml/web/triangle_geometry.py",
+    "maniml/web/wgpu_renderer.py",
     "maniml/camera/native_gl_camera.py",
     "maniml/rendering/shader_wrapper.py",
     "maniml/rendering/gl_shaders.py",
@@ -215,19 +218,102 @@ print("extracted packaged native GL: capture OK; Phase A remains default")
                        cwd=directory, env=environment, check=True)
 
 
+def check_native_wgpu(path: Path) -> None:
+    """Exercise the extracted default Camera and packaged GPU border kernel.
+
+    The CPU-border comparison uses the same installed public capture API with
+    its explicit diagnostic selector. Neither path can import checkout tests,
+    benchmark helpers, an editable maniml, or an external Lyon override.
+    """
+    with TemporaryDirectory(prefix="maniml-wheel-wgpu-") as directory:
+        with ZipFile(path) as wheel:
+            wheel.extractall(directory)
+        program = r'''
+import importlib.abc
+import os
+import pathlib
+import sys
+import numpy as np
+root = pathlib.Path(sys.argv[1]).resolve()
+class RejectDevelopmentImports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in ("tests", "benchmarks"):
+            raise AssertionError("wheel capture imported development code: " + fullname)
+sys.meta_path.insert(0, RejectDevelopmentImports())
+sys.path.insert(0, str(root))
+import maniml
+from maniml import Camera, Circle, Scene
+from maniml.web import gpu_border_geometry, wgpu_renderer
+assert pathlib.Path(maniml.__file__).resolve().is_relative_to(root)
+assert pathlib.Path(gpu_border_geometry.__file__).resolve().is_relative_to(root)
+assert pathlib.Path(wgpu_renderer.__file__).resolve().is_relative_to(root)
+assert Scene.camera_class is Camera
+assert "MANIML_BORDER_GENERATOR" not in os.environ
+assert "MANIML_LYON_LIBRARY" not in os.environ
+shape = Circle(radius=.9, fill_color="#FF0000", fill_opacity=.5,
+               fill_border_width=48, stroke_width=0)
+fields = ("point", "fill_rgba", "fill_border_width", "stroke_rgba", "stroke_width")
+source = [shape.data[name].tobytes() for name in fields]
+gpu = Camera(resolution=(256, 144), background_opacity=0)
+cpu = Camera(resolution=(256, 144), background_opacity=0)
+try:
+    gpu.capture(shape)
+    pixels = np.asarray(gpu.get_image())
+    assert pixels.shape == (144, 256, 4), pixels.shape
+    assert gpu._geometry_cache.border_generator == "gpu"
+    assert gpu._renderer._border_sources and gpu._renderer._border_outputs
+    assert "border_compute" in gpu._renderer._modules
+    helper = pathlib.Path(gpu._geometry_cache.triangle_tessellator.library_path).resolve()
+    assert helper.parent == root / "maniml/web", helper
+    np.testing.assert_allclose(pixels[72, 128], [255, 0, 0, 128], rtol=0, atol=1)
+    np.testing.assert_array_equal(pixels[0, 0], [0, 0, 0, 0])
+    os.environ["MANIML_BORDER_GENERATOR"] = "cpu"
+    cpu.capture(shape)
+    reference = np.asarray(cpu.get_image())
+    assert cpu._geometry_cache.border_generator == "cpu"
+    assert not cpu._renderer._border_sources and not cpu._renderer._border_outputs
+    np.testing.assert_allclose(pixels, reference, rtol=0, atol=1)
+    assert [shape.data[name].tobytes() for name in fields] == source
+    # Prove the default route emitted visible border coverage, rather than
+    # merely uploading/dispatching an unused source buffer.
+    os.environ.pop("MANIML_BORDER_GENERATOR")
+    no_border = shape.copy().set_fill(border_width=0)
+    gpu.capture(no_border)
+    interior = np.asarray(gpu.get_image())
+    added_coverage = pixels[..., 3].astype(int) - interior[..., 3].astype(int)
+    assert np.count_nonzero(added_coverage > 16) > 20, added_coverage.max()
+    assert not gpu._renderer._border_sources and not gpu._renderer._border_outputs
+    assert [shape.data[name].tobytes() for name in fields] == source
+finally:
+    gpu.release()
+    cpu.release()
+assert not any(name.split(".")[0] in ("tests", "benchmarks") for name in sys.modules)
+maximum = np.abs(pixels.astype(int) - reference.astype(int)).max()
+print(f"extracted packaged default WebGPU: GPU borders/straight alpha/source retention OK; CPU reference max RGBA difference {maximum}")
+'''
+        environment = os.environ.copy()
+        for name in ("MANIML_LYON_LIBRARY", "MANIML_BORDER_GENERATOR", "MANIML_RENDERER"):
+            environment.pop(name, None)
+        subprocess.run([sys.executable, "-I", "-c", program, directory],
+                       cwd=directory, env=environment, check=True)
+
+
 if __name__ == "__main__":
     load_native = "--load-native" in sys.argv[1:]
     load_gl = "--load-gl" in sys.argv[1:]
+    load_wgpu = "--load-wgpu" in sys.argv[1:]
     patterns = [argument for argument in sys.argv[1:]
-                if argument not in ("--load-native", "--load-gl")]
+                if argument not in ("--load-native", "--load-gl", "--load-wgpu")]
     candidates = [Path(path) for pattern in patterns for path in glob(pattern)]
     if not patterns:
         candidates = list(Path("dist").glob("*.whl"))
     if len(candidates) != 1:
-        raise SystemExit("expected exactly one wheel: check_wheel.py [--load-native] [--load-gl] [PATH_TO_WHEEL]")
+        raise SystemExit("expected exactly one wheel: check_wheel.py [--load-native] [--load-gl] [--load-wgpu] [PATH_TO_WHEEL]")
     check_wheel(candidates[0])
     if load_native:
         check_native_loader(candidates[0])
     if load_gl:
         check_native_gl(candidates[0])
+    if load_wgpu:
+        check_native_wgpu(candidates[0])
     print(f"wheel contents OK: {candidates[0]}")

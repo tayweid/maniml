@@ -20,6 +20,7 @@ from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _textur
 from maniml.web.triangle_geometry import TessellationError
 from maniml.web.border_geometry import BorderSource, MAX_BORDER_TRIANGLES, emit_border_triangles
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
+from maniml.web.gpu_border_geometry import BorderRecipeCache, MAX_RUN_OUTPUT_BYTES
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -43,9 +44,10 @@ class TriangleDraw:
     textures: dict = field(default_factory=dict)
     paint: np.ndarray | list | None = None
     coverage: bool = False
+    border_sources: np.ndarray | None = None
 
 
-def coalesce_draws(draws):
+def coalesce_draws(draws, *, border_cache=None):
     """Join consecutive compatible draws without changing primitive order.
 
     Full normalized uniforms, vertex layout and depth pipeline must agree.
@@ -56,6 +58,8 @@ def coalesce_draws(draws):
     frame-owned arrays; a single draw retains its original array identities.
     """
     def kind(draw):
+        if draw.border_sources is not None:
+            return None if draw.coverage else "border"
         if draw.coverage:
             return None  # A stencil reference belongs to exactly one object.
         if draw.pipeline in ("surface", "surface_depth") and draw.instances == 1:
@@ -72,6 +76,11 @@ def coalesce_draws(draws):
         return None
 
     def combine(run, run_kind):
+        if run[0].border_sources is not None:
+            vertices, indices, curves = border_cache.assemble(
+                [(draw.vertices, draw.indices, draw.border_sources) for draw in run])
+            return replace(run[0], vertices=vertices, indices=indices,
+                           border_sources=curves, count=len(indices))
         if len(run) == 1:
             return run[0]
         first = run[0]
@@ -96,6 +105,9 @@ def coalesce_draws(draws):
                       and draw.vertices.dtype == run[0].vertices.dtype
                       and draw.uniforms == run[0].uniforms
                       and draw.textures == run[0].textures
+                      and (draw_kind != "border" or
+                           (vertex_count + len(draw.vertices) + 64 * len(draw.border_sources)) * 40
+                           <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
@@ -105,7 +117,8 @@ def coalesce_draws(draws):
             run, vertex_count = [], 0
         run.append(draw)
         run_kind = draw_kind
-        vertex_count += len(draw.vertices)
+        vertex_count += len(draw.vertices) + (0 if draw.border_sources is None
+                                              else 64 * len(draw.border_sources))
     if run:
         result.append(combine(run, run_kind))
     return result
@@ -128,6 +141,7 @@ class TriangleFrame:
     def geometry_bytes(self):
         return sum(draw.vertices.nbytes + (0 if draw.indices is None else
                                           draw.indices.nbytes)
+                   + (0 if draw.border_sources is None else draw.border_sources.nbytes)
                    for draw in self.draws)
 
 
@@ -406,12 +420,15 @@ class TriangleMeshCache:
         self._generator = None
         self._generator_key = None
         self._projections = {}
+        self.gpu_border_cache = BorderRecipeCache(max_bytes=self.max_bytes if self.max_entries else 0)
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
 
     @property
     def stats(self):
-        return {**self._totals, "retained_bytes": self._bytes,
+        return {**self._totals, "retained_bytes": self._bytes + self.gpu_border_cache.nbytes,
+                "retained_fill_cache_bytes": self._bytes,
+                "retained_gpu_recipe_bytes": self.gpu_border_cache.nbytes,
                 "entries": len(self._entries)}
 
     def _remove(self, key):
@@ -424,6 +441,7 @@ class TriangleMeshCache:
         self._generator = None
         self._generator_key = None
         self._projections.clear()
+        self.gpu_border_cache.clear()
 
     def begin_frame(self, tessellator):
         before = self.stats
@@ -760,7 +778,7 @@ def _generate_mesh(source, tessellator, uniforms, resolution, pixel_tolerance,
 
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
-                           coalesce=True, fill_borders=False):
+                           coalesce=True, fill_borders=False, gpu_borders=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -768,6 +786,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     border strips to each object's fill operation, preserving its own join,
     partial-path and camera-facing geometry. Per-sample stencil ownership
     paints the complete object once, including translucent overlaps.
+    ``gpu_borders=True`` retains curve sources and ordered index recipes;
+    the driver expands their vertices on the GPU. The default CPU mode remains
+    an explicit diagnostic reference, independent of that compute shader.
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -784,10 +805,17 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         raise ValueError("pixel_tolerance must be finite and positive")
     if fill_builder is not None and mesh_cache is not None:
         raise ValueError("fill_builder and mesh_cache are mutually exclusive")
+    if gpu_borders and (not fill_borders or fill_builder is not None):
+        raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),
                           4 if camera.samples else 1, pixel_tolerance=pixel_tolerance)
     cache_before = mesh_cache.begin_frame(tessellator) if mesh_cache is not None else None
+    border_cache = (mesh_cache.gpu_border_cache if mesh_cache is not None else BorderRecipeCache()) if gpu_borders else None
+    if border_cache is not None:
+        if mesh_cache is not None:
+            border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
+        border_cache.begin_frame()
     camera_uniforms = {key: _jsonable(value) for key, value in camera.uniforms.items()}
 
     def limitation(message):
@@ -817,7 +845,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                for sm in sorted(family, key=lambda obj: obj.z_index)
                if not isinstance(sm, CameraFrame)]
     borders = (_prepare_border_geometry(records, mesh_cache)
-               if fill_borders and fill_builder is None else {})
+               if fill_borders and fill_builder is None and not gpu_borders else {})
     for sm, uniforms in records:
         depth_suffix = "_depth" if sm.depth_test else ""
         if isinstance(sm, (DotCloud, Surface, ImageMobject)):
@@ -838,6 +866,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
         frame.source_bytes += sm.data.nbytes
         fill = None
+        border_curves = None
         border_source, border_vertices = borders.get(id(sm), (None, None))
         if np.any(sm.data["fill_rgba"][:, 3]):
             material = (not np.all(sm.data["fill_rgba"] == sm.data["fill_rgba"][0])
@@ -848,7 +877,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                 if not fill_borders:
                     limitation("fill-border coverage is disabled for this triangle frame")
                 else:
-                    border_source = borders[id(sm)][0] if id(sm) in borders else BorderSource.read(sm, uniforms)
+                    if gpu_borders:
+                        border_curves = border_cache.source(sm, uniforms)
+                    else:
+                        border_source = borders[id(sm)][0] if id(sm) in borders else BorderSource.read(sm, uniforms)
             if fill_builder is not None:
                 fill = fill_builder(sm, uniforms, frame.resolution, pixel_tolerance)
             else:
@@ -867,7 +899,11 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                                   and sm.data["fill_rgba"][0, 3] == 1
                                   and np.all(vertices["rgba"] == sm.data["fill_rgba"][0]))
                 coverage = False
-                if mesh_cache is not None:
+                if gpu_borders:
+                    if mesh_cache is not None:
+                        mesh_cache.coverage(sm, vertices, indices, uniforms, None)
+                    coverage = border_curves is not None and len(border_curves) > 0
+                elif mesh_cache is not None:
                     vertices, indices, coverage = mesh_cache.coverage(
                         sm, vertices, indices, uniforms, border_source, border_vertices=border_vertices)
                 elif border_source is not None:
@@ -875,7 +911,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                         vertices, indices, border_source, uniforms, sm.data["fill_rgba"][0],
                         border_vertices=border_vertices)
                     coverage = bool(border_count)
-                if len(indices):
+                if len(indices) or (border_curves is not None and len(border_curves)):
                     paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
                               build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
                              if material else None)
@@ -889,7 +925,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                             frame.limitations.append(message)
                     fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
                                         vertices, uniforms, indices, len(indices), paint=paint,
-                                        coverage=coverage and not opaque_painter)
+                                        coverage=coverage and not opaque_painter,
+                                        border_sources=border_curves if coverage else None)
         stroke = None
         if np.any(sm.data["stroke_width"]) and np.any(sm.data["stroke_rgba"][:, 3]):
             data = np.ascontiguousarray(sm.get_shader_data()).copy()
@@ -901,5 +938,17 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     if mesh_cache is not None:
         frame.mesh_cache_stats = mesh_cache.finish_frame(cache_before)
     if coalesce:
-        frame.draws = coalesce_draws(frame.draws)
+        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache)
+    elif gpu_borders:
+        frame.draws = [coalesce_draws([draw], border_cache=border_cache)[0] for draw in frame.draws]
+    if border_cache is not None:
+        if mesh_cache is not None:
+            border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
+        border_cache.finish_frame()
+        frame.mesh_cache_stats.update(gpu_border_source_updates=border_cache.source_updates,
+                                      gpu_border_assemblies=border_cache.assemblies,
+                                      gpu_border_retained_bytes=border_cache.nbytes,
+                                      retained_gpu_recipe_bytes=border_cache.nbytes,
+                                      retained_fill_cache_bytes=0 if mesh_cache is None else mesh_cache._bytes,
+                                      retained_bytes=(0 if mesh_cache is None else mesh_cache._bytes) + border_cache.nbytes)
     return frame

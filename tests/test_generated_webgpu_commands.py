@@ -46,6 +46,12 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_texture_bindings_reuse_and_missing_texture_requests_resend(self):
         self.run_case("textures")
 
+    def test_gpu_border_compute_precedes_draw_and_reuses_distinct_occurrence_outputs(self):
+        self.run_case("borderCompute")
+
+    def test_gpu_border_failure_rolls_back_buffers_and_preserves_generation_state(self):
+        self.run_case("borderComputeFailures")
+
     def test_binary_paint_storage_reuses_across_geometry_layouts_and_sample_counts(self):
         self.run_case("paintDefinitions")
 

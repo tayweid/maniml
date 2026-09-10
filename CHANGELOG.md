@@ -12,8 +12,11 @@ interfaces may still change before the first public release.
   switches to **Original 2D** for comparison at the same checkpoint.
 - Planar vector fills use retained triangle meshes with explicit painter
   order, shared antialiasing and single-contribution fill/border coverage.
-  Source point arrays remain on the CPU; moving their updates and geometry
-  generation to the GPU is the next phase.
+  Source point arrays and general fill tessellation remain on the CPU.
+- General fill borders now expand retained curve inputs on the GPU. Small
+  camera zooms update uniforms without resending expanded border triangles.
+  `MANIML_BORDER_GENERATOR=cpu` selects the preserved CPU-border reference;
+  public point updates and general fill topology are still future GPU work.
 - The player opens existing winding recordings as well as new triangle
   recordings. Unsupported live content and corrupt recordings display an
   error and permit navigation to valid content.

@@ -7,7 +7,7 @@ the client reports its renderer, geometry streaming after a RIGHT-arrow
 keypress, checkpoint state advancing, and click-to-inspect printing the
 variable name to the terminal.
 
-Headless (offscreen GL only), so it runs un-gated like the other
+Headless (browser protocol only), so it runs un-gated like the other
 integration suites.
 """
 
@@ -526,7 +526,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 retreated[-1]["current"], start_state["current"])
 
     def test_geometry_snapshot(self):
-        from maniml.web.geometry import parse_geometry_message
+        import numpy as np
+        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, parse_geometry_message
         with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
             # Make the test self-contained: when run alone this executes the
@@ -551,14 +552,65 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             header, vertex_bytes = parse_geometry_message(message)
             self.assertGreater(len(header["batches"]), 0)
             self.assertEqual(header["unsupported"], [])
-            total = sum(
-                b["num_verts"] * b.get("stride", 68)
-                + (b["tri"]["vcount"] * 40 + b["tri"]["icount"] * 4
-                   if "tri" in b else 0)
-                + (b["index_count"] * 4 if b.get("indexed") else 0)
-                for b in header["batches"] if not b.get("cached"))
-            total += sum(info["nbytes"] for info in header.get("texture_data", {}).values())
-            self.assertEqual(total, len(vertex_bytes))
+            self.assertEqual(header["renderer"], "triangles")
+            self.assertEqual(header["format_version"], GEOMETRY_FORMAT_VERSION)
+            spans = []
+
+            def span(offset, size, label):
+                self.assertIs(type(offset), int, label)
+                self.assertIs(type(size), int, label)
+                self.assertGreaterEqual(offset, 0, label)
+                self.assertGreaterEqual(size, 0, label)
+                self.assertLessEqual(offset + size, len(vertex_bytes), label)
+                spans.append((offset, size, label))
+
+            for batch in header["batches"]:
+                self.assertEqual(batch["kind"], "generated")
+                # This connection had no renderer until the request above:
+                # its first snapshot must define every referenced resource.
+                self.assertFalse(batch.get("cached"), "initial snapshot reused unknown geometry")
+                fill_count = batch.get("fill_num_verts", batch["num_verts"])
+                if "border" in batch:
+                    border = batch["border"]
+                    self.assertGreater(border["num_curves"], 0)
+                    self.assertEqual(batch["stride"], 40)
+                    self.assertEqual(batch["num_verts"], fill_count + 64 * border["num_curves"])
+                    self.assertTrue(batch["indexed"])
+                    self.assertEqual(batch["count"], batch["index_count"])
+                    self.assertGreaterEqual(batch["index_count"], 186 * border["num_curves"])
+                    self.assertIn(border["hash"], header["border_data"])
+                    self.assertEqual(header["border_data"][border["hash"]]["nbytes"],
+                                     176 * border["num_curves"])
+                span(batch["offset"], fill_count * batch["stride"], "uploaded fill/primitive vertices")
+                if batch.get("indexed"):
+                    span(batch["index_offset"], batch["index_count"] * 4, "triangle indices")
+                    indices = np.frombuffer(vertex_bytes, dtype="<u4", count=batch["index_count"],
+                                            offset=batch["index_offset"])
+                    self.assertTrue(np.all(indices < batch["num_verts"]))
+                    if "border" in batch:
+                        self.assertTrue(np.any(indices >= fill_count), "recipe never addresses its GPU-generated tail")
+                if "paint_hash" in batch:
+                    self.assertIn(batch["paint_hash"], header["paint_data"])
+                for key in batch.get("textures", {}).values():
+                    self.assertIn(key, header["texture_data"])
+
+            for table in ("paint_data", "border_data", "texture_data"):
+                for info in header.get(table, {}).values():
+                    span(info["offset"], info["nbytes"], table)
+                    if table != "texture_data":
+                        self.assertEqual(info["nbytes"] % 4, 0)
+                        coefficients = np.frombuffer(vertex_bytes, dtype="<f4", count=info["nbytes"] // 4,
+                                                     offset=info["offset"])
+                        self.assertTrue(np.isfinite(coefficients).all(), table)
+
+            # Every byte belongs to one declared section. This detects missing
+            # definitions, overlap, gaps and accidental transmission of the
+            # border vertices that format 5 generates only on the GPU.
+            end = 0
+            for offset, size, label in sorted(spans):
+                self.assertEqual(offset, end, f"gap or overlap before {label}")
+                end += size
+            self.assertEqual(end, len(vertex_bytes))
 
     def test_future_chips(self):
         with self._connect() as ws:
