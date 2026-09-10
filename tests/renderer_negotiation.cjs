@@ -57,7 +57,7 @@ function fixture(origin) {
   });
   vm.runInContext(fs.readFileSync(path.join(root, "renderer_selection.js"), "utf8"), context);
   vm.runInContext("const ManimlRendererSelection = window.ManimlRendererSelection;", context);
-  vm.runInContext(section("let ws = null;", "const MAX_RECONNECTS"), context);
+  vm.runInContext(section("let ws = null;", "const OVERLAY_AFTER_RECONNECTS"), context);
   vm.runInContext(section("function send(obj)", "function applyCapabilities"), context);
   vm.runInContext(section('const glWarn = document.getElementById("glwarn");', "function setRenderError"), context);
   vm.runInContext(section("function handleMessage(data)", "// Scene picker:"), context);

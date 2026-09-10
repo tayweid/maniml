@@ -22,6 +22,7 @@ import time
 from collections import deque
 
 from maniml.logger import log
+from maniml.performance import performance
 from maniml.web.assets import BOOT_ID
 from maniml.web.assets import (
     file_response,
@@ -33,6 +34,9 @@ from maniml.web.security import MAX_CONTROL_MESSAGE, parse_json_object
 
 DEFAULT_PORT = 8687
 MAX_EVENT_QUEUE = 1024
+# Events the scene can afford to lose when the queue is full. A pointer
+# move is a sample of where the mouse is now; a later sample restates it.
+DROPPABLE_EVENT_TYPES = frozenset({"pointer"})
 
 
 class ClientLease:
@@ -96,6 +100,7 @@ class WebServer:
         self.capabilities = list(capabilities)
 
         self._events: deque[dict] = deque()
+        self._events_lock = threading.Lock()
         self._clients: set = set()
         self._client_lease = ClientLease()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -174,21 +179,48 @@ class WebServer:
                 event = parse_json_object(message)
                 if event is None:
                     continue
-                if len(self._events) >= MAX_EVENT_QUEUE:
-                    await ws.close(code=1013, reason="event queue full")
-                    return
                 # Arrival stamp: the drain runs only between animations, so
                 # this is how the viewer can tell a key pressed while the
                 # scene was moving (stale — it must die, not fire late)
                 # from one pressed after it settled.
                 event["_received"] = time.monotonic()
-                self._events.append(event)
+                with self._events_lock:
+                    if len(self._events) >= MAX_EVENT_QUEUE:
+                        self._evict_one()
+                    self._events.append(event)
         except Exception:
             pass
         finally:
             self._clients.discard(ws)
             if registered:
                 self._client_lease.disconnected()
+                if not self._client_lease.has_clients():
+                    # Nothing queued by a departed page can still be
+                    # wanted, and a rejoining page must not find the queue
+                    # already full of it.
+                    with self._events_lock:
+                        self._events.clear()
+
+    def _evict_one(self) -> None:
+        """Make room in a full queue without closing the socket.
+
+        The drain runs on the scene thread between animations. A file edit
+        that fast-forwards many units keeps it from running for tens of
+        seconds while the mouse keeps sending samples. Closing on overflow
+        (the old policy) made the page reconnect into the same still-full
+        queue and give up after three tries, with the scene process alive
+        and busy. Drop the oldest pointer sample instead; only when nothing
+        droppable is left does the oldest event of any kind go. Called with
+        the events lock held.
+        """
+        events = self._events
+        for index, queued in enumerate(events):
+            if queued.get("type") in DROPPABLE_EVENT_TYPES:
+                del events[index]
+                performance.increment("input.events.evicted_pointer")
+                return
+        events.popleft()
+        performance.increment("input.events.evicted")
 
     def _send_to_all(self, data):
         for ws in list(self._clients):
@@ -216,12 +248,10 @@ class WebServer:
         self.broadcast(json.dumps(obj))
 
     def pop_events(self) -> list[dict]:
-        events = []
-        while True:
-            try:
-                events.append(self._events.popleft())
-            except IndexError:
-                return events
+        with self._events_lock:
+            events = list(self._events)
+            self._events.clear()
+        return events
 
     def stop(self) -> None:
         if self._loop is not None and self._closing is not None:

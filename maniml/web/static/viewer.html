@@ -555,7 +555,12 @@ let pendingRendererRequest = null;
 let reconnectCount = 0;
 let connectedBoot = null;   // engine boot id first seen by this page
 let reconnectTimer = null;
-const MAX_RECONNECTS = 3;
+// The overlay appears after this many failed attempts, but the page keeps
+// trying at a capped interval: the engine may be alive and merely busy (a
+// long replay after a file edit), and giving up left a live scene behind
+// a dead page.
+const OVERLAY_AFTER_RECONNECTS = 3;
+const MAX_RECONNECT_DELAY = 5000;
 const connectionOverlay = document.getElementById("connection-overlay");
 const connectionTitle = document.getElementById("connection-title");
 const connectionDetail = document.getElementById("connection-detail");
@@ -579,19 +584,20 @@ function hideConnectionIssue() {
 
 function scheduleReconnect() {
   reconnectCount += 1;
-  if (reconnectCount >= MAX_RECONNECTS) {
+  if (reconnectCount >= OVERLAY_AFTER_RECONNECTS) {
     document.getElementById("conn").textContent = "Engine unavailable";
     showConnectionIssue(
       "Can’t reach the local engine",
-      "The scene process is no longer responding. Retry, or reopen the scene "
-        + "from ManimLive to start a fresh session.",
+      "The scene process is not responding; still retrying. Retry now, or "
+        + "reopen the scene from ManimLive to start a fresh session.",
       true
     );
-    return;
+  } else {
+    document.getElementById("conn").textContent = "Reconnecting";
   }
-  document.getElementById("conn").textContent = "Reconnecting";
   clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connect, 700 * reconnectCount);
+  reconnectTimer = setTimeout(
+    connect, Math.min(700 * reconnectCount, MAX_RECONNECT_DELAY));
 }
 
 function connect(manualRetry = false) {
