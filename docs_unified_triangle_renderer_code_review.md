@@ -506,3 +506,98 @@ the default. A2's exit is not met on performance and carries one recorded
 quality exception. The two items that bite in dogfood today are the zoom
 resend, which the GPU border work addresses, and the dead digest reuse, which
 is a small fix.
+
+## Seventh round: GL restored, GPU borders, and the follow-up fixes
+
+Reviewer again, 2026-09-10, on the seven commits from `7324ce89` through
+`00d8e854` on `main`, against the author's
+[implementation report](docs_unified_triangle_renderer_review_response.md#implementation-after-the-sixth-review-2026-09-10).
+
+### What was verified
+
+- **Full suite on main:** 704 tests pass with real GPU checks and ledger
+  verification. 30 tests skip unless `MANIML_LYON_LIBRARY` is set; with the
+  packaged helper passed explicitly they run and pass too.
+- **Native GL is back in the package and works.** `NativeGLCamera` renders
+  the dogfood scene to a movie from the installed package. Its final frame
+  against Phase A differs by 0.104/255 mean RGB with 0.04% of pixels over
+  the 24-level threshold. The GLSL assets are byte-identical to what was
+  removed; moderngl and PyOpenGL are runtime dependencies again.
+- **Both targets from the sixth round are met.** Measured on the 101-glyph
+  TeX scene with default borders:
+
+  | Text scene, per frame | Sixth round | Now |
+  |---|---:|---:|
+  | Unchanged frame or camera pan | 1 KB | 1.1 KB |
+  | Each 5% zoom step | 1.2 MB | 1.2 KB |
+  | Preparation on a zoom step | about 9 ms | about 6.7 ms |
+
+  The gradient polygon's unchanged frame fell from 94 KB to 1.5 KB.
+- **Driver review came back clean on every question.** Compute pass writes
+  a vertex buffer, the ordered draw binds it with the static indices; stencil
+  ownership, per-object references, and the 255 rollover are unchanged;
+  output capacity is fixed with clamped steps, so there is no overflow class;
+  sources and outputs are keyed by content, retired after submit, and rolled
+  back on failure; recompute happens only when a border-affecting uniform
+  changes and is never re-uploaded. Depth-only replay still works. Paint
+  definitions are hashed once and retained on both drivers and in the
+  recording index. Negotiation adopts the server's mode before readiness and
+  only broadcasts explicit choices. Original 2D textures retire after submit
+  with cached batches keeping theirs alive. The fixed-frame policy is now
+  Phase A's own, with Original 2D back to its historical order.
+
+### Findings, most important first
+
+1. **The padded border index buffer travels on the wire.** The first frame
+   of the TeX scene is 3.1 MB, of which 607,842 indices at four bytes each
+   is 2.4 MB. That buffer is a deterministic pattern: curve index times 64
+   plus a fixed strip layout. It is also the bulk of the 2.67 MB packet the
+   report attributes to a large-zoom fill refinement. Generate it on the GPU
+   with vertex-index arithmetic in the border vertex stage, or build it once
+   per driver from the curve count, and send only the fill indices.
+
+2. **Retained GPU geometry grew nine times for text.** Fixed capacity of 64
+   vertices per curve puts the one-paragraph control at 11.5 MB against
+   1.24 MB before. A course scene with several paragraphs will retain tens
+   of megabytes. The report names compact count/scan/emit as future work;
+   until then, a per-object capacity from the actual maximum step count at
+   the current zoom would recover most of it, since most glyph curves never
+   reach 32 steps.
+
+3. **The CPU triangle budget still gates GPU borders.** `BorderSource.read`
+   raises when the CPU estimate exceeds 87,381 triangles at the current zoom,
+   and the frame becomes a render error. GPU output is fixed-capacity and
+   already allocated, so the budget no longer protects anything. A deep zoom
+   into a large text object hits it. Replace it with the real buffer and
+   binding limits the driver already checks.
+
+4. **Border outputs are keyed by draw ordinal.** Inserting or removing an
+   earlier object shifts every later bordered object's key, forcing a new
+   buffer, a fill-prefix copy, and a recompute. Correct, but keying on the
+   uniform state that actually affects the output would avoid the churn.
+
+5. **The A0 experiment tests still call the helper optional.** Thirty tests
+   skip unless an environment variable names the library, although the
+   packaged helper is now required and discoverable. Gate them on the
+   packaged discovery so the default run covers them.
+
+6. **The remaining text gap is source validation, not borders.** Phase A's
+   repeated zoom sits at 10.65 ms against 5.49 ms for Original 2D, and an
+   unchanged text frame still costs about 5.9 ms to prepare with nothing to
+   send. That is the per-frame byte comparison of every source array. The
+   recommendation from the fourth round stands: key on `Mobject.revision`
+   with the byte comparison as a verify mode.
+
+7. **Attribution.** The report opens with "Taylor approved the sequence".
+   Taylor said the coder was working on GPU borders. Keep attributions to
+   what was actually said; the sixth round was about exactly this.
+
+### Where this leaves Phase A
+
+This is a strong round. GL is back as the ground truth, the transport
+regression that would have hurt dogfood is gone, gradient paint is retained,
+the selector and texture leaks are fixed, and the ordering policies are
+separated and recorded. The A2 text gate remains open, but the regression is
+now preparation cost rather than bandwidth, and finding 6 is the lever.
+Findings 1 and 2 are the memory and packet costs that come with fixed
+capacity and are worth taking before the next dogfood pass.
