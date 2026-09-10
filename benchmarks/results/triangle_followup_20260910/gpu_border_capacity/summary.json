@@ -1,0 +1,567 @@
+{
+ "recorded_utc": {
+  "before": "2026-09-10T23:13:12.892367+00:00",
+  "after": "2026-09-10T23:28:33.355842+00:00"
+ },
+ "before_source_files_sha256": {
+  "/Users/taylorjweidman/Projects/ManimLive/maniml/benchmarks/gpu_borders.py": "1f7139f1a4b41634fd40c8bd5169a4cba21599b60caea3f61d766843c82c557d",
+  "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+  "maniml/web/server.py": "fe7a7fe401c238663cea73ede0211c5025e4ff5d59161ad3d6f92e04b090b3e5",
+  "maniml/web/viewer.py": "bcabe2346dadf3a85c347ef33e690b9e1a563885bdcbaf41e27123b6d06834bb",
+  "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+  "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+  "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+  "maniml/web/generated_geometry.py": "71c3d5783b91abd393dd53c5b3ba5e64084bfef8a877f9e6259fa7c998db6fb0",
+  "maniml/web/winding_geometry.py": "a13afcbd9a931a4b5034a7cced8db403e9d98e7e4a67c09770ebbc4a41a6a3a6",
+  "maniml/web/export.py": "addb8835c8c057fdbd084ea45cc35ce16ed0f1eff28181e4b3e2c123637124f3",
+  "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+  "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+  "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+  "maniml/web/triangle_scene.py": "cd3818f9f7aaf2d26bf37c11272adbfdc98b9d9f24231f74413527d6b19e3f73",
+  "maniml/web/gpu_border_geometry.py": "b2e2e1b8d27832c8c7f667d12693de28c4011ee9c44efd20688af8472ef32e54",
+  "maniml/web/geometry.py": "dcf2dd71b6dd9fb1354fb0fa8a545594cef06b2ef2fc19c8c24f16b34af21a1a",
+  "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+  "maniml/web/border_geometry.py": "092fd8e28e034c049a1f4cad16ca2ab682e28e4bee5862cf8c45f4ae5a4955a6",
+  "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+  "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+  "maniml/web/wgpu_renderer.py": "178e63f5b521e95f76b71dd4220584e48c86ed9506e72735ff113d88690bd2e9",
+  "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+  "maniml/web/static/wgsl/border_compute.wgsl": "91ff2e46978d9c01191143a60673dc2af51290b148045e29b962edc943a1bb19",
+  "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+  "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+  "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+  "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+  "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+  "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+  "maniml/web/static/wgsl/paint.wgsl": "8f042440a812b5f6be425dc91995566a3357d903a46bf4e9e0908ed261f0694b",
+  "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+  "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+  "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+  "maniml/rendering/__init__.py": "d75de7c59efe7f0a609421bcf18041eb178629afd7b23945525322323036ccc1",
+  "maniml/rendering/gl_shaders.py": "ab347ef290f8d7ab30b069cef9177dc0a7059057466c38a9706024194d5c2432",
+  "maniml/rendering/shader_wrapper.py": "bf58d2bfda5ec52c729e4e6111c394527ca9b610e01274b3bc3236670c3c356b",
+  "maniml/rendering/shaders/simple_vert.glsl": "855e77ff7a0d0b80b9e389f62f5986616f607edda8e14a66e4689d9db43216b8",
+  "maniml/rendering/shaders/mandelbrot_fractal/vert.glsl": "fd0a50f2c33efee9f226ea147d96d769905566627d712e8a6a7f43c09c07d55b",
+  "maniml/rendering/shaders/mandelbrot_fractal/frag.glsl": "56818831ab7badf8ca93033d5ae986f3a19eef7d037dd883e75c689e0910ab61",
+  "maniml/rendering/shaders/textured_surface/vert.glsl": "1d082581f84212210a18a2b1e4eb72c663318dd3c610f1a3aadde58a0ae1e04c",
+  "maniml/rendering/shaders/textured_surface/frag.glsl": "332cfe710ca1392e12e35b080d8369469aaf8850659c8acf6a265d3cc4238e41",
+  "maniml/rendering/shaders/surface/vert.glsl": "0637a7c54c2c929511569dca22954704a5fce675ee6786baf0a4eac0d9486489",
+  "maniml/rendering/shaders/surface/frag.glsl": "e5f086be21844f33bcce0832ff14a940475dc2a3c5f3ab2d36391c031737bee1",
+  "maniml/rendering/shaders/image/vert.glsl": "0daef0591736380e02e2a1d4a33204b6acdbec297abbc246baa1804146bb5407",
+  "maniml/rendering/shaders/image/frag.glsl": "f6c229e462a0b25db2414f50a0bef349b2c877ff22fd7553ce1c121e8912e1a8",
+  "maniml/rendering/shaders/newton_fractal/vert.glsl": "fd0a50f2c33efee9f226ea147d96d769905566627d712e8a6a7f43c09c07d55b",
+  "maniml/rendering/shaders/newton_fractal/frag.glsl": "26f5ed0cd77399c8ffc713de74a742383f4438155d62a146712daa0ce52a9827",
+  "maniml/rendering/shaders/true_dot/vert.glsl": "ff946169e3cdb143a63026409bcf18e883c274bfe9bc3132b221f6435b07873c",
+  "maniml/rendering/shaders/true_dot/frag.glsl": "84fd3dcfb7ebcad514104e3e7c561249732911f363ab9191f1094d79dae284b0",
+  "maniml/rendering/shaders/true_dot/geom.glsl": "d43c962435d1aa164dc45f5be69459ef1623321df74c58f494e8a7a82d00529c",
+  "maniml/rendering/shaders/inserts/emit_gl_Position.glsl": "0cc634bf108f7b5bcac7d38f09afc06244c15859d226481721936958404c5a18",
+  "maniml/rendering/shaders/inserts/complex_functions.glsl": "35cf4ab9518115877c5832b91f9635c349c36bad899ee5739804ffaf54fa112c",
+  "maniml/rendering/shaders/inserts/finalize_color.glsl": "ad8face6bf1b3bc7fb91fc5c662863b2f92127c5cb9f863a0988a3e3d3394663",
+  "maniml/rendering/shaders/inserts/get_unit_normal.glsl": "5e89b5572701fdd3fd17a96e34196e88debf3bc02d275770728aa203be7aa58a",
+  "maniml/rendering/shaders/inserts/get_xyz_to_uv.glsl": "1b459279e164e2ef0d29ac0048c3b5d5b25bb37161a7115302ff2c6185849a9b",
+  "maniml/rendering/shaders/quadratic_bezier/depth/vert.glsl": "97be5568436e47fe4e950c2226f58778663e7cce87b4c5448fafe4e5e373639b",
+  "maniml/rendering/shaders/quadratic_bezier/depth/frag.glsl": "ac95daaecde00a6cf93f6f58ce64a05c0101fdbf5edb61e259c794b8ed976da8",
+  "maniml/rendering/shaders/quadratic_bezier/depth/geom.glsl": "8418f04d808d306f5a9114dd683eea1b56f52a1d7fa1f77f9eaa5343d9108c9d",
+  "maniml/rendering/shaders/quadratic_bezier/fill/vert.glsl": "014b6ca4edeb42064a46862a3e2042d59693de1f36e3d2ecfa01f4040fa0fb7d",
+  "maniml/rendering/shaders/quadratic_bezier/fill/frag.glsl": "94e55b7ead00d173b7220a45e2d43d46f8e568ce23114d0955029d6c1fe6aa7f",
+  "maniml/rendering/shaders/quadratic_bezier/fill/geom.glsl": "e8b6e8bf6dc4602a97fabdf2adf7787af434f9ba3358c9bbccfc3479973689dc",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/vert.glsl": "25319dbf1f5c81ca8a5709cd4cd39041e469b0913179525de70b227f2ad0314c",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/frag.glsl": "f1f301d61352b0b48c55f340fb14903cb7cac0306ebe8aa6aec0a01ea2131648",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/geom.glsl": "b425b8c838e06fdcde0414b59c9f4d0e1bf904afcbbfe86b16ea4a6bad4f4661",
+  "maniml/camera/native_gl_camera.py": "cc73748179ab88e4084e0e599e6517dad2bd8b90ddcfb185980b5936bd6abcad",
+  "tests/winding_reference_renderer.py": "3bdc811790576eba3edeedad298b89a655a702f42ecea7f3044ac687633b922f",
+  "tests/winding_reference_geometry.py": "9de7945b1aa95cd60af7344bcb078421f123745ab6e738b455648b89c36ec4cc",
+  "tests/renderer_fixtures.py": "f4faef1efe1145a74ca96e970ad6984949fd0d1fbe6234db0b7d687bd01147c9",
+  "tests/renderer_quality_fixtures.py": "cd271b6989530c7aef38bd0d30fbe97d20ce4ffee75a99520bd7d4c8315d0832",
+  "tests/test_fill_bounds.py": "b401b40681ed4eda97a2fb2b2952445f115bb9bdd356f6d8c35cb89cfa88f3d9",
+  "benchmarks/generated_output.py": "763b3ae5eaab0b7d318c394445683541c99404ac4896b876e1d66d306ee8443b",
+  "benchmarks/paint_retention.py": "928156bfe6b3fa77bd0437c19747d3aec2789b0b42551241b9850fa8c3af11d5",
+  "benchmarks/renderer_timing.py": "39edf8c04d803c959d633cfff47260abdeb5416b74b781fbc85884d84cb68a80",
+  "benchmarks/renderer_transport.py": "4dba35d7a1124c340d46c429395cf9834f7e1ffbb9b0f7ba7eb772cd80ad0fbf",
+  "benchmarks/triangle_wordmark.py": "d8f9894e8b42050ef81d240556ab262602f72c4798e4af1f8eae05f64ffd8dd5",
+  "benchmarks/vector_fill.py": "26cc9d2da870329377ae87f20e2a6fa1dd74adc44fa8dc62ee49cafa6e5630eb"
+ },
+ "after_source_files_sha256": {
+  "/Users/taylorjweidman/Projects/ManimLive/maniml-perf/benchmarks/gpu_borders.py": "5b2d38adb83b7f038c59a3676000d044876678e88d6faee8434647253856abf4",
+  "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+  "maniml/web/server.py": "bf6df4dc962b553972ef31e347c27ddcbb89a9571ed9a8261b84db8f6637c408",
+  "maniml/web/viewer.py": "bcabe2346dadf3a85c347ef33e690b9e1a563885bdcbaf41e27123b6d06834bb",
+  "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+  "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+  "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+  "maniml/web/generated_geometry.py": "9d8ebd8c350eaff7ffb2a849bc9adc48bbb6c5281150207ba1c47f41e7ff8eeb",
+  "maniml/web/winding_geometry.py": "a13afcbd9a931a4b5034a7cced8db403e9d98e7e4a67c09770ebbc4a41a6a3a6",
+  "maniml/web/export.py": "addb8835c8c057fdbd084ea45cc35ce16ed0f1eff28181e4b3e2c123637124f3",
+  "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+  "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+  "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+  "maniml/web/triangle_scene.py": "c25fb28d3d6854dc455c50666328164c1b4410c1d7eaabc013e06216e0ea9404",
+  "maniml/web/gpu_border_geometry.py": "f0310c77a4d73958d4725338559f6ade81f65c17215ae694e008c94c00bb05fd",
+  "maniml/web/geometry.py": "8f8f8aec0185d74cbf2d410cd30cee6a93d39f8353197498ba1851ac3b438509",
+  "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+  "maniml/web/border_geometry.py": "d469ee0a2b2d27bb6517f400783a707b62f6dab63898875c0c560b009072dd40",
+  "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+  "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+  "maniml/web/wgpu_renderer.py": "636473b9babfe2ce1b9b09c686924c69e87a5bacccb02c1773126bc3341b75f1",
+  "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+  "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+  "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+  "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+  "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+  "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+  "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+  "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+  "maniml/web/static/wgsl/paint.wgsl": "8f042440a812b5f6be425dc91995566a3357d903a46bf4e9e0908ed261f0694b",
+  "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+  "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+  "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+  "maniml/rendering/__init__.py": "d75de7c59efe7f0a609421bcf18041eb178629afd7b23945525322323036ccc1",
+  "maniml/rendering/gl_shaders.py": "ab347ef290f8d7ab30b069cef9177dc0a7059057466c38a9706024194d5c2432",
+  "maniml/rendering/shader_wrapper.py": "bf58d2bfda5ec52c729e4e6111c394527ca9b610e01274b3bc3236670c3c356b",
+  "maniml/rendering/shaders/simple_vert.glsl": "855e77ff7a0d0b80b9e389f62f5986616f607edda8e14a66e4689d9db43216b8",
+  "maniml/rendering/shaders/mandelbrot_fractal/vert.glsl": "fd0a50f2c33efee9f226ea147d96d769905566627d712e8a6a7f43c09c07d55b",
+  "maniml/rendering/shaders/mandelbrot_fractal/frag.glsl": "56818831ab7badf8ca93033d5ae986f3a19eef7d037dd883e75c689e0910ab61",
+  "maniml/rendering/shaders/textured_surface/vert.glsl": "1d082581f84212210a18a2b1e4eb72c663318dd3c610f1a3aadde58a0ae1e04c",
+  "maniml/rendering/shaders/textured_surface/frag.glsl": "332cfe710ca1392e12e35b080d8369469aaf8850659c8acf6a265d3cc4238e41",
+  "maniml/rendering/shaders/surface/vert.glsl": "0637a7c54c2c929511569dca22954704a5fce675ee6786baf0a4eac0d9486489",
+  "maniml/rendering/shaders/surface/frag.glsl": "e5f086be21844f33bcce0832ff14a940475dc2a3c5f3ab2d36391c031737bee1",
+  "maniml/rendering/shaders/image/vert.glsl": "0daef0591736380e02e2a1d4a33204b6acdbec297abbc246baa1804146bb5407",
+  "maniml/rendering/shaders/image/frag.glsl": "f6c229e462a0b25db2414f50a0bef349b2c877ff22fd7553ce1c121e8912e1a8",
+  "maniml/rendering/shaders/newton_fractal/vert.glsl": "fd0a50f2c33efee9f226ea147d96d769905566627d712e8a6a7f43c09c07d55b",
+  "maniml/rendering/shaders/newton_fractal/frag.glsl": "26f5ed0cd77399c8ffc713de74a742383f4438155d62a146712daa0ce52a9827",
+  "maniml/rendering/shaders/true_dot/vert.glsl": "ff946169e3cdb143a63026409bcf18e883c274bfe9bc3132b221f6435b07873c",
+  "maniml/rendering/shaders/true_dot/frag.glsl": "84fd3dcfb7ebcad514104e3e7c561249732911f363ab9191f1094d79dae284b0",
+  "maniml/rendering/shaders/true_dot/geom.glsl": "d43c962435d1aa164dc45f5be69459ef1623321df74c58f494e8a7a82d00529c",
+  "maniml/rendering/shaders/inserts/emit_gl_Position.glsl": "0cc634bf108f7b5bcac7d38f09afc06244c15859d226481721936958404c5a18",
+  "maniml/rendering/shaders/inserts/complex_functions.glsl": "35cf4ab9518115877c5832b91f9635c349c36bad899ee5739804ffaf54fa112c",
+  "maniml/rendering/shaders/inserts/finalize_color.glsl": "ad8face6bf1b3bc7fb91fc5c662863b2f92127c5cb9f863a0988a3e3d3394663",
+  "maniml/rendering/shaders/inserts/get_unit_normal.glsl": "5e89b5572701fdd3fd17a96e34196e88debf3bc02d275770728aa203be7aa58a",
+  "maniml/rendering/shaders/inserts/get_xyz_to_uv.glsl": "1b459279e164e2ef0d29ac0048c3b5d5b25bb37161a7115302ff2c6185849a9b",
+  "maniml/rendering/shaders/quadratic_bezier/depth/vert.glsl": "97be5568436e47fe4e950c2226f58778663e7cce87b4c5448fafe4e5e373639b",
+  "maniml/rendering/shaders/quadratic_bezier/depth/frag.glsl": "ac95daaecde00a6cf93f6f58ce64a05c0101fdbf5edb61e259c794b8ed976da8",
+  "maniml/rendering/shaders/quadratic_bezier/depth/geom.glsl": "8418f04d808d306f5a9114dd683eea1b56f52a1d7fa1f77f9eaa5343d9108c9d",
+  "maniml/rendering/shaders/quadratic_bezier/fill/vert.glsl": "014b6ca4edeb42064a46862a3e2042d59693de1f36e3d2ecfa01f4040fa0fb7d",
+  "maniml/rendering/shaders/quadratic_bezier/fill/frag.glsl": "94e55b7ead00d173b7220a45e2d43d46f8e568ce23114d0955029d6c1fe6aa7f",
+  "maniml/rendering/shaders/quadratic_bezier/fill/geom.glsl": "e8b6e8bf6dc4602a97fabdf2adf7787af434f9ba3358c9bbccfc3479973689dc",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/vert.glsl": "25319dbf1f5c81ca8a5709cd4cd39041e469b0913179525de70b227f2ad0314c",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/frag.glsl": "f1f301d61352b0b48c55f340fb14903cb7cac0306ebe8aa6aec0a01ea2131648",
+  "maniml/rendering/shaders/quadratic_bezier/stroke/geom.glsl": "b425b8c838e06fdcde0414b59c9f4d0e1bf904afcbbfe86b16ea4a6bad4f4661",
+  "maniml/camera/native_gl_camera.py": "cc73748179ab88e4084e0e599e6517dad2bd8b90ddcfb185980b5936bd6abcad",
+  "tests/winding_reference_renderer.py": "3bdc811790576eba3edeedad298b89a655a702f42ecea7f3044ac687633b922f",
+  "tests/winding_reference_geometry.py": "9de7945b1aa95cd60af7344bcb078421f123745ab6e738b455648b89c36ec4cc",
+  "tests/renderer_fixtures.py": "f4faef1efe1145a74ca96e970ad6984949fd0d1fbe6234db0b7d687bd01147c9",
+  "tests/renderer_quality_fixtures.py": "cd271b6989530c7aef38bd0d30fbe97d20ce4ffee75a99520bd7d4c8315d0832",
+  "tests/test_fill_bounds.py": "b401b40681ed4eda97a2fb2b2952445f115bb9bdd356f6d8c35cb89cfa88f3d9",
+  "benchmarks/generated_output.py": "763b3ae5eaab0b7d318c394445683541c99404ac4896b876e1d66d306ee8443b",
+  "benchmarks/paint_retention.py": "928156bfe6b3fa77bd0437c19747d3aec2789b0b42551241b9850fa8c3af11d5",
+  "benchmarks/renderer_timing.py": "39edf8c04d803c959d633cfff47260abdeb5416b74b781fbc85884d84cb68a80",
+  "benchmarks/renderer_transport.py": "4dba35d7a1124c340d46c429395cf9834f7e1ffbb9b0f7ba7eb772cd80ad0fbf",
+  "benchmarks/triangle_wordmark.py": "d8f9894e8b42050ef81d240556ab262602f72c4798e4af1f8eae05f64ffd8dd5",
+  "benchmarks/vector_fill.py": "26cc9d2da870329377ae87f20e2a6fa1dd74adc44fa8dc62ee49cafa6e5630eb"
+ },
+ "samples": 12,
+ "warmups": 3,
+ "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+ "cases": {
+  "b0_static": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 24.17566700023599,
+     "after": 24.324166493897792
+    },
+    "cpu_border": {
+     "before": 24.684854499355424,
+     "after": 24.07402100652689
+    },
+    "original_2d": {
+     "before": 63.97995850420557,
+     "after": 64.19270799960941
+    },
+    "native_gl": {
+     "before": 252.13302050542552,
+     "after": 252.31039600475924
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 384506,
+     "warmed_max_message_bytes": 167933,
+     "warmed_median_message_bytes": 167933,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 205936,
+      "retained_gpu_index_bytes": 5064,
+      "retained_gpu_border_output_bytes": 0,
+      "retained_gpu_border_source_bytes": 0
+     },
+     "retained_gpu_bytes_total": 211000,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 384506,
+     "warmed_max_message_bytes": 167933,
+     "warmed_median_message_bytes": 167933,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 205936,
+      "retained_gpu_index_bytes": 5064,
+      "retained_gpu_border_output_bytes": 0,
+      "retained_gpu_border_source_bytes": 0
+     },
+     "retained_gpu_bytes_total": 211000,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_static": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 7.2581665008328855,
+     "after": 6.172708497615531
+    },
+    "cpu_border": {
+     "before": 6.78574999619741,
+     "after": 6.977270997595042
+    },
+    "original_2d": {
+     "before": 5.737312501878478,
+     "after": 5.802020998089574
+    },
+    "native_gl": {
+     "before": 7.947895996039733,
+     "after": 7.930895997560583
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 1077,
+     "warmed_median_message_bytes": 1077,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 2431368,
+      "retained_gpu_border_output_bytes": 8366640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11535848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 1091,
+     "warmed_median_message_bytes": 1091,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 895368,
+      "retained_gpu_border_output_bytes": 3246640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 4879848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_pan": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 9.330187502200715,
+     "after": 8.358228995348327
+    },
+    "cpu_border": {
+     "before": 8.68712499504909,
+     "after": 8.849187499436084
+    },
+    "original_2d": {
+     "before": 6.018562504323199,
+     "after": 6.013792000885587
+    },
+    "native_gl": {
+     "before": 7.761354005197063,
+     "after": 7.921166499727406
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 1151,
+     "warmed_median_message_bytes": 1147,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 2431368,
+      "retained_gpu_border_output_bytes": 8366640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11535848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 1165,
+     "warmed_median_message_bytes": 1161,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 895368,
+      "retained_gpu_border_output_bytes": 3246640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 4879848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_zoom5": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 11.228645998926368,
+     "after": 11.327666499710176
+    },
+    "cpu_border": {
+     "before": 14.587290992494673,
+     "after": 13.50787499541184
+    },
+    "original_2d": {
+     "before": 5.73806250031339,
+     "after": 5.770582996774465
+    },
+    "native_gl": {
+     "before": 7.9528330024913885,
+     "after": 7.976124994456768
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 1138,
+     "warmed_median_message_bytes": 1136,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 2431368,
+      "retained_gpu_border_output_bytes": 8366640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11535848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 1152,
+     "warmed_median_message_bytes": 1150,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 895368,
+      "retained_gpu_border_output_bytes": 3246640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 4879848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_zoom4_cycle": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 11.100729003374,
+     "after": 11.594229501497466
+    },
+    "cpu_border": {
+     "before": 17.35685449966695,
+     "after": 17.9003335069865
+    },
+    "original_2d": {
+     "before": 5.904687503061723,
+     "after": 5.921187002968509
+    },
+    "native_gl": {
+     "before": 7.9223960055969656,
+     "after": 8.059937994403299
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 2671229,
+     "warmed_median_message_bytes": 1136,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 223920,
+      "retained_gpu_index_bytes": 2446152,
+      "retained_gpu_border_output_bytes": 8415920,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11649192,
+     "gpu_vs_cpu_max_rgba": 15.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 291941,
+     "warmed_median_message_bytes": 1151,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 223920,
+      "retained_gpu_index_bytes": 2138952,
+      "retained_gpu_border_output_bytes": 7391920,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 10317992,
+     "gpu_vs_cpu_max_rgba": 15.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_tilt": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 9.157833505014423,
+     "after": 8.250145496276673
+    },
+    "cpu_border": {
+     "before": 8.88681250216905,
+     "after": 8.764250007516239
+    },
+    "original_2d": {
+     "before": 5.718374493881129,
+     "after": 5.819125501147937
+    },
+    "native_gl": {
+     "before": 7.997771004738752,
+     "after": 7.882354002504144
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 1256,
+     "warmed_median_message_bytes": 1235,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 2431368,
+      "retained_gpu_border_output_bytes": 8366640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11535848,
+     "gpu_vs_cpu_max_rgba": 15.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 1270,
+     "warmed_median_message_bytes": 1249,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 895368,
+      "retained_gpu_border_output_bytes": 3246640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 4879848,
+     "gpu_vs_cpu_max_rgba": 15.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "tex_resize": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 10.922625006060116,
+     "after": 11.407313002564479
+    },
+    "cpu_border": {
+     "before": 11.41772900155047,
+     "after": 12.006416502117645
+    },
+    "original_2d": {
+     "before": 5.945708508079406,
+     "after": 7.1846670034574345
+    },
+    "native_gl": {
+     "before": 7.9875210067257285,
+     "after": 8.300250505271833
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 3170379,
+     "warmed_max_message_bytes": 1078,
+     "warmed_median_message_bytes": 1077,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 2431368,
+      "retained_gpu_border_output_bytes": 8366640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 11535848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 791079,
+     "warmed_max_message_bytes": 1092,
+     "warmed_median_message_bytes": 1091,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 174640,
+      "retained_gpu_index_bytes": 895368,
+      "retained_gpu_border_output_bytes": 3246640,
+      "retained_gpu_border_source_bytes": 563200
+     },
+     "retained_gpu_bytes_total": 4879848,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  },
+  "changing_paths": {
+   "complete_frame_p50_ms": {
+    "gpu_border": {
+     "before": 4.008749994682148,
+     "after": 3.924874501535669
+    },
+    "cpu_border": {
+     "before": 3.619520997744985,
+     "after": 3.804312495049089
+    },
+    "original_2d": {
+     "before": 3.191208503267262,
+     "after": 3.2069584922282957
+    },
+    "native_gl": {
+     "before": 3.676728993013967,
+     "after": 3.7384375027613714
+    }
+   },
+   "gpu_border": {
+    "before": {
+     "first_cold_frame_message_bytes": 23648,
+     "warmed_max_message_bytes": 23648,
+     "warmed_median_message_bytes": 23449,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 2720,
+      "retained_gpu_index_bytes": 15648,
+      "retained_gpu_border_output_bytes": 53920,
+      "retained_gpu_border_source_bytes": 3520
+     },
+     "retained_gpu_bytes_total": 75808,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    },
+    "after": {
+     "first_cold_frame_message_bytes": 8840,
+     "warmed_max_message_bytes": 8840,
+     "warmed_median_message_bytes": 8641,
+     "retained_gpu_bytes": {
+      "retained_gpu_fill_or_cpu_border_vertex_bytes": 2720,
+      "retained_gpu_index_bytes": 6816,
+      "retained_gpu_border_output_bytes": 24480,
+      "retained_gpu_border_source_bytes": 3520
+     },
+     "retained_gpu_bytes_total": 37536,
+     "gpu_vs_cpu_max_rgba": 0.0,
+     "gpu_vs_cpu_fraction_pixels_rgb_over24": 0.0
+    }
+   }
+  }
+ }
+}

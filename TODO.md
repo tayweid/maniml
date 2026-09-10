@@ -126,8 +126,12 @@ Indexed-digest normalization, authoritative renderer negotiation, Original 2D
 GPU texture retirement, explicit fixed-frame ordering and reusable binary
 paint definitions are implemented. General GPU fill borders are implemented
 and compared against packaged GL, Original 2D and CPU-border Phase A.
-A2 text performance, large non-affine paint fragment cost and zero-border AA
-remain open.
+The seventh review's border findings landed 2026-09-10 (DECISIONS.md, "Border
+runs reserve from step counts"): capacity from step counts, the strip pattern
+built by the drivers (wire format 6), the CPU triangle budget off the GPU
+path, occurrence-keyed outputs. A2 text performance, large non-affine paint
+fragment cost and zero-border AA remain open; the text gap is now source
+validation, the revision-keying decision Taylor has not yet taken.
 The [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.

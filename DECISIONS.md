@@ -5,6 +5,33 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Border runs reserve from step counts and build their own indices (2026-09-10)
+
+Taylor's direction, quoted: "go on 1 through 3", where 3 was taking the
+seventh review's border findings. The first GPU border increment reserved 64
+output vertices for every curve and sent its 186-index strip pattern with the
+fill, which cost the 101-glyph text a 3.2 MB first frame, a 2.7 MB packet on
+every fill refinement, and 11.5 MB of retained geometry against 1.2 MB for CPU
+borders.
+
+Now a run reserves two vertices per step its curves need at the current zoom,
+doubled for headroom and capped at 64, sticky per object until the need
+outgrows it. The wire (format 6) carries fill indices and, once per geometry,
+a per-object layout; each driver expands the interleaved index buffer itself
+and rebuilds it when the capacity changes. Capacity is not part of the
+geometry identity, so growth resends nothing. Text: first frame 0.79 MB,
+largest refinement 0.29 MB, retained 4.9 MB, idle packet unchanged, pixels
+unchanged. The 4 MB target in the reviewer's plan is missed by exactly the
+headroom, and the headroom stays: halving it would double regenerations on
+zoom for a number no scene depends on.
+
+The CPU emitter's triangle budget no longer applies to GPU recipes: their
+output is sized and checked by the drivers, so on that path the budget only
+turned a deep zoom into a render error. Border outputs are keyed by
+occurrence of the same geometry rather than by batch ordinal. Format 5
+recordings still load. Compact count/scan/emit remains future work; this is
+still bounded fixed capacity per run.
+
 ## The 2026-09-09 dogfood report: what was already fixed, what was not (2026-09-10)
 
 Taylor asked, on 2026-09-10, for the three engine items from the field

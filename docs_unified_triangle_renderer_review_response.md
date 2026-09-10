@@ -556,3 +556,95 @@ General GPU point evaluation and fill topology, the remaining A2 text gap,
 large non-affine paint fragment cost, nonplanar contour support and the
 zero-border AA gate remain open. Original 2D and packaged native GL remain
 available throughout this rollout.
+
+## Seventh-round response (2026-09-10): capacity from step counts, indices off the wire
+
+Implementer (a new session), on the seventh review's seven findings. Taylor's
+direction for this round, quoted: "go on 1 through 3" in reply to a plan whose
+third item was "the seventh-round border findings: stop sending the padded index
+pattern, size border capacity from real step counts, and drop the CPU triangle
+budget from the GPU path". Findings 4 and 5 were taken because they were
+small; finding 6 is the revision-keying decision, which Taylor said is not yet
+understood ("i don't understand 4 yet"), so nothing was changed there.
+
+### Findings 1 and 2: the run layout and the reserved capacity (format 6)
+
+The wire now carries a border run's **fill indices only**. The batch's
+`border` descriptor gains `capacity` (even, 4–64) and, on the first send of a
+geometry, `layout`: one `[fill index count, fill vertex count, curve count]`
+per object in draw order. Each driver expands the interleaved
+fill-A/strips-A/fill-B/strips-B index buffer from that layout at the run's
+capacity (`expand_run_indices` natively, `expandRunIndices` in the browser),
+keeps the fill indices to rebuild it when the capacity changes, and retires
+the superseded buffer after the frame is submitted. The layout is part of the
+geometry identity; the capacity is not, so a zoom that outgrows a reservation
+resends nothing. Cached batches omit the layout and the drivers and the
+recording index take it from the retained geometry.
+
+A run's capacity is reserved from its curves' step counts at the current
+zoom: two vertices per step, doubled for headroom, capped at 64, sticky per
+object until the need outgrows it (the fill cache's 2× policy). The compute
+stage receives the capacity in its params (now 32 bytes) and bounds its step
+count by it; the sender guarantees the bound is never binding, and the pixel
+test asserts a smaller reservation writes exactly the leading vertices of the
+full one. Format 5 recordings, whose complete index buffer travelled at 64
+vertices per curve, still load through both drivers and the player; the
+format version is 6.
+
+Outputs are keyed by `(geometry, source, capacity, occurrence)` where
+occurrence counts repeats of the same geometry and source in the frame rather
+than every batch, so inserting an unrelated object earlier no longer rekeys
+every later bordered object (finding 4). The A0 experiment tests gate on the
+packaged helper's discovery (finding 5); the default run now covers them.
+
+### Finding 3: the CPU triangle budget
+
+`BorderSource.read` takes `budget=True`; the GPU recipe cache passes `False`.
+The budget bounds the CPU emitter's output arrays, and the GPU path's output
+is sized by the reservation and checked against the device's buffer and
+binding limits by the drivers, so on that path it only turned a deep zoom into
+a render error. A 1,500-curve closed arc at a zoom needing 124,000 triangles
+raises on the CPU path and prepares a recipe at capacity 64 on the GPU path.
+The fixed 52,428-curve descriptor cap became the portable storage bound
+(762,600 curves of 176 bytes).
+
+### Measurements
+
+Same harness, same machine, before at `d639d489` and after; the full table is
+in [the archive](benchmarks/results/triangle_followup_20260910/gpu_border_capacity/README.md).
+
+| 101-glyph TeX | Before | After | Seventh-round target |
+| --- | ---: | ---: | --- |
+| First-frame packet | 3.17 MB | 0.79 MB | under 1 MB |
+| Fill-refinement packet, 1→4 zoom | 2.67 MB | 0.29 MB | fill bytes only |
+| Retained GPU geometry, static text | 11.5 MB | 4.9 MB | under 4 MB |
+| 5% zoom step packet | 1.14 KB | 1.15 KB | unchanged |
+| Deep zoom into large text | render error | renders | renders or reports |
+
+Retained geometry misses the 4 MB target by the headroom: the text needs 12
+vertices per curve at the default zoom and reserves 24. Halving the headroom
+would meet the number and double the regenerations on zoom; the 2× policy
+matches the fill cache and was kept. Warmed frame medians moved within noise
+except static text and pan, which improved by about 1 ms each; the repeated
+zoom stays at 11.3 ms against Original 2D's 5.8 ms because that cost is source
+validation (finding 6), not bandwidth. GPU-versus-CPU pixel diagnostics are
+identical before and after: exact on six controls, within 15/255 on the 4×
+zoom and tilt controls.
+
+### Validation
+
+723 tests pass with GPU checks, ledger verification and the packaged helper
+(the A0 tests no longer skip). New coverage: capacity policy and sticky
+reservation; deep zoom past the budget; layout validation and expansion in
+the serializer, the native driver and the browser driver, including capacity
+growth on a cached batch, retirement after submit, and occurrence keys;
+compute output at a smaller capacity; recording rehydration with once-only
+layouts; format 5 fixtures unchanged. Not run: remote CI, Windows/Linux.
+
+### Correction to the record
+
+The sixth-review section above opens "Taylor approved the sequence". The
+reviewer's seventh finding is right that Taylor did not say that; the
+sentence stands as written by the previous implementer, and this section
+quotes Taylor's direction instead of paraphrasing it.
+
