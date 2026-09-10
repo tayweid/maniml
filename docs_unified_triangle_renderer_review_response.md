@@ -340,3 +340,17 @@ rapid choices and the two-origin race found during implementation review.
 35 focused CPU tests and two real WebSocket E2E tests pass, including a new tab
 joining Original 2D while geometry is off and switching without changing the
 source hashes or current checkpoint.
+
+### 4. Original 2D texture retirement
+
+Original 2D now gathers texture references from every batch, including cached
+batches, and destroys absent textures after submission. A failed decode or
+command-encoding step rolls back that frame's new uploads, closes decoded
+bitmaps and preserves the last submitted frame's textures. Any bindings made
+against rolled-back textures are discarded before retry.
+
+The shipped-driver fake-GPU checks cover 24 distinct images retaining exactly
+one texture, cached frames retaining it without payload, empty frames retiring
+everything, returning images uploading again, shared light/dark channels and
+async/encoding failures. All 17 relevant driver/texture tests pass. These check
+actual resource lifetimes and submission order, rather than the CPU file cache.

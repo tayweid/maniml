@@ -46,6 +46,15 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_texture_bindings_reuse_and_missing_texture_requests_resend(self):
         self.run_case("textures")
 
+    def test_original_2d_retires_absent_textures_after_submit_and_reinstalls_returning_images(self):
+        self.run_case("windingTextures")
+
+    def test_original_2d_preserves_shared_light_dark_texture_storage(self):
+        self.run_case("windingSharedTextures")
+
+    def test_original_2d_failed_async_frame_preserves_previous_textures_and_rolls_back_uploads(self):
+        self.run_case("windingTextureFailures")
+
     def test_legacy_wire_is_rejected_and_render_queue_recovers(self):
         self.run_case("modes")
 

@@ -342,6 +342,113 @@ const cases = {
     assert.equal(missing[0].draws.length, 0);
     assert.equal(d.cacheMisses(), 1);
   },
+  async windingTextures() {
+    const d = await driver({legacy: true});
+    const options = {renderer: "winding"};
+    const image = hash => ({kind: "image", pipeline: "image", hash: "same-vertices",
+      textures: {Texture: hash}});
+    const bytes = hash => ({...options, texture_data: {[hash]: {offset: 0, nbytes: 4}}});
+    const storage = () => d.textures.filter(t => t.descriptor.usage & 4);
+    const retained = () => storage().filter(t => !t.destroyed);
+    let previous;
+    for (let i = 0; i < 24; i++) {
+      const spec = {...image(`image-${i}`), cached: i > 0};
+      const frame = await d.render([spec], bytes(`image-${i}`));
+      const current = frame[1].draws[0].bindings.get(1).entries[0].resource.texture;
+      assert.deepEqual(retained(), [current], "unique images retain only current-frame storage");
+      if (previous) {
+        assert.ok(previous.destroyed);
+        const submit = d.events.findIndex(([kind, n]) => kind === "submit" && n === i + 1);
+        assert.ok(d.events.findIndex(([kind, t]) => kind === "texture" && t === previous) > submit,
+          "retirement must follow submission");
+      }
+      previous = current;
+    }
+    const created = storage().length;
+    await d.render([{...image("image-23"), cached: true}], options);
+    assert.deepEqual(retained(), [previous], "cached batches keep textures absent from texture_data");
+    assert.equal(storage().length, created);
+    await d.render([], options);
+    assert.equal(retained().length, 0, "an empty frame retires all image storage");
+    const returning = await d.render([image("image-23")], bytes("image-23"));
+    const reinstalled = returning[1].draws[0].bindings.get(1).entries[0].resource.texture;
+    assert.notEqual(reinstalled, previous);
+    assert.deepEqual(retained(), [reinstalled]);
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.equal(retained().length, 0);
+  },
+  async windingSharedTextures() {
+    const d = await driver({legacy: true});
+    const options = {renderer: "winding"};
+    const surface = {kind: "texsurface", pipeline: "texsurface", hash: "surface",
+      textures: {LightTexture: "light", DarkTexture: "dark"}};
+    const image = {kind: "image", pipeline: "image", hash: "image", textures: {Texture: "dark"}};
+    const first = await d.render([surface, image], {...options, texture_data: {
+      light: {offset: 0, nbytes: 4}, dark: {offset: 4, nbytes: 4}}});
+    const entries = first[1].draws[0].bindings.get(1).entries;
+    const light = entries[0].resource.texture, dark = entries[1].resource.texture;
+    assert.notEqual(light, dark);
+    assert.equal(first[2].draws[0].bindings.get(1).entries[0].resource.texture, dark);
+    await d.render([{...image, cached: true}], options);
+    assert.ok(light.destroyed);
+    assert.ok(!dark.destroyed, "a texture shared by another object remains live");
+    const fallback = await d.render([{...surface, cached: true,
+      textures: {LightTexture: "dark"}}], options);
+    const views = fallback[1].draws[0].bindings.get(1).entries;
+    assert.equal(views[0].resource.texture, dark);
+    assert.equal(views[1].resource.texture, dark, "one light texture also supplies the dark channel");
+    assert.equal(d.textures.filter(t => (t.descriptor.usage & 4) && !t.destroyed).length, 1);
+    await d.destroy();
+  },
+  async windingTextureFailures() {
+    const pending = [];
+    let closed = 0;
+    const d = await driver({legacy: true,
+      decode: () => new Promise((resolve, reject) => pending.push({resolve, reject}))});
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    const bitmap = () => ({width: 2, height: 2, close() { closed++; }});
+    const options = {renderer: "winding"};
+    const spec = {kind: "image", pipeline: "image", hash: "original", textures: {Texture: "old"}};
+    const first = d.render([spec], {...options, texture_data: {old: {offset: 0, nbytes: 4}}});
+    await tick(); pending.shift().resolve(bitmap()); await first;
+    const original = d.submissions[0][1].draws[0].bindings.get(1).entries[0].resource.texture;
+    const failed = d.render([{...spec, textures: {Texture: "new"}}], {...options, texture_data: {
+      new: {offset: 0, nbytes: 4}, broken: {offset: 0, nbytes: 4}}});
+    const rejection = assert.rejects(failed, /decode failed/);
+    const recovery = d.render([{...spec, cached: true}], options);
+    await tick(); pending.shift().resolve(bitmap()); await tick();
+    assert.equal(d.submissions.length, 1, "a following cached frame waits for the pending decode");
+    pending.shift().reject(new Error("decode failed"));
+    await rejection; await recovery;
+    const uploads = d.textures.filter(t => t.descriptor.usage & 4);
+    assert.equal(uploads.length, 2);
+    assert.ok(!original.destroyed, "failure preserves the last submitted frame's textures");
+    assert.ok(uploads[1].destroyed, "failure rolls back already-decoded new textures");
+    assert.equal(closed, 2, "all successfully decoded bitmaps close, including rolled-back uploads");
+    assert.equal(d.submissions.length, 2);
+    assert.equal(d.cacheMisses(), 0);
+    const retry = d.render([{...spec, cached: true, textures: {Texture: "new"}}],
+      {...options, texture_data: {new: {offset: 0, nbytes: 4}}});
+    await tick(); assert.equal(pending.length, 1, "a rolled-back hash must decode again");
+    pending.shift().resolve(bitmap()); await retry;
+    assert.ok(original.destroyed);
+    assert.equal(closed, 3);
+    await d.destroy();
+
+    // Encoding can fail after a texture bind group was created. Reinstalling
+    // the same hash must not reuse a view of the rolled-back GPU texture.
+    const generated = await driver({legacy: true});
+    const textured = {pipeline: "image", textures: {Texture: "new"}};
+    const data = {texture_data: {new: {offset: 0, nbytes: 4}}};
+    await assert.rejects(generated.render([textured, {pipeline: "invalid", stride: 40}], data),
+      /unsupported generated pipeline/);
+    assert.equal(generated.submissions.length, 0);
+    assert.ok(generated.textures.filter(t => t.descriptor.usage & 4).every(t => t.destroyed));
+    const retried = await generated.render([textured], data);
+    assert.ok(!retried[0].draws[0].bindings.get(1).entries[0].resource.texture.destroyed);
+    await generated.destroy();
+  },
   async modes() {
     const d = await driver();
     await assert.rejects(d.render([], { renderer: "winding", samples: 0 }), /requires generated triangle/);

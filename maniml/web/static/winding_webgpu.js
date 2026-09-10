@@ -519,65 +519,95 @@ const ManimlWindingWGPU = (() => {
     ensureTargets(width, height, samples);
     cacheMissed = false;
 
-    for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
-      if (textureCache.has(texHash)) continue;
-      const blob = new Blob([vertexBytes.subarray(
-        ref.offset, ref.offset + ref.nbytes)]);
-      const bitmap = await createImageBitmap(blob);
-      const texture = device.createTexture({
-        size: [bitmap.width, bitmap.height], format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-          | GPUTextureUsage.RENDER_ATTACHMENT });
-      device.queue.copyExternalImageToTexture(
-        { source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
-      bitmap.close();
-      textureCache.set(texHash, texture);
-    }
-
-    usedFillTargets = new Set();
-    usedGeneratedGeometry = new Set();
-    usedGeneratedUniforms = new Set();
-    usedGeneratedTextures = new Set();
-    const encoder = device.createCommandEncoder();
-    if (generated) {
-      const [r, g, b, a] = header.background;
-      const pass = outPass(encoder, [r * a, g * a, b * a, a]);
-      for (const batch of header.batches) {
-        encodeGenerated(pass, header, batch, vertexBytes, samples);
-      }
-      pass.end();
-    } else {
-      outPass(encoder, header.background).end();
-      for (const batch of header.batches) {
-        if (batch.kind === "vmobject") {
-          encodeVMobject(encoder, header, batch, vertexBytes, samples);
-        } else {
-          encodePlain(encoder, header, batch, vertexBytes, samples);
+    // Cached batches still name their textures. Payloads only carry newly
+    // transmitted bytes, so they cannot determine the live texture set.
+    const textureHashes = new Set(header.batches.flatMap(
+      batch => Object.values(batch.textures || {})));
+    const addedTextures = [];
+    let submitted = false;
+    try {
+      for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
+        if (textureCache.has(texHash)) continue;
+        const blob = new Blob([vertexBytes.subarray(
+          ref.offset, ref.offset + ref.nbytes)]);
+        const bitmap = await createImageBitmap(blob);
+        try {
+          const texture = device.createTexture({
+            size: [bitmap.width, bitmap.height], format: "rgba8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+              | GPUTextureUsage.RENDER_ATTACHMENT });
+          addedTextures.push(texHash);
+          textureCache.set(texHash, texture);
+          device.queue.copyExternalImageToTexture(
+            { source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
+        } finally {
+          bitmap.close();
         }
       }
+
+      usedFillTargets = new Set();
+      usedGeneratedGeometry = new Set();
+      usedGeneratedUniforms = new Set();
+      usedGeneratedTextures = new Set();
+      const encoder = device.createCommandEncoder();
+      if (generated) {
+        const [r, g, b, a] = header.background;
+        const pass = outPass(encoder, [r * a, g * a, b * a, a]);
+        for (const batch of header.batches) {
+          encodeGenerated(pass, header, batch, vertexBytes, samples);
+        }
+        pass.end();
+      } else {
+        outPass(encoder, header.background).end();
+        for (const batch of header.batches) {
+          if (batch.kind === "vmobject") {
+            encodeVMobject(encoder, header, batch, vertexBytes, samples);
+          } else {
+            encodePlain(encoder, header, batch, vertexBytes, samples);
+          }
+        }
+      }
+
+      // Present: blit the (resolved) scene target onto the canvas
+      const blitPass = encoder.beginRenderPass({ colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        loadOp: "clear", storeOp: "store",
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }] });
+      blitPass.setPipeline(blitPipeline);
+      blitPass.setBindGroup(0, device.createBindGroup({
+        layout: blitPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: (resolveView || outView) },
+          { binding: 1, resource: sampler },
+        ],
+      }));
+      blitPass.draw(3);
+      blitPass.end();
+
+      device.queue.submit([encoder.finish()]);
+      submitted = true;
+    } finally {
+      if (!submitted) {
+        // A failed frame must not evict the last submitted frame's textures,
+        // or retain uploads that no submitted frame has ever referenced.
+        for (const hash of addedTextures) {
+          textureCache.get(hash).destroy();
+          textureCache.delete(hash);
+        }
+        // Bind groups made while encoding may refer to rolled-back uploads.
+        if (addedTextures.length) generatedTextures.clear();
+      }
     }
-
-    // Present: blit the (resolved) scene target onto the canvas
-    const blitPass = encoder.beginRenderPass({ colorAttachments: [{
-      view: context.getCurrentTexture().createView(),
-      loadOp: "clear", storeOp: "store",
-      clearValue: { r: 0, g: 0, b: 0, a: 1 },
-    }] });
-    blitPass.setPipeline(blitPipeline);
-    blitPass.setBindGroup(0, device.createBindGroup({
-      layout: blitPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: (resolveView || outView) },
-        { binding: 1, resource: sampler },
-      ],
-    }));
-    blitPass.draw(3);
-    blitPass.end();
-
-    device.queue.submit([encoder.finish()]);
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
     retireGeneratedResources();
+    for (const [hash, texture] of textureCache) {
+      if (!textureHashes.has(hash)) {
+        texture.destroy();
+        textureCache.delete(hash);
+      }
+    }
     // Never destroy a target while this frame's unsubmitted commands
     // may still refer to it. Retain only buckets used by the new frame.
     for (const [key, target] of fillTargets) {
