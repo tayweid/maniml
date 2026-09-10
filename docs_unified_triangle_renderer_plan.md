@@ -4,9 +4,9 @@ Proposed architecture and implementation plan — 2026-09-09.
 
 Status after the sixth review, 2026-09-10: `67f779dc` makes the shared renderer
 default and keeps Original 2D selectable. A0/A1 implementation has landed;
-A2 moving-text performance and zero-border AA remain open. Native GL was moved
-to tests, but the clarified direction is to restore it to the package as a
-reference while retaining the Phase A default. See the
+A2 moving-text performance and zero-border AA remain open. Native GL has been
+restored as the packaged `NativeGLCamera` reference while retaining the Phase A
+default. See the
 [cutover record](docs_unified_triangle_renderer_phase_a.md) and
 [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
 The earlier [A1 checkpoint](docs_unified_triangle_renderer_a1_integration.md)

@@ -15,11 +15,12 @@ stays the default. Switching browser renderers must preserve the scene,
 source arrays, camera and current checkpoint and resend complete data.
 
 The original browser winding renderer and its serializer therefore remain
-packaged as an explicit comparison path. Native GL, its wrappers and GLSL,
-and the former native winding WebGPU implementation live under `tests/` as
-historical references. Tests are excluded from wheels. The original browser
-option is not the native movie renderer. This describes `67f779dc`; restoring
-packaged GL is pending and is the first follow-up in the
+packaged as an explicit comparison path. Native GL is restored as the packaged
+`NativeGLCamera`, with its original GLSL and public `ShaderWrapper`. Set
+`camera_class = NativeGLCamera` on a scene for explicit native reference output.
+Independent frozen GL and native winding WebGPU implementations remain under
+`tests/`; tests are excluded from wheels. This completes the first follow-up
+to the `67f779dc` cutover described in the
 [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
 
 ## Rendering contract
@@ -92,7 +93,7 @@ cannot meet the meshing budget also fail explicitly, as specified in the plan.
 
 Per-point fields can be expensive when they require many samples; ordinary
 uniform text and shapes do not use that shader. The known cross-top-level
-group z-index limitation is unchanged. Custom GLSL wrappers are retired native
+group z-index limitation is unchanged. Custom GLSL wrappers remain explicit native
 renderer internals, not supported shared-backend shader extensions.
 
 ## Retention and transport
@@ -124,7 +125,8 @@ optional would allow an install whose default renderer cannot run, so it is
 intentionally required. Source/editable installs need Cargo and a linker;
 Rust 1.97.0 and the checked-in Cargo lockfile are the tested build. Compatible
 wheels contain the helper and need no Rust toolchain. Nothing compiles during
-scene playback. GL dependencies are development-only for historical tests.
+scene playback. `moderngl` and `PyOpenGL` are runtime dependencies for the
+explicit packaged native GL reference.
 
 ## Validation and integration
 
@@ -222,3 +224,19 @@ Integrate by fast-forwarding the canonical `main` checkout, refreshing the
 editable install with `--no-deps`, and verifying imports/native output from
 outside the repository. Existing scene processes retain their imported code;
 reopen the scene to load this renderer and its comparison control.
+
+## Native GL restoration follow-up (2026-09-10)
+
+The package again contains a runnable native GL reference, selected with an
+explicit scene `camera_class = NativeGLCamera`. Phase A remains the default
+for browser, native output and new recordings; Original 2D stays selectable
+in the viewer. The public `ShaderWrapper` and original GLSL assets are restored,
+and `moderngl`/`PyOpenGL` are runtime dependencies. Frozen test references remain
+independent. No GPU objects are added to source mobjects.
+
+The extracted-wheel smoke check imports the restored public classes, renders
+a square with native GL while forbidding all `tests` imports, and checks that
+`Scene.camera_class` is still the shared camera. The same wheel loads its Lyon
+helper and passes metadata/license checks. The native reference pixel test
+checks exact RGBA equality to the frozen GL camera across direct paint edits,
+border/stroke changes, camera motion and depth changes.

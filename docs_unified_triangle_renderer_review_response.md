@@ -288,3 +288,30 @@ Evidence in this round: actual Python cache/hash and static-gradient transport
 probes, a JavaScript fake-device texture-retention probe, six focused
 selector/ordering CPU checks, and comparison of the previous native camera,
 browser source and GLSL assets. No fresh GPU image or timing run was performed.
+
+## Implementation after the sixth review (2026-09-10)
+
+Taylor approved the sequence: packaged GL, indexed digest reuse, authoritative
+selector negotiation, Original 2D texture retirement, the ordering record,
+reusable paint definitions, then general GPU borders compared against native
+GL, Original 2D and the CPU-border Phase A implementation.
+
+### 1. Packaged native GL
+
+Restored `NativeGLCamera` as an explicit scene camera, the real public
+`ShaderWrapper`, original GLSL assets and GL runtime dependencies. Phase A
+remains default and Original 2D remains a separate browser option. The frozen
+GL reference in tests is unchanged. Shader imports remain context-free; GPU
+resources belong to the selected GL camera/context rather than mobjects.
+
+The extracted wheel renders with native GL while a test-import blocker is
+active. It also loads the packaged Lyon helper, contains every required shader
+and passes Twine metadata checks. The native pixel check matches the frozen
+reference exactly across paint, stroke, camera and depth changes.
+
+Validation: 23 native GL/default-camera boundary tests passed with GPU checks
+enabled. Copying a camera preserves its frame alias, excludes GPU state and
+allocates an independent context on capture. A copied camera keeps identical
+pixels after the original is released. This caught and fixed a wrong-context
+cleanup bug; resource retirement now activates the owning context and attempts
+every cleanup. Headless import and the 281-name CE baseline also pass.

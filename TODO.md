@@ -13,9 +13,9 @@ architecture after the beeline lives beside this repo in
 The browser and native movie/checkpoint output share the Phase A triangle
 WebGPU backend. Source points and fill generation remain on the CPU. The
 viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
-2026-09-10; **Phase A** is the default. Native GL survives only in test
-references, excluded from the package. The sixth review clarifies that it
-must return to the package as a reference; that restoration is next. See the
+2026-09-10; **Phase A** is the default. Native GL is restored to the package
+as the explicit `NativeGLCamera` reference, including its original shaders,
+public `ShaderWrapper` and runtime dependencies. See the
 [cutover record](docs_unified_triangle_renderer_phase_a.md) for validation and
 explicit limits.
 
@@ -106,11 +106,11 @@ remove it without Taylor's direction. Detailed GPU source/geometry work is in
 
 The sixth review corrects the earlier interpretation of Taylor's direction:
 **restore native GL to the package as a runnable reference**, keep Phase A
-default, and retain Original 2D in the browser. At `67f779dc`, native rendering
-uses wgpu-py and GL exists only in tests. Restore the camera-owned GL reference,
-`ShaderWrapper`, GLSL assets and runtime dependencies, then verify the wheel
-can run GL without importing tests. Restore the public-name baseline with the
-real wrapper. Do not reverse the shared-renderer default.
+default, and retain Original 2D in the browser. The camera-owned GL reference,
+`ShaderWrapper`, original GLSL assets and runtime dependencies are restored.
+The wheel check now requires these assets and offers an extracted-wheel GL
+capture with tests unavailable. The public-name baseline includes the real
+wrapper again. The shared-renderer default stays unchanged.
 
 Follow with indexed-digest normalization, authoritative renderer negotiation,
 Original 2D GPU texture retirement, explicit fixed-frame ordering, reusable

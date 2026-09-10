@@ -31,6 +31,9 @@ REQUIRED_ASSETS = {
     "maniml/web/generated_geometry.py",
     "maniml/web/triangle_scene.py",
     "maniml/web/triangle_geometry.py",
+    "maniml/camera/native_gl_camera.py",
+    "maniml/rendering/shader_wrapper.py",
+    "maniml/rendering/gl_shaders.py",
     # The installed app's identity: without these the engine serves a page
     # that cannot be installed, and the icon and offline shell disappear.
     "maniml/web/static/manifest.webmanifest",
@@ -44,10 +47,31 @@ REQUIRED_ASSETS.update(
     for name in ("common", "fill", "blit", "composite", "stroke",
                  "surface", "image", "texsurface", "dot")
 )
+REQUIRED_ASSETS.update(
+    f"maniml/rendering/shaders/{folder}/{stage}.glsl"
+    for folder, stages in (
+        ("image", ("vert", "frag")),
+        ("surface", ("vert", "frag")),
+        ("textured_surface", ("vert", "frag")),
+        ("true_dot", ("vert", "geom", "frag")),
+        ("mandelbrot_fractal", ("vert", "frag")),
+        ("newton_fractal", ("vert", "frag")),
+        ("quadratic_bezier/fill", ("vert", "geom", "frag")),
+        ("quadratic_bezier/stroke", ("vert", "geom", "frag")),
+        ("quadratic_bezier/depth", ("vert", "geom", "frag")),
+    )
+    for stage in stages
+)
+REQUIRED_ASSETS.update(
+    f"maniml/rendering/shaders/{name}.glsl"
+    for name in ("simple_vert", "inserts/get_xyz_to_uv", "inserts/get_unit_normal",
+                 "inserts/finalize_color", "inserts/complex_functions",
+                 "inserts/emit_gl_Position")
+)
 REQUIRED_LICENSES = {"LICENSE", "LICENSE.community", "THIRD_PARTY_LICENSES.txt",
                      "RUST_STANDARD_LIBRARY_LICENSES.html"}
-RETIRED_ASSETS = {"maniml/web/static/gl.js", "maniml/rendering/shader_wrapper.py"}
-RETIRED_PREFIXES = ("maniml/web/static/glsl/", "maniml/rendering/shaders/")
+RETIRED_ASSETS = {"maniml/web/static/gl.js"}
+RETIRED_PREFIXES = ("maniml/web/static/glsl/",)
 
 
 def check_wheel(path: Path) -> None:
@@ -98,11 +122,9 @@ def check_wheel(path: Path) -> None:
         )
 
     dependencies = [value.lower() for value in metadata.get_all("Requires-Dist", [])]
-    for required in ("audioop-lts", "pydub", "websockets", "wgpu"):
+    for required in ("audioop-lts", "pydub", "websockets", "wgpu", "moderngl", "pyopengl"):
         if not any(value.startswith(required) for value in dependencies):
             raise SystemExit(f"wheel is missing dependency metadata for {required}")
-    if any(value.startswith(("moderngl", "pyopengl")) for value in dependencies):
-        raise SystemExit("wheel still requires the retired GL runtime")
     if any(value.startswith("diskcache") for value in dependencies):
         raise SystemExit("wheel still depends on unsafe pickle cache diskcache")
 
@@ -152,15 +174,60 @@ print("extracted packaged Lyon loader: fill and border OK")
                        cwd=directory, env=environment, check=True)
 
 
+def check_native_gl(path: Path) -> None:
+    """Capture with packaged GL from an extracted wheel, with tests unavailable."""
+    with TemporaryDirectory(prefix="maniml-wheel-gl-") as directory:
+        with ZipFile(path) as wheel:
+            wheel.extractall(directory)
+        program = r'''
+import importlib.abc
+import pathlib
+import sys
+import numpy as np
+root = pathlib.Path(sys.argv[1]).resolve()
+class RejectTests(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "tests" or fullname.startswith("tests."):
+            raise AssertionError("packaged GL must not import tests: " + fullname)
+sys.meta_path.insert(0, RejectTests())
+sys.path.insert(0, str(root))
+import maniml
+from maniml import Camera, NativeGLCamera, Scene, ShaderWrapper, Square
+from maniml.rendering.shader_wrapper import ShaderWrapper as RealShaderWrapper
+assert pathlib.Path(maniml.__file__).resolve().is_relative_to(root)
+assert ShaderWrapper is RealShaderWrapper
+assert Scene.camera_class is Camera
+camera = NativeGLCamera(resolution=(96, 64))
+try:
+    camera.capture(Square(fill_color="#FF0000", fill_opacity=1, stroke_width=0))
+    image = np.asarray(camera.get_image())
+    assert image.shape == (64, 96, 4), image.shape
+    np.testing.assert_allclose(image[32, 48], [255, 0, 0, 255], atol=1)
+    np.testing.assert_array_equal(image[0, 0], [0, 0, 0, 255])
+finally:
+    camera.release()
+assert not any(name == "tests" or name.startswith("tests.") for name in sys.modules)
+print("extracted packaged native GL: capture OK; Phase A remains default")
+'''
+        environment = os.environ.copy()
+        environment.pop("MANIML_LYON_LIBRARY", None)
+        subprocess.run([sys.executable, "-I", "-c", program, directory],
+                       cwd=directory, env=environment, check=True)
+
+
 if __name__ == "__main__":
     load_native = "--load-native" in sys.argv[1:]
-    patterns = [argument for argument in sys.argv[1:] if argument != "--load-native"]
+    load_gl = "--load-gl" in sys.argv[1:]
+    patterns = [argument for argument in sys.argv[1:]
+                if argument not in ("--load-native", "--load-gl")]
     candidates = [Path(path) for pattern in patterns for path in glob(pattern)]
     if not patterns:
         candidates = list(Path("dist").glob("*.whl"))
     if len(candidates) != 1:
-        raise SystemExit("expected exactly one wheel: check_wheel.py [--load-native] [PATH_TO_WHEEL]")
+        raise SystemExit("expected exactly one wheel: check_wheel.py [--load-native] [--load-gl] [PATH_TO_WHEEL]")
     check_wheel(candidates[0])
     if load_native:
         check_native_loader(candidates[0])
+    if load_gl:
+        check_native_gl(candidates[0])
     print(f"wheel contents OK: {candidates[0]}")

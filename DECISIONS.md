@@ -16,8 +16,9 @@ native GL, its wrappers/shaders and runtime dependencies, while retaining the
 Phase A default and the separate Original 2D browser option.
 
 At `67f779dc`, native GL is test-only and native movies/images/new recordings
-use Phase A. GL restoration is pending; this corrected direction does not
-claim it has happened. See the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+use Phase A. The follow-up restores `NativeGLCamera`, the real public
+`ShaderWrapper`, original GLSL assets and runtime dependencies to the package.
+Resources stay camera-owned; frozen test references stay independent. See the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 for the restoration scope and verified follow-up issues.
 
 Use a shared 2× spatial resolve with 4× MSAA for predictable default fill AA.
@@ -31,8 +32,8 @@ CPU-owned; Phase B is a separate source-update/geometry-generation project.
 The Lyon helper is a required build artifact now that the default needs it.
 An optional extension would permit a successful install that cannot render.
 Source/editable installs need Cargo and a linker; compatible wheels need
-neither. Custom native GLSL wrappers were removed with GL and are included in
-the restoration direction. Ordinary nonplanar
+neither. Custom native GLSL wrappers are available through the explicit GL
+reference. Ordinary nonplanar
 filled outlines still need an explicitly defined surface rather than an
 arbitrary fan. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
 contains the measured performance, quality exceptions and validation scope.

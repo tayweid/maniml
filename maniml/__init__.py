@@ -164,6 +164,8 @@ from .mobject.types.vectorized_mobject import (
 from .mobject.value_tracker import (
     ComplexValueTracker, ValueTracker
 )
+from .rendering.shader_wrapper import ShaderWrapper
+from .camera.native_gl_camera import NativeGLCamera, NativeGLThreeDCamera
 
 from .scene.scene_file_writer import (
     SceneFileWriter
@@ -321,7 +323,8 @@ __all__ += [
     'Code', 'register_font', 'Table', 'MathTable', 'Dodecahedron', 'DotCloud', 'TrueDot',
     'ImageMobject', 'PGroup', 'PMobject', 'CurvesAsSubmobjects',
     'DashedVMobject', 'VectorizedPoint', 'ComplexValueTracker',
-    'ValueTracker', 'SceneFileWriter', 'bezier',
+    'ValueTracker', 'ShaderWrapper', 'NativeGLCamera', 'NativeGLThreeDCamera',
+    'SceneFileWriter', 'bezier',
     'get_smooth_cubic_bezier_handle_points', 'integer_interpolate',
     'interpolate', 'inverse_interpolate', 'is_closed', 'match_interpolate',
     'mid', 'partial_bezier_points', 'average_color', 'color_gradient',

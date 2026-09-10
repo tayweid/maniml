@@ -54,6 +54,9 @@ dependencies = [
     "rich>=13.0.0",
     "fonttools>=4.0.0",
     "wgpu>=0.32",
+    # Explicit native GL comparison camera; Phase A remains the default.
+    "moderngl>=5.6.0",
+    "PyOpenGL>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -62,9 +65,6 @@ webgpu = []
 
 [dependency-groups]
 dev = [
-    # Independent historical GL visual oracle; never a runtime dependency.
-    "moderngl>=5.6.0",
-    "PyOpenGL>=3.1.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "black>=24.0.0",
@@ -101,6 +101,8 @@ debug = false
 [tool.setuptools.package-data]
 maniml = [
     "*.yml",
+    "rendering/shaders/**/*.glsl",
+    "rendering/shaders/*.glsl",
     "web/static/*.html",
     "web/static/*.css",
     "web/static/*.js",

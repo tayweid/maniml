@@ -10,7 +10,7 @@ import importlib.machinery
 import importlib.util
 
 USAGE = """
-maniml - ManimCE-compatible API on an OpenGL backend
+maniml - ManimCE-compatible API on a shared WebGPU backend
 
 Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
@@ -57,6 +57,11 @@ Modes:
                    produces — regenerate them when you need them, and
                    keep them out of the repo
   --help, -h       Show this help message
+
+Renderer comparisons:
+  The viewer offers Phase A (default) and Original 2D.
+  For native GL reference output, set camera_class = NativeGLCamera
+  on the scene class and run with --render or --export-checkpoints.
 
 Interactive controls (in the browser viewer):
   RIGHT arrow      Run the next animation (re-executed from source)

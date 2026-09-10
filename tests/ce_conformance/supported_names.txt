@@ -133,6 +133,7 @@ Scene
 SceneFileWriter
 ScreenRectangle
 Sector
+ShaderWrapper
 ShowIncreasingSubsets
 ShowPartial
 ShowPassingFlash

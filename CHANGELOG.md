@@ -17,7 +17,8 @@ interfaces may still change before the first public release.
 - The player opens existing winding recordings as well as new triangle
   recordings. Unsupported live content and corrupt recordings display an
   error and permit navigation to valid content.
-- Native OpenGL and custom GLSL wrappers are retired. Source/editable installs
+- Native OpenGL is retained as the explicit `NativeGLCamera` reference, with
+  its original shaders and public `ShaderWrapper`. Source/editable installs
   now require Cargo and a linker for the Lyon fill helper; compatible wheels
   include it. `wgpu` is a required runtime dependency. Nonplanar ordinary
   vector fills fail explicitly; use `Surface` or `VMobject3D` for a defined
