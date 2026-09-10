@@ -84,7 +84,8 @@ class DrawBorderThenFill(Animation):
         **kwargs
     ):
         assert isinstance(vmobject, VMobject)
-        self.sm_to_index = {hash(sm): 0 for sm in vmobject.get_family()}
+        self.sm_to_index = {}
+        self._completed_submobjects = {}
         self.stroke_width = stroke_width
         self.stroke_color = stroke_color
         self.draw_border_animation_config = draw_border_animation_config
@@ -98,10 +99,11 @@ class DrawBorderThenFill(Animation):
         self.mobject = vmobject
 
     def begin(self) -> None:
+        self.sm_to_index.clear()
+        self._completed_submobjects.clear()
         self.mobject.set_animating_status(True)
         self.outline = self.get_outline()
         super().begin()
-        self.mobject.match_style(self.outline)
 
     def finish(self) -> None:
         super().finish()
@@ -121,6 +123,19 @@ class DrawBorderThenFill(Animation):
     def get_all_mobjects(self) -> list[Mobject]:
         return [*super().get_all_mobjects(), self.outline]
 
+    def interpolate_mobject(self, alpha: float) -> None:
+        super().interpolate_mobject(alpha)
+        # A child's interpolation also bumps its parent's revision. Record
+        # completed parents after their children, avoiding one redundant write
+        # on the next frame once the whole family has reached its endpoint.
+        for submob, _, _ in self.families:
+            key = hash(submob)
+            if submob.submobjects and key in self._completed_submobjects:
+                _, start_revision, outline_revision = self._completed_submobjects[key]
+                self._completed_submobjects[key] = (
+                    submob.revision, start_revision, outline_revision,
+                )
+
     def interpolate_submobject(
         self,
         submob: VMobject,
@@ -129,16 +144,65 @@ class DrawBorderThenFill(Animation):
         alpha: float
     ) -> None:
         index, subalpha = integer_interpolate(0, 2, alpha)
+        key = hash(submob)
+        complete = index == 1 and subalpha == 1
+        # Supported mutations bump revision, including changes to the endpoint
+        # copies. An updater on any ancestor may write a child's arrays directly,
+        # so keep evaluating when any animation-owned family has updaters.
+        cache_completion = complete and not any(
+            mob.has_updaters() for mob in self.get_all_mobjects()
+        )
+        revisions = (submob.revision, start.revision, outline.revision)
+        if cache_completion and self._completed_submobjects.get(key) == revisions:
+            return
+        self._completed_submobjects.pop(key, None)
 
-        if index == 1 and self.sm_to_index[hash(submob)] == 0:
-            # First time crossing over
+        previous_index = self.sm_to_index.get(key)
+        if previous_index is None:
+            # Set style before the initial interpolation, so reversed rate
+            # functions (Unwrite) start at the filled endpoint too.
+            submob.match_style(outline, recurse=False)
+        if index != previous_index:
             submob.set_data(outline.data)
-            self.sm_to_index[hash(submob)] = 1
+            if index == 0 and previous_index == 1:
+                submob.set_uniforms(outline.uniforms)
+            self.sm_to_index[key] = index
 
         if index == 0:
             submob.pointwise_become_partial(outline, 0, subalpha)
         else:
-            submob.interpolate(outline, start, subalpha)
+            submob.interpolate(outline, start, subalpha, self._interpolate_points)
+            if (
+                not {"point", "base_normal"}.intersection(submob.locked_data_keys)
+                and not start.needs_new_unit_normal
+                and not outline.needs_new_unit_normal
+                and np.array_equal(outline.get_points(), start.get_points())
+                and np.array_equal(
+                    outline.data["base_normal"][1::2], start.data["base_normal"][1::2],
+                )
+            ):
+                # The fill only changes paint in this case. Keep the valid,
+                # identical endpoint normals exact too, including their dirty
+                # state: otherwise the first render recomputes a normal that
+                # subsequent interpolation replaces with the cached endpoint.
+                submob.data["base_normal"][1::2] = start.data["base_normal"][1::2]
+                submob.needs_new_unit_normal = False
+        if cache_completion:
+            self._completed_submobjects[key] = (
+                submob.revision, start.revision, outline.revision,
+            )
+
+    @staticmethod
+    def _interpolate_points(start: np.ndarray, end: np.ndarray, alpha: float) -> np.ndarray:
+        # During fill, outline and target normally have identical points. The
+        # weighted sum (1 - alpha) * start + alpha * end can round those fixed
+        # float32 coordinates differently each frame. Take matching arrays and
+        # endpoints directly; retain the usual interpolation for moving points.
+        if alpha == 0:
+            return start
+        if alpha == 1 or np.array_equal(start, end):
+            return end
+        return (1 - alpha) * start + alpha * end
 
 
 class Write(DrawBorderThenFill):
