@@ -368,3 +368,141 @@ A1 started while the A0 text gates were still open, and the record says so.
 That is acceptable for an opt-in path. Findings 1 and 2 are the two places
 where opt-in is not yet opt-in: a default install now needs Rust, and the
 opt-in renders worse than the benchmark reports.
+
+## Sixth round: audit of the Phase A cutover
+
+Reviewer again, 2026-09-10, on commit `67f779dc` and the
+[cutover record](docs_unified_triangle_renderer_phase_a.md). This round also
+carries a direction from Taylor that corrects the record.
+
+### Direction from Taylor: native GL stays
+
+Taylor did not authorize removing the native GL renderer. The authorization
+recorded in DECISIONS.md, TODO.md and the cutover record is not correct and
+should be amended by the author. The requirement is:
+
+- The native GL renderer remains in the **package**, not only under `tests/`,
+  and remains the ground truth the shared renderer is compared against for a
+  while longer. Its shaders, `ShaderWrapper`, and the GL camera path come back
+  as shipped code; `moderngl` and `PyOpenGL` return to runtime dependencies.
+- Phase A may stay the default renderer. Most output looks good and the
+  end-to-end checks below pass. Keeping GL is about retaining the oracle, not
+  reverting the cutover.
+- The viewer's Original 2D option stays as well; it is a second comparison,
+  not a substitute for GL.
+
+Restoring GL is the first item for the author, ahead of the findings below.
+
+### What was verified
+
+- Full discovery with real GPU tests and ledger verification: 625 tests. The
+  one failure was an artifact of invoking the interpreter by a relative path.
+  The two long-standing AppShell failures are genuinely fixed.
+- `--render` of the dogfood `Demo` and `animation_0` scenes and `--export` of
+  `Demo` succeed through native WebGPU. Frames pulled from both movies show
+  Tex, pixel-grid text and the episode title rendered correctly.
+- `uv build --wheel` succeeds with cargo 1.97. The wheel contains the Lyon
+  helper and the Original 2D shaders, no GLSL and no tests. The wheel check
+  loads the helper from the extracted wheel and tessellates a fill and a border.
+- Stencil border ownership, the 2× resolve, native capture to straight alpha,
+  GPU-free checkpoint copies, and renderer switching on both sides all checked
+  out in a delegated pass over both drivers, the camera, and the selector.
+
+### Findings, most important first
+
+1. **Fixed-in-frame objects now always draw last, on both renderers.** The
+   render-group sort in `scene.py` became `(is_fixed_in_frame, z_index)`.
+   Upstream ManimGL draws fixed-frame objects in add order. This is a
+   behavior change with a test but no decision record, and because it applies
+   to Original 2D too, that option is no longer a faithful baseline for scenes
+   mixing overlays and world objects. Record it or revert it.
+
+2. **The performance gate is failed and the failure lands on the dogfood
+   interaction.** The record reports the numbers honestly:
+
+   | Case | Original | Phase A |
+   |---|---:|---:|
+   | B0 wordmark, static | 80.6 ms | 25.3 ms |
+   | 101-glyph TeX, camera zoom and pan | 6.9 ms | 15.9 ms |
+
+   What the record's timing excludes is transport. Border geometry depends on
+   the zoom level through stroke step counts and the width factor, so every
+   zoom step regenerates borders for every glyph and resends them:
+
+   | Text scene, per frame | Payload |
+   |---|---:|
+   | Unchanged frame or camera pan | 1 KB |
+   | Each 5% zoom step | 1.2 MB |
+
+   Pan is fine. Zoom pushes tens of megabytes per second over the socket. The
+   GPU border work in progress is the right fix; see the section below.
+
+3. **Digest reuse is dead code for every indexed fill.** In
+   `generated_geometry.py` the index array is converted to a fresh view each
+   frame before the identity key is built, so the key never matches the
+   retained payload and every fill is rehashed every frame. Measured: 18
+   hashes over all bytes on a static nine-fill scene. Build the key before the
+   conversion, or skip the conversion when the array is already contiguous
+   uint32.
+
+4. **Gradient paint is rebuilt and resent every frame.** The paint field is
+   serialized into the header even when the batch is marked cached. A
+   400-point gradient polygon sends a 94 KB header per frame with nothing
+   changing. Above 256 distinct samples the field silently falls back to
+   inverse-distance weighting, which looks blotchy next to the old linear
+   gradient, and `paint.wgsl` loops up to 4,096 samples per fragment at 16
+   samples per pixel. Hash the paint once and send it as cached; treat the
+   fallback as an explicit limitation.
+
+5. **The renderer selector does not persist on the client.** The server keeps
+   the mode and sends it in every state message, but the client never reads
+   it. A page reload sends the default, which the server treats as a change
+   and broadcasts to every other tab.
+
+6. **Nonplanar filled VMobjects now raise instead of drawing.** The winding
+   renderer drew them, badly but without failing. A course scene with a filled
+   closed 3D curve now stops with an error. For scenes that used to run, a
+   warning plus the previous behavior is the safer default; the explicit
+   contract can apply to new scenes.
+
+7. **The AA exception stays an unmet gate.** Zero-border zoomed text misses
+   the old full-frame threshold. The 16× coverage argument is reasonable and
+   no threshold was widened, but it should remain listed as open.
+
+Smaller: the retained winding browser driver's texture cache is unbounded
+while Phase A's is not; Original 2D renders at one sample, so side-by-side
+comparisons are confounded by AA; the video writer's pixel-format assumption
+predates this work; the `__main__` docstring still says OpenGL.
+
+### On the GPU border work
+
+Moving border triangle generation to the GPU is the right direction: it is
+how the original stroke shader stayed fast on text, and it removes the
+zoom-dependent CPU regeneration and the 1.2 MB resend at once. Suggestions
+for that work:
+
+- Feed the border pipeline the same expanded three-record-per-curve source
+  the stroke shader already consumes, with width, joint angles and the zoom
+  factor as uniforms. Then a zoom step changes uniforms only, and the fill
+  mesh cache stops depending on `frame_scale` for borders.
+- Keep the per-sample stencil ownership exactly as it is. The GPU-generated
+  strips overlap at joins the same way the CPU ones do, and ownership is what
+  makes that safe for translucent fills.
+- `border_geometry.py` already has a test proving the vectorized emitter
+  matches the scalar one. Reuse those fixtures to prove the shader matches
+  the CPU emitter vertex for vertex before deleting the CPU path, then keep
+  the CPU emitter under tests as the reference.
+- Measure the two numbers from finding 2 after the change: text preparation
+  time under zoom, and payload bytes per zoom step. The target is the
+  original's shape, about 1 KB per camera-only frame.
+- Camera-facing borders and fixed-frame sources were the cases the CPU
+  emitter handled specially; make sure they have fixtures before cutover.
+
+### Where Phase A stands
+
+A0 and A1 are done. A3's cutover happened on an authorization Taylor did not
+give, and native GL must come back as the ground truth while Phase A stays
+the default. A2's exit is not met on performance and carries one recorded
+quality exception. The two items that bite in dogfood today are the zoom
+resend, which the GPU border work addresses, and the dead digest reuse, which
+is a small fix.
