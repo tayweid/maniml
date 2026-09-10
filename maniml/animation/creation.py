@@ -6,7 +6,7 @@ import numpy as np
 
 from maniml.animation.animation import Animation
 from maniml.mobject.svg.string_mobject import StringMobject
-from maniml.mobject.types.vectorized_mobject import VMobject
+from maniml.mobject.types.vectorized_mobject import VGroup, VMobject
 from maniml.utils.bezier import integer_interpolate
 from maniml.utils.rate_functions import linear
 from maniml.utils.rate_functions import double_smooth
@@ -307,6 +307,46 @@ class AddTextWordByWord(ShowIncreasingSubsets):
         if not self.is_remover():
             scene.add(self.string_mobject)
 
+
+class AddTextLetterByLetter(ShowIncreasingSubsets):
+    """Reveal a string one drawn glyph at a time (CE's letter-by-letter add).
+
+    AddTextWordByWord steps over the string's isolated groups, which for a
+    plain Tex is a single group; this steps over every glyph, so a
+    time_per_char actually means one character per step. Accepts any
+    mobject with drawn glyphs (CE limits it to Text; course scenes key in
+    Tex the same way).
+    """
+    def __init__(
+        self,
+        string_mobject: Mobject,
+        time_per_char: float = 0.1,
+        run_time: float = -1.0,  # If negative, recomputed from time_per_char
+        rate_func: Callable[[float], float] = linear,
+        int_func: Callable[[float], float] = np.ceil,
+        **kwargs
+    ):
+        glyphs = string_mobject.family_members_with_points()
+        if not glyphs:
+            raise ValueError(
+                f"{string_mobject} has no drawn characters to add")
+        self.time_per_char = time_per_char
+        if run_time < 0:
+            run_time = time_per_char * len(glyphs)
+        super().__init__(
+            VGroup(*glyphs),
+            run_time=run_time,
+            rate_func=rate_func,
+            int_func=int_func,
+            **kwargs
+        )
+        self.string_mobject = string_mobject
+
+    def clean_up_from_scene(self, scene: Scene) -> None:
+        scene.remove(self.mobject)
+        if not self.is_remover():
+            scene.add(self.string_mobject)
+
 # CE Compatibility Mappings
 Create = ShowCreation
 
@@ -327,6 +367,3 @@ class Unwrite(Write):
         **kwargs,
     ):
         super().__init__(mobject, rate_func=rate_func, remover=remover, **kwargs)
-
-# Additional name for CE compatibility
-AddTextLetterByLetter = AddTextWordByWord

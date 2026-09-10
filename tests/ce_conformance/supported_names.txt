@@ -1,6 +1,7 @@
 # CE API names maniml currently provides — the
 # conformance test guards this set against regression.
 # Regenerate with: python -m tests.ce_conformance.update_baseline
+AddTextLetterByLetter
 AddTextWordByWord
 Angle
 Animation

@@ -54,6 +54,7 @@ from .animation.animation import Animation
 from .animation.creation import (
     ShowCreation, Uncreate, DrawBorderThenFill, Write, Unwrite,
     ShowIncreasingSubsets, ShowSubmobjectsOneByOne, AddTextWordByWord,
+    AddTextLetterByLetter,
     ShowPassingFlash as ShowPassingFlashCreation
 )
 from .animation.transform import (
@@ -271,6 +272,7 @@ __all__ = [
     # Creation Animations
     'Animation', 'ShowCreation', 'Uncreate', 'DrawBorderThenFill', 'Write', 'Unwrite',
     'ShowIncreasingSubsets', 'ShowSubmobjectsOneByOne', 'AddTextWordByWord',
+    'AddTextLetterByLetter',
     # Transform Animations
     'Transform', 'ReplacementTransform', 'TransformFromCopy',
     'MoveToTarget', 'ApplyMethod', 'ApplyPointwiseFunction', 'ApplyPointwiseFunctionToCenter',

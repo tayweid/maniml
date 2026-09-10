@@ -4,8 +4,9 @@ import unittest
 
 import numpy as np
 
-from maniml import Circle, VGroup
-from maniml.animation.creation import DrawBorderThenFill, Unwrite, Write
+from maniml import Circle, Text, VGroup
+from maniml.animation.creation import (
+    AddTextLetterByLetter, AddTextWordByWord, DrawBorderThenFill, Unwrite, Write)
 from maniml.utils.rate_functions import linear, there_and_back
 
 
@@ -151,6 +152,65 @@ class CreationInterpolationTests(unittest.TestCase):
         self.assertEqual(mob.get_fill_opacity(), 0)
         animation.finish()
         np.testing.assert_array_equal(mob.data, expected)
+
+
+class LetterByLetterTests(unittest.TestCase):
+    """AddTextLetterByLetter was an unexported alias of the word-wise add,
+    which for a plain string is one group: nothing keyed in and
+    `from manim import *` did not even provide the name (dogfood,
+    2026-09-09)."""
+
+    def test_the_name_is_exported(self):
+        import maniml
+        self.assertIs(maniml.AddTextLetterByLetter, AddTextLetterByLetter)
+        self.assertIn('AddTextLetterByLetter', maniml.__all__)
+        self.assertIsNot(AddTextLetterByLetter, AddTextWordByWord)
+
+    def test_glyphs_appear_one_per_step(self):
+        text = Text("abcd")
+        glyphs = text.family_members_with_points()
+        self.assertEqual(len(glyphs), 4)
+        anim = AddTextLetterByLetter(text, time_per_char=0.25)
+        self.assertAlmostEqual(anim.run_time, 1.0)
+        anim.begin()
+        seen = []
+        for alpha in (0.0, 0.2, 0.3, 0.5, 0.8, 1.0):
+            anim.interpolate(alpha)
+            seen.append(len(anim.mobject.submobjects))
+        self.assertEqual(seen, [0, 1, 2, 2, 4, 4])
+        anim.interpolate(0.6)
+        self.assertIs(anim.mobject.submobjects[2], glyphs[2])
+        anim.finish()
+
+    def test_word_by_word_still_steps_over_groups(self):
+        text = Text("abcd")
+        anim = AddTextWordByWord(text)
+        self.assertEqual(len(anim.all_submobs), len(text.build_groups()))
+
+    def test_the_string_replaces_the_glyph_group_at_the_end(self):
+        class FakeScene:
+            def __init__(self):
+                self.mobjects = []
+
+            def add(self, *mobs):
+                self.mobjects.extend(mobs)
+
+            def remove(self, *mobs):
+                self.mobjects = [m for m in self.mobjects if m not in mobs]
+
+        text = Text("ab")
+        anim = AddTextLetterByLetter(text)
+        scene = FakeScene()
+        scene.add(anim.mobject)
+        anim.begin()
+        anim.interpolate(1.0)
+        anim.finish()
+        anim.clean_up_from_scene(scene)
+        self.assertEqual(scene.mobjects, [text])
+
+    def test_an_empty_string_is_refused(self):
+        with self.assertRaises(ValueError):
+            AddTextLetterByLetter(VGroup())
 
 
 if __name__ == '__main__':
