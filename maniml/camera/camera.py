@@ -190,8 +190,8 @@ class Camera(object):
             self._renderer = WgpuRenderer()
             self._geometry_cache = GeometryCache()
         # Use the exact same generated operations as the browser and exports.
-        # Scene assembly already puts fixed-frame overlays last. Do not add
-        # a native-only reordering after the shared draw list is assembled.
+        # Shared triangle preparation puts fixed-frame groups last for both
+        # hosts. Original 2D keeps the scene's historical browser z/add order.
         scene = SimpleNamespace(camera=self, render_groups=list(mobjects))
         try:
             message = serialize_scene(scene, self._geometry_cache, renderer="triangles")

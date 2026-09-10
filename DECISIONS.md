@@ -5,6 +5,22 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Fixed-frame ordering belongs to each renderer (2026-09-10)
+
+Before the triangle cutover, native GL stably partitioned fixed-frame groups
+last, while the browser consumed stable z/add order. Moving that partition
+into Scene preserved native output but changed the Original 2D browser
+reference. Scene now provides the original z/add order again; Phase A performs
+the native-aligned partition in shared triangle preparation, and GL retains
+its own existing partition. Phase A rejoins adjacent compatible families
+after partitioning, preserving its cutover child z-sort even when an overlay
+previously separated those families. It remains consistent between native and
+browser hosts. Original 2D preserves its historical order for comparison.
+
+This applies to top-level render groups. It does not solve a child's z-index
+or fixed-frame state crossing different top-level families. Tests record the
+difference, including clipping, depth and ties.
+
 ## Phase A is shared; Original 2D remains a viewer comparison (2026-09-10)
 
 Taylor requested the shared triangle renderer as the default on main and

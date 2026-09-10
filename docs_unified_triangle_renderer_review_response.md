@@ -354,3 +354,24 @@ one texture, cached frames retaining it without payload, empty frames retiring
 everything, returning images uploading again, shared light/dark channels and
 async/encoding failures. All 17 relevant driver/texture tests pass. These check
 actual resource lifetimes and submission order, rather than the CPU file cache.
+
+### 5. Ordering record and isolation
+
+Restored stable z/add ordering in Scene for Original 2D. Phase A now owns the
+stable fixed-frame-last partition in its shared preparation path, preserving
+its current native/browser output. Native GL keeps its historical partition.
+The decision record distinguishes the prior native and browser behaviors.
+
+Four ordering tests pass with real GPU checks enabled: explicit wire/draw
+order with ties and depth/clip state, the existing mixed-family limitation,
+and an overlapping fixed-red/world-blue control rendered through Phase A,
+Original 2D and packaged GL. Both native policies show red; the historical
+browser policy shows blue. Authored source point/style bytes remain unchanged.
+
+Implementation review caught a grouping edge case: partitioning after Scene
+batching can leave compatible world families separate when a fixed overlay
+used to sit between them. Phase A therefore rejoins adjacent families with
+the same recorded assembly key before sorting their children, preserving the
+cutover's partition-before-batching behavior. Original 2D retains its original
+group boundaries. A regression covers conflicting child z-indices in those
+separated compatible families. This avoids rebuilding semantic Groups per frame.

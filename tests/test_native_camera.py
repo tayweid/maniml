@@ -67,7 +67,7 @@ assert not hasattr(scene.mobjects[0], 'shader_wrapper')
         result = subprocess.run([sys.executable, '-c', program], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_shared_order_keeps_fixed_overlays_last_and_z_order_in_each_partition(self):
+    def test_scene_input_preserves_historical_browser_z_order_and_ties(self):
         scene = Scene(window=None, camera_config={"resolution": (32, 18)})
         world_low = Square(z_index=-20)
         world_high = Square(z_index=100)
@@ -76,7 +76,7 @@ assert not hasattr(scene.mobjects[0], 'shader_wrapper')
         overlay_tie = Square(z_index=1).fix_in_frame()
         scene.add(overlay_high, world_high, overlay_low, world_low, overlay_tie)
         order = [mob for group in scene.render_groups for mob in group.mobjects if mob is not scene.frame]
-        self.assertEqual(order, [world_low, world_high, overlay_low, overlay_high, overlay_tie])
+        self.assertEqual(order, [world_low, overlay_low, overlay_high, overlay_tie, world_high])
 
     def test_straight_alpha_pixel_reads_and_bottom_up_movie_bytes(self):
         camera = Camera(resolution=(2, 2))

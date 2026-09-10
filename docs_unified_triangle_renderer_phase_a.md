@@ -33,8 +33,9 @@ to the `67f779dc` cutover described in the
   curve-error budget; the cache spends half initially as zoom headroom.
   Original XYZ positions are reconstructed from the object's plane.
 - Painter operations disable depth reads and writes. Depth operations use
-  the common depth attachment. Stable ordering and fixed-frame overlays are
-  shared between browser and native output.
+  the common depth attachment. Phase A stably partitions fixed-frame groups last on both hosts, matching
+  the historical native GL camera. Original 2D preserves the historical
+  browser stable z/add order, so the explicit references can differ.
 - Default quality is 4× MSAA at twice the final width and height, followed by
   an exact four-texel box resolve. This is selected independently of the old
   `Camera.samples=0` default. Stroke fringe widths remain in final pixels.
@@ -240,3 +241,24 @@ a square with native GL while forbidding all `tests` imports, and checks that
 helper and passes metadata/license checks. The native reference pixel test
 checks exact RGBA equality to the frozen GL camera across direct paint edits,
 border/stroke changes, camera motion and depth changes.
+
+## Fixed-frame ordering follow-up (2026-09-10)
+
+The shared Scene input once again keeps stable top-level z-index order, with
+add order on ties. Original 2D consumes that order unchanged. Phase A performs
+a stable fixed-frame-last partition in triangle preparation, matching the
+existing partition inside native GL capture. This deliberately preserves
+Phase A/native behavior while restoring the historical browser comparison.
+
+For overlapping fixed red at z=-10 and depth-tested world blue at z=100, both
+Phase A and native GL show red; Original 2D shows blue. A real GPU test verifies
+all three results with clipping enabled. CPU checks cover ties, conflicting
+z values and the existing mixed-family limitation: partitioning top-level
+groups does not lift a fixed child above a different top-level group. This is
+an explicit historical difference, not a claim that all old surfaces agreed.
+
+Phase A also rejoins compatible adjacent families after the partition using
+their recorded assembly keys. This preserves the cutover's existing child
+z-sort when a fixed group formerly separated those families; without it,
+moving the partition alone could change Phase A pixels. The Original 2D input
+group boundaries remain unchanged.

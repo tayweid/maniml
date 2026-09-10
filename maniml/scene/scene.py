@@ -60,8 +60,11 @@ class _RenderBatch:
     behavior without becoming part of the semantic family.
     """
 
-    def __init__(self, mobjects: Iterable[Mobject]):
+    def __init__(self, mobjects: Iterable[Mobject], *, batch_key=None):
         self.mobjects = tuple(mobjects)
+        # Phase A can rejoin compatible families after its own fixed-frame
+        # partition without changing the Original 2D input order.
+        self._triangle_batch_key = batch_key
         group_class = self.mobjects[0].get_group_class()
         self._group = group_class(*self.mobjects)
         # Group construction performs useful class-specific setup, but its
@@ -548,13 +551,14 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         same type are grouped together, so this function creates
         Groups of all clusters of adjacent Mobjects in the scene
         """
-        # Fixed-frame overlays render last on every surface. Within each
-        # partition a stable z_index sort preserves authored order on ties.
+        # Preserve the historical browser's stable z/add order here. The
+        # triangle preparation and native GL camera own their fixed-last
+        # partition; imposing it here would change the Original 2D reference.
         # In 3D the depth buffer still decides true occlusion; z_index
         # only orders the draw calls.
         with performance.stage("renderer.assemble_batches"):
             batches = batch_by_property(
-                sorted(self.mobjects, key=lambda m: (m.is_fixed_in_frame(), m.z_index)),
+                sorted(self.mobjects, key=lambda m: m.z_index),
                 lambda m: (type(m), m.shader_folder, str(m.uniforms),
                            m.depth_test, m.render_primitive, str(m.texture_paths),
                            str(m.shader_code_replacements),
@@ -562,7 +566,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             )
 
             self.render_groups = [
-                _RenderBatch(batch)
+                _RenderBatch(batch, batch_key=key)
                 for batch, key in batches
             ]
         performance.increment("renderer.assemble_batches.calls")

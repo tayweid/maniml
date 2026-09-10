@@ -796,10 +796,25 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         if message not in frame.limitations:
             frame.limitations.append(message)
 
+    # Our historical native camera paints fixed-frame groups last. Phase A
+    # shares that policy across native/browser output; Original 2D receives
+    # the scene's historical browser z/add order without this partition.
+    groups = sorted(scene.render_groups, key=lambda group: group.is_fixed_in_frame())
+    families, previous_key = [], None
+    for group in groups:
+        key = getattr(group, "_triangle_batch_key", None)
+        members = group.family_members_with_points()
+        if families and key is not None and key == previous_key:
+            # The cutover partitioned before Scene batching. Preserve its
+            # family z-sort when an intervening overlay moves out of the way.
+            families[-1].extend(members)
+        else:
+            families.append(list(members))
+        previous_key = key
     records = [(sm, {**camera_uniforms,
                      **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
-               for group in scene.render_groups
-               for sm in sorted(group.family_members_with_points(), key=lambda obj: obj.z_index)
+               for family in families
+               for sm in sorted(family, key=lambda obj: obj.z_index)
                if not isinstance(sm, CameraFrame)]
     borders = (_prepare_border_geometry(records, mesh_cache)
                if fill_borders and fill_builder is None else {})
