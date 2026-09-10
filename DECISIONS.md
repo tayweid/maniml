@@ -5,6 +5,54 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The 2026-09-09 dogfood report: what was already fixed, what was not (2026-09-10)
+
+Taylor asked, on 2026-09-10, for the three engine items from the field
+report to be taken before more renderer work. Measured and fixed against
+`8a5bb7f0`:
+
+**The 359 ms `always_redraw` rebuild was already gone.** The report was
+written against `4aa37fe6`; the batched curve construction that landed
+after it (`fcf7dc4f`, `d5cd0065`) brings the same two-curve PPF rebuild
+to 5.1 ms per update on the same machine. Nothing to change; the report's
+numbers are historical.
+
+**The edit-time ghost was a crash in the edit handler, and the crash was
+the ledger's read-only history doing its job.** Two paths thawed a
+checkpoint's *state alone*: the re-anchor in `_handle_file_change` and the
+exec-error rollback in `run_next_animation`. A state-only thaw skips
+`_rebind_functions`, whose whole purpose is to re-point copied updaters at
+the copies (`always_redraw` closes over its original `mob`). With an
+`always_redraw` on screen, the first `update_frame` after the thaw called
+`become` on the *frozen* copy, whose arrays are read-only, and the handler
+died with the safe checkpoint on screen and no replay: exactly the
+"removed Tex still there after an edit" symptom, and the same exception
+took the interact loop with it, which is the disconnect. Both paths now
+thaw namespace and state together through `_restore_checkpoint_for_display`.
+Regression tests in `tests/test_checkpoint_reload.py`
+(`TestEditWithLiveUpdaters`) fail on the old code with the exact error
+and pass now; the headless edit-and-navigate probe of a B0-shaped scene
+runs clean under `MANIML_VERIFY_LEDGER=1`, so the ledger itself was never
+at fault.
+
+**The event queue no longer closes the socket when full.** The old policy
+closed with 1013 at 1,024 queued events; the deque was never cleared, so
+the page's reconnect died on the same full queue, and after three tries the
+page gave up on a scene that was alive and merely busy. Now: the oldest
+pointer sample is evicted (a later sample restates it), the oldest event of
+any kind only when no pointer sample is left; the queue empties when the
+last client leaves; the page keeps retrying at a capped 5 s interval and
+shows the overlay after the third failure without stopping. Draining
+*during* a replay was considered and rejected: dispatching navigation
+re-entrantly inside a fast-forward is a new class of bug for a case the
+eviction policy already covers.
+
+**`AddTextLetterByLetter` is a real animation and is exported.** It was an
+unexported alias of `AddTextWordByWord`, which steps over isolated groups
+(one group for a plain Tex). It now steps over every drawn glyph at
+`time_per_char`, accepts Tex as well as Text, and is in the conformance
+baseline. The A3/B0 `key_in` workaround can go.
+
 ## Retained GPU fill borders are the first generation increment (2026-09-10)
 
 After restoring GL and fixing transport, lifetime, ordering and paint reuse,

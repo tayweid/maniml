@@ -63,6 +63,15 @@ signal. What it has surfaced so far, and what is ready regardless:
    that: the instruction-stream architecture replaces large array copies
    with retained source handles and replay recipes under a memory budget.
 
+   **Field-report fixes, 2026-09-10** (DECISIONS.md, "The 2026-09-09
+   dogfood report"): the edit-time ghost was a state-only thaw that left
+   restored updaters pointing at frozen history; the event queue evicts
+   pointer samples instead of closing the socket; `AddTextLetterByLetter`
+   is real and exported; the 359 ms `always_redraw` rebuild had already
+   dropped to 5 ms with the batched curve construction. Still unverified
+   from that report: the uneven appearance of simultaneous fade-ins
+   (needs a live repro on the current build).
+
 2. **Skip the per-frame walk of unchanged batches.** The serializer
    walks, packs, and hashes every batch every frame even when nothing
    moved — about 9 ms at 1,000 objects. Key batches by
