@@ -56,6 +56,7 @@ jobs:
           tests.test_fill_bounds
           tests.test_geometry_cache
           tests.test_earclip_triangulation
+          tests.test_renderer_fixtures
           tests.test_hosted_site
           tests.test_safe_text_cache
           tests.test_headless_import

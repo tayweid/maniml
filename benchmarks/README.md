@@ -1,5 +1,50 @@
 # Performance dogfood
 
+## Shared triangle renderer: A0 experiments
+
+These opt-in programs do not select a production renderer. Build the isolated
+[Lyon helper](../tools/lyon_fill/README.md), set `MANIML_LYON_LIBRARY` to its
+library, and use the repository's locked Python dependencies. Native image
+comparisons require local GL/WebGPU access; real TeX fixtures require the
+production TeX compiler and `dvisvgm`.
+
+```bash
+python -m benchmarks.triangle_renderer --output /tmp/triangle-fixtures --samples 5
+python -m benchmarks.renderer_quality --output /tmp/triangle-quality \
+  --goldens tests/goldens/triangle_renderer --samples 5
+python -m benchmarks.renderer_motion --output /tmp/triangle-motion
+python -m benchmarks.triangle_wordmark --output /tmp/triangle-wordmark --samples 5
+python -m benchmarks.earcut_probe --output /tmp/earcut-probe.json
+```
+
+`renderer_quality --capture-native` captures missing native references; existing
+source-contract mismatches fail instead of replacing historical goldens. Its
+manifest covers live source geometry/style/order, uniforms, output settings,
+and image hashes. The comparison includes explicit zero-border controls beside
+default-style text. Unsupported analytic paths reject the whole frame.
+
+`renderer_motion` runs continuous 2×/4× zoom, fractional camera motion, perspective,
+actual Transform/Write, and isolated opacity frames while checking that rendering preserves source
+arrays. `triangle_wordmark` reconstructs the original B0 camera and payload
+exactly. Both include CPU preparation through a synchronous GPU completion
+barrier and disclose exclusions; neither measures browser presentation.
+The 4× zoom exceeds the cache's 2× initial quality headroom. Write also changes
+source point bytes through interpolation; `tex_opacity` isolates paint changes
+with exactly fixed points. Cache counters distinguish paint refreshes from
+regeneration. Reports preserve completion samples and expose timing modes using
+minimum and fractions below 3 ms / above 10 ms; none is pure GPU execution time.
+Region crops report errors without applying the background-dominated full-frame
+threshold. Current retains historical geometry while candidate retirement is
+included in timings; that lifecycle difference also affects memory comparisons.
+
+The [A0 results](../docs_unified_triangle_renderer_a0_results.md) distinguish
+measured improvements, candidate limitations, and unfinished acceptance gates.
+To run the explicit real-GPU harness checks:
+
+```bash
+MANIML_TEST_GPU=1 python -m unittest tests.test_triangle_renderer
+```
+
 ## Vector fill regions
 
 `python -m benchmarks.vector_fill --samples 8` compares the B0 raster

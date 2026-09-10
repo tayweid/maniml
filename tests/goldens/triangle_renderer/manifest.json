@@ -1,0 +1,1166 @@
+{
+  "cases": {
+    "tex_normal_production_default": {
+      "source_contract": {
+        "fixture": {
+          "content": "tex",
+          "view": "normal",
+          "border_policy": "production_default",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "4a034728cf6827cdff76b55d752391a06afa22928630f8afd9a044e472b7bb61",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "Smooth curves stay clear as the camera moves.",
+            "Tiny counters in $a,e,o,8$ must remain open.",
+            "\\int_0^1 x^2\\,dx=\\frac13,\\quad e^{i\\pi}+1=0,\\quad \\sqrt{a^2+b^2}"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "840743b1980a2ea4365cc9b19305b34385b239fffd1a0611171312abe6bdfad5",
+        "rois": {
+          "paragraph": [
+            351,
+            206,
+            609,
+            256
+          ],
+          "small_math": [
+            344,
+            281,
+            616,
+            327
+          ]
+        }
+      },
+      "image": "tex_normal_production_default.png",
+      "sha256": "9adcfed1f39544c487142353b11dcfda79ea32ef56ccc8e2f6ce6e217fcc41e0",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "tex_normal_zero_for_aa": {
+      "source_contract": {
+        "fixture": {
+          "content": "tex",
+          "view": "normal",
+          "border_policy": "zero_for_aa",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "Smooth curves stay clear as the camera moves.",
+            "Tiny counters in $a,e,o,8$ must remain open.",
+            "\\int_0^1 x^2\\,dx=\\frac13,\\quad e^{i\\pi}+1=0,\\quad \\sqrt{a^2+b^2}"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "2cf11bfcab9a457164d9eac5f8e4f4c723da4cadee140601e9eedfbd14c172b8",
+        "rois": {
+          "paragraph": [
+            351,
+            206,
+            609,
+            256
+          ],
+          "small_math": [
+            344,
+            281,
+            616,
+            327
+          ]
+        }
+      },
+      "image": "tex_normal_zero_for_aa.png",
+      "sha256": "876d2cd1209d2897e1de02d2bf51fdbf37afc5d25d5ed38b930cd5cc00d5be00",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "tex_zoom_production_default": {
+      "source_contract": {
+        "fixture": {
+          "content": "tex",
+          "view": "zoom",
+          "border_policy": "production_default",
+          "zoom": 2.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "4a034728cf6827cdff76b55d752391a06afa22928630f8afd9a044e472b7bb61",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "Smooth curves stay clear as the camera moves.",
+            "Tiny counters in $a,e,o,8$ must remain open.",
+            "\\int_0^1 x^2\\,dx=\\frac13,\\quad e^{i\\pi}+1=0,\\quad \\sqrt{a^2+b^2}"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 0.5,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.007407407276332378,
+          "camera_position": [
+            0.0,
+            0.0,
+            4.828426837921143
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "840743b1980a2ea4365cc9b19305b34385b239fffd1a0611171312abe6bdfad5",
+        "rois": {
+          "paragraph": [
+            227,
+            146,
+            733,
+            238
+          ],
+          "small_math": [
+            213,
+            296,
+            747,
+            379
+          ]
+        }
+      },
+      "image": "tex_zoom_production_default.png",
+      "sha256": "64be033504b63deb563814038a9328eadba5b38e50549f2211c8a2ff0c053a17",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "tex_zoom_zero_for_aa": {
+      "source_contract": {
+        "fixture": {
+          "content": "tex",
+          "view": "zoom",
+          "border_policy": "zero_for_aa",
+          "zoom": 2.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "Smooth curves stay clear as the camera moves.",
+            "Tiny counters in $a,e,o,8$ must remain open.",
+            "\\int_0^1 x^2\\,dx=\\frac13,\\quad e^{i\\pi}+1=0,\\quad \\sqrt{a^2+b^2}"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 0.5,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.007407407276332378,
+          "camera_position": [
+            0.0,
+            0.0,
+            4.828426837921143
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "2cf11bfcab9a457164d9eac5f8e4f4c723da4cadee140601e9eedfbd14c172b8",
+        "rois": {
+          "paragraph": [
+            227,
+            146,
+            733,
+            238
+          ],
+          "small_math": [
+            213,
+            296,
+            747,
+            379
+          ]
+        }
+      },
+      "image": "tex_zoom_zero_for_aa.png",
+      "sha256": "0c6f6c4fa115602c4aa56d8eb208a819bac21c12bd9b7532d3bd0a9e6eda769b",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "hairlines_normal_production_default": {
+      "source_contract": {
+        "fixture": {
+          "content": "hairlines",
+          "view": "normal",
+          "border_policy": "production_default",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "5bda6d64f38ab165f4a54a15c82c664c5bf97d5b9a1d41ad0a489fde7ee56ca8",
+          "tex_template": null,
+          "tex_compiler": null,
+          "tex_template_sha256": null,
+          "tex_sources": [],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "aa2d13c04c0b7c3101edbb17e17572369146598e0b1a6e557d118071d59d6720",
+        "rois": {
+          "thin_strokes": [
+            313,
+            174,
+            647,
+            295
+          ],
+          "hole_0": [
+            406,
+            331,
+            433,
+            358
+          ],
+          "hole_1": [
+            467,
+            331,
+            493,
+            358
+          ],
+          "hole_2": [
+            527,
+            331,
+            554,
+            358
+          ]
+        }
+      },
+      "image": "hairlines_normal_production_default.png",
+      "sha256": "e658a4d685e012e53d5ddacb601c83ff6c86c8da0bb1e927fe284bb6ad4a8a84",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "hairlines_normal_zero_for_aa": {
+      "source_contract": {
+        "fixture": {
+          "content": "hairlines",
+          "view": "normal",
+          "border_policy": "zero_for_aa",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "5bda6d64f38ab165f4a54a15c82c664c5bf97d5b9a1d41ad0a489fde7ee56ca8",
+          "tex_template": null,
+          "tex_compiler": null,
+          "tex_template_sha256": null,
+          "tex_sources": [],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "aa2d13c04c0b7c3101edbb17e17572369146598e0b1a6e557d118071d59d6720",
+        "rois": {
+          "thin_strokes": [
+            313,
+            174,
+            647,
+            295
+          ],
+          "hole_0": [
+            406,
+            331,
+            433,
+            358
+          ],
+          "hole_1": [
+            467,
+            331,
+            493,
+            358
+          ],
+          "hole_2": [
+            527,
+            331,
+            554,
+            358
+          ]
+        }
+      },
+      "image": "hairlines_normal_zero_for_aa.png",
+      "sha256": "e658a4d685e012e53d5ddacb601c83ff6c86c8da0bb1e927fe284bb6ad4a8a84",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "perspective_normal_production_default": {
+      "source_contract": {
+        "fixture": {
+          "content": "perspective",
+          "view": "normal",
+          "border_policy": "production_default",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "5f9ef5df14f1b05d92145827bbbafe83d5c5bf73ad2a3a3302545cd90b473d74",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "O8"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "a1b48f2cf8fce79d5e0da2d77749b227667508baa83c763e543dde837348fd0e",
+        "rois": {
+          "far": [
+            332,
+            216,
+            394,
+            308
+          ],
+          "near": [
+            599,
+            198,
+            680,
+            321
+          ],
+          "tilted": [
+            460,
+            208,
+            499,
+            314
+          ]
+        }
+      },
+      "image": "perspective_normal_production_default.png",
+      "sha256": "63f866e64b6ce55d30a192269a968bc357c3c9d260d2c7514ee477076c349c00",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "perspective_normal_zero_for_aa": {
+      "source_contract": {
+        "fixture": {
+          "content": "perspective",
+          "view": "normal",
+          "border_policy": "zero_for_aa",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "5e6b68874d5b19ac35890ae95fd526af1e14320371e208ed88a4257efea8e608",
+          "tex_template": "default",
+          "tex_compiler": "latex",
+          "tex_template_sha256": "7587215be565984111cc05be9277951a7b6bcd081530550f87c3954969506454",
+          "tex_sources": [
+            "O8"
+          ],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing"
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "c8799a93e6ed4f7e52fc59c27bcffb7ff53b6f48b0d14bde7be11af5023c63a1",
+        "rois": {
+          "far": [
+            332,
+            216,
+            394,
+            308
+          ],
+          "near": [
+            599,
+            198,
+            680,
+            321
+          ],
+          "tilted": [
+            460,
+            208,
+            499,
+            314
+          ]
+        }
+      },
+      "image": "perspective_normal_zero_for_aa.png",
+      "sha256": "31496fb537e07231f39e7e4402b400b40626a1485780d1bb4420b52a00275dd7",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "border_normal_production_default": {
+      "source_contract": {
+        "fixture": {
+          "content": "border",
+          "view": "normal",
+          "border_policy": "production_default",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "b0393cd0894c84972f1b70d1717dac0d257cd027c7b468cf4aac51245fdd5b62",
+          "tex_template": null,
+          "tex_compiler": null,
+          "tex_template_sha256": null,
+          "tex_sources": [],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing",
+          "authored_fill_border_width": 12,
+          "fill_opacity": 0.4,
+          "semantic_controls": {
+            "interior_left": "Single translucent fill over opaque blue underlay; border toggle must not alter this region.",
+            "interior_right": "Single translucent fill over opaque red underlay; border toggle must not alter this region.",
+            "outside_right": "Opaque red underlay only; outside the fill and wide border.",
+            "border_arc_left": "Fill and border combine coverage before one composite over blue; not two independent source-over layers.",
+            "border_arc_right": "Fill and border combine coverage before one composite over red; not two independent source-over layers.",
+            "alpha": "Opaque underlay/background requires output alpha 1 throughout; current winding opacity adjustment is separate from this invariant."
+          }
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "a320765ffe4df6ef14cc8606a8ae32d1392e896983823a1e599eae6e1201ee47",
+        "rois": {
+          "border_arc_left": [
+            407,
+            244,
+            441,
+            296
+          ],
+          "border_arc_right": [
+            519,
+            244,
+            553,
+            296
+          ],
+          "interior_left": [
+            447,
+            257,
+            472,
+            283
+          ],
+          "interior_right": [
+            488,
+            257,
+            513,
+            283
+          ],
+          "outside_right": [
+            558,
+            257,
+            583,
+            283
+          ]
+        }
+      },
+      "image": "border_normal_production_default.png",
+      "sha256": "814d4be775f4d7cf4842d1e65d1931c3167b1408d90faf7563bf70870ad22296",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    },
+    "border_normal_zero_for_aa": {
+      "source_contract": {
+        "fixture": {
+          "content": "border",
+          "view": "normal",
+          "border_policy": "zero_for_aa",
+          "zoom": 1.0,
+          "pixel_offset": [
+            0.0,
+            0.0
+          ],
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ],
+          "color_space": "unorm attachment values",
+          "source_sha256": "72ae37ae249b9cd103dcc2d549765a22a743809985463c996293e4d7776cb1f3",
+          "tex_template": null,
+          "tex_compiler": null,
+          "tex_template_sha256": null,
+          "tex_sources": [],
+          "roi_coordinates": "output pixels; top-left origin; right/bottom exclusive",
+          "scene_semantics": "painter order; real xyz perspective; no depth testing",
+          "authored_fill_border_width": 12,
+          "fill_opacity": 0.4,
+          "semantic_controls": {
+            "interior_left": "Single translucent fill over opaque blue underlay; border toggle must not alter this region.",
+            "interior_right": "Single translucent fill over opaque red underlay; border toggle must not alter this region.",
+            "outside_right": "Opaque red underlay only; outside the fill and wide border.",
+            "border_arc_left": "Fill and border combine coverage before one composite over blue; not two independent source-over layers.",
+            "border_arc_right": "Fill and border combine coverage before one composite over red; not two independent source-over layers.",
+            "alpha": "Opaque underlay/background requires output alpha 1 throughout; current winding opacity adjustment is separate from this invariant."
+          }
+        },
+        "camera": {
+          "view": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "frame_scale": 1.0,
+          "frame_rescale_factors": [
+            0.140625,
+            0.25,
+            0.1035533994436264
+          ],
+          "pixel_size": 0.014814814552664757,
+          "camera_position": [
+            0.0,
+            0.0,
+            9.656853675842285
+          ],
+          "light_position": [
+            -10.0,
+            10.0,
+            10.0
+          ]
+        },
+        "output": {
+          "resolution": [
+            960,
+            540
+          ],
+          "samples": 0,
+          "background_rgba": [
+            0.08,
+            0.11,
+            0.14,
+            1.0
+          ]
+        },
+        "live_source_and_draw_sha256": "b0ff0678066e3a831494620556d6222f6f63e6678b6e32a5d04ad45a777c1401",
+        "rois": {
+          "border_arc_left": [
+            407,
+            244,
+            441,
+            296
+          ],
+          "border_arc_right": [
+            519,
+            244,
+            553,
+            296
+          ],
+          "interior_left": [
+            447,
+            257,
+            472,
+            283
+          ],
+          "interior_right": [
+            488,
+            257,
+            513,
+            283
+          ],
+          "outside_right": [
+            558,
+            257,
+            583,
+            283
+          ]
+        }
+      },
+      "image": "border_normal_zero_for_aa.png",
+      "sha256": "9ea5a7fb95e3b143a6d3e59f105d8e37559efbccaf764203311d1987688c93d9",
+      "gl": {
+        "GL_VENDOR": "Apple",
+        "GL_RENDERER": "Apple M3",
+        "GL_VERSION": "4.1 Metal - 90.5"
+      }
+    }
+  }
+}

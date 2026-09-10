@@ -1,0 +1,16 @@
+[package]
+name = "maniml-lyon-fill"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "maniml_lyon_fill"
+crate-type = ["cdylib"]
+
+[dependencies]
+lyon_tessellation = "=1.0.22"
+
+[profile.release]
+panic = "unwind"
