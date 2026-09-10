@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from maniml import Square
 from maniml.__main__ import load_scene_module
 from maniml.event_constants import WindowKeys
 
@@ -838,6 +839,82 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.assert_follows(3.0)
         self.scene.run_next_animation()      # and on through bump()
         self.assert_follows(4.0)
+
+
+REDRAW_EDIT = textwrap.dedent('''\
+    from maniml import *
+
+    class EditScene(Scene):
+        def construct(self):
+            card = Text('Last Time...')
+            self.play(FadeIn(card), run_time=0.05)
+            self.play(FadeOut(card), run_time=0.05)
+            alpha = ValueTracker(1)
+            def build():
+                return Square(side_length=alpha.get_value())
+            live = always_redraw(build)
+            self.add(live)
+            self.play(alpha.animate.set_value(2), run_time=0.05)
+            label = Text('thesis')
+            self.play(FadeIn(label), run_time=0.05)
+''')
+
+
+class TestEditWithLiveUpdaters(CheckpointSceneTest):
+    """Dogfood, 2026-09-09: with an always_redraw on screen, a save that
+    re-anchored to an earlier checkpoint died inside the edit handler and
+    left a Text the next unit had removed on screen. The state-only thaw
+    used there skipped _rebind_functions, so the restored updater still
+    closed over the frozen copy and the first frame wrote into read-only
+    checkpoint memory."""
+    scene_source = REDRAW_EDIT
+
+    def texts(self):
+        from maniml.mobject.svg.text_mobject import Text
+        return sorted({f.text for m in self.scene.mobjects
+                       for f in m.get_family() if isinstance(f, Text)})
+
+    def run_all(self):
+        for _ in range(4):
+            self.scene.run_next_animation()
+
+    def test_edit_after_a_redraw_re_anchors_and_replays(self):
+        self.run_all()
+        scene = self.scene
+        self.assertEqual(self.texts(), ['thesis'])
+        edited = REDRAW_EDIT.replace("Text('thesis')", "Text('thesis!')")
+        line = edited.splitlines().index("        label = Text('thesis!')") + 1
+        self.save(edited, line)
+        self.assertEqual(self.texts(), ['thesis!'])
+        self.assertNotIn('Last Time...', self.texts())
+        # the restored updater drives the restored square, not history
+        live = next(m for m in scene.mobjects if isinstance(m, Square))
+        scene.update_frame(dt=0, force_draw=True)
+        self.assertAlmostEqual(live.get_width(), 2.0, places=3)
+
+    def test_edit_of_the_removing_unit_replays_the_removal(self):
+        self.run_all()
+        edited = REDRAW_EDIT.replace(
+            "self.play(FadeOut(card), run_time=0.05)",
+            "self.play(FadeOut(card), run_time=0.06)")
+        line = edited.splitlines().index(
+            "        self.play(FadeOut(card), run_time=0.06)") + 1
+        self.save(edited, line)
+        self.assertNotIn('Last Time...', self.texts(),
+                         "the card removed by the edited unit stayed on screen")
+
+    def test_runtime_error_rolls_back_with_working_updaters(self):
+        self.run_all()
+        scene = self.scene
+        edited = REDRAW_EDIT.replace(
+            "label = Text('thesis')",
+            "raise ValueError('boom')\n        label = Text('thesis')")
+        line = edited.splitlines().index("        raise ValueError('boom')") + 1
+        self.save(edited, line)
+        self.assertNotIn('thesis', self.texts())
+        live = next(m for m in scene.mobjects if isinstance(m, Square))
+        scene.update_frame(dt=0, force_draw=True)  # must not raise
+        self.assertAlmostEqual(live.get_width(), 2.0, places=3)
 
 
 GHOST = textwrap.dedent('''\

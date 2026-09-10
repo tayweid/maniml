@@ -212,9 +212,12 @@ class CheckpointMixin:
         self.frontier_index = safe_idx
 
         if self.current_animation_index != safe_idx:
-            self.current_animation_index = safe_idx
-            self.restore_state(thaw_state(
-                self.animation_checkpoints[safe_idx]['state'], self.checkpoint_ledger))
+            # State and namespace together: a state-only thaw leaves every
+            # copied updater closed over the frozen original (see
+            # _rebind_functions), so the first update_frame after it wrote
+            # an always_redraw into read-only checkpoint memory and the
+            # edit handler died with the safe checkpoint still on screen.
+            self._restore_checkpoint_for_display(safe_idx)
             self.update_frame(dt=0, force_draw=True)
         log.info(f"Replaying from checkpoint {safe_idx} to unit {affected.index}")
 
@@ -625,10 +628,11 @@ class CheckpointMixin:
             print(f"Error running animation: {e}")
             # Restore the last successfully saved checkpoint so the scene
             # isn't left in a half-executed state
-            checkpoint = self.animation_checkpoints[self.current_animation_index]
+            # Namespace and state together, so the restored updaters read
+            # the restored objects rather than the frozen checkpoint.
             with self.mobject_list_transaction():
                 self.clear()
-                self.restore_state(thaw_state(checkpoint['state'], self.checkpoint_ledger))
+                self._restore_checkpoint_for_display(self.current_animation_index)
             self.update_frame(dt=0, force_draw=True)
             if self._strict_animation_errors():
                 raise
