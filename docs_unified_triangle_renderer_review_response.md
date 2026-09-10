@@ -375,3 +375,54 @@ the same recorded assembly key before sorting their children, preserving the
 cutover's partition-before-batching behavior. Original 2D retains its original
 group boundaries. A regression covers conflicting child z-indices in those
 separated compatible families. This avoids rebuilding semantic Groups per frame.
+
+The first five changes together pass the full native GPU/checkpoint-ledger
+suite on main: 648 tests in 206 seconds, with one existing skip.
+
+### 6. Reusable paint definitions
+
+Format 4 carries immutable little-endian float32 paint definitions once, then
+references their independent content hashes. Scene preparation retains the
+coefficient array directly. Both drivers share one coefficient buffer across
+pipeline/sample bindings, retire absent materials after submission, and roll
+back newly allocated paint resources after failed frames. Missing definitions
+use the existing cache-reset/error path. The recording index restores each
+frame's definitions for arbitrary seeks; formats 1–3 and inline paint remain
+readable. Geometry connectivity is independent of paint; changing the first
+source color can still update an unused RGBA attribute in a paint mesh and
+therefore resend its vertex bytes.
+
+The reproducible `benchmarks/paint_retention.py` control uses a static
+400-corner polygon, 800 non-affine paint nodes, no border or ordinary stroke,
+and 960×540 output. Its unchanged frame falls from **94,308 to 1,140 bytes**;
+the 25,696 coefficient bytes are built and sent once. Median wire encoding
+falls from 1.49 to 0.064 ms, parsing from 0.71 to 0.018 ms, and native driver
+encoding from 1.53 to 0.186 ms. All six saved before/after images are exactly
+unchanged. Reports, full images and crops are in
+`benchmarks/results/triangle_followup_20260910/paint_{before,after}/`, with a
+separate `paint_comparison.json`.
+
+Full serialization-to-RGBA medians were 16.31→11.40 ms for Phase A versus
+3.33 ms Original 2D and 3.75 ms packaged GL in the after run. This is still a
+large non-affine paint regression: its per-fragment inverse-distance loop
+visits 800 samples. Retaining coefficients does not change that shader cost.
+The header now reports mode, node count and the 4,096-node cap as an
+informational limitation, without rejecting the supported field. An affine
+control uses no sample loop and takes 2.52 ms in the after run. Completion
+latency varied between the separate runs even for unchanged references; these
+are 12 rotated/reversed samples after three warmups, not GPU timestamps or
+end-to-end browser measurements.
+
+Interior paint semantics also differ from historical fan interpolation.
+The 41,404-pixel analytic affine probe measures Phase A mean RGB error
+0.274/255 and maximum 0.678/255 inside radius 1.7, excluding edges. The old
+references differ substantially from that authored spatial field. Non-affine
+Phase A interiors remain visibly different too. These controls document
+paint semantics and cost; they are not cross-renderer parity passes or a
+waiver of the existing zero-border AA gate.
+
+Validation: 117 integrated wire, driver-command, static-player and export
+tests pass (12 native GPU cases skipped in that CPU invocation); the separate
+26-test native run passes with GPU enabled. Controls include the same mesh
+with two paints in one frame, unaligned definitions, missing/corrupt data,
+failed-frame cleanup, empty/returning scenes and device recreation.

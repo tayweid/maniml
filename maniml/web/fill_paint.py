@@ -13,7 +13,7 @@ form. Solving it here exposes a small coefficient buffer shared with WGSL;
 no private SciPy representation or renderer-specific tessellation is involved.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -23,18 +23,24 @@ from maniml.web.triangle_geometry import TessellationError, TessellationLimitErr
 MAX_PAINT_SAMPLES = 4096
 MAX_SPLINE_SAMPLES = 256
 PAINT_EPSILON = 1 / 4096
+PAINT_HASH_PREFIX = b"maniml.paint.f32.v1\0"
 
 
 @dataclass(frozen=True)
 class PaintField:
     data: np.ndarray
+    _flat: np.ndarray = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "_flat", self.data.reshape(-1))
 
     @property
     def nbytes(self):
         return self.data.nbytes
 
     def wire(self):
-        return self.data.reshape(-1).tolist()
+        """Keep the same immutable coefficient view through scene preparation."""
+        return self._flat
 
 
 def _kernel(squared_distance):

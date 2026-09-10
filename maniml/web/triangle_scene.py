@@ -19,7 +19,7 @@ from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _texture_refs
 from maniml.web.triangle_geometry import TessellationError
 from maniml.web.border_geometry import BorderSource, MAX_BORDER_TRIANGLES, emit_border_triangles
-from maniml.web.fill_paint import build_paint
+from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -41,7 +41,7 @@ class TriangleDraw:
     count: int = 0
     instances: int = 1
     textures: dict = field(default_factory=dict)
-    paint: list | None = None
+    paint: np.ndarray | list | None = None
     coverage: bool = False
 
 
@@ -879,6 +879,14 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                     paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
                               build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
                              if material else None)
+                    if paint is not None and paint[11] == 1:
+                        message = ("non-affine fill paint uses inverse-distance interpolation "
+                                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
+                                   "fragment cost grows with node_count")
+                        if message not in frame.limitations:
+                            # This supported field has a known interpolation
+                            # and cost limit; it does not reject the frame.
+                            frame.limitations.append(message)
                     fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
                                         vertices, uniforms, indices, len(indices), paint=paint,
                                         coverage=coverage and not opaque_painter)

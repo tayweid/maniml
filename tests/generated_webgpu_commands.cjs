@@ -22,7 +22,7 @@ function payload(specs, overrides = {}) {
     const batch = { kind: "generated", pipeline: "surface", hash: `shape-${i}`,
       num_verts: 3, stride: STRIDE[base], count: 3, instances: 1,
       indexed: false, index_count: 0, uniforms: {}, ...spec };
-    if (base === "paint" && !batch.paint) batch.paint = constantPaint([1, 0, 0, .5]);
+    if (base === "paint" && !("paint" in batch) && !batch.paint_hash) batch.paint = constantPaint([1, 0, 0, .5]);
     if (!batch.cached) {
       batch.offset = offset;
       const data = Buffer.alloc(batch.num_verts * batch.stride, i % 255);
@@ -35,8 +35,17 @@ function payload(specs, overrides = {}) {
     }
     return batch;
   });
+  const {paint_definitions, paint_padding = 0, ...headerOverrides} = overrides;
+  const paint_data = {};
+  if (paint_padding) { parts.push(Buffer.alloc(paint_padding)); offset += paint_padding; }
+  for (const [hash, values] of Object.entries(paint_definitions || {})) {
+    const data = Buffer.isBuffer(values) ? values : Buffer.from(new Float32Array(values).buffer);
+    paint_data[hash] = {offset, nbytes: data.length};
+    parts.push(data); offset += data.length;
+  }
   const header = { renderer: "triangles", resolution: [320, 180], samples: 1, supersample: 1,
-    background: [0.2, 0.4, 0.6, 0.5], camera: CAMERA, batches, ...overrides };
+    background: [0.2, 0.4, 0.6, 0.5], camera: CAMERA, batches,
+    ...(paint_definitions ? {paint_data} : {}), ...headerOverrides };
   const json = Buffer.from(JSON.stringify(header));
   const out = Buffer.alloc(5 + json.length + offset);
   out[0] = 3; out.writeUInt32LE(json.length, 1); json.copy(out, 5);
@@ -341,6 +350,101 @@ const cases = {
     const missing = await d.render([{ pipeline: "image", textures: { Texture: "unknown" } }]);
     assert.equal(missing[0].draws.length, 0);
     assert.equal(d.cacheMisses(), 1);
+  },
+  async paintDefinitions() {
+    const d = await driver();
+    const red = "a".repeat(32), blue = "b".repeat(32);
+    const specs = [{pipeline: "paint", hash: "shared", paint_hash: red},
+      {pipeline: "paint", hash: "shared", paint_hash: blue},
+      {pipeline: "paint_depth", hash: "depth", coverage: true, paint_hash: red}];
+    const options = {format_version: 4, samples: 4, paint_padding: 1,
+      paint_definitions: {[red]: constantPaint([1, 0, 0, .5]), [blue]: constantPaint([0, 0, 1, .75])}};
+    const first = (await d.render(specs, options))[0].draws;
+    const storage = draw => draw.bindings.get(1).entries[0].resource.buffer;
+    const redBuffer = storage(first[0]), blueBuffer = storage(first[1]);
+    assert.equal(first[0].vertices[0], first[1].vertices[0], "geometry identity is independent of material");
+    assert.notEqual(redBuffer, blueBuffer);
+    assert.equal(storage(first[2]), redBuffer);
+    assert.equal(storage(first[3]), redBuffer, "depth replay shares coefficient storage across layouts");
+    assert.deepEqual(Array.from(new Float32Array(redBuffer.bytes)).slice(12, 16), [1, 0, 0, .5]);
+    assert.equal(d.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 2);
+    const same = (await d.render(specs.map(s => ({...s, cached: true})), {format_version: 4, samples: 4}))[0].draws;
+    first.forEach((draw, i) => assert.equal(draw.bindings.get(1), same[i].bindings.get(1)));
+    const changedSamples = (await d.render([{...specs[0], cached: true}], {format_version: 4, samples: 1}))[0].draws[0];
+    assert.equal(storage(changedSamples), redBuffer, "sample changes do not duplicate material buffers");
+    assert.notEqual(changedSamples.bindings.get(1), first[0].bindings.get(1));
+    assert.ok(blueBuffer.destroyed);
+    await d.render([], {format_version: 4});
+    assert.ok(redBuffer.destroyed);
+    const recreated = (await d.render([specs[0]], options))[0].draws[0];
+    assert.notEqual(storage(recreated), redBuffer);
+    assert.ok(!storage(recreated).destroyed);
+    const missing = await d.render([{...specs[0], cached: true, paint_hash: "c".repeat(32)}], {format_version: 4});
+    assert.equal(missing[0].draws.length, 0, "a missing definition cannot reuse the last material");
+    assert.equal(d.cacheMisses(), 1);
+    assert.equal(d.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 0);
+    await d.destroy();
+    await d.init();
+    await d.render([specs[0]], options);
+    assert.equal(d.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 1);
+    await d.destroy();
+  },
+  async paintDefinitionFailures() {
+    const d = await driver();
+    const old = "a".repeat(32), next = "b".repeat(32);
+    const original = constantPaint([1, 0, 0, .5]);
+    const spec = {pipeline: "paint", paint_hash: old};
+    const first = (await d.render([spec], {format_version: 4, paint_definitions: {[old]: original}}))[0].draws[0];
+    const material = first.bindings.get(1).entries[0].resource.buffer;
+    const failures = [original.slice(0, -1), [...original, 0],
+      ...[[3, 0], [3, -1], [3, Infinity], [7, .5], [7, 4097], [11, 2], [11, 1], [15, NaN]]
+        .map(([index, value]) => { const changed = [...original]; changed[index] = value; return changed; })];
+    for (const values of failures) {
+      await assert.rejects(d.render([{...spec, paint_hash: next}],
+        {format_version: 4, paint_definitions: {[next]: values}}), /paint/);
+      assert.ok(!material.destroyed);
+      assert.equal(d.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 1);
+    }
+    for (const ref of [{offset: -1, nbytes: 96}, {offset: .5, nbytes: 96},
+      {offset: 0, nbytes: 10000}, {offset: 0, nbytes: -1}]) {
+      await assert.rejects(d.render([spec], {format_version: 4, paint_data: {[next]: ref}}), /paint.*payload/);
+    }
+    for (const paint_data of [null, [], 1, true, "definitions"]) {
+      await assert.rejects(d.render([spec], {format_version: 4, paint_data}), /paint definitions/);
+    }
+    for (const ref of [null, [], 1, true, "span"]) {
+      await assert.rejects(d.render([spec], {format_version: 4, paint_data: {[old]: ref}}), /paint definition span/);
+    }
+    for (const paint of [null, 1, true, "paint", {}, [original],
+      original.map((v, i) => i === 12 ? "1" : v), original.map((v, i) => i === 12 ? true : v)]) {
+      await assert.rejects(d.render([{pipeline: "paint", paint}], {format_version: 3}), /paint/);
+    }
+    await assert.rejects(d.render([spec], {format_version: 4,
+      paint_definitions: {[old]: constantPaint([0, 0, 1, .5])}}), /redefined/);
+    await assert.rejects(d.render([{...spec, paint_hash: "bad"}], {format_version: 4}), /paint hash/);
+    // A later encoding failure rolls back already-created storage and bindings.
+    await assert.rejects(d.render([{...spec, paint_hash: next}, {pipeline: "invalid", stride: 40}],
+      {format_version: 4, paint_definitions: {[next]: original}}), /unsupported generated pipeline/);
+    assert.equal(d.submissions.length, 1);
+    assert.equal(d.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 1);
+    const recovered = (await d.render([{...spec, cached: true}], {format_version: 4}))[0].draws[0];
+    assert.equal(recovered.bindings.get(1), first.bindings.get(1));
+    await d.render([{...spec, cached: true, paint_hash: next}],
+      {format_version: 4, paint_definitions: {[next]: original}});
+    await d.destroy();
+
+    const pending = [];
+    const asyncDriver = await driver({decode: () => new Promise((resolve, reject) => pending.push({resolve, reject}))});
+    const failed = asyncDriver.render([spec, {pipeline: "image", textures: {Texture: "broken"}}],
+      {format_version: 4, paint_definitions: {[old]: original}, texture_data: {broken: {offset: 0, nbytes: 4}}});
+    const rejected = assert.rejects(failed, /decode failed/);
+    const recovery = asyncDriver.render([spec], {format_version: 4, paint_definitions: {[old]: original}});
+    await new Promise(resolve => setImmediate(resolve));
+    pending.shift().reject(new Error("decode failed"));
+    await rejected; await recovery;
+    assert.equal(asyncDriver.submissions.length, 1);
+    assert.equal(asyncDriver.buffers.filter(b => b.descriptor.usage === 8 && !b.destroyed).length, 1);
+    await asyncDriver.destroy();
   },
   async windingTextures() {
     const d = await driver({legacy: true});

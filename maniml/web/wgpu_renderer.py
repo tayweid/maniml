@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 
 import numpy as np
 from PIL import Image
@@ -176,7 +177,8 @@ class WgpuRenderer:
         self._generated_geometry = {}
         self._generated_uniforms = {}
         self._generated_textures = {}
-        self._generated_paints = {}
+        self._generated_paints = {}  # paint identity -> (storage buffer, exact bytes)
+        self._generated_paint_bindings = {}
         self._size = None
         self._spatial_texture = None
         self._spatial_pipeline = None
@@ -319,12 +321,84 @@ class WgpuRenderer:
         self._generated_geometry[batch["hash"]] = resources
         return resources
 
-    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1):
+    @staticmethod
+    def _validate_paint(data):
+        if not 96 <= len(data) <= (24 + 8 * 4096) * 4 or len(data) % 4:
+            raise ValueError("invalid paint coefficient length")
+        values = np.frombuffer(data, dtype="<f4")
+        if not np.isfinite(values).all():
+            raise ValueError("paint coefficients must be finite")
+        count, mode = float(values[7]), float(values[11])
+        if (values[3] <= 0 or not count.is_integer() or not 0 <= count <= 4096
+                or len(values) != 24 + 8 * int(count) or mode not in (0, 1)
+                or (mode == 1 and count == 0)):
+            raise ValueError("invalid paint coefficient layout, scale, node count or mode")
+        return data
+
+    def _prepare_paints(self, header, payload):
+        """Validate definitions before upload; keep storage independent of layouts."""
+        definitions = {}
+        records = header.get("paint_data", {})
+        if not isinstance(records, dict):
+            raise ValueError("paint definitions must be an object")
+        for paint_hash, ref in records.items():
+            if not isinstance(paint_hash, str) or re.fullmatch(r"[0-9a-f]{32}", paint_hash) is None:
+                raise ValueError("invalid paint hash")
+            if not isinstance(ref, dict):
+                raise ValueError("invalid paint definition span")
+            offset, size = ref.get("offset"), ref.get("nbytes")
+            if (type(offset) is not int or type(size) is not int
+                    or not 0 <= offset <= len(payload) or not 0 <= size <= len(payload) - offset):
+                raise ValueError("paint definition extends beyond payload")
+            key = ("hash", paint_hash)
+            data = self._validate_paint(bytes(payload[offset:offset + size]))
+            previous = self._generated_paints.get(key)
+            if previous is not None and previous[1] != data:
+                raise ValueError("paint hash redefined with different coefficients")
+            definitions[key] = data
+        keys = {}
+        for batch in header["batches"]:
+            if batch.get("pipeline") not in ("paint", "paint_depth"):
+                continue
+            if "paint_hash" in batch:
+                paint_hash = batch["paint_hash"]
+                if not isinstance(paint_hash, str) or re.fullmatch(r"[0-9a-f]{32}", paint_hash) is None:
+                    raise ValueError("invalid paint hash")
+                key = ("hash", paint_hash)
+                if key not in self._generated_paints and key not in definitions:
+                    raise KeyError(f"paint cache miss for {paint_hash}")
+            elif header.get("format_version", 3) < 4 and "paint" in batch:
+                inline = batch["paint"]
+                if (not isinstance(inline, (list, tuple, np.ndarray))
+                        or np.ndim(inline) != 1
+                        or any(isinstance(value, (bool, np.bool_))
+                               or not isinstance(value, (int, float, np.integer, np.floating))
+                               for value in inline)):
+                    raise ValueError("inline paint coefficients must be a numeric array")
+                with np.errstate(over="ignore", invalid="ignore"):
+                    values = np.asarray(inline, dtype="<f4")
+                data = self._validate_paint(values.tobytes())
+                key = ("inline", data)
+                definitions[key] = data
+            else:
+                raise ValueError("paint operation requires a paint hash")
+            keys[id(batch)] = key
+        # Only definitions referenced by the frame become resident. Both depth
+        # replay and distinct pipelines bind this one immutable storage buffer.
+        for key in dict.fromkeys(keys.values()):
+            if key not in self._generated_paints:
+                data = definitions[key]
+                buffer = self.device.create_buffer_with_data(data=data, usage=wgpu.BufferUsage.STORAGE)
+                self._generated_paints[key] = (buffer, data)
+        return keys
+
+    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys):
         """Replay all generated operations into exactly one ordered scene pass."""
         background = np.asarray(header["background"], dtype=float).copy()
         background[:3] *= background[3]
         render_pass = self._out_pass(encoder, clear_color=background)
         used_geometry, used_uniforms, used_textures, used_paints = set(), set(), set(), set()
+        used_paint_bindings = set()
         coverage_ref = 0
         for batch in header["batches"]:
             if batch["kind"] != "generated":
@@ -371,17 +445,18 @@ class WgpuRenderer:
                 render_pass.set_pipeline(pipeline)
                 render_pass.set_bind_group(0, binding[1])
                 if module == "paint":
-                    packed_paint = np.asarray(batch["paint"], dtype="f4").tobytes()
-                    paint_key = (operation_name, samples, packed_paint)
+                    paint_key = paint_keys[id(batch)]
                     used_paints.add(paint_key)
-                    material = self._generated_paints.get(paint_key)
-                    if material is None:
-                        buffer = self.device.create_buffer_with_data(data=packed_paint, usage=wgpu.BufferUsage.STORAGE)
+                    binding_key = (operation_name, samples, paint_key)
+                    used_paint_bindings.add(binding_key)
+                    group = self._generated_paint_bindings.get(binding_key)
+                    if group is None:
+                        buffer, data = self._generated_paints[paint_key]
                         group = self.device.create_bind_group(
                             layout=pipeline.get_bind_group_layout(1),
-                            entries=[{"binding": 0, "resource": {"buffer": buffer, "size": len(packed_paint)}}])
-                        material = self._generated_paints[paint_key] = (buffer, group)
-                    render_pass.set_bind_group(1, material[1])
+                            entries=[{"binding": 0, "resource": {"buffer": buffer, "size": len(data)}}])
+                        self._generated_paint_bindings[binding_key] = group
+                    render_pass.set_bind_group(1, group)
                 if batch.get("textures"):
                     texture_key = (operation_name, samples, tuple(batch["textures"].items()))
                     used_textures.add(texture_key)
@@ -395,11 +470,11 @@ class WgpuRenderer:
                 else:
                     render_pass.draw(batch["count"], batch["instances"])
         render_pass.end()
-        return used_geometry, used_uniforms, used_textures, used_paints
+        return used_geometry, used_uniforms, used_textures, used_paints, used_paint_bindings
 
     def _retire_generated(self, used, texture_hashes):
         """Retire inactive resources only after their last commands are submitted."""
-        used_geometry, used_uniforms, used_textures, used_paints = used
+        used_geometry, used_uniforms, used_textures, used_paints, used_paint_bindings = used
         for key in self._generated_geometry.keys() - used_geometry:
             resources = self._generated_geometry.pop(key)
             resources["buffer"].destroy()
@@ -409,6 +484,8 @@ class WgpuRenderer:
             self._generated_uniforms.pop(key)[0].destroy()
         for key in self._generated_textures.keys() - used_textures:
             del self._generated_textures[key]
+        for key in self._generated_paint_bindings.keys() - used_paint_bindings:
+            del self._generated_paint_bindings[key]
         for key in self._generated_paints.keys() - used_paints:
             self._generated_paints.pop(key)[0].destroy()
         for key in self.texture_cache.keys() - texture_hashes:
@@ -424,23 +501,35 @@ class WgpuRenderer:
         size = tuple(header["resolution"])
         self._ensure_targets(tuple(value * supersample for value in size), samples)
         device = self.device
-        for tex_hash, ref in header.get("texture_data", {}).items():
-            if tex_hash in self.texture_cache:
-                continue
-            image = Image.open(io.BytesIO(vertex_bytes[
-                ref["offset"]:ref["offset"] + ref["nbytes"]])).convert("RGBA")
-            texture = device.create_texture(
-                size=(*image.size, 1), format="rgba8unorm",
-                usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST)
-            device.queue.write_texture(
-                {"texture": texture, "mip_level": 0, "origin": (0, 0, 0)}, image.tobytes(),
-                {"offset": 0, "bytes_per_row": image.size[0] * 4, "rows_per_image": image.size[1]},
-                (*image.size, 1))
-            self.texture_cache[tex_hash] = texture
-        encoder = device.create_command_encoder()
-        used = self._encode_generated(encoder, header, vertex_bytes, samples, supersample=supersample)
-        output = self._resolve_generated(encoder, size, supersample)
-        device.queue.submit([encoder.finish()])
+        previous_paints = set(self._generated_paints)
+        previous_bindings = set(self._generated_paint_bindings)
+        try:
+            paint_keys = self._prepare_paints(header, vertex_bytes)
+            for tex_hash, ref in header.get("texture_data", {}).items():
+                if tex_hash in self.texture_cache:
+                    continue
+                image = Image.open(io.BytesIO(vertex_bytes[
+                    ref["offset"]:ref["offset"] + ref["nbytes"]])).convert("RGBA")
+                texture = device.create_texture(
+                    size=(*image.size, 1), format="rgba8unorm",
+                    usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST)
+                device.queue.write_texture(
+                    {"texture": texture, "mip_level": 0, "origin": (0, 0, 0)}, image.tobytes(),
+                    {"offset": 0, "bytes_per_row": image.size[0] * 4, "rows_per_image": image.size[1]},
+                    (*image.size, 1))
+                self.texture_cache[tex_hash] = texture
+            encoder = device.create_command_encoder()
+            used = self._encode_generated(encoder, header, vertex_bytes, samples, supersample=supersample, paint_keys=paint_keys)
+            output = self._resolve_generated(encoder, size, supersample)
+            device.queue.submit([encoder.finish()])
+        except Exception:
+            # Failed decoding/encoding must preserve the last submitted frame
+            # without accumulating materials that never reached the queue.
+            for key in self._generated_paint_bindings.keys() - previous_bindings:
+                del self._generated_paint_bindings[key]
+            for key in self._generated_paints.keys() - previous_paints:
+                self._generated_paints.pop(key)[0].destroy()
+            raise
         self._retire_generated(used, {
             value for batch in header["batches"]
             for value in batch.get("textures", {}).values()})
@@ -505,6 +594,7 @@ class WgpuRenderer:
         self._generated_uniforms.clear()
         self._generated_textures.clear()
         self._generated_paints.clear()
+        self._generated_paint_bindings.clear()
         self.texture_cache.clear()
         self._pipelines.clear()
         self._spatial_binding = self._spatial_pipeline = self._spatial_texture = None

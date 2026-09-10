@@ -112,10 +112,12 @@ The wheel check now requires these assets and offers an extracted-wheel GL
 capture with tests unavailable. The public-name baseline includes the real
 wrapper again. The shared-renderer default stays unchanged.
 
-Follow with indexed-digest normalization, authoritative renderer negotiation,
-Original 2D GPU texture retirement, explicit fixed-frame ordering, reusable
-paint definitions and a general GPU fill-border generator. GPU border work is
-planned, not implemented. A2 text performance and zero-border AA remain open.
+Indexed-digest normalization, authoritative renderer negotiation, Original 2D
+GPU texture retirement, explicit fixed-frame ordering and reusable binary
+paint definitions are implemented. Next is a general GPU fill-border
+generator compared against packaged GL, Original 2D and CPU-border Phase A.
+A2 text performance, large non-affine paint fragment cost and zero-border AA
+remain open.
 The [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.

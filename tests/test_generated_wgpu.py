@@ -42,6 +42,21 @@ def _message(*draws, samples=1, cache=None, background=(0, 0, 0, 0), supersample
     return header, raw
 
 
+def _binary_paint_message(*colors, samples=1):
+    """Construct the material ABI independently of the production serializer."""
+    header, raw = _message(*(_draw() for _ in colors), samples=samples)
+    header["format_version"] = 4
+    header["paint_data"] = {}
+    raw += b"x"  # Deliberately unaligned float32 storage in the raw payload.
+    for index, (batch, color) in enumerate(zip(header["batches"], colors)):
+        paint_hash = f"{index + 1:032x}"
+        batch.update(pipeline="paint", paint_hash=paint_hash)
+        values = np.asarray(_constant_paint(color), dtype="<f4").tobytes()
+        header["paint_data"][paint_hash] = {"offset": len(raw), "nbytes": len(values)}
+        raw += values
+    return header, raw
+
+
 class _Buffer:
     def __init__(self, data, events):
         self.data = bytes(data)
@@ -88,6 +103,7 @@ class _Device:
 
     def create_buffer_with_data(self, *, data, usage):
         buffer = _Buffer(data, self.events)
+        buffer.usage = usage
         self.buffers.append(buffer)
         return buffer
 
@@ -111,6 +127,7 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._generated_uniforms = {}
         self.renderer._generated_textures = {}
         self.renderer._generated_paints = {}
+        self.renderer._generated_paint_bindings = {}
         self.renderer.texture_cache = {}
         self.renderer.sampler = object()
         self.renderer._ensure_targets = Mock()
@@ -225,6 +242,107 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.assertIs(next(iter(self.renderer._generated_geometry.values()))["buffer"], geometry)
         self.assertTrue(materials[0][0].destroyed)
         self.assertFalse(materials[1][0].destroyed)
+
+    def test_binary_paint_reuses_storage_across_pipeline_layouts_and_sample_counts(self):
+        header, raw = _binary_paint_message((1, 0, 0, .5), (0, 0, 1, .75), samples=4)
+        depth = deepcopy(header["batches"][0])
+        depth.update(hash="separate-depth-layout", pipeline="paint_depth", coverage=True)
+        header["batches"].append(depth)
+        self.renderer.render(header, raw)
+        self.assertEqual(len(self.renderer._generated_paints), 2)
+        self.assertEqual(len(self.renderer._generated_paint_bindings), 4)
+        red_key = ("hash", header["batches"][0]["paint_hash"])
+        red = self.renderer._generated_paints[red_key][0]
+        groups = [group for key, group in self.renderer._generated_paint_bindings.items() if key[2] == red_key]
+        self.assertEqual(len(groups), 3)
+        self.assertTrue(all(group["entries"][0]["resource"]["buffer"] is red for group in groups))
+        np.testing.assert_array_equal(np.frombuffer(red.data, dtype="<f4")[12:16], [1, 0, 0, .5])
+        count = len(self.renderer.device.buffers)
+        header["paint_data"] = {}
+        for batch in header["batches"]:
+            batch["cached"] = True
+        self.renderer.render(header, b"")
+        self.assertEqual(len(self.renderer.device.buffers), count)
+        header["samples"] = 1
+        header["batches"] = header["batches"][:1]
+        self.renderer.render(header, b"")
+        self.assertIs(self.renderer._generated_paints[red_key][0], red)
+        self.assertEqual(len(self.renderer._generated_paint_bindings), 1)
+        header["batches"] = []
+        self.renderer.device.events.clear()
+        self.renderer.render(header, b"")
+        events = self.renderer.device.events
+        submitted = next(i for i, event in enumerate(events) if event[0] == "submit")
+        self.assertTrue(all(i > submitted for i, event in enumerate(events) if event[0] == "destroy"))
+        self.assertTrue(red.destroyed)
+        self.assertFalse(self.renderer._generated_paints)
+        self.assertFalse(self.renderer._generated_paint_bindings)
+        returning, raw = _binary_paint_message((1, 0, 0, .5))
+        self.renderer.render(returning, raw)
+        self.assertIsNot(self.renderer._generated_paints[red_key][0], red)
+
+    def test_binary_paint_rejects_malformed_missing_and_redefined_materials_without_cache_poisoning(self):
+        original, raw = _binary_paint_message((1, 0, 0, .5))
+        self.renderer.render(original, raw)
+        material = next(iter(self.renderer._generated_paints.values()))[0]
+        previous_bindings = self.renderer._generated_paint_bindings.copy()
+        def check(header, payload, message="paint"):
+            self.renderer.device.events.clear()
+            with self.assertRaisesRegex((KeyError, ValueError), message):
+                self.renderer.render(header, payload)
+            self.assertFalse(any(event[0] == "submit" for event in self.renderer.device.events))
+            self.assertFalse(material.destroyed)
+            self.assertEqual(len(self.renderer._generated_paints), 1)
+            self.assertEqual(self.renderer._generated_paint_bindings, previous_bindings)
+        missing = deepcopy(original)
+        missing["paint_data"] = {}
+        missing["batches"][0].update(cached=True, paint_hash="f" * 32)
+        check(missing, b"", "paint cache miss")
+        ref = next(iter(original["paint_data"].values()))
+        for index, value in ((3, 0), (3, -1), (3, np.inf), (7, .5), (7, 4097),
+                             (11, 2), (11, 1), (15, np.nan)):
+            bad = bytearray(raw)
+            bad[ref["offset"] + 4 * index:ref["offset"] + 4 * (index + 1)] = np.float32(value).tobytes()
+            check(original, bad)
+        for offset, size in ((-1, 96), (.5, 96), (False, 96), (0, -1), (0, 100000), (ref["offset"], 92)):
+            bad = deepcopy(original)
+            next(iter(bad["paint_data"].values())).update(offset=offset, nbytes=size)
+            check(bad, raw)
+        for records in (None, [], 1, True, "definitions"):
+            bad = deepcopy(original)
+            bad["paint_data"] = records
+            check(bad, raw, "paint definitions")
+        for span in (None, [], 1, True, "span"):
+            bad = deepcopy(original)
+            bad["paint_data"][bad["batches"][0]["paint_hash"]] = span
+            check(bad, raw, "paint definition span")
+        for inline in (None, 1, True, "paint", {}, [_constant_paint([1, 0, 0, .5])],
+                       [*([0] * 12), "1", *([0] * 11)], [*([0] * 12), True, *([0] * 11)]):
+            bad = deepcopy(original)
+            bad.update(format_version=3, paint_data={})
+            bad["batches"][0].pop("paint_hash")
+            bad["batches"][0]["paint"] = inline
+            check(bad, raw, "inline paint")
+        changed, different_raw = _binary_paint_message((0, 0, 1, .5))
+        check(changed, different_raw, "redefined")
+        failed, payload = _binary_paint_message((0, 0, 1, .5))
+        old_hash = failed["batches"][0]["paint_hash"]
+        failed["paint_data"]["b" * 32] = failed["paint_data"].pop(old_hash)
+        failed["batches"][0]["paint_hash"] = "b" * 32
+        failed["batches"].append({"kind": "generated", "pipeline": "invalid"})
+        check(failed, payload, "unsupported generated pipeline")
+        failed["batches"].pop()
+        self.renderer.render(failed, payload)
+        self.assertTrue(material.destroyed)
+        self.assertEqual(len(self.renderer._generated_paints), 1)
+
+    def test_historical_inline_paint_remains_readable(self):
+        header, raw = _message(_draw())
+        header["format_version"] = 3
+        header["batches"][0].update(pipeline="paint", paint=_constant_paint([1, .5, 0, .75]))
+        self.renderer.render(header, raw)
+        values = np.frombuffer(next(iter(self.renderer._generated_paints.values()))[1], dtype="<f4")
+        np.testing.assert_array_equal(values[12:16], [1, .5, 0, .75])
 
     def test_spatial_resolve_preserves_wire_uniforms_and_final_output_size(self):
         header, raw = _message(_draw(uniforms={"pixel_size": .02, "anti_alias_width": 1.25}),
@@ -405,12 +523,57 @@ class GeneratedWgpuPixels(unittest.TestCase):
         geometry = next(iter(renderer._generated_geometry.values()))["buffer"]
         draw.paint = _constant_paint([0, 0, 1, .75])
         header, raw = _message(draw, cache=cache, samples=4, supersample=2)
-        self.assertEqual(raw, b"")
+        self.assertTrue(header["batches"][0]["cached"])
+        self.assertEqual(len(raw), 96, "a new affine paint sends only its binary coefficients")
         after = np.asarray(renderer.render(header, raw))
         self.assertIs(next(iter(renderer._generated_geometry.values()))["buffer"], geometry)
         np.testing.assert_allclose(before[18, 32], [128, 0, 0, 128], atol=1)
         np.testing.assert_allclose(after[18, 32], [0, 0, 191, 191], atol=1)
         renderer.close()
+
+    def test_binary_paint_shared_geometry_uses_distinct_materials_and_resets_cleanly(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer, cache = WgpuRenderer(), GeometryCache()
+        left = _draw(pipeline="paint", uniforms={"clip_plane": [-1, 0, 0, 0]})
+        right = _draw(pipeline="paint", uniforms={"clip_plane": [1, 0, 0, 0]})
+        left.paint = _constant_paint([1, 0, 0, .5])
+        right.paint = _constant_paint([0, 0, 1, .75])
+        source = left.vertices.tobytes(), right.vertices.tobytes()
+        try:
+            header, raw = _message(left, right, cache=cache, samples=4, supersample=2)
+            self.assertEqual(header["batches"][0]["hash"], header["batches"][1]["hash"])
+            self.assertNotEqual(header["batches"][0]["paint_hash"], header["batches"][1]["paint_hash"])
+            first = np.asarray(renderer.render(header, raw))
+            np.testing.assert_allclose(first[18, 28], [128, 0, 0, 128], atol=1)
+            np.testing.assert_allclose(first[18, 36], [0, 0, 191, 191], atol=1)
+            geometry = next(iter(renderer._generated_geometry.values()))["buffer"]
+            materials = dict(renderer._generated_paints)
+            header, raw = _message(left, right, cache=cache, samples=4, supersample=2)
+            self.assertEqual(raw, b"")
+            np.testing.assert_array_equal(np.asarray(renderer.render(header, raw)), first)
+            self.assertEqual(renderer._generated_paints, materials)
+            self.assertIs(next(iter(renderer._generated_geometry.values()))["buffer"], geometry)
+            missing = deepcopy(header)
+            missing["batches"][0]["paint_hash"] = "f" * 32
+            with self.assertRaisesRegex(KeyError, "paint cache miss"):
+                renderer.render(missing, raw)
+            np.testing.assert_array_equal(np.asarray(renderer.render(header, raw)), first)
+            renderer.render(*_message(cache=cache, samples=4, supersample=2))
+            self.assertFalse(renderer._generated_paints)
+            self.assertFalse(renderer._generated_paint_bindings)
+            np.testing.assert_array_equal(np.asarray(renderer.render(*_message(
+                left, right, cache=cache, samples=4, supersample=2))), first)
+            renderer.close()
+            self.assertFalse(renderer._generated_paints)
+            self.assertFalse(renderer._generated_paint_bindings)
+            cache.reset()
+            renderer = WgpuRenderer()
+            np.testing.assert_array_equal(np.asarray(renderer.render(*_message(
+                left, right, cache=cache, samples=4, supersample=2))), first)
+            self.assertEqual((left.vertices.tobytes(), right.vertices.tobytes()), source)
+        finally:
+            renderer.close()
 
     def test_more_spatial_samples_converge_toward_exact_pixel_coverage(self):
         from benchmarks.renderer_aa import area_control

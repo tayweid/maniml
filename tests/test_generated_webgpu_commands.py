@@ -46,6 +46,12 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_texture_bindings_reuse_and_missing_texture_requests_resend(self):
         self.run_case("textures")
 
+    def test_binary_paint_storage_reuses_across_geometry_layouts_and_sample_counts(self):
+        self.run_case("paintDefinitions")
+
+    def test_binary_paint_validation_missing_material_and_failed_frame_recovery(self):
+        self.run_case("paintDefinitionFailures")
+
     def test_original_2d_retires_absent_textures_after_submit_and_reinstalls_returning_images(self):
         self.run_case("windingTextures")
 

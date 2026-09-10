@@ -1,0 +1,2033 @@
+{
+  "recorded_utc": "2026-09-10T15:10:25.499632+00:00",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.13.9",
+  "numpy": "2.5.2",
+  "source_files_sha256": {
+    "benchmarks/paint_retention.py": "bb6f16d840b326c66bb625207bbea83dee7d2d092b911558294fc0d72ecb0009",
+    "maniml/web/generated_geometry.py": "650f4b6d6755dbe5c33ec03d0a918d29a8f74bcbe673a649a84d5be6dffb4d96",
+    "maniml/web/triangle_scene.py": "38f27ec13c87a614449924f4f662df8e3a896601b021c6239417d1ae592c1214",
+    "maniml/web/fill_paint.py": "2e69a93935a4e5eff1e37b03b1ba3f4deee5faa11294c3cbef7c93929ba86126",
+    "maniml/web/wgpu_renderer.py": "41a9409cf3cda66009cfd040f9563f45e156664a63a335a5c7d9eb4415611b34",
+    "maniml/web/winding_geometry.py": "9533271e9eeb49c0a2fd61831965edd50426b76c2bff987ff7920c15b02a6240",
+    "maniml/camera/native_gl_camera.py": "cc73748179ab88e4084e0e599e6517dad2bd8b90ddcfb185980b5936bd6abcad",
+    "maniml/rendering/shader_wrapper.py": "bf58d2bfda5ec52c729e4e6111c394527ca9b610e01274b3bc3236670c3c356b",
+    "tests/winding_reference_renderer.py": "3bdc811790576eba3edeedad298b89a655a702f42ecea7f3044ac687633b922f",
+    "maniml/web/static/wgsl/paint.wgsl": "8f042440a812b5f6be425dc91995566a3357d903a46bf4e9e0908ed261f0694b"
+  },
+  "resolution": [
+    960,
+    540
+  ],
+  "roi_output_pixels": [
+    336,
+    126,
+    624,
+    414
+  ],
+  "samples": 12,
+  "warmups": 3,
+  "source": "400-corner radius2 polygon; zero stroke/border, static source/camera, opaque background. Non-affine point colors RED\u2192GREEN\u2192BLUE; affine RGB is linear in source XY. Alpha1 for both.",
+  "aa": "Original winding and native GL retain samples0 and historical shader AA. Phase A uses its public4MSAA+2x spatial resolve default.",
+  "timing_scope": "WebGPU total: public serialization, parsing, render, full RGBA readback and PIL construction. Native GL total: public capture then get_image including blit/full RGBA readback. GL has no geometry wire. Completion intervals include GPU work, host waits/driver polling and mapping; not GPU timestamps. GL capture may itself block, so component intervals are not equivalent across APIs. Source construction, source verification, file writes and diagnostics are outside timing. No transport/browser/presentation measured. Per-renderer fresh sources/devices/caches;3 warmups by default; rotated/reversed variant order.",
+  "appearance_scope": "Diagnostic differences only: source paint interior semantics differ. No parity acceptance label or threshold.",
+  "cases": {
+    "nonaffine": {
+      "cpu": {
+        "source_sha256": "278879476527fe1e704cc3392c5a3c6baeedb8ea33b639426da5cdf0a9ba183e",
+        "source_point_count": 801,
+        "mode": "inverse_distance",
+        "node_count": 800,
+        "coefficient_floats": 6424,
+        "coefficient_bytes": 25696,
+        "first_and_second_frames": [
+          {
+            "prepare_ms": 1.486875000409782,
+            "wire_ms": 1.3306250039022416,
+            "serialize_ms": 5.617458999040537,
+            "parse_ms": 0.6450829969253391,
+            "message_bytes": 115104,
+            "header_bytes": 94323,
+            "payload_bytes": 20776,
+            "batches": 1,
+            "cached_batches": 0,
+            "inline_paint_json_bytes": 93366,
+            "paint_definition_bytes": 0,
+            "coefficient_build_calls_total": 1,
+            "frame_limitations": []
+          },
+          {
+            "prepare_ms": 0.26362499920651317,
+            "wire_ms": 1.305416997638531,
+            "serialize_ms": 1.6025829972932115,
+            "parse_ms": 0.6273340113693848,
+            "message_bytes": 94308,
+            "header_bytes": 94303,
+            "payload_bytes": 0,
+            "batches": 1,
+            "cached_batches": 1,
+            "inline_paint_json_bytes": 93366,
+            "paint_definition_bytes": 0,
+            "coefficient_build_calls_total": 1,
+            "frame_limitations": []
+          }
+        ]
+      },
+      "gpu": {
+        "source_contract_preserved": true,
+        "gl": {
+          "GL_VENDOR": "Apple",
+          "GL_RENDERER": "Apple M3",
+          "GL_VERSION": "4.1 Metal - 90.5"
+        },
+        "adapters": {
+          "triangles": {
+            "vendor": "",
+            "architecture": "",
+            "device": "Apple M3",
+            "description": "",
+            "stackgroup_min_size": 4,
+            "stackgroup_max_size": 128,
+            "vendor_id": 0,
+            "device_id": 0,
+            "adapter_type": "IntegratedGPU",
+            "backend_type": "Metal"
+          },
+          "winding": {
+            "vendor": "",
+            "architecture": "",
+            "device": "Apple M3",
+            "description": "",
+            "stackgroup_min_size": 4,
+            "stackgroup_max_size": 128,
+            "vendor_id": 0,
+            "device_id": 0,
+            "adapter_type": "IntegratedGPU",
+            "backend_type": "Metal"
+          }
+        },
+        "variants": {
+          "triangles": {
+            "samples": [
+              {
+                "prepare_ms": 0.1943340030265972,
+                "wire_ms": 1.35366601170972,
+                "serialize_ms": 1.5809169999556616,
+                "parse_ms": 0.6349159957608208,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.4087500021560118,
+                "completion_full_readback_ms": 8.01812500867527,
+                "post_readback_ms": 0.39837499207351357,
+                "total_to_rgba_image_ms": 12.041082998621278,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.20629199570976198,
+                "wire_ms": 1.3515000027837232,
+                "serialize_ms": 1.5912499948171899,
+                "parse_ms": 0.6365840090438724,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.4641250018030405,
+                "completion_full_readback_ms": 9.453499995288439,
+                "post_readback_ms": 0.4033330042148009,
+                "total_to_rgba_image_ms": 13.548792005167343,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2995420072693378,
+                "wire_ms": 1.4248749939724803,
+                "serialize_ms": 1.7590829957043752,
+                "parse_ms": 0.6607920076930895,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.423458001227118,
+                "completion_full_readback_ms": 6.461541997850873,
+                "post_readback_ms": 0.4584580019582063,
+                "total_to_rgba_image_ms": 10.763333004433662,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.26604199956636876,
+                "wire_ms": 1.4605420001316816,
+                "serialize_ms": 1.7672910034889355,
+                "parse_ms": 0.673250004183501,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.5970419917721301,
+                "completion_full_readback_ms": 12.223167010233738,
+                "post_readback_ms": 0.4729999927803874,
+                "total_to_rgba_image_ms": 16.73375000245869,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.25883299531415105,
+                "wire_ms": 1.4909580058883876,
+                "serialize_ms": 1.7871250020107254,
+                "parse_ms": 0.7106249977368861,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.5145409997785464,
+                "completion_full_readback_ms": 11.14716699521523,
+                "post_readback_ms": 0.5683750059688464,
+                "total_to_rgba_image_ms": 15.727833000710234,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2308330003870651,
+                "wire_ms": 1.514666000730358,
+                "serialize_ms": 1.7833750025602058,
+                "parse_ms": 0.739333001547493,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.673749997280538,
+                "completion_full_readback_ms": 12.548333004815504,
+                "post_readback_ms": 0.42866700096055865,
+                "total_to_rgba_image_ms": 17.1734580071643,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2787080011330545,
+                "wire_ms": 1.7145000019809231,
+                "serialize_ms": 2.0327920065028593,
+                "parse_ms": 0.7305420003831387,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.570833002915606,
+                "completion_full_readback_ms": 11.111082989373244,
+                "post_readback_ms": 0.4353340045781806,
+                "total_to_rgba_image_ms": 15.880584003753029,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2249169920105487,
+                "wire_ms": 1.581167001859285,
+                "serialize_ms": 1.8433749937685207,
+                "parse_ms": 0.7553330069640651,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.5795420040376484,
+                "completion_full_readback_ms": 12.340957997366786,
+                "post_readback_ms": 0.4262919974280521,
+                "total_to_rgba_image_ms": 16.945499999565072,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.24333299370482564,
+                "wire_ms": 1.4273749984567985,
+                "serialize_ms": 1.7103749996749684,
+                "parse_ms": 0.7091669976944104,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.535832998342812,
+                "completion_full_readback_ms": 12.801457996829413,
+                "post_readback_ms": 0.6163340003695339,
+                "total_to_rgba_image_ms": 17.373166992911138,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2636660065036267,
+                "wire_ms": 1.4862920070299879,
+                "serialize_ms": 1.7899169906741008,
+                "parse_ms": 0.6764580029994249,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.494458003435284,
+                "completion_full_readback_ms": 14.153458992950618,
+                "post_readback_ms": 0.49170800775755197,
+                "total_to_rgba_image_ms": 18.60599999781698,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.23270800011232495,
+                "wire_ms": 1.4955829974496737,
+                "serialize_ms": 1.7644159961491823,
+                "parse_ms": 0.7093750027706847,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.4915420033503324,
+                "completion_full_readback_ms": 14.14233299146872,
+                "post_readback_ms": 0.5749590054620057,
+                "total_to_rgba_image_ms": 18.682624999200925,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2187919890275225,
+                "wire_ms": 1.5736250061308965,
+                "serialize_ms": 1.8322499963687733,
+                "parse_ms": 0.7438750035362318,
+                "message_bytes": 94308,
+                "header_bytes": 94303,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 93366,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 1.8061250011669472,
+                "completion_full_readback_ms": 9.626832994399592,
+                "post_readback_ms": 0.5775839963462204,
+                "total_to_rgba_image_ms": 14.586666991817765,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "prepare_ms": {
+                "min": 0.1943340030265972,
+                "p50": 0.2380204969085753,
+                "p95": 0.28808330389438197,
+                "max": 0.2995420072693378
+              },
+              "wire_ms": {
+                "min": 1.3515000027837232,
+                "p50": 1.4886250064591877,
+                "p95": 1.6411668519140221,
+                "max": 1.7145000019809231
+              },
+              "serialize_ms": {
+                "min": 1.5809169999556616,
+                "p50": 1.7753330030245706,
+                "p95": 1.9286126494989728,
+                "max": 2.0327920065028593
+              },
+              "parse_ms": {
+                "min": 0.6349159957608208,
+                "p50": 0.7092710002325475,
+                "p95": 0.7490311050787568,
+                "max": 0.7553330069640651
+              },
+              "render_cpu_encode_ms": {
+                "min": 1.4087500021560118,
+                "p50": 1.5251869990606792,
+                "p95": 1.7333187490294222,
+                "max": 1.8061250011669472
+              },
+              "completion_full_readback_ms": {
+                "min": 6.461541997850873,
+                "p50": 11.685167002724484,
+                "p95": 14.147339692135574,
+                "max": 14.153458992950618
+              },
+              "post_readback_ms": {
+                "min": 0.39837499207351357,
+                "p50": 0.46572899736929685,
+                "p95": 0.5950214981567115,
+                "max": 0.6163340003695339
+              },
+              "total_to_rgba_image_ms": {
+                "min": 10.763333004433662,
+                "p50": 16.30716700310586,
+                "p95": 18.640481248439755,
+                "max": 18.682624999200925
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 6.461541997850873,
+              "fraction_under_3_ms": 0.0,
+              "fraction_over_10_ms": 0.6666666666666666
+            }
+          },
+          "winding": {
+            "samples": [
+              {
+                "prepare_ms": 0.2507510071154684,
+                "wire_ms": 0.1262920122826472,
+                "serialize_ms": 0.4102079983567819,
+                "parse_ms": 0.013374999980442226,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.3235000040149316,
+                "completion_full_readback_ms": 2.075083990348503,
+                "post_readback_ms": 0.4104160034330562,
+                "total_to_rgba_image_ms": 3.232582996133715,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.279249987215735,
+                "wire_ms": 0.1351670071016997,
+                "serialize_ms": 0.4649580077966675,
+                "parse_ms": 0.015291996533051133,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.40962500497698784,
+                "completion_full_readback_ms": 1.9615420023910701,
+                "post_readback_ms": 0.6372079951688647,
+                "total_to_rgba_image_ms": 3.4886250068666413,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3090009995503351,
+                "wire_ms": 0.1389579992974177,
+                "serialize_ms": 0.5043749988544732,
+                "parse_ms": 0.01883300137706101,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.41774999408517033,
+                "completion_full_readback_ms": 3.467874994385056,
+                "post_readback_ms": 0.3913750115316361,
+                "total_to_rgba_image_ms": 4.800208000233397,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3652079903986305,
+                "wire_ms": 0.14816700422670692,
+                "serialize_ms": 0.5605409969575703,
+                "parse_ms": 0.019334009266458452,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4842079943045974,
+                "completion_full_readback_ms": 1.9325000030221418,
+                "post_readback_ms": 0.35679199208971113,
+                "total_to_rgba_image_ms": 3.353374995640479,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2687920059543103,
+                "wire_ms": 0.13691700587514788,
+                "serialize_ms": 0.43983300565741956,
+                "parse_ms": 0.01637499372009188,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.35450000723358244,
+                "completion_full_readback_ms": 1.9112919981125742,
+                "post_readback_ms": 0.4943329986417666,
+                "total_to_rgba_image_ms": 3.2163330033654347,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3613330191001296,
+                "wire_ms": 0.15124998753890395,
+                "serialize_ms": 0.5531250062631443,
+                "parse_ms": 0.01866600359790027,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4591250035446137,
+                "completion_full_readback_ms": 1.9468339887680486,
+                "post_readback_ms": 0.40841600275598466,
+                "total_to_rgba_image_ms": 3.3861660049296916,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.28408400248736143,
+                "wire_ms": 0.14362501678988338,
+                "serialize_ms": 0.4650000046240166,
+                "parse_ms": 0.015457990230061114,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.3770830080611631,
+                "completion_full_readback_ms": 1.9918339967262,
+                "post_readback_ms": 0.44079100189264864,
+                "total_to_rgba_image_ms": 3.2901660015340894,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.36374901537783444,
+                "wire_ms": 0.14966601156629622,
+                "serialize_ms": 0.5600000004051253,
+                "parse_ms": 0.022791995434090495,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.6035419937688857,
+                "completion_full_readback_ms": 1.9849579985020682,
+                "post_readback_ms": 0.4486250109039247,
+                "total_to_rgba_image_ms": 3.6199169990140945,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.29408399132080376,
+                "wire_ms": 0.1334590051556006,
+                "serialize_ms": 0.46400001156143844,
+                "parse_ms": 0.016166988643817604,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.35408300755079836,
+                "completion_full_readback_ms": 1.9031249976251274,
+                "post_readback_ms": 0.9335420036222786,
+                "total_to_rgba_image_ms": 3.6709170090034604,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3625419776653871,
+                "wire_ms": 0.14820901560597122,
+                "serialize_ms": 0.5685409996658564,
+                "parse_ms": 0.018499995348975062,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.48495900409761816,
+                "completion_full_readback_ms": 1.9075829914072528,
+                "post_readback_ms": 0.4678330005845055,
+                "total_to_rgba_image_ms": 3.447415991104208,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2699159813346341,
+                "wire_ms": 0.1463739899918437,
+                "serialize_ms": 0.4514169995673001,
+                "parse_ms": 0.0735829962650314,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4118750075576827,
+                "completion_full_readback_ms": 1.9932499999413267,
+                "post_readback_ms": 0.41283298924099654,
+                "total_to_rgba_image_ms": 3.3429579925723374,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3843330196104944,
+                "wire_ms": 0.17120799748227,
+                "serialize_ms": 0.6167079991428182,
+                "parse_ms": 0.041624996811151505,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.7196670048870146,
+                "completion_full_readback_ms": 5.0222080026287585,
+                "post_readback_ms": 0.479041991638951,
+                "total_to_rgba_image_ms": 6.879249995108694,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "prepare_ms": {
+                "min": 0.2507510071154684,
+                "p50": 0.30154249543556944,
+                "p95": 0.37381425354396924,
+                "max": 0.3843330196104944
+              },
+              "wire_ms": {
+                "min": 0.1262920122826472,
+                "p50": 0.14499950339086354,
+                "p95": 0.16023109201341867,
+                "max": 0.17120799748227
+              },
+              "serialize_ms": {
+                "min": 0.4102079983567819,
+                "p50": 0.4846875017392449,
+                "p95": 0.5902161494304892,
+                "max": 0.6167079991428182
+              },
+              "parse_ms": {
+                "min": 0.013374999980442226,
+                "p50": 0.018582999473437667,
+                "p95": 0.056006096565397435,
+                "max": 0.0735829962650314
+              },
+              "render_cpu_encode_ms": {
+                "min": 0.3235000040149316,
+                "p50": 0.4148125008214265,
+                "p95": 0.6557982487720436,
+                "max": 0.7196670048870146
+              },
+              "completion_full_readback_ms": {
+                "min": 1.9031249976251274,
+                "p50": 1.9732500004465692,
+                "p95": 4.167324848094721,
+                "max": 5.0222080026287585
+              },
+              "post_readback_ms": {
+                "min": 0.35679199208971113,
+                "p50": 0.44470800639828667,
+                "p95": 0.7705582989729007,
+                "max": 0.9335420036222786
+              },
+              "total_to_rgba_image_ms": {
+                "min": 3.2163330033654347,
+                "p50": 3.4167909980169497,
+                "p95": 5.735776897927279,
+                "max": 6.879249995108694
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 1.9031249976251274,
+              "fraction_under_3_ms": 0.8333333333333334,
+              "fraction_over_10_ms": 0.0
+            }
+          },
+          "native_gl": {
+            "samples": [
+              {
+                "capture_api_ms": 0.5296669987728819,
+                "completion_full_readback_ms": 2.8629580046981573,
+                "total_to_rgba_image_ms": 3.3926250034710392,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.5842090031364933,
+                "completion_full_readback_ms": 2.8458330052671954,
+                "total_to_rgba_image_ms": 3.4300420084036887,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7982910028658807,
+                "completion_full_readback_ms": 6.130584006314166,
+                "total_to_rgba_image_ms": 6.928875009180047,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.5442910041892901,
+                "completion_full_readback_ms": 2.8733340004691854,
+                "total_to_rgba_image_ms": 3.4176250046584755,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.6407920009223744,
+                "completion_full_readback_ms": 6.18758299970068,
+                "total_to_rgba_image_ms": 6.828375000623055,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7676249952055514,
+                "completion_full_readback_ms": 2.7937499980907887,
+                "total_to_rgba_image_ms": 3.56137499329634,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.5938749964116141,
+                "completion_full_readback_ms": 4.153499990934506,
+                "total_to_rgba_image_ms": 4.74737498734612,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7792919932398945,
+                "completion_full_readback_ms": 3.0837079975754023,
+                "total_to_rgba_image_ms": 3.8629999908152968,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7793339900672436,
+                "completion_full_readback_ms": 6.65395800024271,
+                "total_to_rgba_image_ms": 7.433291990309954,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.655708005069755,
+                "completion_full_readback_ms": 5.856500007212162,
+                "total_to_rgba_image_ms": 6.512208012281917,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.6285000126808882,
+                "completion_full_readback_ms": 2.9900410008849576,
+                "total_to_rgba_image_ms": 3.618541013565846,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7625829894095659,
+                "completion_full_readback_ms": 3.381167000043206,
+                "total_to_rgba_image_ms": 4.143749989452772,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "capture_api_ms": {
+                "min": 0.5296669987728819,
+                "p50": 0.6482500029960647,
+                "p95": 0.7878646458266303,
+                "max": 0.7982910028658807
+              },
+              "completion_full_readback_ms": {
+                "min": 2.7937499980907887,
+                "p50": 3.232437498809304,
+                "p95": 6.397451749944594,
+                "max": 6.65395800024271
+              },
+              "total_to_rgba_image_ms": {
+                "min": 3.3926250034710392,
+                "p50": 4.003374990134034,
+                "p95": 7.155862650688505,
+                "max": 7.433291990309954
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 2.7937499980907887,
+              "fraction_under_3_ms": 0.4166666666666667,
+              "fraction_over_10_ms": 0.0
+            }
+          }
+        },
+        "appearance": {
+          "triangles": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 1.020363297325103,
+              "fraction_pixels_rgb_over24": 0.00875,
+              "max_rgba": 88.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 6.377270608281893,
+              "fraction_pixels_rgb_over24": 0.0546875,
+              "max_rgba": 88.0,
+              "mean_alpha": 0.0
+            },
+            "image": "nonaffine_triangles.png",
+            "crop": "nonaffine_triangles_crop.png"
+          },
+          "winding": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 0.024313914609053498,
+              "fraction_pixels_rgb_over24": 0.0006790123456790123,
+              "max_rgba": 116.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 0.15196196630658437,
+              "fraction_pixels_rgb_over24": 0.004243827160493827,
+              "max_rgba": 116.0,
+              "mean_alpha": 0.0
+            },
+            "image": "nonaffine_winding.png",
+            "crop": "nonaffine_winding_crop.png"
+          },
+          "native_gl": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 0.0,
+              "fraction_pixels_rgb_over24": 0.0,
+              "max_rgba": 0.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 0.0,
+              "fraction_pixels_rgb_over24": 0.0,
+              "max_rgba": 0.0,
+              "mean_alpha": 0.0
+            },
+            "image": "nonaffine_native_gl.png",
+            "crop": "nonaffine_native_gl_crop.png"
+          }
+        }
+      }
+    },
+    "affine": {
+      "cpu": {
+        "source_sha256": "872563a1b76c8dabd8a09a643f1c7ba9459d4f444c9c79f54f267ec55d381fb5",
+        "source_point_count": 801,
+        "mode": "spline_or_affine",
+        "node_count": 0,
+        "coefficient_floats": 24,
+        "coefficient_bytes": 96,
+        "first_and_second_frames": [
+          {
+            "prepare_ms": 1.304999997955747,
+            "wire_ms": 0.13791599485557526,
+            "serialize_ms": 1.6709159972378984,
+            "parse_ms": 0.028959009796380997,
+            "message_bytes": 22102,
+            "header_bytes": 1321,
+            "payload_bytes": 20776,
+            "batches": 1,
+            "cached_batches": 0,
+            "inline_paint_json_bytes": 364,
+            "paint_definition_bytes": 0,
+            "coefficient_build_calls_total": 1,
+            "frame_limitations": []
+          },
+          {
+            "prepare_ms": 0.26404199888929725,
+            "wire_ms": 0.04887500836048275,
+            "serialize_ms": 0.322666994179599,
+            "parse_ms": 0.01808301021810621,
+            "message_bytes": 1306,
+            "header_bytes": 1301,
+            "payload_bytes": 0,
+            "batches": 1,
+            "cached_batches": 1,
+            "inline_paint_json_bytes": 364,
+            "paint_definition_bytes": 0,
+            "coefficient_build_calls_total": 1,
+            "frame_limitations": []
+          }
+        ]
+      },
+      "gpu": {
+        "source_contract_preserved": true,
+        "gl": {
+          "GL_VENDOR": "Apple",
+          "GL_RENDERER": "Apple M3",
+          "GL_VERSION": "4.1 Metal - 90.5"
+        },
+        "adapters": {
+          "triangles": {
+            "vendor": "",
+            "architecture": "",
+            "device": "Apple M3",
+            "description": "",
+            "stackgroup_min_size": 4,
+            "stackgroup_max_size": 128,
+            "vendor_id": 0,
+            "device_id": 0,
+            "adapter_type": "IntegratedGPU",
+            "backend_type": "Metal"
+          },
+          "winding": {
+            "vendor": "",
+            "architecture": "",
+            "device": "Apple M3",
+            "description": "",
+            "stackgroup_min_size": 4,
+            "stackgroup_max_size": 128,
+            "vendor_id": 0,
+            "device_id": 0,
+            "adapter_type": "IntegratedGPU",
+            "backend_type": "Metal"
+          }
+        },
+        "variants": {
+          "triangles": {
+            "samples": [
+              {
+                "prepare_ms": 0.19674999930430204,
+                "wire_ms": 0.07829100650269538,
+                "serialize_ms": 0.2869999880203977,
+                "parse_ms": 0.023459011572413146,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.1829999964684248,
+                "completion_full_readback_ms": 12.543082993943244,
+                "post_readback_ms": 0.469292004709132,
+                "total_to_rgba_image_ms": 13.505833994713612,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.17825000395532697,
+                "wire_ms": 0.060291989939287305,
+                "serialize_ms": 0.2492500061634928,
+                "parse_ms": 0.01995899947360158,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.16937499458435923,
+                "completion_full_readback_ms": 1.8696250044740736,
+                "post_readback_ms": 0.3992080019088462,
+                "total_to_rgba_image_ms": 2.7074170066043735,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2483749995008111,
+                "wire_ms": 0.08687500667292625,
+                "serialize_ms": 0.35237500560469925,
+                "parse_ms": 0.028332986403256655,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.2325000095879659,
+                "completion_full_readback_ms": 1.9841250032186508,
+                "post_readback_ms": 0.8348749979631975,
+                "total_to_rgba_image_ms": 3.43220800277777,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.253041012911126,
+                "wire_ms": 0.08399999933317304,
+                "serialize_ms": 0.35179199767298996,
+                "parse_ms": 0.03212499723304063,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.26300000899937004,
+                "completion_full_readback_ms": 14.33858300151769,
+                "post_readback_ms": 0.5981249996693805,
+                "total_to_rgba_image_ms": 15.583625005092472,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2771660074358806,
+                "wire_ms": 0.09387500176671892,
+                "serialize_ms": 0.38837500324007124,
+                "parse_ms": 0.03083299088757485,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.2604589972179383,
+                "completion_full_readback_ms": 1.9452500127954409,
+                "post_readback_ms": 0.5255829892121255,
+                "total_to_rgba_image_ms": 3.150499993353151,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2049999893642962,
+                "wire_ms": 0.10399999155197293,
+                "serialize_ms": 0.32020801154430956,
+                "parse_ms": 0.03941699105780572,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.27445799787528813,
+                "completion_full_readback_ms": 6.62575000023935,
+                "post_readback_ms": 0.44450000859797,
+                "total_to_rgba_image_ms": 7.704333009314723,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.2578330022515729,
+                "wire_ms": 0.07783400360494852,
+                "serialize_ms": 0.35112499608658254,
+                "parse_ms": 0.023208005586639047,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.20437499915715307,
+                "completion_full_readback_ms": 2.003375004278496,
+                "post_readback_ms": 0.514666986418888,
+                "total_to_rgba_image_ms": 3.0967499915277585,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.19166700076311827,
+                "wire_ms": 0.07812499825377017,
+                "serialize_ms": 0.27970799419563264,
+                "parse_ms": 0.023375003365799785,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.1912500010803342,
+                "completion_full_readback_ms": 1.9410829991102219,
+                "post_readback_ms": 0.49037499411497265,
+                "total_to_rgba_image_ms": 2.925790991866961,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.22141699446365237,
+                "wire_ms": 0.0838330015540123,
+                "serialize_ms": 0.317458005156368,
+                "parse_ms": 0.02320799103472382,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.2053339994745329,
+                "completion_full_readback_ms": 2.007750008488074,
+                "post_readback_ms": 0.5438329972093925,
+                "total_to_rgba_image_ms": 3.097583001363091,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.24325000413227826,
+                "wire_ms": 0.08204199548345059,
+                "serialize_ms": 0.33858300594147295,
+                "parse_ms": 0.025125002139247954,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.23420900106430054,
+                "completion_full_readback_ms": 2.090207999572158,
+                "post_readback_ms": 0.6012499943608418,
+                "total_to_rgba_image_ms": 3.289375003078021,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.19308400806039572,
+                "wire_ms": 0.08875000639818609,
+                "serialize_ms": 0.29279099544510245,
+                "parse_ms": 0.02195900015067309,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.17899999511428177,
+                "completion_full_readback_ms": 5.053708009654656,
+                "post_readback_ms": 0.49820799904409796,
+                "total_to_rgba_image_ms": 6.045665999408811,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.21895801182836294,
+                "wire_ms": 0.09404199954587966,
+                "serialize_ms": 0.32774999272078276,
+                "parse_ms": 0.031167000997811556,
+                "message_bytes": 1306,
+                "header_bytes": 1301,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 364,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.24937500711530447,
+                "completion_full_readback_ms": 2.0073749910807237,
+                "post_readback_ms": 0.5725830123992637,
+                "total_to_rgba_image_ms": 3.188250004313886,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "prepare_ms": {
+                "min": 0.17825000395532697,
+                "p50": 0.22018750314600766,
+                "p95": 0.26653285458451137,
+                "max": 0.2771660074358806
+              },
+              "wire_ms": {
+                "min": 0.060291989939287305,
+                "p50": 0.08391650044359267,
+                "p95": 0.09852309594862163,
+                "max": 0.10399999155197293
+              },
+              "serialize_ms": {
+                "min": 0.2492500061634928,
+                "p50": 0.32397900213254616,
+                "p95": 0.36857500454061665,
+                "max": 0.38837500324007124
+              },
+              "parse_ms": {
+                "min": 0.01995899947360158,
+                "p50": 0.02429200685583055,
+                "p95": 0.03540639445418491,
+                "max": 0.03941699105780572
+              },
+              "render_cpu_encode_ms": {
+                "min": 0.16937499458435923,
+                "p50": 0.2189170045312494,
+                "p95": 0.2681561039935332,
+                "max": 0.27445799787528813
+              },
+              "completion_full_readback_ms": {
+                "min": 1.8696250044740736,
+                "p50": 2.007562499784399,
+                "p95": 13.351057997351743,
+                "max": 14.33858300151769
+              },
+              "post_readback_ms": {
+                "min": 0.3992080019088462,
+                "p50": 0.5201249878155068,
+                "p95": 0.7063812459819017,
+                "max": 0.8348749979631975
+              },
+              "total_to_rgba_image_ms": {
+                "min": 2.7074170066043735,
+                "p50": 3.2388125036959536,
+                "p95": 14.440839949384097,
+                "max": 15.583625005092472
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 1.8696250044740736,
+              "fraction_under_3_ms": 0.6666666666666666,
+              "fraction_over_10_ms": 0.16666666666666666
+            }
+          },
+          "winding": {
+            "samples": [
+              {
+                "prepare_ms": 0.29691701638512313,
+                "wire_ms": 0.13508299889508635,
+                "serialize_ms": 0.4760830051964149,
+                "parse_ms": 0.016332996892742813,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4000000044470653,
+                "completion_full_readback_ms": 1.9356669945409521,
+                "post_readback_ms": 0.4372080002212897,
+                "total_to_rgba_image_ms": 3.265291001298465,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.38920799852348864,
+                "wire_ms": 0.16850000247359276,
+                "serialize_ms": 0.6071249954402447,
+                "parse_ms": 0.02633400436025113,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.550208002096042,
+                "completion_full_readback_ms": 14.253417000873014,
+                "post_readback_ms": 0.5395829939516261,
+                "total_to_rgba_image_ms": 15.976666996721178,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3741679829545319,
+                "wire_ms": 0.16420900647062808,
+                "serialize_ms": 0.5857920041307807,
+                "parse_ms": 0.021082989405840635,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.45854201016481966,
+                "completion_full_readback_ms": 13.806374990963377,
+                "post_readback_ms": 0.5625000048894435,
+                "total_to_rgba_image_ms": 15.434291999554262,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.4919579951092601,
+                "wire_ms": 0.2148750063497573,
+                "serialize_ms": 0.8297500025946647,
+                "parse_ms": 0.02733300789259374,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.6534169951919466,
+                "completion_full_readback_ms": 6.716374991810881,
+                "post_readback_ms": 0.5323330115061253,
+                "total_to_rgba_image_ms": 8.759208008996211,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.41399999463465065,
+                "wire_ms": 0.1952500024344772,
+                "serialize_ms": 0.6680410006083548,
+                "parse_ms": 0.02820900408551097,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.6133749993750826,
+                "completion_full_readback_ms": 2.098583005135879,
+                "post_readback_ms": 0.6379999977070838,
+                "total_to_rgba_image_ms": 4.046208006911911,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.44766601058654487,
+                "wire_ms": 0.19737599359359592,
+                "serialize_ms": 0.7119999936548993,
+                "parse_ms": 0.02445800055284053,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.5904999998165295,
+                "completion_full_readback_ms": 2.035416997387074,
+                "post_readback_ms": 0.5463330016937107,
+                "total_to_rgba_image_ms": 3.908707993105054,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.33699898631311953,
+                "wire_ms": 0.17495900101494044,
+                "serialize_ms": 0.5567500047618523,
+                "parse_ms": 0.018749997252598405,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4747500061057508,
+                "completion_full_readback_ms": 6.583249996765517,
+                "post_readback_ms": 0.44883300142828375,
+                "total_to_rgba_image_ms": 8.082333006314002,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3614169982029125,
+                "wire_ms": 0.1894169981824234,
+                "serialize_ms": 0.5951249913778156,
+                "parse_ms": 0.018042002920992672,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.49500000022817403,
+                "completion_full_readback_ms": 5.108583005494438,
+                "post_readback_ms": 0.46158398617990315,
+                "total_to_rgba_image_ms": 6.678333986201324,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3767909947782755,
+                "wire_ms": 0.18362500122748315,
+                "serialize_ms": 0.607209003646858,
+                "parse_ms": 0.017707992810755968,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4792920080944896,
+                "completion_full_readback_ms": 1.9641249964479357,
+                "post_readback_ms": 0.5805830005556345,
+                "total_to_rgba_image_ms": 3.648917001555674,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.3832509828498587,
+                "wire_ms": 0.18429099873173982,
+                "serialize_ms": 0.6197500042617321,
+                "parse_ms": 0.019291997887194157,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4946670087520033,
+                "completion_full_readback_ms": 1.958041000762023,
+                "post_readback_ms": 0.5960419948678464,
+                "total_to_rgba_image_ms": 3.687792006530799,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.4173330089543015,
+                "wire_ms": 0.18599999020807445,
+                "serialize_ms": 0.7272920047398657,
+                "parse_ms": 0.022499996703118086,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.5405420088209212,
+                "completion_full_readback_ms": 2.0375829917611554,
+                "post_readback_ms": 0.5297919997246936,
+                "total_to_rgba_image_ms": 3.857709001749754,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "prepare_ms": 0.36362498940434307,
+                "wire_ms": 0.18216599710285664,
+                "serialize_ms": 0.6894160032970831,
+                "parse_ms": 0.01720900763757527,
+                "message_bytes": 930,
+                "header_bytes": 925,
+                "payload_bytes": 0,
+                "batches": 1,
+                "cached_batches": 1,
+                "inline_paint_json_bytes": 0,
+                "paint_definition_bytes": 0,
+                "render_cpu_encode_ms": 0.4673329967772588,
+                "completion_full_readback_ms": 8.066583002801053,
+                "post_readback_ms": 0.5915419897064567,
+                "total_to_rgba_image_ms": 9.832083000219427,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "prepare_ms": {
+                "min": 0.29691701638512313,
+                "p50": 0.3800209888140671,
+                "p95": 0.46759740362176666,
+                "max": 0.4919579951092601
+              },
+              "wire_ms": {
+                "min": 0.13508299889508635,
+                "p50": 0.1839579999796115,
+                "p95": 0.20525054933386855,
+                "max": 0.2148750063497573
+              },
+              "serialize_ms": {
+                "min": 0.4760830051964149,
+                "p50": 0.6134795039542951,
+                "p95": 0.7733981037745251,
+                "max": 0.8297500025946647
+              },
+              "parse_ms": {
+                "min": 0.016332996892742813,
+                "p50": 0.020187493646517396,
+                "p95": 0.027727206179406494,
+                "max": 0.02820900408551097
+              },
+              "render_cpu_encode_ms": {
+                "min": 0.4000000044470653,
+                "p50": 0.49483350449008867,
+                "p95": 0.6313938974926714,
+                "max": 0.6534169951919466
+              },
+              "completion_full_readback_ms": {
+                "min": 1.9356669945409521,
+                "p50": 3.6035830053151585,
+                "p95": 14.007543895422714,
+                "max": 14.253417000873014
+              },
+              "post_readback_ms": {
+                "min": 0.4372080002212897,
+                "p50": 0.5429579978226684,
+                "p95": 0.6149230961455032,
+                "max": 0.6379999977070838
+              },
+              "total_to_rgba_image_ms": {
+                "min": 3.265291001298465,
+                "p50": 5.362270996556617,
+                "p95": 15.678360748279374,
+                "max": 15.976666996721178
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 1.9356669945409521,
+              "fraction_under_3_ms": 0.5,
+              "fraction_over_10_ms": 0.16666666666666666
+            }
+          },
+          "native_gl": {
+            "samples": [
+              {
+                "capture_api_ms": 0.5276669980958104,
+                "completion_full_readback_ms": 14.080749999266118,
+                "total_to_rgba_image_ms": 14.608416997361928,
+                "iteration": 3,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.6811249913880602,
+                "completion_full_readback_ms": 15.127125006983988,
+                "total_to_rgba_image_ms": 15.808249998372048,
+                "iteration": 4,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.8051659970078617,
+                "completion_full_readback_ms": 14.889917001710273,
+                "total_to_rgba_image_ms": 15.695082998718135,
+                "iteration": 5,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.8862079994287342,
+                "completion_full_readback_ms": 3.093249993980862,
+                "total_to_rgba_image_ms": 3.9794579934095964,
+                "iteration": 6,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.9289579902542755,
+                "completion_full_readback_ms": 8.568042001570575,
+                "total_to_rgba_image_ms": 9.49699999182485,
+                "iteration": 7,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7569159934064373,
+                "completion_full_readback_ms": 3.6228340031811967,
+                "total_to_rgba_image_ms": 4.379749996587634,
+                "iteration": 8,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7660420087631792,
+                "completion_full_readback_ms": 3.606124999350868,
+                "total_to_rgba_image_ms": 4.372167008114047,
+                "iteration": 9,
+                "order": [
+                  "native_gl",
+                  "winding",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.7501669897465035,
+                "completion_full_readback_ms": 3.979957997216843,
+                "total_to_rgba_image_ms": 4.730124986963347,
+                "iteration": 10,
+                "order": [
+                  "triangles",
+                  "native_gl",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.861624997924082,
+                "completion_full_readback_ms": 9.865959000308067,
+                "total_to_rgba_image_ms": 10.727583998232149,
+                "iteration": 11,
+                "order": [
+                  "winding",
+                  "triangles",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.9911670058500022,
+                "completion_full_readback_ms": 8.19470798887778,
+                "total_to_rgba_image_ms": 9.185874994727783,
+                "iteration": 12,
+                "order": [
+                  "triangles",
+                  "winding",
+                  "native_gl"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.6948749942239374,
+                "completion_full_readback_ms": 3.683041999465786,
+                "total_to_rgba_image_ms": 4.377916993689723,
+                "iteration": 13,
+                "order": [
+                  "winding",
+                  "native_gl",
+                  "triangles"
+                ],
+                "full_readback_bytes": 2073600
+              },
+              {
+                "capture_api_ms": 0.8249589882325381,
+                "completion_full_readback_ms": 3.3065410098060966,
+                "total_to_rgba_image_ms": 4.131499998038635,
+                "iteration": 14,
+                "order": [
+                  "native_gl",
+                  "triangles",
+                  "winding"
+                ],
+                "full_readback_bytes": 2073600
+              }
+            ],
+            "timing_ms": {
+              "capture_api_ms": {
+                "min": 0.5276669980958104,
+                "p50": 0.7856040028855205,
+                "p95": 0.9569520472723525,
+                "max": 0.9911670058500022
+              },
+              "completion_full_readback_ms": {
+                "min": 3.093249993980862,
+                "p50": 6.087332993047312,
+                "p95": 14.996660604083445,
+                "max": 15.127125006983988
+              },
+              "total_to_rgba_image_ms": {
+                "min": 3.9794579934095964,
+                "p50": 6.957999990845565,
+                "p95": 15.746008148562396,
+                "max": 15.808249998372048
+              }
+            },
+            "completion_distribution": {
+              "samples": 12,
+              "min_ms": 3.093249993980862,
+              "fraction_under_3_ms": 0.0,
+              "fraction_over_10_ms": 0.25
+            }
+          }
+        },
+        "appearance": {
+          "triangles": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 3.685178112139918,
+              "fraction_pixels_rgb_over24": 0.07684027777777777,
+              "max_rgba": 199.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 23.032363200874485,
+              "fraction_pixels_rgb_over24": 0.4802517361111111,
+              "max_rgba": 199.0,
+              "mean_alpha": 0.0
+            },
+            "image": "affine_triangles.png",
+            "crop": "affine_triangles_crop.png"
+          },
+          "winding": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 0.02262088477366255,
+              "fraction_pixels_rgb_over24": 0.0006076388888888889,
+              "max_rgba": 105.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 0.14138052983539096,
+              "fraction_pixels_rgb_over24": 0.0037977430555555555,
+              "max_rgba": 105.0,
+              "mean_alpha": 0.0
+            },
+            "image": "affine_winding.png",
+            "crop": "affine_winding_crop.png"
+          },
+          "native_gl": {
+            "full_frame_vs_native_gl": {
+              "mean_rgb": 0.0,
+              "fraction_pixels_rgb_over24": 0.0,
+              "max_rgba": 0.0,
+              "mean_alpha": 0.0
+            },
+            "crop_vs_native_gl": {
+              "mean_rgb": 0.0,
+              "fraction_pixels_rgb_over24": 0.0,
+              "max_rgba": 0.0,
+              "mean_alpha": 0.0
+            },
+            "image": "affine_native_gl.png",
+            "crop": "affine_native_gl_crop.png"
+          }
+        }
+      }
+    }
+  },
+  "source_files_unchanged_during_run": true
+}

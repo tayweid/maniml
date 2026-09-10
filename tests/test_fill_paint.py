@@ -77,6 +77,10 @@ class FillPaint(unittest.TestCase):
         field = build_paint(points, colors)
         with self.assertRaises(ValueError):
             field.data.setflags(write=True)
+        self.assertIs(field.wire(), field.wire())
+        self.assertTrue(np.shares_memory(field.data, field.wire()))
+        with self.assertRaises(ValueError):
+            field.wire().setflags(write=True)
         np.testing.assert_array_equal(points, self.points)
         np.testing.assert_array_equal(colors, self.colors)
         for p, c in ((points, colors[:1]), (points * np.nan, colors), (points, np.full_like(colors, np.inf))):
@@ -106,7 +110,7 @@ class FillPaintScene(unittest.TestCase):
         with patch("maniml.web.triangle_scene._generate_mesh", side_effect=AssertionError("paint rebuilt mesh")):
             after = frame().draws[0]
         self.assertIs(before.indices, after.indices)
-        self.assertNotEqual(before.paint, after.paint)
+        self.assertFalse(np.array_equal(before.paint, after.paint))
         self.assertEqual(cache.stats["paint_updates"], 1)
         scene.camera.frame.scale(.1)
         refined = frame().draws[0]
@@ -128,3 +132,65 @@ class FillPaintScene(unittest.TestCase):
         self.assertEqual(second.uniforms["shading"], [.2, .3, .4])
         self.assertIs(first.indices, second.indices)
         self.assertEqual(len(second.paint), 24)
+
+    def test_large_nonaffine_paint_reuses_coefficients_and_small_binary_references(self):
+        from maniml.constants import RED, GREEN, BLUE
+        from maniml.mobject.geometry import RegularPolygon
+        from maniml.web.fill_paint import MAX_PAINT_SAMPLES
+        from maniml.web.generated_geometry import serialize_generated_frame
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
+        from tests.renderer_fixtures import build_scene
+
+        shape = RegularPolygon(n=400, radius=2, stroke_width=0, fill_border_width=0)
+        shape.set_fill([RED, GREEN, BLUE], opacity=1)
+        source = {name: shape.data[name].copy() for name in ("point", "fill_rgba")}
+        scene, meshes, sender = build_scene(shape), TriangleMeshCache(), GeometryCache()
+        tessellator = LyonFillTessellator()
+
+        def frame():
+            return prepare_triangle_frame(scene, tessellator, mesh_cache=meshes)
+
+        with patch("maniml.web.triangle_scene.build_paint", wraps=build_paint) as builder:
+            first = frame()
+            header, raw = parse_geometry_message(serialize_generated_frame(first, scene.camera.uniforms, sender))
+            paint = first.draws[0].paint
+            self.assertEqual((paint[7], paint[11]), (800, 1))
+            self.assertEqual(next(iter(header["paint_data"].values()))["nbytes"], paint.nbytes)
+            second = frame()
+            message = serialize_generated_frame(second, scene.camera.uniforms, sender)
+            unchanged, raw = parse_geometry_message(message)
+            self.assertIs(paint, second.draws[0].paint)
+            self.assertEqual(builder.call_count, 1)
+            self.assertLess(len(message), 2048)
+            self.assertEqual(raw, b"")
+            self.assertEqual(unchanged["paint_data"], {})
+            self.assertEqual(unchanged["unsupported"], [])
+            self.assertTrue(any("mode=1, node_count=800" in note and f"maximum_nodes={MAX_PAINT_SAMPLES}" in note
+                                for note in second.limitations))
+            for name, values in source.items():
+                np.testing.assert_array_equal(shape.data[name], values)
+            # A non-first color changes the field while retaining the existing
+            # vertex/index records, proving paint and geometry wire independence.
+            shape.data["fill_rgba"][1, 0] *= .5
+            changed = frame()
+            header, raw = parse_geometry_message(serialize_generated_frame(changed, scene.camera.uniforms, sender))
+            self.assertEqual(builder.call_count, 2)
+            self.assertTrue(header["batches"][0]["cached"])
+            self.assertNotEqual(header["batches"][0]["paint_hash"], unchanged["batches"][0]["paint_hash"])
+            self.assertEqual(len(raw), changed.draws[0].paint.nbytes)
+
+    def test_large_affine_field_stays_compact_without_idw_limitation(self):
+        from maniml.mobject.geometry import RegularPolygon
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
+        from tests.renderer_fixtures import build_scene
+        shape = RegularPolygon(n=400, radius=2, fill_opacity=1, stroke_width=0, fill_border_width=0)
+        x, y = shape.get_points()[:, :2].T
+        shape.data["fill_rgba"] = np.column_stack((.5 + .2 * x, .5 + .2 * y,
+                                                   np.full(len(x), .2), np.ones(len(x))))
+        frame = prepare_triangle_frame(build_scene(shape), LyonFillTessellator(), mesh_cache=TriangleMeshCache())
+        self.assertEqual(frame.draws[0].paint.nbytes, 96)
+        self.assertEqual(frame.draws[0].paint[7], 0)
+        self.assertEqual(frame.limitations, [])

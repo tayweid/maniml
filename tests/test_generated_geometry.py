@@ -14,6 +14,7 @@ from unittest.mock import patch
 import numpy as np
 
 from maniml.web.generated_geometry import serialize_generated_frame
+from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 from maniml.web.geometry import GeometryCache, SURFACE_DTYPE, parse_geometry_message, serialize_scene
 from maniml.web.triangle_scene import TriangleDraw, TriangleFrame
 
@@ -30,6 +31,16 @@ def quad():
 def encode(draws, cache=None):
     return serialize_generated_frame(TriangleFrame((32, 16), (0, 0, 0, 0), 4, draws),
                                      {"frame_scale": 1}, cache)
+
+
+def painted_quad(color=(1, 0, 0, .5)):
+    from maniml.web.triangle_scene import _readonly
+    draw = quad()
+    paint = np.zeros(24, dtype="<f4")
+    paint[3] = paint[4] = paint[9] = 1
+    paint[12:16] = color
+    return replace(draw, pipeline="paint", vertices=_readonly(draw.vertices),
+                   indices=_readonly(draw.indices), paint=_readonly(paint))
 
 
 class GeneratedGeometryWire(unittest.TestCase):
@@ -219,6 +230,99 @@ class GeneratedGeometryWire(unittest.TestCase):
         self.assertNotEqual(before["batches"][0]["hash"], after["batches"][0]["hash"])
         self.assertTrue(raw)
 
+    def test_paint_definitions_are_binary_independent_and_deduplicated(self):
+        first, cache = painted_quad(), GeometryCache()
+        second = replace(first, paint=painted_quad((0, 0, 1, .75)).paint)
+        header, raw = parse_geometry_message(encode([first, second, first], cache))
+        self.assertEqual(header["format_version"], 4)
+        self.assertEqual(len({batch["hash"] for batch in header["batches"]}), 1)
+        self.assertEqual(len(header["paint_data"]), 2)
+        for batch, draw in zip(header["batches"], (first, second, first)):
+            self.assertNotIn("paint", batch)
+            digest = hashlib.blake2b(PAINT_HASH_PREFIX + draw.paint.tobytes(), digest_size=16).hexdigest()
+            self.assertEqual(batch["paint_hash"], digest)
+            ref = header["paint_data"][digest]
+            self.assertEqual(ref["nbytes"], 96)
+            self.assertEqual(raw[ref["offset"]:ref["offset"] + ref["nbytes"]], draw.paint.tobytes())
+        with patch("maniml.web.generated_geometry.hashlib.blake2b",
+                   side_effect=AssertionError("rehashed immutable geometry or paint")):
+            unchanged, raw = parse_geometry_message(encode([first, second], cache))
+        self.assertEqual(raw, b"")
+        self.assertEqual(unchanged["paint_data"], {})
+        self.assertTrue(all(batch["cached"] for batch in unchanged["batches"]))
+        self.assertEqual(len(cache.generated_paints), 2)
+
+    def test_paint_absence_return_and_reset_resend_definitions(self):
+        red, cache = painted_quad(), GeometryCache()
+        blue = replace(red, paint=painted_quad((0, 0, 1, .75)).paint)
+        first, _ = parse_geometry_message(encode([red, blue], cache))
+        red_hash, blue_hash = [batch["paint_hash"] for batch in first["batches"]]
+        encode([blue], cache)
+        self.assertNotIn(f"paint:{red_hash}", cache.sent)
+        self.assertIn(f"paint:{blue_hash}", cache.sent)
+        self.assertEqual(len(cache.generated_paints), 1)
+        returned, raw = parse_geometry_message(encode([red], cache))
+        self.assertTrue(returned["batches"][0]["cached"])
+        self.assertEqual(set(returned["paint_data"]), {red_hash})
+        self.assertEqual(raw, red.paint.tobytes())
+        cache.reset()
+        reset, raw = parse_geometry_message(encode([red], cache))
+        self.assertNotIn("cached", reset["batches"][0])
+        self.assertEqual(set(reset["paint_data"]), {red_hash})
+        self.assertGreater(len(raw), red.paint.nbytes)
+        encode([], cache)
+        self.assertEqual(cache.sent, set())
+        self.assertEqual(cache.generated_paints, {})
+        returning, _ = parse_geometry_message(encode([red], cache))
+        self.assertEqual(set(returning["paint_data"]), {red_hash})
+
+    def test_mutable_paint_is_validated_and_hashed_after_every_direct_edit(self):
+        original = painted_quad()
+        for layout, coefficients in (
+            ("list", original.paint.tolist()),
+            ("float64", original.paint.astype("f8")),
+            ("big_endian", original.paint.astype(">f4")),
+            ("noncontiguous", np.repeat(original.paint, 2)[::2]),
+            ("owned_readonly", original.paint.copy()),
+        ):
+            with self.subTest(layout=layout):
+                if layout == "owned_readonly":
+                    coefficients.setflags(write=False)
+                draw, cache = replace(original, paint=coefficients), GeometryCache()
+                first, _ = parse_geometry_message(encode([draw], cache))
+                self.assertEqual(cache.generated_paints, {})
+                with patch("maniml.web.generated_geometry.hashlib.blake2b", wraps=hashlib.blake2b) as digest:
+                    same, raw = parse_geometry_message(encode([draw], cache))
+                self.assertEqual(digest.call_count, 1)
+                self.assertEqual(same["paint_data"], {})
+                self.assertEqual(raw, b"")
+                if layout == "owned_readonly":
+                    coefficients.setflags(write=True)
+                coefficients[12] = .25
+                changed, raw = parse_geometry_message(encode([draw], cache))
+                self.assertTrue(changed["batches"][0]["cached"])
+                self.assertNotEqual(changed["batches"][0]["paint_hash"], first["batches"][0]["paint_hash"])
+                self.assertEqual(len(raw), 96)
+                coefficients[12] = float("nan")
+                with self.assertRaisesRegex(ValueError, "paint coefficients"):
+                    encode([draw], cache)
+
+    def test_invalid_paint_never_advances_any_sender_state(self):
+        draw, cache = painted_quad(), GeometryCache()
+        encode([draw], cache)
+        states = cache.sent, cache.generated_payloads, cache.generated_paints
+        invalid = [draw.paint[:-1], np.zeros(24 + 8 * (MAX_PAINT_SAMPLES + 1), dtype="f4")]
+        for index, value in ((3, 0), (3, -1), (7, .5), (7, 1), (11, 2), (11, 1), (12, np.inf)):
+            coefficients = draw.paint.copy()
+            coefficients[index] = value
+            invalid.append(coefficients)
+        for coefficients in invalid:
+            with self.subTest(size=len(coefficients)), self.assertRaisesRegex(ValueError, "paint coefficients"):
+                encode([painted_quad((0, 1, 0, 1)), replace(draw, paint=coefficients)], cache)
+            self.assertIs(cache.sent, states[0])
+            self.assertIs(cache.generated_payloads, states[1])
+            self.assertIs(cache.generated_paints, states[2])
+
     def test_shared_renderer_is_default_and_switches_reset_transport_state(self):
         cache = GeometryCache()
         cache.sent.add("stale")
@@ -252,6 +356,123 @@ class RecordedGeometryReplay(unittest.TestCase):
 
     def test_corrupt_recording_reports_error_before_initializing_a_renderer(self):
         self.run_player("corrupt")
+
+    def test_player_rehydrates_paint_across_reverse_seek_and_render_failure(self):
+        self.run_player("paint")
+
+    def test_reverse_seek_rehydrates_paint_independently_of_geometry(self):
+        red, blue, cache = painted_quad(), painted_quad((0, 0, 1, .75)), GeometryCache()
+        messages = [encode([red], cache), encode([red], cache), encode([], cache),
+                    encode([blue], cache), encode([blue], cache), encode([red], cache)]
+        first, _ = parse_geometry_message(messages[0])
+        changed, _ = parse_geometry_message(messages[3])
+        self.assertEqual(first["batches"][0]["hash"], changed["batches"][0]["hash"])
+        self.assertNotEqual(first["batches"][0]["paint_hash"], changed["batches"][0]["paint_hash"])
+        for index in (1, 4):
+            header, _ = parse_geometry_message(messages[index])
+            self.assertTrue(header["batches"][0]["cached"])
+            self.assertEqual(header["paint_data"], {})
+        order = [4, 1, 3, 0, 2, 5, 4, 1]
+        for index, message in zip(order, self.run_recording(messages, order)):
+            header, raw = parse_geometry_message(message)
+            if index == 2:
+                self.assertEqual(header["batches"], [])
+                self.assertEqual(header["paint_data"], {})
+                continue
+            batch = header["batches"][0]
+            self.assertNotIn("cached", batch)
+            self.assertEqual(set(header["paint_data"]), {batch["paint_hash"]})
+            info = header["paint_data"][batch["paint_hash"]]
+            expected = blue if index in (3, 4) else red
+            self.assertEqual(raw[info["offset"]:info["offset"] + info["nbytes"]], expected.paint.tobytes())
+            self.assertEqual(raw[:batch["index_offset"]], expected.vertices.tobytes())
+
+    def test_shared_paint_is_rehydrated_once_and_unaligned_input_is_little_endian(self):
+        draw = painted_quad()
+        header, raw = parse_geometry_message(encode([draw, draw]))
+        # Force unaligned payload-relative offsets as well as whatever
+        # alignment the JSON envelope happens to give this frame.
+        for batch in header["batches"]:
+            batch["offset"] += 1
+            batch["index_offset"] += 1
+        for info in header["paint_data"].values():
+            info["offset"] += 1
+        message, = self.run_recording([self.pack_recording(header, b"x" + raw)], [0])
+        full, payload = parse_geometry_message(message)
+        self.assertEqual(len(full["paint_data"]), 1)
+        info = next(iter(full["paint_data"].values()))
+        np.testing.assert_array_equal(np.frombuffer(payload, "<f4", count=info["nbytes"] // 4,
+                                                   offset=info["offset"]), draw.paint)
+
+    def test_binary_paint_reference_takes_precedence_over_legacy_inline_field(self):
+        draw = painted_quad()
+        header, raw = parse_geometry_message(encode([draw]))
+        header["batches"][0]["paint"] = "unused legacy field"
+        message, = self.run_recording([self.pack_recording(header, raw)], [0])
+        full, payload = parse_geometry_message(message)
+        info = full["paint_data"][full["batches"][0]["paint_hash"]]
+        self.assertEqual(payload[info["offset"]:info["offset"] + info["nbytes"]], draw.paint.tobytes())
+
+    def test_format_three_inline_paint_survives_cached_geometry_and_reverse_seek(self):
+        red, blue = painted_quad(), painted_quad((0, 0, 1, .75))
+        header, raw = parse_geometry_message(encode([red]))
+        info = next(iter(header.pop("paint_data").values()))
+        header["format_version"] = 3
+        batch = header["batches"][0]
+        batch.pop("paint_hash")
+        batch["paint"] = red.paint.tolist()
+        first = self.pack_recording(header, raw[:info["offset"]])
+        batch["paint"] = blue.paint.tolist()
+        batch["cached"] = True
+        batch.pop("offset")
+        batch.pop("index_offset")
+        second = self.pack_recording(header)
+        for expected, message in zip((blue, red, blue), self.run_recording([first, second], [1, 0, 1])):
+            result, _ = parse_geometry_message(message)
+            self.assertEqual(result["format_version"], 3)
+            self.assertEqual(result["batches"][0]["paint"], expected.paint.tolist())
+            self.assertNotIn("paint_hash", result["batches"][0])
+            self.assertEqual(result["paint_data"], {})
+
+    def test_recording_rejects_missing_truncated_and_invalid_paint_definitions(self):
+        import struct
+        good = encode([painted_quad()])
+        for failure in ("missing", "truncated", "short", "fractional_offset", "scale", "count",
+                        "mode", "empty_idw", "nonfinite", "hash", "conflict"):
+            with self.subTest(failure=failure):
+                header, raw = parse_geometry_message(good)
+                raw = bytearray(raw)
+                info = next(iter(header["paint_data"].values()))
+                error = "recorded paint"
+                if failure == "missing":
+                    header["paint_data"] = {}
+                    error = "Missing recorded paint"
+                elif failure == "truncated":
+                    info["nbytes"] += 4
+                    error = "Truncated recorded geometry payload"
+                elif failure == "short":
+                    info["nbytes"] = 92
+                elif failure == "fractional_offset":
+                    info["offset"] += .5
+                    error = "Truncated recorded geometry payload"
+                elif failure == "hash":
+                    header["batches"][0]["paint_hash"] = "invalid"
+                else:
+                    index, value = {"scale": (3, 0), "count": (7, .5), "mode": (11, 2),
+                                    "empty_idw": (11, 1), "nonfinite": (12, np.inf),
+                                    "conflict": (12, .25)}[failure]
+                    struct.pack_into("<f", raw, info["offset"] + 4 * index, value)
+                messages = [self.pack_recording(header, raw)]
+                if failure == "conflict":
+                    messages.insert(0, good)
+                    error = "Conflicting recorded paint"
+                self.run_recording(messages, [0], error=error)
+
+    @staticmethod
+    def pack_recording(header, payload=b""):
+        import struct
+        encoded = json.dumps(header).encode()
+        return b"\x03" + struct.pack("<I", len(encoded)) + encoded + payload
 
     def test_reverse_seek_reconstructs_indices_after_geometry_was_retired(self):
         draw, cache = quad(), GeometryCache()
@@ -290,7 +511,7 @@ class RecordedGeometryReplay(unittest.TestCase):
         self.assertEqual(header["batches"][0]["tri"], batch["tri"])
         self.assertEqual(payload, raw)
 
-    def run_recording(self, messages, order):
+    def run_recording(self, messages, order, *, error=None):
         module = Path(__file__).parents[1] / "maniml/web/static/geometry_recording.js"
         script = """
           require(process.argv[1]);
@@ -301,7 +522,12 @@ class RecordedGeometryReplay(unittest.TestCase):
         result = subprocess.run([shutil.which("node"), "-e", script, str(module)],
                                 input=json.dumps({"messages": [base64.b64encode(m).decode() for m in messages],
                                                   "order": order}),
-                                capture_output=True, text=True, timeout=20, check=True)
+                                capture_output=True, text=True, timeout=20)
+        if error is not None:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertRegex(result.stderr, error)
+            return []
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return [base64.b64decode(value) for value in json.loads(result.stdout)]
 
 

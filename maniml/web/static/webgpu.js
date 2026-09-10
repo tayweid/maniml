@@ -109,11 +109,13 @@ const ManimlWGPU = (() => {
   const generatedGeometry = new Map();
   const generatedUniforms = new Map();
   const generatedTextures = new Map();
-  const generatedPaints = new Map();
+  const generatedPaints = new Map();  // paint identity -> immutable storage
+  const generatedPaintBindings = new Map();
   let usedGeneratedGeometry = new Set();
   let usedGeneratedUniforms = new Set();
   let usedGeneratedTextures = new Set();
   let usedGeneratedPaints = new Set();
+  let usedGeneratedPaintBindings = new Set();
   let cacheMissed = false;
   let renderQueue = Promise.resolve();
   let closing = false;
@@ -337,11 +339,101 @@ const ManimlWGPU = (() => {
     return binding;
   }
 
-  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, depthOnly = false) {
+  function validatePaint(bytes) {
+    if (bytes.byteLength < 96 || bytes.byteLength > (24 + 8 * 4096) * 4 || bytes.byteLength % 4) {
+      throw new Error("invalid paint coefficient length");
+    }
+    // Packet JSON can leave the binary payload unaligned. DataView also makes
+    // the wire's little-endian representation explicit on every platform.
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let offset = 0; offset < bytes.byteLength; offset += 4) {
+      if (!Number.isFinite(view.getFloat32(offset, true))) {
+        throw new Error("paint coefficients must be finite");
+      }
+    }
+    const count = view.getFloat32(28, true), mode = view.getFloat32(44, true);
+    if (view.getFloat32(12, true) <= 0 || !Number.isInteger(count)
+        || count < 0 || count > 4096 || bytes.byteLength !== (24 + 8 * count) * 4
+        || (mode !== 0 && mode !== 1) || (mode === 1 && count === 0)) {
+      throw new Error("invalid paint coefficient layout, scale, node count or mode");
+    }
+    return bytes;
+  }
+
+  function paintHashKey(hash) {
+    if (typeof hash !== "string" || !/^[0-9a-f]{32}$/.test(hash)) {
+      throw new Error("invalid paint hash");
+    }
+    return "hash:" + hash;
+  }
+
+  function preparePaints(header, payload) {
+    const definitions = new Map();
+    const records = "paint_data" in header ? header.paint_data : {};
+    if (records === null || typeof records !== "object" || Array.isArray(records)) {
+      throw new Error("paint definitions must be an object");
+    }
+    for (const [hash, ref] of Object.entries(records)) {
+      const key = paintHashKey(hash);
+      if (ref === null || typeof ref !== "object" || Array.isArray(ref)) {
+        throw new Error("invalid paint definition span");
+      }
+      const {offset, nbytes} = ref;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes)
+          || offset < 0 || nbytes < 0 || offset > payload.byteLength
+          || nbytes > payload.byteLength - offset) {
+        throw new Error("paint definition extends beyond payload");
+      }
+      const bytes = validatePaint(payload.slice(offset, offset + nbytes));
+      const previous = generatedPaints.get(key);
+      if (previous && (previous.bytes.length !== bytes.length
+          || previous.bytes.some((value, i) => value !== bytes[i]))) {
+        throw new Error("paint hash redefined with different coefficients");
+      }
+      definitions.set(key, bytes);
+    }
+    const keys = new Map();
+    for (const batch of header.batches) {
+      if (batch.pipeline !== "paint" && batch.pipeline !== "paint_depth") continue;
+      let key;
+      if ("paint_hash" in batch) {
+        key = paintHashKey(batch.paint_hash);
+        if (!generatedPaints.has(key) && !definitions.has(key)) {
+          cacheMissed = true;
+          keys.set(batch, null);
+          continue;
+        }
+      } else if ((header.format_version ?? 3) < 4 && "paint" in batch) {
+        if (!Array.isArray(batch.paint) || batch.paint.some(value => typeof value !== "number")) {
+          throw new Error("inline paint coefficients must be a numeric array");
+        }
+        const packed = new Float32Array(batch.paint);
+        const bytes = validatePaint(new Uint8Array(packed.buffer));
+        key = "inline:" + new Uint32Array(packed.buffer).join(",");
+        definitions.set(key, bytes);
+      } else {
+        throw new Error("paint operation requires a paint hash");
+      }
+      keys.set(batch, key);
+    }
+    for (const key of new Set(keys.values())) {
+      if (key !== null && !generatedPaints.has(key)) {
+        const bytes = definitions.get(key);
+        const buffer = makeBuffer(bytes, GPUBufferUsage.STORAGE);
+        generatedPaints.set(key, {buffer, bytes, buffers: [buffer]});
+      }
+    }
+    return keys;
+  }
+
+  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, depthOnly = false) {
     const name = "generated_" + batch.pipeline + (depthOnly ? "_depth_only" : batch.coverage ? "_coverage" : "");
     if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
       throw new Error("unsupported generated pipeline " + batch.pipeline);
     }
+    const painted = batch.pipeline === "paint" || batch.pipeline === "paint_depth";
+    const paintKey = paintKeys.get(batch);
+    if (painted && paintKey === null) return;  // Request resend; never reuse another material.
     const res = generatedResources(batch, vertexBytes);
     if (!res) return;
     const pipeline = getPipeline(name, samples);
@@ -355,21 +447,18 @@ const ManimlWGPU = (() => {
     uniforms.pixel_size = (uniforms.pixel_size ?? 1) / supersample;
     uniforms.anti_alias_width = (uniforms.anti_alias_width ?? 1.5) * supersample;
     pass.setBindGroup(0, generatedUniformBinding(name, samples, pipeline, uniforms));
-    if (batch.pipeline === "paint" || batch.pipeline === "paint_depth") {
-      const packed = new Float32Array(batch.paint);
-      const key = name + "@" + samples + ":" + new Uint32Array(packed.buffer).join(",");
-      usedGeneratedPaints.add(key);
-      let material = generatedPaints.get(key);
-      if (!material) {
-        const buffer = makeBuffer(packed.buffer, GPUBufferUsage.STORAGE);
-        const binding = device.createBindGroup({
+    if (painted) {
+      const key = name + "@" + samples + ":" + paintKey;
+      usedGeneratedPaintBindings.add(key);
+      let binding = generatedPaintBindings.get(key);
+      if (!binding) {
+        binding = device.createBindGroup({
           layout: pipeline.getBindGroupLayout(1),
-          entries: [{ binding: 0, resource: { buffer } }],
+          entries: [{ binding: 0, resource: { buffer: generatedPaints.get(paintKey).buffer } }],
         });
-        material = { binding, buffers: [buffer] };
-        generatedPaints.set(key, material);
+        generatedPaintBindings.set(key, binding);
       }
-      pass.setBindGroup(1, material.binding);
+      pass.setBindGroup(1, binding);
     }
     if (textureBinding) pass.setBindGroup(1, textureBinding);
     pass.setVertexBuffer(0, res.vertex);
@@ -393,6 +482,9 @@ const ManimlWGPU = (() => {
           cache.delete(key);
         }
       }
+    }
+    for (const key of generatedPaintBindings.keys()) {
+      if (!usedGeneratedPaintBindings.has(key)) generatedPaintBindings.delete(key);
     }
     for (const key of generatedTextures.keys()) {
       if (!usedGeneratedTextures.has(key)) generatedTextures.delete(key);
@@ -434,64 +526,84 @@ const ManimlWGPU = (() => {
     ensureTargets(width * supersample, height * supersample, samples, width, height);
     cacheMissed = false;
 
-    for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
-      if (textureCache.has(texHash)) continue;
-      const blob = new Blob([vertexBytes.subarray(
-        ref.offset, ref.offset + ref.nbytes)]);
-      const bitmap = await createImageBitmap(blob);
-      const texture = device.createTexture({
-        size: [bitmap.width, bitmap.height], format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-          | GPUTextureUsage.RENDER_ATTACHMENT });
-      device.queue.copyExternalImageToTexture(
-        { source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
-      bitmap.close();
-      textureCache.set(texHash, texture);
-    }
+    const previousPaints = new Set(generatedPaints.keys());
+    const previousPaintBindings = new Set(generatedPaintBindings.keys());
+    let submitted = false;
+    try {
+      const paintKeys = preparePaints(header, vertexBytes);
+      for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
+        if (textureCache.has(texHash)) continue;
+        const blob = new Blob([vertexBytes.subarray(
+          ref.offset, ref.offset + ref.nbytes)]);
+        const bitmap = await createImageBitmap(blob);
+        const texture = device.createTexture({
+          size: [bitmap.width, bitmap.height], format: "rgba8unorm",
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+            | GPUTextureUsage.RENDER_ATTACHMENT });
+        device.queue.copyExternalImageToTexture(
+          { source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
+        bitmap.close();
+        textureCache.set(texHash, texture);
+      }
 
-    usedGeneratedGeometry = new Set();
-    usedGeneratedUniforms = new Set();
-    usedGeneratedTextures = new Set();
-    usedGeneratedPaints = new Set();
-    const encoder = device.createCommandEncoder();
-    const [r, g, b, a] = header.background;
-    let pass = outPass(encoder, [r * a, g * a, b * a, a]);
-    let coverageRef = 0;
-    for (const batch of header.batches) {
-      if (batch.coverage) {
-        if (coverageRef === 255) {
-          pass.end();
-          pass = outPass(encoder, null, true);
-          coverageRef = 0;
+      usedGeneratedGeometry = new Set();
+      usedGeneratedUniforms = new Set();
+      usedGeneratedTextures = new Set();
+      usedGeneratedPaints = new Set(paintKeys.values());
+      usedGeneratedPaintBindings = new Set();
+      const encoder = device.createCommandEncoder();
+      const [r, g, b, a] = header.background;
+      let pass = outPass(encoder, [r * a, g * a, b * a, a]);
+      let coverageRef = 0;
+      for (const batch of header.batches) {
+        if (batch.coverage) {
+          if (coverageRef === 255) {
+            pass.end();
+            pass = outPass(encoder, null, true);
+            coverageRef = 0;
+          }
+          pass.setStencilReference(++coverageRef);
         }
-        pass.setStencilReference(++coverageRef);
+        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys);
+        if (batch.coverage && batch.pipeline.endsWith("_depth")) {
+          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, true);
+        }
       }
-      encodeGenerated(pass, header, batch, vertexBytes, samples, supersample);
-      if (batch.coverage && batch.pipeline.endsWith("_depth")) {
-        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, true);
+      pass.end();
+
+      // Present: blit the (resolved) scene target onto the canvas
+      const blitPass = encoder.beginRenderPass({ colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        loadOp: "clear", storeOp: "store",
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }] });
+      // The exact box resolve is also the presentation pass. Native rendering
+      // uses this same shader with an rgba8 output texture for file readback.
+      const presentPipeline = supersample === 2 ? resolve2Pipeline : blitPipeline;
+      blitPass.setPipeline(presentPipeline);
+      const entries = [{ binding: 0, resource: (resolveView || outView) }];
+      if (supersample === 1) entries.push({ binding: 1, resource: sampler });
+      blitPass.setBindGroup(0, device.createBindGroup({
+        layout: presentPipeline.getBindGroupLayout(0), entries,
+      }));
+      blitPass.draw(3);
+      blitPass.end();
+
+      device.queue.submit([encoder.finish()]);
+      submitted = true;
+    } finally {
+      if (!submitted) {
+        for (const key of generatedPaintBindings.keys()) {
+          if (!previousPaintBindings.has(key)) generatedPaintBindings.delete(key);
+        }
+        for (const [key, material] of generatedPaints) {
+          if (!previousPaints.has(key)) {
+            material.buffer.destroy();
+            generatedPaints.delete(key);
+          }
+        }
       }
     }
-    pass.end();
-
-    // Present: blit the (resolved) scene target onto the canvas
-    const blitPass = encoder.beginRenderPass({ colorAttachments: [{
-      view: context.getCurrentTexture().createView(),
-      loadOp: "clear", storeOp: "store",
-      clearValue: { r: 0, g: 0, b: 0, a: 1 },
-    }] });
-    // The exact box resolve is also the presentation pass. Native rendering
-    // uses this same shader with an rgba8 output texture for file readback.
-    const presentPipeline = supersample === 2 ? resolve2Pipeline : blitPipeline;
-    blitPass.setPipeline(presentPipeline);
-    const entries = [{ binding: 0, resource: (resolveView || outView) }];
-    if (supersample === 1) entries.push({ binding: 1, resource: sampler });
-    blitPass.setBindGroup(0, device.createBindGroup({
-      layout: presentPipeline.getBindGroupLayout(0), entries,
-    }));
-    blitPass.draw(3);
-    blitPass.end();
-
-    device.queue.submit([encoder.finish()]);
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
     retireGeneratedResources(new Set(header.batches.flatMap(
@@ -513,6 +625,7 @@ const ManimlWGPU = (() => {
           cache.clear();
         }
         generatedTextures.clear();
+        generatedPaintBindings.clear();
         for (const texture of textureCache.values()) texture.destroy();
         textureCache.clear();
         for (const texture of [outTexture, resolveTexture, depthTexture]) {

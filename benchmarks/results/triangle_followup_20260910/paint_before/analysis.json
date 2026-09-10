@@ -1,0 +1,23 @@
+{
+  "scope": "Pixel-center analytic affine RGB over radius1.7 interior of radius2 polygon; excludes boundary/AA. Colors are unorm attachment values, range0\u2013255. This tests documented spatial affine field, not equivalence to winding-fan gradient.",
+  "pixels": 41404,
+  "variants": {
+    "triangles": {
+      "mean_rgb_error": 0.27404769994690936,
+      "max_rgb_error": 0.677778337895873,
+      "image_sha256": "779e2ef7603aa6c80f3222872ca75ac22f2d61f86daaedef7ffb25fc9897e29a"
+    },
+    "winding": {
+      "mean_rgb_error": 41.13860460741732,
+      "max_rgb_error": 188.0111117556691,
+      "image_sha256": "53401cb2fd96d89fca083a911f66b88c8d5799beaebce90c3da12e34d719c97b"
+    },
+    "native_gl": {
+      "mean_rgb_error": 41.13709802549179,
+      "max_rgb_error": 188.0111117556691,
+      "image_sha256": "adebaa871275a23c30a496ab679c76ee1452155379c3dfc9b645e76b20767560"
+    }
+  },
+  "qualitative_nonaffine": "Original winding and native GL crops appear close. Phase A IDW has a visibly flatter/desaturated center and different transition near the right-hand start/end source point; this control does not show random speckling.",
+  "qualitative_affine": "Phase A shows smooth spatial XY gradient consistent with the authored linear RGB functions. Original winding and native GL show fan-based interpolation converging at the right-hand source point; the image difference is a semantic change, not an AA comparison."
+}

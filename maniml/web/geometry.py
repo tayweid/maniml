@@ -24,7 +24,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 3
+GEOMETRY_FORMAT_VERSION = 4
 
 
 class GeometryCache:
@@ -39,6 +39,7 @@ class GeometryCache:
         self.triangle_tessellator = None
         self.triangle_meshes = None
         self.generated_payloads = {}
+        self.generated_paints = {}
 
     def reset(self):
         self.sent.clear()

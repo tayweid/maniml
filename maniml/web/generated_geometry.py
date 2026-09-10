@@ -15,6 +15,7 @@ import numpy as np
 from maniml.web.geometry import (
     GEOMETRY_FORMAT_VERSION, GEOMETRY_MESSAGE_TYPE, _jsonable, _TEXTURE_BY_HASH,
 )
+from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 
 
 PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
@@ -32,6 +33,33 @@ def _immutable(array):
     return isinstance(array, bytes)
 
 
+def _paint_payload(value, previous, retained):
+    """Validate actual float32 paint; memoize only immutable coefficient bytes."""
+    paint = np.asarray(value)
+    if (paint.ndim != 1 or len(paint) < 24 or (len(paint) - 24) % 8
+            or len(paint) > 24 + 8 * MAX_PAINT_SAMPLES):
+        raise ValueError("invalid generated paint coefficients")
+    if paint.dtype != np.dtype("<f4") or not paint.flags.c_contiguous:
+        paint = np.ascontiguousarray(paint, dtype="<f4")
+    payload = retained.get(id(paint))
+    if payload is None:
+        payload = previous.get(id(paint))
+    if payload is not None and payload[0] is paint:
+        content_hash = payload[1]
+    else:
+        nodes = (len(paint) - 24) // 8
+        if (not np.isfinite(paint).all() or paint[3] <= 0 or paint[7] != nodes
+                or paint[11] not in (0, 1) or (paint[11] == 1 and nodes == 0)):
+            raise ValueError("invalid generated paint coefficients")
+        digest = hashlib.blake2b(digest_size=16)
+        digest.update(PAINT_HASH_PREFIX)
+        digest.update(memoryview(paint).cast("B"))
+        content_hash = digest.hexdigest()
+    if _immutable(paint):
+        retained[id(paint)] = (paint, content_hash)
+    return content_hash, paint
+
+
 def serialize_generated_frame(frame, camera_uniforms, cache=None):
     """Pack a prepared frame; both drivers consume exactly these operations."""
     supersample = getattr(frame, "supersample", 1)
@@ -41,6 +69,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     batches, blobs, offset, current_hashes, texture_hashes = [], [], 0, set(), set()
     previous_payloads = getattr(cache, "generated_payloads", {})
     retained_payloads = {}
+    previous_paints = getattr(cache, "generated_paints", {})
+    retained_paints, paints = {}, {}
     for draw in frame.draws:
         base = draw.pipeline.removesuffix("_depth")
         if base not in PIPELINE_STRIDES:
@@ -120,12 +150,10 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 raise ValueError("coverage ownership requires triangle surface geometry")
             batch["coverage"] = True
         if base == "paint":
-            paint = np.asarray(getattr(draw, "paint", None), dtype="f4")
-            if (paint.ndim != 1 or len(paint) < 24 or (len(paint) - 24) % 8
-                    or not np.isfinite(paint).all() or paint[3] <= 0
-                    or paint[7] != (len(paint) - 24) // 8 or paint[11] not in (0, 1)):
-                raise ValueError("invalid generated paint coefficients")
-            batch["paint"] = paint.tolist()
+            paint_hash, paint = _paint_payload(getattr(draw, "paint", None),
+                                               previous_paints, retained_paints)
+            batch["paint_hash"] = paint_hash
+            paints[paint_hash] = paint
         textures = getattr(draw, "textures", None)
         if textures:
             batch["textures"] = textures
@@ -144,6 +172,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 offset += len(index_raw)
         current_hashes.add(content_hash)
         batches.append(batch)
+    paint_data = {}
+    for key, paint in paints.items():
+        if cache is None or f"paint:{key}" not in cache.sent:
+            raw = paint.tobytes()
+            paint_data[key] = {"offset": offset, "nbytes": len(raw)}
+            blobs.append(raw)
+            offset += len(raw)
     texture_data = {}
     for key in sorted(texture_hashes):
         if cache is None or f"tex:{key}" not in cache.sent:
@@ -157,12 +192,14 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
               "camera": camera, "background": list(frame.background),
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,
-              "batches": batches, "texture_data": texture_data,
+              "batches": batches, "paint_data": paint_data, "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
     encoded = json.dumps(header).encode()
     message = b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
                         encoded, *blobs))
     if cache is not None:
-        cache.sent = current_hashes | {f"tex:{key}" for key in texture_hashes}
+        cache.sent = (current_hashes | {f"tex:{key}" for key in texture_hashes}
+                      | {f"paint:{key}" for key in paints})
         cache.generated_payloads = retained_payloads
+        cache.generated_paints = retained_paints
     return message
