@@ -24,9 +24,9 @@ from benchmarks.renderer_timing import COMPLETION_SCOPE, completion_distribution
 from benchmarks.triangle_renderer import TrianglePrototype, baseline_frame, environment_metadata
 from benchmarks.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 from benchmarks.vector_fill import payload
-from maniml.web.geometry import parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import LyonFillTessellator
-from maniml.web.wgpu_renderer import WgpuRenderer
+from tests.winding_reference_renderer import WgpuRenderer
 from tests.renderer_quality_fixtures import _source_digest
 from tests.test_fill_bounds import _wordmark
 

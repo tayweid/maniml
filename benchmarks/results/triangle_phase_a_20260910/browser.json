@@ -1,0 +1,57 @@
+{
+  "status": "PASS",
+  "environment": "Codex in-app browser, WebGPU, macOS; real browser shader execution",
+  "generated_stream": {
+    "frames": 10,
+    "gpu_errors": [],
+    "cache_misses": 0,
+    "cases": [
+      "211-square wordmark",
+      "delta reuse",
+      "absent/returning meshes",
+      "reverse materialization",
+      "default TeX borders",
+      "resize"
+    ]
+  },
+  "live_viewer": {
+    "sequence": [
+      "Phase A",
+      "Original 2D",
+      "Phase A"
+    ],
+    "checkpoint_before": 1,
+    "checkpoint_after": 1,
+    "frames": 7,
+    "gpu_errors": [],
+    "final_selection": "Phase A",
+    "content": "Tex formula with overlapping translucent Circle/Square and variable fill borders"
+  },
+  "recorded_player": {
+    "frames": 10,
+    "gpu_errors": [],
+    "cache_misses": 0,
+    "components": [
+      "production player",
+      "production recording index",
+      "production WebGPU driver"
+    ],
+    "cases": [
+      "single-frame segments",
+      "forward playback",
+      "reverse playback",
+      "random seek",
+      "empty/returning geometry",
+      "resize",
+      "default text"
+    ]
+  },
+  "method": "Locally served production assets with a test observer for uncaptured GPU errors/render completion. Live test changes the actual Scene renderer DOM control and checks incoming checkpoint state. Player test clicks actual segment chips and dispatches documented navigation keys. Browser accessibility snapshots report completion.",
+  "executed_player_sha256": {
+    "geometry_recording.js": "7456d2bb00e7ca713ac2be74217d314445e27abbb8cc21710a743e60eba31a02",
+    "webgpu.js": "90ef78890566a2b004af9c0738faeaea8555ba2ac3c7d64d5a3bca0fabcdb84b",
+    "winding_webgpu.js": "7991921f28ea71bb715aff71e8013c2d3d58215f6f13826cbafb240902e3e67e",
+    "player.js": "f3d49225e296f70b7f1d2ae84f0c6f5f128f3c8b0c2e78ca12216f7bb30aa22a"
+  },
+  "limitations": "Functional browser acceptance, not GPU timing, pixel parity, or a substitute for preserved-golden and geometric tests."
+}

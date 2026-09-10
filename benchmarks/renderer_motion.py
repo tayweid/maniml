@@ -158,7 +158,7 @@ class UploadObserver:
             return self.resources(batch, observed_build)
 
         def uniform(*args, **kwargs):
-            from maniml.web.wgpu_renderer import UNIFORM_BYTES
+            from tests.winding_reference_renderer import UNIFORM_BYTES
             result = self.uniform(*args, **kwargs)
             self.uniform_bytes += UNIFORM_BYTES
             return result

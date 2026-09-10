@@ -5,6 +5,40 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase A is shared; Original 2D remains a viewer comparison (2026-09-10)
+
+Taylor requested the shared triangle renderer as the default on main and
+explicitly allowed native GL retirement provided the original 2D renderer
+remains selectable in the viewer. The September 4 removal hold is therefore
+superseded with that condition. Keep the original browser winding renderer
+and serializer packaged; switching resends complete geometry at the current
+checkpoint. Native movies, images and new recordings use Phase A. Historical
+native GL and winding implementations remain test references, outside wheels.
+
+Use a shared 2× spatial resolve with 4× MSAA for predictable default fill AA.
+Border triangles share per-sample stencil ownership with fills, avoiding both
+repeated translucent paint and the discarded CPU polygon union. Opaque,
+constant, unshaded painter fills can omit redundant ownership and batch when
+their actual generated colors prove that overlapping fragments are identical.
+Paint fields are independent of mesh diagonals. Original source arrays remain
+CPU-owned; Phase B is a separate source-update/geometry-generation project.
+
+The Lyon helper is a required build artifact now that the default needs it.
+An optional extension would permit a successful install that cannot render.
+Source/editable installs need Cargo and a linker; compatible wheels need
+neither. Custom native GLSL wrappers are retired with GL. Ordinary nonplanar
+filled outlines still need an explicitly defined surface rather than an
+arbitrary fan. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
+contains the measured performance, quality exceptions and validation scope.
+
+The default cutover accepts one measured performance regression for this
+dogfood rollout: moving-camera TeX is 15.91 ms versus 6.87 ms, while the
+original ordered-square control improves from 80.57 to 25.31 ms. This is an
+explicit revision of the proposed universal no-regression gate, justified by
+the measured ordered-output win and current shared-renderer behavior. It is
+not a universal speed claim or credit for unfinished Phase B work. Camera
+border preparation and its resubmitted geometry are the remaining text cost.
+
 ## The browser is the viewer (decided 2026-08-12)
 
 The pyglet window is the most alien inherited layer and the part of the

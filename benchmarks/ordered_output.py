@@ -10,7 +10,7 @@ from time import perf_counter
 from PIL import Image
 import wgpu
 
-from maniml.web.wgpu_renderer import WgpuRenderer
+from tests.winding_reference_renderer import WgpuRenderer
 
 
 class _RecordedPass:

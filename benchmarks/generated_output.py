@@ -1,11 +1,12 @@
-"""Small production A1 comparison with full RGBA readback on both paths.
+"""Production Phase A comparison with full RGBA readback on both paths.
 
     python -m benchmarks.generated_output --samples 12 \
         --output /private/tmp/maniml-a1-performance
 
 Requires the packaged Lyon helper (or MANIML_LYON_LIBRARY), wgpu and real TeX
 fixture tools. Sources/devices/caches are fresh for each case and renderer.
-This is an integration measurement, not final performance or AA acceptance.
+This measures integration performance. Independent AA evidence lives in
+renderer_aa.py; timing does not substitute for visual acceptance.
 """
 
 import argparse
@@ -28,6 +29,9 @@ from benchmarks.triangle_wordmark import build_wordmark_scene
 from maniml.web import geometry
 from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
 from maniml.web.wgpu_renderer import WgpuRenderer
+from tests import winding_reference_geometry
+from tests.winding_reference_geometry import serialize_scene as serialize_winding
+from tests.winding_reference_renderer import WgpuRenderer as WindingRenderer
 from tests.renderer_quality_fixtures import _configure_camera, _source_digest, build_quality_frame
 
 
@@ -127,9 +131,9 @@ def build_case(name, variant):
         quality = build_quality_frame("tex", border_policy="production_default")
         scene = quality.scene
         metadata = dict(quality.metadata, motion="camera-only 1→2→1 zoom with fractional-pixel pan")
-    # The selected production triangle candidate uses 4x MSAA. Winding retains
-    # its original one-sample scene output and internal winding/stroke AA.
-    scene.camera.samples = 4 if variant == "triangles" else 0
+    # Both fixtures keep the ordinary camera default. Phase A selects its
+    # own AA inside the public serializer; do not improve it only here.
+    scene.camera.samples = 0
     return scene, metadata
 
 
@@ -146,7 +150,7 @@ def camera_state(scene):
 
 
 def resources(renderer, cache, header):
-    stores = (renderer.batch_cache, renderer._generated_geometry)
+    stores = (getattr(renderer, "batch_cache", {}), renderer._generated_geometry)
     buffers = {id(value): value.size for store in stores for item in store.values()
                for value in item.values() if hasattr(value, "size") and hasattr(value, "destroy")}
     meshes = cache.triangle_meshes.stats if cache.triangle_meshes is not None else None
@@ -161,7 +165,7 @@ def resources(renderer, cache, header):
         "retained_gpu_geometry_entries": sum(len(store) for store in stores),
         "retained_generated_uniform_bytes": sum(value[0].size for value in renderer._generated_uniforms.values()),
         "retained_winding_target_bytes": sum(8 * target["size"][0] * target["size"][1]
-            for target in renderer._fill_targets.values()),
+            for target in getattr(renderer, "_fill_targets", {}).values()),
         "sender_hashes": len(cache.sent),
         "mesh_cache_totals": meshes,
     }
@@ -171,7 +175,8 @@ def sample(scene, variant, renderer, cache, stages, queue):
     stages.reset()
     queue.reset()
     started = perf_counter()
-    message = serialize_scene(scene, cache, renderer=variant)
+    message = (serialize_scene(scene, cache) if variant == "triangles" else
+               serialize_winding(scene, cache, renderer="winding"))
     serialized = perf_counter()
     header, payload = parse_geometry_message(message)
     parsed = perf_counter()
@@ -209,7 +214,7 @@ def run_case(name, count, stages):
     scenes, metadata, renderers, caches, queues, contracts = {}, {}, {}, {}, {}, {}
     for variant in VARIANTS:
         scenes[variant], metadata[variant] = build_case(name, variant)
-        renderers[variant] = WgpuRenderer()
+        renderers[variant] = (WgpuRenderer if variant == "triangles" else WindingRenderer)()
         caches[variant] = GeometryCache()
         queues[variant] = QueueObserver(renderers[variant])
         contracts[variant] = source_contract(scenes[variant])
@@ -269,16 +274,19 @@ def main():
     observer = StageObserver()
     previous = geometry.performance
     geometry.performance = observer
+    winding_reference_geometry.performance = observer
     root = Path(__file__).resolve().parents[1]
     sources = [Path(__file__), root / "maniml/web/geometry.py", root / "maniml/web/generated_geometry.py",
                root / "maniml/web/triangle_scene.py", root / "maniml/web/triangle_geometry.py",
-               root / "maniml/web/wgpu_renderer.py", root / "tools/lyon_fill/src/lib.rs"]
+               root / "maniml/web/wgpu_renderer.py", root / "maniml/web/border_geometry.py",
+               root / "maniml/web/fill_paint.py", root / "tests/winding_reference_geometry.py",
+               root / "tests/winding_reference_renderer.py", root / "tools/lyon_fill/src/lib.rs"]
     report = {
-        "purpose": "Bounded production A1 integration measurement; not final speed or appearance acceptance",
+        "purpose": "Phase A default versus preserved original winding renderer; full serialization-to-image comparison",
         "samples_per_variant": args.samples, "excluded_warmups_per_variant": WARMUPS,
         "order": "Variant order alternates each frame. Fresh equal-content sources, devices and caches per case/variant.",
         "timing_scope": "Public serialize_scene plus parse_geometry_message then unmodified WgpuRenderer.render. Prepare/wire stages are existing production scopes; their sum may exclude small serializer overhead. Render CPU encoding ends at queue.submit. Submission through full RGBA readback includes GPU work, host waits, mapping/polling and generated-resource retirement; it is not GPU timestamp time. Total ends after PIL image construction. Construction/TeX compilation, camera updates, source checks and resource summaries are outside timing. No transport, browser/UI presentation or PNG writes are measured.",
-        "aa": "Winding uses original camera.samples=0 plus production internal winding/stroke AA. Triangles uses 4x MSAA and actual uniform fill-border unions. Same output dimensions/full RGBA readback bytes, but AA algorithms differ; border/auto-join limitations remain explicit.",
+        "aa": "Winding uses original camera.samples=0 plus its internal winding/stroke AA. Phase A uses the public default: 4x MSAA, 2x spatial resolve and stencil fill-border ownership. Equal final output dimensions and full RGBA readback bytes; different AA sample patterns.",
         "memory_scope": "Post-render retained array/buffer counts, not peak process/GPU memory. Winding targets reported separately; output/depth/resolve, readback staging, driver/bind-group storage and native tessellator scratch excluded. Existing winding history retention behavior is retained rather than normalized away.",
         "source_files_sha256": {str(path.relative_to(root)): sha256(path.read_bytes()).hexdigest() for path in sources},
         "cases": {},
@@ -292,6 +300,7 @@ def main():
                 for variant, data in report["cases"][case]["variants"].items()}), flush=True)
     finally:
         geometry.performance = previous
+        winding_reference_geometry.performance = previous
     print("Report:", args.output / "report.json", flush=True)
 
 

@@ -25,11 +25,11 @@ from benchmarks.ordered_output import OrderedOutputControl
 from benchmarks.renderer_timing import COMPLETION_SCOPE, completion_distribution
 from benchmarks.triangle_renderer import TrianglePrototype, baseline_frame, environment_metadata
 from benchmarks.triangle_scene import TriangleMeshCache, UnsupportedPrototype, prepare_triangle_frame
-from maniml.camera.camera import Camera
+from tests.gl_reference_camera import Camera
 from maniml.mobject.types.vectorized_mobject import VMobject
-from maniml.web.geometry import _jsonable, parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import _jsonable, parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import LyonFillTessellator
-from maniml.web.wgpu_renderer import WgpuRenderer
+from tests.winding_reference_renderer import WgpuRenderer
 from tests.renderer_quality_fixtures import quality_cases
 
 

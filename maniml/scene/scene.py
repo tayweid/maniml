@@ -57,8 +57,7 @@ class _RenderBatch:
     A normal Group registers itself in every member's semantic ``parents``
     list.  Render batching is ephemeral, so those links must not enter
     checkpoints or mutation traversal.  This wrapper keeps the batching
-    behavior while polling the semantic family for dirty data at render
-    time, without becoming part of that family.
+    behavior without becoming part of the semantic family.
     """
 
     def __init__(self, mobjects: Iterable[Mobject]):
@@ -72,7 +71,6 @@ class _RenderBatch:
             if self._group in mobject.parents:
                 mobject.parents.remove(self._group)
         self._group.family = None
-        self._family_ids: tuple[int, ...] = ()
 
     def is_fixed_in_frame(self) -> bool:
         return self.mobjects[0].is_fixed_in_frame()
@@ -82,22 +80,6 @@ class _RenderBatch:
         self._group.family = None
         return self._group.family_members_with_points()
 
-    def render(self, ctx, camera_uniforms: dict) -> None:
-        # Semantic family structure can change during an animation.  Re-read
-        # it cheaply and rebuild the merged wrapper only when membership or
-        # member data changed.
-        self._group.family = None
-        family = self._group.get_family()
-        family_ids = tuple(id(mob) for mob in family[1:])
-        if family_ids != self._family_ids or any(
-                mob._data_has_changed for mob in family[1:]):
-            self._group._data_has_changed = True
-            self._family_ids = family_ids
-        self._group.render(ctx, camera_uniforms)
-        # These semantic mobjects were consumed by this batch.  A later
-        # mutation marks them dirty again through their real parent chain.
-        for mob in family[1:]:
-            mob._data_has_changed = False
 
 
 class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
@@ -107,6 +89,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     drag_to_pan: bool = True
     max_num_saved_states: int = 50
     default_camera_config: dict = dict()
+    camera_class = Camera
     default_file_writer_config: dict = dict()
     samples = 0
     # Euler angles, in degrees
@@ -152,8 +135,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # for export, its recorder. The pyglet window is retired; the
         # name stays because the viewer implements the window interface
         # the scene loop was built around. The camera is always
-        # windowless — a standalone GL context, the same path --render
-        # uses — and the viewer draws from the geometry stream.
+        # windowless; native WebGPU capture initializes only when offline
+        # pixels are needed, and the viewer draws from the geometry stream.
         self.window = window
         self._web_viewer = window if getattr(window, 'is_web_viewer', False) else None
         if self.window:
@@ -161,7 +144,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.camera_config["fps"] = 30
 
         # Core state of the scene
-        self.camera: Camera = Camera(
+        self.camera: Camera = self.camera_class(
             samples=self.samples,
             **self.camera_config
         )
@@ -313,6 +296,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         else:
             attempt("finishing file output", self.file_writer.finish)
 
+        # Final-image/movie output consumes the last capture before release.
+        # Native GPU resources are derived state and must not outlive a scene.
+        camera = getattr(self, "camera", None)
+        if camera is not None:
+            attempt("releasing native capture", camera.release)
+
         watcher = self._file_watcher
         self._file_watcher = None
         if watcher is not None:
@@ -450,6 +439,11 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     def show(self) -> None:
         self.update_frame(force_draw=True)
+        if (self._web_viewer is not None
+                and self._web_viewer.can_skip_native_capture()):
+            # show() explicitly requests pixels, even when ordinary live
+            # updates only send geometry to the browser.
+            self.camera.capture(*self.render_groups)
         self.get_image().show()
 
     def update_frame(self, dt: float = 0, force_draw: bool = False) -> None:
@@ -554,14 +548,17 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         same type are grouped together, so this function creates
         Groups of all clusters of adjacent Mobjects in the scene
         """
-        # CE-compatible z_index: a stable sort on draw order, so equal
-        # z_index preserves add order and higher z_index draws on top.
+        # Fixed-frame overlays render last on every surface. Within each
+        # partition a stable z_index sort preserves authored order on ties.
         # In 3D the depth buffer still decides true occlusion; z_index
         # only orders the draw calls.
         with performance.stage("renderer.assemble_batches"):
             batches = batch_by_property(
-                sorted(self.mobjects, key=lambda m: m.z_index),
-                lambda m: str(type(m)) + str(m.get_shader_wrapper(self.camera.ctx).get_id()) + str(m.z_index)
+                sorted(self.mobjects, key=lambda m: (m.is_fixed_in_frame(), m.z_index)),
+                lambda m: (type(m), m.shader_folder, str(m.uniforms),
+                           m.depth_test, m.render_primitive, str(m.texture_paths),
+                           str(m.shader_code_replacements),
+                           getattr(m, "stroke_behind", False), m.z_index)
             )
 
             self.render_groups = [

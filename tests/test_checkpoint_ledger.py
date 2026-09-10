@@ -271,7 +271,7 @@ class LedgerSceneTest(unittest.TestCase):
         self.scene._create_checkpoint_zero()
 
     def tearDown(self):
-        self.scene.camera.ctx.release()
+        self.scene.camera.release()
         self.tmpdir.cleanup()
 
     def run_to(self, index):

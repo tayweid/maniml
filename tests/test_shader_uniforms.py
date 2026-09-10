@@ -12,7 +12,7 @@ import unittest
 
 import moderngl
 
-from maniml.utils.shaders import set_program_uniform
+from tests.gl_reference_shaders import set_program_uniform
 
 VERT = "#version 330\nuniform float scale;\nin vec2 v;\nvoid main() { gl_Position = vec4(v * scale, 0.0, 1.0); }"
 FRAG = "#version 330\nout vec4 c;\nvoid main() { c = vec4(1.0); }"

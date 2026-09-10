@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**maniml** is a ManimCE-compatible API running on ManimGL's fast OpenGL backend, with an interactive checkpoint system for rapid iteration. Installed editable (`pip install -e .`) as the `maniml` command.
+**maniml** is a ManimCE-compatible API using a shared triangle/WebGPU backend, with an interactive checkpoint system for rapid iteration. Installed editable (`pip install -e .`) as the `maniml` command.
 
 The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE install. Unmodified CE scene files still work: the CLI installs a process-local import alias (`_CEAliasFinder` in `maniml/__main__.py`) mapping `manim`/`manim.*` to maniml, so `from manim import *` resolves correctly under the `maniml` command while leaving any installed ManimCE untouched elsewhere.
 
@@ -148,7 +148,7 @@ keeps that name. Module map:
 
 ### The viewer
 
-`viewer.py`'s `WebViewer` implements the small window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`). The camera is always a standalone (windowless) GL context — the same path `--render` uses — and while a client renders, `update_frame` skips native capture altogether.
+`viewer.py`'s `WebViewer` implements the small window interface Scene uses (`init_for_scene`, `is_closing`, `has_undrawn_event`, `is_key_pressed`, `focus`, `_window.dispatch_events`), so `InteractionMixin` and the checkpoint system run unmodified; `scene.py` detects it via the `is_web_viewer` attribute (`scene._web_viewer`). The camera lazily creates the native WebGPU driver for offline output; while a client renders, `update_frame` skips native capture altogether. Source/checkpoint copies never include GPU resources.
 
 `server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location`. The WebSocket handshake requires the server's exact Origin — the page it served — before it sends frames or accepts events (`web/security.py`); there is no token and no authentication message, so the first thing a connected client receives is `{"type": "ready", "capabilities": [...]}`.
 
@@ -168,11 +168,11 @@ End-to-end tested headlessly in `tests/test_web_viewer.py`.
 
 Every frame is a geometry message (0x03: JSON header with camera/mobject uniforms + the raw interleaved VMobject vertex structs) rendered with the browser's own GPU; the pixel stream that this once ran beside was deleted on 2026-09-02, so the browser is the only live viewer. The native geometry shaders are re-expressed as instanced vertex shaders (one instance per bezier triple, `vertex_index` picks the strip vertex).
 
-The one client backend is WebGPU (`static/webgpu.js` + `static/wgsl/`), mirrored natively by `web/wgpu_renderer.py` — **keep all three in sync**, pixel-diffed in `tests/test_wgpu_port.py`. A browser without WebGPU gets a notice on the stage (state and console still flow). WebGL2 remains in the repository history as the differential harness that established the shared serializer before WebGPU became canonical; it is not a shipped renderer. Anything the serializer cannot express is declared in the payload's `unsupported` list, left out of the picture, and named in the viewer bar — there is no native frame behind it.
+The one client backend is WebGPU (`static/webgpu.js` + `static/wgsl/`), mirrored natively by `web/wgpu_renderer.py` — **keep all three in sync**, pixel-diffed in `tests/test_wgpu_port.py`. A browser without WebGPU gets a notice on the stage (state and console still flow). WebGL2 remains in the repository history as the differential harness that established the shared serializer before WebGPU became canonical; it is not a shipped renderer. The shared source preparer raises explicit errors for unsupported geometry; the original comparison serializer retains its historical `unsupported` list. There is no native frame behind the browser.
 
 The geometry player produced by `--export` is WebGPU-only. If WebGPU is not
 available it says so directly and points to the MP4 presentation export; it
-does not ship a second renderer as a compatibility fallback. The student
+does not fall back to another graphics API. The preserved winding WebGPU code reads older recordings. The student
 bundle (`--export-present`) is ordinary video and needs no browser GPU.
 `GEOMETRY_FORMAT_VERSION` appears in every geometry header and in the
 export's `scene.json`; the player checks the metadata before loading frames
@@ -180,23 +180,33 @@ and tells an incompatible folder to re-export instead of rendering garbage.
 
 Winding fills carry optional `fill_rect` screen bounds, calculated together
 by `web/fill_bounds.py` from shader geometry and current camera uniforms.
-Both WebGPU drivers use pooled small scratch textures and composite within
+The original winding browser driver and test reference use pooled scratch textures and composite within
 that rectangle, preserving the 2x pixel grid and batch ordering. Unsupported
 bounds and old payloads use the full frame; empty rectangles skip fill work
 while keeping strokes. Bounds refresh even when vertex data is cached.
 Coverage lives in `tests/test_fill_bounds.py` and the Node-backed
 `tests/test_webgpu_commands.py`; `benchmarks/vector_fill.py` measures the gain.
 
-The temporary `MANIML_RENDERER=triangles` selector sends format-2 generated
-operations from `web/triangle_scene.py` / `web/generated_geometry.py`. Both
-WebGPU drivers draw them in one ordered scene pass with premultiplied output;
-unsupported materials fail explicitly. `web/triangle_geometry.py` loads the
-wheel's Lyon helper (source installs build it with Rust). Generated geometry
-and uniform bindings retain only active-frame content. Baked playback uses
-`static/geometry_recording.js` to restore requested frames from recorded CPU
-bytes, including reverse seeks after GPU eviction. See
-`docs_unified_triangle_renderer_a1_integration.md` for current acceptance gaps.
-Native GL remains the offline renderer and oracle under the existing hold.
+The default is format-3 ordered generated geometry from `web/triangle_scene.py`
+and `web/generated_geometry.py`. Both WebGPU drivers draw the same operations,
+including per-sample border ownership and source-space paint. Native movie and
+checkpoint output uses `WgpuRenderer`; the camera converts premultiplied output
+to straight RGBA at the image boundary. GL code lives only under `tests/` as
+an independent historical reference and is excluded from wheels.
+
+The viewer's **Scene renderer** selector retains **Original 2D** for dogfood
+comparisons. It uses `winding_geometry.py`, `static/winding_webgpu.js` and
+`static/winding_wgsl/`. Mode changes reset transport state and preserve the
+scene/checkpoint; native and baked exports explicitly choose Phase A. Do not
+remove this comparison option without Taylor's direction.
+
+The Lyon helper is required by the default renderer. Source/editable builds
+need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
+Default AA is 4× MSAA plus 2× spatial resolve independently of Camera.samples.
+Retained meshes inspect exact public array contents, source paint and border
+geometry cache separately, and immutable derived payloads reuse digests.
+See `docs_unified_triangle_renderer_phase_a.md` for the full contract, limits
+and validation evidence.
 
 ## Delivery: one artifact, local only
 
@@ -325,9 +335,13 @@ ManimGL's IPython embed mode was removed in 2026-07 (see `DECISIONS.md`); `self.
 
 `ThreeDScene` supports CE-style camera control (`set_camera_orientation`, `begin_ambient_camera_rotation`) and 3D mobjects (`Sphere`, `Cube`, `Torus`, `ThreeDAxes`, ...).
 
-**3D fill rendering (fixed 2026-08-11)**: `ThreeDScene.add` calls `apply_depth_test()` on added mobjects, which switches filled VMobjects to **triangulated fill** (`render_triangulated_fill` in `rendering/shader_wrapper.py`): real triangles with real z, so depth intersections against surfaces and other VMobjects are per-pixel correct (beyond upstream ManimGL's z=0 fill composite). The triangulated path renders every mobject of a render batch with its own fill color (`batch_mobjects` on the wrapper), and triangulation caches invalidate on point changes. Remaining constraints:
+`ThreeDScene.add` applies depth testing. Planar VMobject fills reconstruct
+world XYZ from their local plane, with the same borders and material pipeline
+as 2D. `Surface`, `TexturedSurface`, `VMobject3D`, images and dot clouds retain
+their actual 3D geometry. A nonplanar closed VMobject contour is rejected
+explicitly; a defined surface is needed to choose its interior. Near-plane or
+singular projections that cannot meet the meshing budget also fail explicitly.
 
-- Triangulated fill flattens each submobject to one flat fill color (no gradients) and skips the anti-aliased fill border; ThreeDScene renders with 4x MSAA, and 2x supersampling for published video folds into the wgpu-py render (TODO.md, the held step).
-- Mobjects animated under depth test re-triangulate each frame the points change (earclip cost; fine for typical scenes, measurable for huge Text).
-
-Regression-tested by the depth-tested 3D case in `tests/test_wgpu_port.py` (the windowed scenario it once had went with the pyglet window).
+Depth, transparency, clipping, fixed-frame overlays and image orientation are
+covered by the generated-driver and native-camera tests. Preserved GL goldens
+and a test-only winding renderer remain independent comparison references.

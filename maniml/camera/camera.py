@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import moderngl
 import numpy as np
-import OpenGL.GL as gl
 from PIL import Image
+from types import SimpleNamespace
 
 from maniml.camera.camera_frame import CameraFrame
 from maniml.constants import BLACK
@@ -38,9 +37,8 @@ class Camera(object):
         n_channels: int = 4,
         pixel_array_dtype: type = np.uint8,
         light_source_position: Vect3 = np.array([-10, 10, 10]),
-        # Although vector graphics handle antialiasing fine
-        # without multisampling, for 3d scenes one might want
-        # to set samples to be greater than 0.
+        # Retained compatibility metadata. Phase A selects its shared quality
+        # policy independently; the Original 2D viewer still uses this value.
         samples: int = 0,
     ):
         self.background_image = background_image
@@ -48,7 +46,10 @@ class Camera(object):
         self.fps = fps
         self.max_allowable_norm = max_allowable_norm
         self.image_mode = image_mode
-        self.n_channels = n_channels
+        if (isinstance(n_channels, bool) or not isinstance(n_channels, (int, np.integer))
+                or not 1 <= n_channels <= 4):
+            raise ValueError("camera n_channels must be an integer from 1 to 4")
+        self.n_channels = int(n_channels)
         self.pixel_array_dtype = pixel_array_dtype
         self.light_source_position = light_source_position
         self.samples = samples
@@ -58,108 +59,85 @@ class Camera(object):
             background_color, background_opacity
         ))
         self.uniforms = dict()
+        # GPU resources and generated meshes are derived capture state, not
+        # scene/checkpoint data. Browser-only scenes never initialize them.
+        self._renderer = None
+        self._geometry_cache = None
+        self._image = None
         self.init_frame(**frame_config)
-        self.init_context()
         self.init_fbo()
         self.init_light_source()
 
     def init_frame(self, **config) -> None:
         self.frame = CameraFrame(**config)
 
-    def init_context(self) -> None:
-        # Always a standalone (windowless) context: the live viewer draws
-        # in the browser from the geometry stream, and offline output
-        # reads this context's framebuffer back.
-        self.ctx: moderngl.Context = moderngl.create_standalone_context()
-
-        self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
-        self.ctx.enable(moderngl.BLEND)
-
     def init_fbo(self) -> None:
-        # This is the buffer used when writing to a video/image file
-        self.fbo_for_files = self.get_fbo(self.samples)
-
-        # This is the frame buffer we'll draw into when emitting frames
-        self.draw_fbo = self.get_fbo(samples=0)
-
-        self.fbo = self.fbo_for_files
-        self.fbo.use()
+        # Keep the size metadata consumed by the shared geometry encoder.
+        # Actual textures belong exclusively to the lazy native driver.
+        size = tuple(self.default_pixel_shape)
+        if len(size) != 2 or any(int(value) != value or value <= 0 for value in size):
+            raise ValueError("camera resolution must contain two positive integers")
+        self.fbo = self.draw_fbo = SimpleNamespace(size=tuple(map(int, size)))
+        self.clear()
 
     def init_light_source(self) -> None:
         self.light_source = Point(self.light_source_position)
 
-    # Methods associated with the frame buffer
-    def get_fbo(
-        self,
-        samples: int = 0
-    ) -> moderngl.Framebuffer:
-        return self.ctx.framebuffer(
-            color_attachments=self.ctx.texture(
-                self.default_pixel_shape,
-                components=self.n_channels,
-                samples=samples,
-            ),
-            depth_attachment=self.ctx.depth_renderbuffer(
-                self.default_pixel_shape,
-                samples=samples
-            )
-        )
-
     def clear(self) -> None:
-        self.fbo.clear(*self.background_rgba)
-
-    def blit(self, src_fbo, dst_fbo):
-        """
-        Copy blocks between fbo's using Blit
-        """
-        gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, src_fbo.glo)
-        gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, dst_fbo.glo)
-        gl.glBlitFramebuffer(
-            *src_fbo.viewport,
-            *dst_fbo.viewport,
-            gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR
-        )
+        rgba = tuple(np.clip(np.rint(255 * np.asarray(self.background_rgba)), 0, 255).astype(int))
+        self._image = Image.new("RGBA", self.get_pixel_shape(), rgba)
 
     def get_raw_fbo_data(self, dtype: str = 'f1') -> bytes:
-        self.blit(self.fbo, self.draw_fbo)
-        return self.draw_fbo.read(
-            viewport=self.draw_fbo.viewport,
-            components=self.n_channels,
-            dtype=dtype,
-        )
+        """Configured color channels, bottom first, preserving the byte API.
+
+        The default is straight RGBA. FFmpeg applies its existing vflip once.
+        Images and pixel-array reads use normal top-first order; requesting
+        fewer channels selects the leading R, RG, or RGB components.
+        """
+        data = np.asarray(self._current_image())[::-1, :, :self.n_channels]
+        if dtype == 'f1':
+            return data.tobytes()
+        if dtype == 'f4':
+            return (data.astype(np.float32) / 255).tobytes()
+        raise ValueError("camera pixel bytes support 'f1' or 'f4'")
+
+    def _current_image(self) -> Image.Image:
+        if self._image is None or self._image.size != self.get_pixel_shape():
+            self.clear()
+        return self._image
 
     def get_image(self) -> Image.Image:
-        return Image.frombytes(
-            'RGBA',
-            self.get_pixel_shape(),
-            self.get_raw_fbo_data(),
-            'raw', 'RGBA', 0, -1
-        )
+        return self._current_image().copy()
 
     def get_pixel_array(self) -> np.ndarray:
-        raw = self.get_raw_fbo_data(dtype='f4')
-        flat_arr = np.frombuffer(raw, dtype='f4')
-        arr = flat_arr.reshape([*reversed(self.draw_fbo.size), self.n_channels])
-        arr = arr[::-1]
-        # Convert from float
-        return (self.rgb_max_val * arr).astype(self.pixel_array_dtype)
+        data = np.asarray(self._current_image())[..., :self.n_channels]
+        if self.pixel_array_dtype == np.uint8:
+            return data.copy()
+        return np.rint(data.astype(np.float64) * (self.rgb_max_val / 255)).astype(self.pixel_array_dtype)
 
-    # Needed?
-    def get_texture(self) -> moderngl.Texture:
-        texture = self.ctx.texture(
-            size=self.fbo.size,
-            components=4,
-            data=self.get_raw_fbo_data(),
-            dtype='f4'
-        )
-        return texture
+    def read_pixel(self, x: int, y: int) -> tuple[int, int, int, int]:
+        """Read one straight-alpha RGBA pixel using a top-left origin."""
+        return self._current_image().getpixel((x, y))
+
+    def release(self) -> None:
+        """Release native capture resources; a later capture starts fresh."""
+        renderer = self._renderer
+        self._renderer = None
+        self._geometry_cache = None
+        if renderer is not None:
+            renderer.close()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.update(_renderer=None, _geometry_cache=None, _image=None)
+        return state
 
     # Getting camera attributes
     def get_pixel_size(self) -> float:
         return self.frame.get_width() / self.get_pixel_shape()[0]
 
     def get_pixel_shape(self) -> tuple[int, int]:
-        return self.fbo.size
+        return self.draw_fbo.size
 
     def get_pixel_width(self) -> int:
         return self.get_pixel_shape()[0]
@@ -205,16 +183,27 @@ class Camera(object):
 
     # Rendering
     def capture(self, *mobjects: Mobject) -> None:
-        self.clear()
-        self.refresh_uniforms()
-        self.fbo.use()
-        # Sort mobjects so fixed-in-frame objects render last (on top)
-        sorted_mobjects = sorted(
-            mobjects,
-            key=lambda m: 1 if m.is_fixed_in_frame() else 0
-        )
-        for mobject in sorted_mobjects:
-            mobject.render(self.ctx, self.uniforms)
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from maniml.web.wgpu_renderer import WgpuRenderer
+
+        if self._renderer is None:
+            self._renderer = WgpuRenderer()
+            self._geometry_cache = GeometryCache()
+        # Use the exact same generated operations as the browser and exports.
+        # Scene assembly already puts fixed-frame overlays last. Do not add
+        # a native-only reordering after the shared draw list is assembled.
+        scene = SimpleNamespace(camera=self, render_groups=list(mobjects))
+        try:
+            message = serialize_scene(scene, self._geometry_cache, renderer="triangles")
+            image = self._renderer.render(*parse_geometry_message(message))
+            if image.size != self.get_pixel_shape():
+                raise RuntimeError("native renderer returned an unexpected image size")
+        except Exception:
+            # Serialization may already have advanced transport knowledge. A
+            # failed submission must not turn a retry into a cache-only packet.
+            self._geometry_cache.reset()
+            raise
+        self._image = _straight_rgba(image)
 
 
     def refresh_uniforms(self) -> None:
@@ -241,3 +230,22 @@ class Camera(object):
 class ThreeDCamera(Camera):
     def __init__(self, samples: int = 4, **kwargs):
         super().__init__(samples=samples, **kwargs)
+
+
+def _straight_rgba(image: Image.Image) -> Image.Image:
+    """Convert the driver's premultiplied storage once at the image boundary."""
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    data = np.asarray(image)
+    # Opaque movies already have straight RGB. Avoid several full-frame
+    # arithmetic arrays for the overwhelmingly common opaque background case.
+    if np.all(data[..., 3] == 255):
+        return image
+    data = data.copy()
+    alpha = data[..., 3:4].astype(np.uint16)
+    rgb = data[..., :3].astype(np.uint16)
+    data[..., :3] = np.minimum(
+        (rgb * 255 + alpha // 2) // np.maximum(alpha, 1), 255,
+    ).astype(np.uint8)
+    data[..., :3][alpha[..., 0] == 0] = 0
+    return Image.fromarray(data, "RGBA")

@@ -4,7 +4,7 @@
 "use strict";
 
 (async () => {
-  const EXPORT_FORMAT_VERSION = 2;
+  const EXPORT_FORMAT_VERSION = 3;
   const stage = document.getElementById("stage");
   const chipsEl = document.getElementById("chips");
   const playBtn = document.getElementById("playbtn");
@@ -22,7 +22,7 @@
   const meta = await (await fetch("scene.json")).json();
   document.title = meta.scene;
   document.getElementById("scene-name").textContent = meta.scene;
-  if (meta.format_version !== EXPORT_FORMAT_VERSION) {
+  if (![1, 2, EXPORT_FORMAT_VERSION].includes(meta.format_version)) {
     showPlayerError(
       "This scene export uses an incompatible format. Re-export this scene "
         + "with the current ManimLive version.",
@@ -39,13 +39,28 @@
   const frames = [];
   let offset = 0;
   for (const frame of meta.frames) {
+    if (!Number.isInteger(frame.len) || frame.len <= 0 || offset + frame.len > data.length) {
+      throw new Error("Invalid frame length in scene recording");
+    }
     frames.push({
       bytes: data.subarray(offset, offset + frame.len),
       segment: frame.segment,
     });
     offset += frame.len;
   }
+  if (!frames.length || offset !== data.length) throw new Error("Incomplete scene recording");
   const recording = ManimlRecording.index(frames.map(frame => frame.bytes));
+  // Renderer identity belongs to each geometry message, independently of
+  // the outer recording format. Original format-1/2 frames may omit it.
+  const rendererNames = frames.map(({bytes}) => {
+    const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1, true);
+    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(5, 5 + length)));
+    const name = header.renderer ?? (meta.format_version < 3 ? "winding" : null);
+    if (name !== "triangles" && name !== "winding") throw new Error("Unknown recording renderer");
+    return name;
+  });
+  const rendererName = rendererNames[0];
+  if (rendererNames.some(name => name !== rendererName)) throw new Error("Mixed recording renderers");
   // Segment k spans frames [starts[k], ends[k])
   const starts = [], ends = [];
   frames.forEach((frame, i) => {
@@ -62,8 +77,8 @@
   stage.appendChild(canvas);
   let renderer = null;
   try {
-    await ManimlWGPU.init(canvas);
-    renderer = ManimlWGPU;
+    renderer = rendererName === "winding" ? ManimlWindingWGPU : ManimlWGPU;
+    await renderer.init(canvas);
   } catch (err) {
     console.error("WebGPU unavailable:", err);
     showPlayerError(
@@ -81,10 +96,19 @@
   function show(i) {
     const request = ++requested;
     const result = pending.then(async () => {
-      if (request === requested) await renderer.render(recording.frame(i));
+      if (request !== requested) return false;
+      await renderer.render(recording.frame(i));
+      statusEl.textContent = "WebGPU";
+      return true;
     });
-    pending = result.catch(() => {});
-    return result;
+    pending = result.catch(error => {
+      stop();
+      statusEl.textContent = "Playback error: " + error.message;
+      return false;
+    });
+    // Browser interval/event dispatch does not consume rejected promises.
+    // Report errors here, then leave the queue usable for another seek.
+    return pending;
   }
 
   let current = 0;
@@ -100,6 +124,9 @@
     stop();
     playBtn.textContent = "⏸";
     current = i;
+    // Selecting a segment displays its first frame immediately, including
+    // a one-frame segment whose interval will already be at the endpoint.
+    void show(current).then(shown => { if (shown) refreshChips(); });
     playing = setInterval(async () => {
       if (current >= (stopAt ?? frames.length) - 1) { stop(); return; }
       current += 1;
@@ -176,4 +203,11 @@
 
   await show(0);
   refreshChips();
-})();
+})().catch(error => {
+  const message = document.createElement("div");
+  message.id = "renderer-error";
+  message.textContent = "Unable to load scene recording: " + error.message;
+  document.getElementById("stage").replaceChildren(message);
+  document.getElementById("playbtn").disabled = true;
+  document.getElementById("status").textContent = "Recording error";
+});

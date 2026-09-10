@@ -1,58 +1,19 @@
-"""Geometry snapshot serialization for the Stage-2 client renderer.
+"""Shared triangle scene serialization and geometry-stream utilities.
 
-Serializes the scene's current draw list into a self-contained binary
-message the browser (or the fidelity harness in tests/test_wgpu_port.py) can
-render with its own GPU:
-
-    [0x03][u32le header_len][JSON header][vertex data]
-
-The vertex data is the exact GPU contract the native renderer uses —
-each VMobject's expanded `get_shader_data()` array (the interleaved
-68-byte-per-vertex struct, already fancy-indexed into consecutive
-bezier triples) concatenated in draw order. The header carries the
-camera uniforms from `Camera.refresh_uniforms()` verbatim plus
-per-batch mobject uniforms, so the consumer reproduces the native
-projection arithmetic rather than inventing its own.
-
-Batching mirrors the native renderer: within one render group, family
-members are stably sorted by z_index and consecutive submobjects with
-identical draw state (kind, uniforms, stroke_behind, depth_test,
-fill_mode) merge into one batch — one buffer, one pass sequence. This
-is not just a draw-call optimization: the winding-number fill blending
-is only native-faithful when a whole batch accumulates in the float
-texture before a single composite. Merging never crosses a
-render-group boundary (the groups are the scene's z_index draw order),
-and — because each batch draws all its fills before any of its strokes
-— a member whose fill overlaps an already-merged member's stroke
-starts a new batch, exactly as the native flatten does
-(assemble_draw_batches in utils/family_ops.py).
-
-Each vmobject batch also carries `stroke_verts`: the largest strip the
-batch's curves actually need (the same adaptive-subdivision formula the
-stroke shader applies, evaluated at the current frame_scale), so the
-client can draw that many vertices per instance instead of the
-worst-case 64.
-
-Not expressible here (recorded by type in the header's `unsupported`
-list and left out of the picture — there is no server-side frame behind
-the browser's render): unknown custom drawables and depth-tested winding
-fills that were not triangulated. Images, surfaces,
-texture data, dot clouds, triangulated fills, and clip planes are supported.
+Source arrays remain in mobjects. Derived meshes, ordered draw operations and
+material fields travel in a versioned message consumed by browser and native
+WebGPU. Geometry caches belong to the output transport, never checkpoints.
 """
-
 from __future__ import annotations
 
 import json
 import os
 import struct
+from collections import OrderedDict
 
 import numpy as np
 
 from maniml.performance import performance
-from maniml.web.fill_bounds import fill_composite_rects
-from maniml.utils.family_ops import DrawBatchHazard
-from maniml.utils.family_ops import draw_pass_content
-from maniml.utils.family_ops import padded_draw_bbox
 
 from typing import TYPE_CHECKING
 
@@ -63,7 +24,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 2
+GEOMETRY_FORMAT_VERSION = 3
 
 
 class GeometryCache:
@@ -77,6 +38,7 @@ class GeometryCache:
         self.renderer = None
         self.triangle_tessellator = None
         self.triangle_meshes = None
+        self.generated_payloads = {}
 
     def reset(self):
         self.sent.clear()
@@ -102,26 +64,6 @@ def _jsonable(value):
     return value
 
 
-def _triangulated_fill_data(sm):
-    """Depth-correct fill triangles, replicating the data build in
-    VShaderWrapper.render_triangulated_fill: earclip vertices with a
-    flat per-mobject fill color, normals implied by a +z offset point.
-    Returns (vertex_struct_array, index_array) or None."""
-    from maniml.rendering.shader_wrapper import VShaderWrapper
-    from maniml.utils.color import color_to_rgb
-
-    triangulation = VShaderWrapper._get_triangulation(sm)
-    if triangulation is None:
-        return None
-    vertices, indices = triangulation
-    data = np.zeros(len(vertices), dtype=SURFACE_DTYPE)
-    data['point'][:] = vertices
-    data['d_normal_point'][:] = vertices + np.array([0, 0, 0.001])
-    rgb = color_to_rgb(sm.get_fill_color())
-    data['rgba'][:] = np.array([*rgb, sm.get_fill_opacity()], dtype=np.float32)
-    return data, indices.astype('u4')
-
-
 def _stroke_verts(data, frame_scale) -> int:
     """Largest strip any curve in `data` needs, per the adaptive
     subdivision in the stroke shader: n_steps = min(2 + round(
@@ -135,333 +77,65 @@ def _stroke_verts(data, frame_scale) -> int:
     return 2 * max(max_steps, 2)
 
 
-def _texture_refs(sm):
+def _texture_refs(sm, payloads=None):
     """Sampler-name -> texture content hash for a textured mobject,
     reading each file once (module-level cache)."""
     refs = {}
     for name, path in sm.texture_paths.items():
-        refs[name] = _texture_file(path)[0]
+        key, raw = _texture_file(path)
+        refs[name] = key
+        if payloads is not None:
+            payloads[key] = raw
     return refs
 
 
-_TEXTURE_FILES: dict[str, tuple[str, bytes]] = {}  # path -> (hash, bytes)
+_TEXTURE_FILES = OrderedDict()  # path -> (stat signature, hash, immutable bytes)
 _TEXTURE_BY_HASH: dict[str, bytes] = {}
+MAX_TEXTURE_CACHE_BYTES = 64 << 20
+MAX_TEXTURE_CACHE_FILES = 128
 
 
 def _texture_file(path: str) -> tuple[str, bytes]:
     import hashlib
+    path = os.fspath(path)
+    stat = os.stat(path)
+    signature = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
     cached = _TEXTURE_FILES.get(path)
-    if cached is None:
+    if cached is None or cached[0] != signature:
         with open(path, "rb") as f:
             raw = f.read()
-        cached = (hashlib.blake2b(raw, digest_size=8).hexdigest(), raw)
+        cached = (signature, hashlib.blake2b(raw, digest_size=16).hexdigest(), raw)
         _TEXTURE_FILES[path] = cached
-        _TEXTURE_BY_HASH[cached[0]] = raw
-    return cached
-
-
-def _unsupported_geometry_name(sm) -> str | None:
-    """Return the serializer incompatibility for one drawable, if any."""
-    from maniml.mobject.types.vectorized_mobject import VMobject
-    from maniml.mobject.types.dot_cloud import DotCloud
-    from maniml.mobject.types.image_mobject import ImageMobject
-    from maniml.mobject.types.surface import Surface
-    from maniml.camera.camera_frame import CameraFrame
-
-    if isinstance(sm, CameraFrame):
-        return None
-    if isinstance(sm, (DotCloud, ImageMobject, Surface)):
-        return None
-    if not isinstance(sm, VMobject):
-        return type(sm).__name__
-    triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
-    if sm.depth_test and sm.get_fill_opacity() > 0 and not triangulated:
-        return f"{type(sm).__name__} (depth-tested winding fill)"
-    return None
-
-
-def _collect_records(scene, unsupported):
-    """One record per drawable submobject, in draw order, carrying the
-    numpy data and the draw state that decides merge compatibility."""
-    from maniml.mobject.types.dot_cloud import DotCloud
-    from maniml.mobject.types.image_mobject import ImageMobject
-    from maniml.mobject.types.surface import Surface, TexturedSurface
-    from maniml.camera.camera_frame import CameraFrame
-
-    def plain_record(sm, kind, stride, textures=None):
-        data = sm.get_shader_data()
-        if len(data) == 0:
-            return None
-        return {
-            "kind": kind, "stride": stride, "data": data, "group": group_index,
-            "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
-            "depth_test": bool(sm.depth_test),
-            "stroke_behind": False, "fill_mode": None,
-            "tri": None, "textures": textures,
-            "_pass_early": False, "_pass_late": False, "_draw_bbox": None,
-        }
-
-    records = []
-    for group_index, group in enumerate(scene.render_groups):
-        # Stable z_index sort within the family — the same order the
-        # native flatten uses (Mobject.get_shader_wrapper_list)
-        for sm in sorted(group.family_members_with_points(),
-                         key=lambda m: m.z_index):
-            if isinstance(sm, CameraFrame):
-                continue  # in scene.mobjects but never drawn
-            unsupported_name = _unsupported_geometry_name(sm)
-            if unsupported_name is not None:
-                if unsupported_name not in unsupported:
-                    unsupported.append(unsupported_name)
-                continue
-            if isinstance(sm, (DotCloud, ImageMobject, Surface)):
-                if isinstance(sm, DotCloud):
-                    record = plain_record(sm, "dotcloud", 32)
-                elif isinstance(sm, ImageMobject):
-                    record = plain_record(sm, "image", 24,
-                                          textures=_texture_refs(sm))
-                elif isinstance(sm, TexturedSurface):
-                    record = plain_record(sm, "texsurface", 36,
-                                          textures=_texture_refs(sm))
-                else:
-                    record = plain_record(sm, "surface", 40)
-                if record is not None:
-                    records.append(record)
-                continue
-            triangulated = bool(getattr(sm, 'use_triangulated_fill', False))
-            has_fill = sm.get_fill_opacity() > 0
-            data = sm.get_shader_data()
-            if len(data) == 0:
-                continue
-            pass_early, pass_late = draw_pass_content(sm)
-            records.append({
-                "kind": "vmobject", "stride": 68, "data": data,
-                "group": group_index,
-                "uniforms": {k: _jsonable(v) for k, v in sm.uniforms.items()},
-                "stroke_behind": bool(sm.stroke_behind),
-                "depth_test": bool(sm.depth_test),
-                "fill_mode": "triangulated" if triangulated else "winding",
-                "tri": (_triangulated_fill_data(sm)
-                        if triangulated and has_fill else None),
-                "textures": None,
-                "_pass_early": pass_early, "_pass_late": pass_late,
-                "_draw_bbox": (padded_draw_bbox(sm)
-                               if pass_early or pass_late else None),
-            })
-    return records
-
-
-# "group" keeps merging inside one native render group: the groups are
-# the z_index/draw-order sort (Scene.assemble_render_groups), and a
-# batch is the unit of the fill-accumulate-then-stroke pass sequence,
-# so merging across groups would draw one group's strokes over a later
-# group's fills (e.g. a z_index=10 Dot behind a z_index=0 line).
-_MERGE_KEYS = ("group", "kind", "uniforms", "stroke_behind", "depth_test",
-               "fill_mode", "textures")
-
-
-def _merge_records(records):
-    """Merge consecutive records with identical draw state — the
-    native renderer's batching (assemble_draw_batches in
-    utils/family_ops.py; the split rules here must mirror it, and
-    tests/test_wgpu_port.py pixel-diffs the two pipelines). Triangulated
-    fill chunks concatenate with re-based indices.
-
-    A record whose early-pass content (fill; stroke when stroke_behind)
-    overlaps the open batch's accumulated late-pass content starts a
-    new batch instead of merging: a batch draws all its early passes
-    before any of its late ones, so merging there would paint the new
-    member under an earlier member's stroke — the CE draw-order hazard
-    assemble_draw_batches documents.
-
-    Chunks are gathered and joined once per batch rather than folded in
-    one at a time. Concatenating on each step reallocates and recopies
-    everything accumulated so far, which makes merging n records copy
-    O(n**2) vertex bytes — on a scene of a few hundred filled shapes that
-    was the single largest cost in producing a frame, and it grew as the
-    square of how much you had drawn.
-    """
-    merged = []
-    chunks = []      # per merged batch: the data arrays still to be joined
-    tri_chunks = []  # per merged batch: (verts, indices) still to be joined
-    hazard_state = None  # late-pass footprint of the open batch
-    for record in records:
-        prev = merged[-1] if merged else None
-        bbox = record["_draw_bbox"]
-        hazard = prev is not None and hazard_state.would_invert(
-            record["_pass_early"], bbox)
-        if prev is not None and not hazard and all(
-                prev[k] == record[k] for k in _MERGE_KEYS):
-            chunks[-1].append(record["data"])
-            if record["tri"] is not None:
-                tri_chunks[-1].append(record["tri"])
-        else:
-            merged.append(dict(record))
-            chunks.append([record["data"]])
-            tri_chunks.append([record["tri"]] if record["tri"] is not None else [])
-            hazard_state = DrawBatchHazard()
-        hazard_state.admit(record["_pass_late"], bbox)
-
-    for batch in merged:
-        del batch["_pass_early"], batch["_pass_late"], batch["_draw_bbox"]
-
-    for batch, data_parts, tri_parts in zip(merged, chunks, tri_chunks):
-        if len(data_parts) > 1:
-            batch["data"] = np.concatenate(data_parts)
-        if not tri_parts:
-            batch["tri"] = None
-        elif len(tri_parts) == 1:
-            batch["tri"] = tri_parts[0]
-        else:
-            # Indices are relative to each chunk's own vertices, so they
-            # shift by however many vertices precede that chunk.
-            offset = 0
-            verts, indices = [], []
-            for chunk_verts, chunk_indices in tri_parts:
-                verts.append(chunk_verts)
-                indices.append(chunk_indices + offset)
-                offset += len(chunk_verts)
-            batch["tri"] = (np.concatenate(verts), np.concatenate(indices))
-    return merged
+    _TEXTURE_FILES.move_to_end(path)
+    while (len(_TEXTURE_FILES) > MAX_TEXTURE_CACHE_FILES or
+           sum(len(item[2]) for item in _TEXTURE_FILES.values()) > MAX_TEXTURE_CACHE_BYTES):
+        _TEXTURE_FILES.popitem(last=False)
+    # Frames pin their own immutable payloads, independently of this read cache.
+    _TEXTURE_BY_HASH.clear()
+    _TEXTURE_BY_HASH.update((item[1], item[2]) for item in _TEXTURE_FILES.values())
+    return cached[1:]
 
 
 def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
                     renderer: str | None = None) -> bytes:
-    """Snapshot the scene's current visual state as a geometry message.
+    """Snapshot ordered triangle operations; cache reuse checks source content.
 
-    With a GeometryCache, batches whose content the clients already
-    hold ship as `"cached": true` + hash only — metadata (uniforms,
-    stroke_verts) is still sent fresh, since it can change (e.g. with
-    zoom) without the vertex bytes changing."""
-    renderer = renderer if renderer is not None else os.environ.get("MANIML_RENDERER", "winding")
-    if renderer not in ("winding", "triangles"):
-        raise ValueError("MANIML_RENDERER must be 'winding' or 'triangles'")
-    if cache is not None and cache.renderer != renderer:
+    The original winding path remains selectable in the viewer for dogfooding.
+    """
+    selected = renderer if renderer is not None else os.environ.get("MANIML_RENDERER", "triangles")
+    if selected not in ("triangles", "winding"):
+        raise ValueError("MANIML_RENDERER must be 'triangles' or 'winding'")
+    if cache is not None and cache.renderer != selected:
         cache.reset()
-        cache.renderer = renderer
-    if renderer == "triangles":
-        return _serialize_triangle_scene(scene, cache)
-
-    import hashlib
-
-    camera = scene.camera
-    with performance.stage("geometry.camera_uniforms"):
-        camera.refresh_uniforms()
-        frame_scale = float(camera.uniforms["frame_scale"])
-
-    unsupported = []
-    batches = []
-    blobs = []
-    offset = 0
-    needed_textures: dict[str, bytes] = {}
-
-    with performance.stage("geometry.collect_shader_data"):
-        records = _collect_records(scene, unsupported)
-    with performance.stage("geometry.merge_batches"):
-        records = _merge_records(records)
-    with performance.stage("geometry.fill_bounds"):
-        fill_rects = fill_composite_rects(
-            records, camera.uniforms, camera.draw_fbo.size)
-    cached_batches = 0
-    vertices = 0
-    with performance.stage("geometry.pack_and_hash"):
-        for record, fill_rect in zip(records, fill_rects):
-            data = record["data"]
-            vertices += len(data)
-            raw = np.ascontiguousarray(data).tobytes()
-            tri_bytes = index_bytes = b""
-            if record["kind"] == "vmobject" and record["tri"] is not None:
-                tri_data, tri_indices = record["tri"]
-                tri_bytes = tri_data.tobytes()
-                index_bytes = np.ascontiguousarray(tri_indices).tobytes()
-
-            # Connectivity can change without moving any vertices. Both
-            # renderer caches use this hash for the complete mesh payload.
-            content_hash = hashlib.blake2b(
-                raw + tri_bytes + index_bytes, digest_size=8).hexdigest()
-            batch = {
-                "kind": record["kind"],
-                "hash": content_hash,
-                "num_verts": len(data),
-                "stride": record["stride"],
-                "uniforms": record["uniforms"],
-                "depth_test": record["depth_test"],
-            }
-            if record["kind"] == "vmobject":
-                batch["stroke_behind"] = record["stroke_behind"]
-                batch["fill_mode"] = record["fill_mode"]
-                batch["stroke_verts"] = _stroke_verts(data, frame_scale)
-                if fill_rect is not None:
-                    batch["fill_rect"] = fill_rect
-            if record["textures"]:
-                batch["textures"] = record["textures"]
-                for tex_hash in record["textures"].values():
-                    if cache is None or f"tex:{tex_hash}" not in cache.sent:
-                        needed_textures[tex_hash] = _TEXTURE_BY_HASH[tex_hash]
-
-            if cache is not None and content_hash in cache.sent:
-                batch["cached"] = True
-                cached_batches += 1
-            else:
-                batch["offset"] = offset
-                blobs.append(raw)
-                offset += len(raw)
-                if tri_bytes:
-                    batch["tri"] = {
-                        "voffset": offset, "vcount": len(tri_bytes) // 40,
-                        "ioffset": offset + len(tri_bytes),
-                        "icount": len(index_bytes) // 4,
-                    }
-                    blobs.append(tri_bytes)
-                    blobs.append(index_bytes)
-                    offset += len(tri_bytes) + len(index_bytes)
-                if cache is not None:
-                    cache.sent.add(content_hash)
-            batches.append(batch)
-
-    texture_data = {}
-    for tex_hash, raw_tex in needed_textures.items():
-        texture_data[tex_hash] = {"offset": offset, "nbytes": len(raw_tex)}
-        blobs.append(raw_tex)
-        offset += len(raw_tex)
-        if cache is not None:
-            cache.sent.add(f"tex:{tex_hash}")
-
-    header = {
-        "format_version": GEOMETRY_FORMAT_VERSION,
-        "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
-        "background": _jsonable(list(camera.background_rgba)),
-        "resolution": list(camera.draw_fbo.size),
-        "samples": int(getattr(camera, "samples", 0)),
-        "vertex_stride": 68,
-        "batches": batches,
-        "texture_data": texture_data,
-        "unsupported": unsupported,
-    }
-    with performance.stage("geometry.json_and_join"):
-        header_bytes = json.dumps(header).encode()
-        message = b"".join([
-            bytes([GEOMETRY_MESSAGE_TYPE]),
-            struct.pack("<I", len(header_bytes)),
-            header_bytes,
-            *blobs,
-        ])
-    performance.increment("geometry.serialize.calls")
-    performance.increment("geometry.serialized_bytes", len(message))
-    performance.increment("geometry.vertices", vertices)
-    performance.increment("geometry.cached_batches", cached_batches)
-    performance.gauge("geometry.batch_count", len(batches))
-    performance.gauge("geometry.unsupported_count", len(unsupported))
-    return message
+        cache.renderer = selected
+    if selected == "winding":
+        from maniml.web.winding_geometry import serialize_scene as serialize_winding
+        return serialize_winding(scene, cache)
+    return _serialize_triangle_scene(scene, cache)
 
 
 def _serialize_triangle_scene(scene, cache):
-    """Opt-in A1 path shared by the viewer, baked export and native WebGPU.
-
-    The loader and retained meshes belong to the transport, never the scene's
-    checkpoint graph. The selector remains temporary until A2/A3 acceptance.
-    Unsupported material semantics fail explicitly rather than dropping draws.
-    """
+    """One source-to-operation path for viewer, baked export and native output."""
     from maniml.web.generated_geometry import serialize_generated_frame
     from maniml.web.triangle_geometry import LyonFillTessellator
     from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
@@ -473,6 +147,8 @@ def _serialize_triangle_scene(scene, cache):
     with performance.stage("geometry.triangle_prepare"):
         frame = prepare_triangle_frame(scene, state.triangle_tessellator,
                                        mesh_cache=state.triangle_meshes, fill_borders=True)
+        frame.samples = 4
+        frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):
         message = serialize_generated_frame(frame, scene.camera.uniforms, cache)
     performance.increment("geometry.serialize.calls")

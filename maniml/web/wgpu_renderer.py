@@ -3,11 +3,7 @@
 Consumes the geometry messages emitted by web/geometry.py and renders them
 with wgpu, compiling the WGSL shaders in web/static/wgsl/. The same WGSL and
 pass structure run in the browser via WebGPU; this module is the pixel-diff
-reference and the path that will power native `--render` (see TODO.md).
-
-Scope: full parity-ledger coverage — winding fill + border + composite,
-strokes, triangulated 3D fill with depth test and MSAA, dot clouds,
-images, surfaces, textured surfaces, clip planes.
+implementation used by native capture and file output.
 
 WebGPU-vs-GL differences handled here rather than in shaders:
 - blend and depth state are baked per pipeline (a lazy cache keyed on
@@ -80,13 +76,6 @@ def _layout(stride, step_mode, attributes):
 _INSTANCE = wgpu.VertexStepMode.instance
 _VERTEX = wgpu.VertexStepMode.vertex
 
-FILL_LAYOUT = _layout(INSTANCE_STRIDE, _INSTANCE, [
-    _attr("float32x3", 0, 0), _attr("float32x3", 68, 1),
-    _attr("float32x3", 136, 2),
-    _attr("float32x4", 36, 3), _attr("float32x4", 104, 4),
-    _attr("float32x4", 172, 5),
-    _attr("float32x3", 52, 6), _attr("float32x3", 120, 7),
-])
 STROKE_LAYOUT = _layout(INSTANCE_STRIDE, _INSTANCE, [
     _attr("float32x3", 0, 0), _attr("float32x3", 68, 1),
     _attr("float32x3", 136, 2),
@@ -97,17 +86,6 @@ STROKE_LAYOUT = _layout(INSTANCE_STRIDE, _INSTANCE, [
     _attr("float32", 32, 9), _attr("float32", 168, 10),
     _attr("float32x3", 120, 11),
 ])
-BORDER_LAYOUT = _layout(INSTANCE_STRIDE, _INSTANCE, [
-    _attr("float32x3", 0, 0), _attr("float32x3", 68, 1),
-    _attr("float32x3", 136, 2),
-    _attr("float32x4", 36, 3), _attr("float32x4", 104, 4),
-    _attr("float32x4", 172, 5),
-    _attr("float32", 64, 6), _attr("float32", 132, 7),
-    _attr("float32", 200, 8),
-    _attr("float32", 32, 9), _attr("float32", 168, 10),
-    _attr("float32x3", 120, 11),
-])
-COMPOSITE_LAYOUT = _layout(8, _VERTEX, [_attr("float32x2", 0, 0)])
 SURFACE_LAYOUT = _layout(40, _VERTEX, [
     _attr("float32x3", 0, 0), _attr("float32x3", 12, 1),
     _attr("float32x4", 24, 2),
@@ -125,79 +103,48 @@ TEXSURFACE_LAYOUT = _layout(36, _VERTEX, [
     _attr("float32x2", 24, 2), _attr("float32", 32, 3),
 ])
 
-ALPHA_BLEND = {
-    "color": {"src_factor": "src-alpha", "dst_factor": "one-minus-src-alpha",
-              "operation": "add"},
-    "alpha": {"src_factor": "src-alpha", "dst_factor": "one-minus-src-alpha",
-              "operation": "add"},
-}
-# The winding accumulation: standard color blend, but destination alpha
-# accumulates via (1 - dst_a) * src_a + dst_a
-FILL_ACCUMULATE_BLEND = {
-    "color": {"src_factor": "src-alpha", "dst_factor": "one-minus-src-alpha",
-              "operation": "add"},
-    "alpha": {"src_factor": "one-minus-dst-alpha", "dst_factor": "one",
-              "operation": "add"},
-}
-MAX_BLEND = {
-    "color": {"src_factor": "one", "dst_factor": "one", "operation": "max"},
-    "alpha": {"src_factor": "one", "dst_factor": "one", "operation": "max"},
-}
-COMPOSITE_BLEND = {
+PREMULTIPLIED_BLEND = {
     "color": {"src_factor": "one", "dst_factor": "one-minus-src-alpha",
               "operation": "add"},
     "alpha": {"src_factor": "one", "dst_factor": "one-minus-src-alpha",
               "operation": "add"},
 }
 
-DEPTH_FORMAT = "depth24plus"
+DEPTH_FORMAT = "depth24plus-stencil8"
 
+# Generated operations share one premultiplied scene target. The optional
+# depth variant compares/writes scene depth; painter operations leave it alone.
 # name -> (module, layout, topology, target, blend, depth_test)
-# target "fill" pipelines render into the 2x float winding texture
-# (never depth/MSAA); "out" pipelines render into the scene target and
-# declare depth state (compare always when depth_test is False).
-PIPELINE_SPECS = {
-    "fill": ("fill", FILL_LAYOUT, "triangle-list", "fill",
-             FILL_ACCUMULATE_BLEND, False),
-    "border": ("stroke", BORDER_LAYOUT, "triangle-strip", "fill",
-               MAX_BLEND, False),
-    "composite": ("composite", COMPOSITE_LAYOUT, "triangle-strip", "out",
-                  COMPOSITE_BLEND, False),
-    "stroke": ("stroke", STROKE_LAYOUT, "triangle-strip", "out",
-               ALPHA_BLEND, False),
-    "stroke_depth": ("stroke", STROKE_LAYOUT, "triangle-strip", "out",
-                     ALPHA_BLEND, True),
-    "surface": ("surface", SURFACE_LAYOUT, "triangle-list", "out",
-                ALPHA_BLEND, False),
-    "surface_depth": ("surface", SURFACE_LAYOUT, "triangle-list", "out",
-                      ALPHA_BLEND, True),
-    "dot": ("dot", DOT_LAYOUT, "triangle-strip", "out", ALPHA_BLEND, False),
-    "dot_depth": ("dot", DOT_LAYOUT, "triangle-strip", "out",
-                  ALPHA_BLEND, True),
-    "image": ("image", IMAGE_LAYOUT, "triangle-list", "out",
-              ALPHA_BLEND, False),
-    "image_depth": ("image", IMAGE_LAYOUT, "triangle-list", "out",
-                    ALPHA_BLEND, True),
-    "texsurface": ("texsurface", TEXSURFACE_LAYOUT, "triangle-list", "out",
-                   ALPHA_BLEND, False),
-    "texsurface_depth": ("texsurface", TEXSURFACE_LAYOUT, "triangle-list",
-                         "out", ALPHA_BLEND, True),
-}
-# Generated geometry uses one premultiplied scene target. Preserve every
-# legacy pipeline's blend/depth state for the winding-renderer control path.
-for _name, (_module, _layout_spec, _topology, _target, _blend, _depth) in tuple(PIPELINE_SPECS.items()):
-    if _module in ("surface", "stroke", "dot", "image", "texsurface") and _target == "out":
-        PIPELINE_SPECS[f"generated_{_name}"] = (
-            _module, _layout_spec, _topology, _target, COMPOSITE_BLEND, _depth)
+PIPELINE_SPECS = {}
+for _module, _layout_spec, _topology in (
+    ("stroke", STROKE_LAYOUT, "triangle-strip"),
+    ("surface", SURFACE_LAYOUT, "triangle-list"),
+    ("paint", SURFACE_LAYOUT, "triangle-list"),
+    ("dot", DOT_LAYOUT, "triangle-strip"),
+    ("image", IMAGE_LAYOUT, "triangle-list"),
+    ("texsurface", TEXSURFACE_LAYOUT, "triangle-list"),
+):
+    for _depth in (False, True):
+        PIPELINE_SPECS[f"generated_{_module}" + ("_depth" if _depth else "")] = (
+            _module, _layout_spec, _topology, "out", PREMULTIPLIED_BLEND, _depth)
+
+# An object's fill and hard border share per-sample coverage ownership. Depth
+# objects replay geometry without color writes to preserve nearest depth even
+# where a later border triangle shared a covered fill sample.
+for _name, _spec in tuple(PIPELINE_SPECS.items()):
+    if _spec[0] in ("surface", "paint"):
+        PIPELINE_SPECS[_name + "_coverage"] = _spec
+        if _spec[-1]:
+            PIPELINE_SPECS[_name + "_depth_only"] = _spec
 
 MODULE_SOURCES = {
-    "fill": ("common.wgsl", "fill.wgsl"),
     "stroke": ("common.wgsl", "stroke.wgsl"),
-    "composite": ("composite.wgsl",),
     "surface": ("common.wgsl", "surface.wgsl"),
+    "paint": ("common.wgsl", "paint.wgsl"),
     "dot": ("common.wgsl", "dot.wgsl"),
     "image": ("common.wgsl", "image.wgsl"),
     "texsurface": ("common.wgsl", "texsurface.wgsl"),
+    "resolve2": ("resolve2.wgsl",),
 }
 
 
@@ -221,35 +168,20 @@ class WgpuRenderer:
             for key, sources in MODULE_SOURCES.items()
         }
         self._pipelines = {}  # (name, sample_count) -> pipeline
-        quad = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.float32)
-        self.quad_buffer = self.device.create_buffer_with_data(
-            data=quad.tobytes(), usage=wgpu.BufferUsage.VERTEX)
         self.sampler = self.device.create_sampler(
             mag_filter="linear", min_filter="linear",
             address_mode_u="repeat", address_mode_v="repeat")
         self.texture_cache: dict[str, wgpu.GPUTexture] = {}
-        # Delta-encoding cache: batch content hash -> GPU buffers. A
-        # batch marked "cached" whose hash is absent is a protocol
-        # error here (the browser driver requests a reset instead).
-        self.batch_cache: dict[str, dict] = {}
-        # Generated payloads and senders retain the same active-frame hashes.
-        # Keep these separate from the legacy snapshot-history cache.
+        # Sender and receiver retain exactly the active frame resources.
         self._generated_geometry = {}
         self._generated_uniforms = {}
         self._generated_textures = {}
-        self._fill_targets = {}
-        self._fill_targets_used = set()
+        self._generated_paints = {}
         self._size = None
-
-    def _resources(self, batch, builder):
-        resources = self.batch_cache.get(batch["hash"])
-        if resources is None:
-            if batch.get("cached"):
-                raise KeyError(
-                    f"geometry cache miss for batch {batch['hash']}")
-            resources = builder()
-            self.batch_cache[batch["hash"]] = resources
-        return resources
+        self._spatial_texture = None
+        self._spatial_pipeline = None
+        self._spatial_binding = None
+        self._closed = False
 
     def _pipeline(self, name, samples):
         key = (name, samples)
@@ -263,20 +195,25 @@ class WgpuRenderer:
                     "entry_point": "vs_main", "buffers": layout},
             primitive={"topology": topology},
         )
-        if target == "fill":
-            descriptor["fragment"] = {
-                "module": self._modules[module_key], "entry_point": "fs_main",
-                "targets": [{"format": "rgba16float", "blend": blend}]}
-        else:
-            descriptor["fragment"] = {
-                "module": self._modules[module_key], "entry_point": "fs_main",
-                "targets": [{"format": "rgba8unorm", "blend": blend}]}
-            descriptor["depth_stencil"] = {
-                "format": DEPTH_FORMAT,
-                "depth_write_enabled": depth_test,
-                "depth_compare": "less" if depth_test else "always",
-            }
-            descriptor["multisample"] = {"count": samples}
+        coverage = name.endswith("_coverage")
+        depth_only = name.endswith("_depth_only")
+        descriptor["fragment"] = {
+            "module": self._modules[module_key], "entry_point": "fs_main",
+            "targets": [{"format": "rgba8unorm", "blend": blend,
+                         "write_mask": 0 if depth_only else wgpu.ColorWrite.ALL}]}
+        descriptor["depth_stencil"] = {
+            "format": DEPTH_FORMAT,
+            "depth_write_enabled": depth_test and not coverage,
+            "depth_compare": "less" if depth_test else "always",
+            "stencil_front": {"compare": "not-equal" if coverage else "always",
+                              "fail_op": "keep", "depth_fail_op": "keep",
+                              "pass_op": "replace" if coverage else "keep"},
+            "stencil_back": {"compare": "not-equal" if coverage else "always",
+                             "fail_op": "keep", "depth_fail_op": "keep",
+                             "pass_op": "replace" if coverage else "keep"},
+            "stencil_read_mask": 255, "stencil_write_mask": 255 if coverage else 0,
+        }
+        descriptor["multisample"] = {"count": samples}
         pipeline = self.device.create_render_pipeline(**descriptor)
         self._pipelines[key] = pipeline
         return pipeline
@@ -284,10 +221,12 @@ class WgpuRenderer:
     def _ensure_targets(self, size, samples):
         if self._size == (size, samples):
             return
-        for target in self._fill_targets.values():
-            target["texture"].destroy()
-        self._fill_targets.clear()
-        self._fill_targets_used.clear()
+        for texture in (getattr(self, "out_texture", None), getattr(self, "resolve_texture", None),
+                        getattr(self, "depth_texture", None), self._spatial_texture):
+            if texture is not None:
+                texture.destroy()
+        self._spatial_texture = None
+        self._spatial_binding = None
         self._size = (size, samples)
         device = self.device
         usage = wgpu.TextureUsage.RENDER_ATTACHMENT
@@ -298,49 +237,19 @@ class WgpuRenderer:
                 usage=usage)
             self.resolve_texture = device.create_texture(
                 size=(*size, 1), format="rgba8unorm",
-                usage=usage | wgpu.TextureUsage.COPY_SRC)
+                usage=usage | wgpu.TextureUsage.COPY_SRC | wgpu.TextureUsage.TEXTURE_BINDING)
             self.resolve_view = self.resolve_texture.create_view()
         else:
             self.out_texture = device.create_texture(
                 size=(*size, 1), format="rgba8unorm",
-                usage=usage | wgpu.TextureUsage.COPY_SRC)
+                usage=usage | wgpu.TextureUsage.COPY_SRC | wgpu.TextureUsage.TEXTURE_BINDING)
         self.out_view = self.out_texture.create_view()
         self.depth_texture = device.create_texture(
             size=(*size, 1), format=DEPTH_FORMAT, sample_count=samples,
             usage=wgpu.TextureUsage.RENDER_ATTACHMENT)
         self.depth_view = self.depth_texture.create_view()
 
-    def _fill_target(self, width, height):
-        """Reuse a small winding target; keep its pixels on the 2x grid."""
-        frame_size = self._size[0]
-        bucket = tuple(min(2 * limit, 1 << (2 * extent - 1).bit_length())
-                       for extent, limit in zip((width, height), frame_size))
-        self._fill_targets_used.add(bucket)
-        target = self._fill_targets.get(bucket)
-        if target is None:
-            texture = self.device.create_texture(
-                size=(*bucket, 1), format="rgba16float",
-                usage=wgpu.TextureUsage.RENDER_ATTACHMENT
-                | wgpu.TextureUsage.TEXTURE_BINDING)
-            target = {"texture": texture, "view": texture.create_view(),
-                      "size": bucket}
-            self._fill_targets[bucket] = target
-        return target
-
-    @staticmethod
-    def _fill_rectangle(header, batch):
-        """Optional metadata: older/invalid payloads retain full-frame drawing."""
-        width, height = header["resolution"]
-        rect = batch.get("fill_rect")
-        if (isinstance(rect, (list, tuple)) and len(rect) == 4
-                and all(isinstance(v, int) and not isinstance(v, bool) for v in rect)):
-            x, y, w, h = rect
-            if (0 <= x <= width and 0 <= y <= height
-                    and 0 <= w <= width - x and 0 <= h <= height - y):
-                return rect
-        return (0, 0, width, height)
-
-    def _out_pass(self, encoder, clear_color=None):
+    def _out_pass(self, encoder, clear_color=None, *, clear_stencil=False):
         color = {
             "view": self.out_view,
             "load_op": "clear" if clear_color is not None else "load",
@@ -358,17 +267,9 @@ class WgpuRenderer:
                 else "load",
                 "depth_store_op": "store",
                 "depth_clear_value": 1.0,
+                "stencil_load_op": "clear" if clear_color is not None or clear_stencil else "load",
+                "stencil_store_op": "store", "stencil_clear_value": 0,
             })
-
-    def _uniform_bind_group(self, pipeline, uniforms, border_mode=0.0):
-        buffer = self.device.create_buffer_with_data(
-            data=pack_uniforms(uniforms, border_mode),
-            usage=wgpu.BufferUsage.UNIFORM)
-        return self.device.create_bind_group(
-            layout=pipeline.get_bind_group_layout(0),
-            entries=[{"binding": 0,
-                      "resource": {"buffer": buffer, "offset": 0,
-                                   "size": UNIFORM_BYTES}}])
 
     def _texture_bind_group(self, pipeline, batch):
         hashes = list(batch.get("textures", {}).values())
@@ -383,62 +284,15 @@ class WgpuRenderer:
 
     @staticmethod
     def _batch_pipeline_name(batch):
-        if batch["kind"] == "generated":
-            return "generated_" + batch["pipeline"]
-        base = {"dotcloud": "dot", "image": "image", "surface": "surface",
-                "texsurface": "texsurface"}[batch["kind"]]
-        return base + ("_depth" if batch.get("depth_test") else "")
+        return "generated_" + batch["pipeline"]
 
     def render(self, header: dict, vertex_bytes: bytes) -> Image.Image:
-        if header.get("renderer") == "triangles":
-            return self._render_generated(header, vertex_bytes)
-        size = tuple(header["resolution"])
-        samples = 4 if header.get("samples") else 1
-        self._ensure_targets(size, samples)
-        self._fill_targets_used.clear()
-        device = self.device
-
-        for tex_hash, ref in header.get("texture_data", {}).items():
-            if tex_hash in self.texture_cache:
-                continue
-            image = Image.open(io.BytesIO(vertex_bytes[
-                ref["offset"]:ref["offset"] + ref["nbytes"]])).convert("RGBA")
-            texture = device.create_texture(
-                size=(*image.size, 1), format="rgba8unorm",
-                usage=wgpu.TextureUsage.TEXTURE_BINDING
-                | wgpu.TextureUsage.COPY_DST)
-            device.queue.write_texture(
-                {"texture": texture, "mip_level": 0, "origin": (0, 0, 0)},
-                image.tobytes(),
-                {"offset": 0, "bytes_per_row": image.size[0] * 4,
-                 "rows_per_image": image.size[1]},
-                (*image.size, 1))
-            self.texture_cache[tex_hash] = texture
-
-        encoder = device.create_command_encoder()
-        self._out_pass(encoder, clear_color=header["background"]).end()
-
-        for batch in header["batches"]:
-            if batch["kind"] == "vmobject":
-                self._encode_vmobject(encoder, header, batch, vertex_bytes,
-                                      samples)
-            else:
-                self._encode_plain(encoder, header, batch, vertex_bytes,
-                                   samples)
-
-        device.queue.submit([encoder.finish()])
-        read_texture = self.resolve_texture or self.out_texture
-        raw = device.queue.read_texture(
-            {"texture": read_texture, "mip_level": 0, "origin": (0, 0, 0)},
-            {"offset": 0, "bytes_per_row": size[0] * 4,
-             "rows_per_image": size[1]},
-            (*size, 1))
-        # The readback has completed all commands that could reference these.
-        for key in list(self._fill_targets):
-            if key not in self._fill_targets_used:
-                self._fill_targets.pop(key)["texture"].destroy()
-        # WebGPU framebuffer rows are top-down already — no flip
-        return Image.frombytes("RGBA", size, bytes(raw))
+        """Return final-resolution premultiplied RGBA; Camera owns file conversion."""
+        if getattr(self, "_closed", False):
+            raise RuntimeError("renderer is closed")
+        if header.get("renderer") != "triangles":
+            raise ValueError("native renderer requires generated triangle geometry")
+        return self._render_generated(header, vertex_bytes)
 
     def _generated_resources(self, batch, vertex_bytes):
         layout = (batch["pipeline"], batch["stride"], batch["num_verts"],
@@ -465,12 +319,13 @@ class WgpuRenderer:
         self._generated_geometry[batch["hash"]] = resources
         return resources
 
-    def _encode_generated(self, encoder, header, vertex_bytes, samples):
+    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1):
         """Replay all generated operations into exactly one ordered scene pass."""
         background = np.asarray(header["background"], dtype=float).copy()
         background[:3] *= background[3]
         render_pass = self._out_pass(encoder, clear_color=background)
-        used_geometry, used_uniforms, used_textures = set(), set(), set()
+        used_geometry, used_uniforms, used_textures, used_paints = set(), set(), set(), set()
+        coverage_ref = 0
         for batch in header["batches"]:
             if batch["kind"] != "generated":
                 raise ValueError("triangle frame contains a non-generated operation")
@@ -481,40 +336,70 @@ class WgpuRenderer:
             expected_stride = layout[0]["array_stride"] // (3 if module == "stroke" else 1)
             if batch["stride"] != expected_stride:
                 raise ValueError(f"unexpected vertex layout for {batch['pipeline']}")
-            pipeline = self._pipeline(name, samples)
+            coverage = bool(batch.get("coverage"))
+            if coverage and module not in ("surface", "paint"):
+                raise ValueError("coverage ownership requires surface geometry")
+            if coverage:
+                if coverage_ref == 255:
+                    render_pass.end()
+                    render_pass = self._out_pass(encoder, clear_stencil=True)
+                    coverage_ref = 0
+                coverage_ref += 1
+                render_pass.set_stencil_reference(coverage_ref)
+            names = [name + "_coverage"] if coverage else [name]
+            if coverage and PIPELINE_SPECS[name][-1]:
+                names.append(name + "_depth_only")
             resources = self._generated_resources(batch, vertex_bytes)
             used_geometry.add(batch["hash"])
             uniforms = {**header["camera"], **batch["uniforms"], "premultiplied_output": 1.0}
+            # Preserve authored widths and AA footprint in final-output pixels.
+            # Modify only this packed copy; source/camera metadata stays exact.
+            uniforms["pixel_size"] = uniforms.get("pixel_size", 1.0) / supersample
+            uniforms["anti_alias_width"] = uniforms.get("anti_alias_width", 1.5) * supersample
             packed = pack_uniforms(uniforms, border_mode=uniforms.get("border_mode", 0.0))
-            uniform_key = (name, samples, packed)
-            used_uniforms.add(uniform_key)
-            binding = self._generated_uniforms.get(uniform_key)
-            if binding is None:
-                buffer = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
-                group = self.device.create_bind_group(
-                    layout=pipeline.get_bind_group_layout(0),
-                    entries=[{"binding": 0, "resource": {"buffer": buffer, "size": UNIFORM_BYTES}}])
-                binding = self._generated_uniforms[uniform_key] = (buffer, group)
-            render_pass.set_pipeline(pipeline)
-            render_pass.set_bind_group(0, binding[1])
-            if batch.get("textures"):
-                texture_key = (name, samples, tuple(batch["textures"].items()))
-                used_textures.add(texture_key)
-                if texture_key not in self._generated_textures:
-                    self._generated_textures[texture_key] = self._texture_bind_group(pipeline, batch)
-                render_pass.set_bind_group(1, self._generated_textures[texture_key])
-            render_pass.set_vertex_buffer(0, resources["buffer"])
-            if batch.get("indexed"):
-                render_pass.set_index_buffer(resources["index_buffer"], "uint32")
-                render_pass.draw_indexed(batch["count"], batch["instances"])
-            else:
-                render_pass.draw(batch["count"], batch["instances"])
+            for operation_name in names:
+                pipeline = self._pipeline(operation_name, samples)
+                uniform_key = (operation_name, samples, packed)
+                used_uniforms.add(uniform_key)
+                binding = self._generated_uniforms.get(uniform_key)
+                if binding is None:
+                    buffer = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
+                    group = self.device.create_bind_group(
+                        layout=pipeline.get_bind_group_layout(0),
+                        entries=[{"binding": 0, "resource": {"buffer": buffer, "size": UNIFORM_BYTES}}])
+                    binding = self._generated_uniforms[uniform_key] = (buffer, group)
+                render_pass.set_pipeline(pipeline)
+                render_pass.set_bind_group(0, binding[1])
+                if module == "paint":
+                    packed_paint = np.asarray(batch["paint"], dtype="f4").tobytes()
+                    paint_key = (operation_name, samples, packed_paint)
+                    used_paints.add(paint_key)
+                    material = self._generated_paints.get(paint_key)
+                    if material is None:
+                        buffer = self.device.create_buffer_with_data(data=packed_paint, usage=wgpu.BufferUsage.STORAGE)
+                        group = self.device.create_bind_group(
+                            layout=pipeline.get_bind_group_layout(1),
+                            entries=[{"binding": 0, "resource": {"buffer": buffer, "size": len(packed_paint)}}])
+                        material = self._generated_paints[paint_key] = (buffer, group)
+                    render_pass.set_bind_group(1, material[1])
+                if batch.get("textures"):
+                    texture_key = (operation_name, samples, tuple(batch["textures"].items()))
+                    used_textures.add(texture_key)
+                    if texture_key not in self._generated_textures:
+                        self._generated_textures[texture_key] = self._texture_bind_group(pipeline, batch)
+                    render_pass.set_bind_group(1, self._generated_textures[texture_key])
+                render_pass.set_vertex_buffer(0, resources["buffer"])
+                if batch.get("indexed"):
+                    render_pass.set_index_buffer(resources["index_buffer"], "uint32")
+                    render_pass.draw_indexed(batch["count"], batch["instances"])
+                else:
+                    render_pass.draw(batch["count"], batch["instances"])
         render_pass.end()
-        return used_geometry, used_uniforms, used_textures
+        return used_geometry, used_uniforms, used_textures, used_paints
 
-    def _retire_generated(self, used):
+    def _retire_generated(self, used, texture_hashes):
         """Retire inactive resources only after their last commands are submitted."""
-        used_geometry, used_uniforms, used_textures = used
+        used_geometry, used_uniforms, used_textures, used_paints = used
         for key in self._generated_geometry.keys() - used_geometry:
             resources = self._generated_geometry.pop(key)
             resources["buffer"].destroy()
@@ -524,13 +409,20 @@ class WgpuRenderer:
             self._generated_uniforms.pop(key)[0].destroy()
         for key in self._generated_textures.keys() - used_textures:
             del self._generated_textures[key]
+        for key in self._generated_paints.keys() - used_paints:
+            self._generated_paints.pop(key)[0].destroy()
+        for key in self.texture_cache.keys() - texture_hashes:
+            self.texture_cache.pop(key).destroy()
 
     def _render_generated(self, header, vertex_bytes):
         samples = header.get("samples", 1)
-        if samples not in (1, 4):
+        if isinstance(samples, bool) or samples not in (1, 4):
             raise ValueError("generated sample count must be 1 or 4")
+        supersample = header.get("supersample", 2)
+        if isinstance(supersample, bool) or supersample not in (1, 2):
+            raise ValueError("generated supersample factor must be 1 or 2")
         size = tuple(header["resolution"])
-        self._ensure_targets(size, samples)
+        self._ensure_targets(tuple(value * supersample for value in size), samples)
         device = self.device
         for tex_hash, ref in header.get("texture_data", {}).items():
             if tex_hash in self.texture_cache:
@@ -546,158 +438,77 @@ class WgpuRenderer:
                 (*image.size, 1))
             self.texture_cache[tex_hash] = texture
         encoder = device.create_command_encoder()
-        used = self._encode_generated(encoder, header, vertex_bytes, samples)
+        used = self._encode_generated(encoder, header, vertex_bytes, samples, supersample=supersample)
+        output = self._resolve_generated(encoder, size, supersample)
         device.queue.submit([encoder.finish()])
-        self._retire_generated(used)
+        self._retire_generated(used, {
+            value for batch in header["batches"]
+            for value in batch.get("textures", {}).values()})
         raw = device.queue.read_texture(
-            {"texture": self.resolve_texture or self.out_texture, "origin": (0, 0, 0)},
+            {"texture": output, "origin": (0, 0, 0)},
             {"offset": 0, "bytes_per_row": size[0] * 4, "rows_per_image": size[1]}, (*size, 1))
         return Image.frombytes("RGBA", size, bytes(raw))
 
-    def _encode_plain(self, encoder, header, batch, vertex_bytes, samples):
-        """dotcloud / image / surface / texsurface batches."""
-        name = self._batch_pipeline_name(batch)
-        pipeline = self._pipeline(name, samples)
-        uniforms = {**header["camera"], **batch["uniforms"]}
-
-        def build():
-            start = batch["offset"]
-            return {"buffer": self.device.create_buffer_with_data(
-                data=vertex_bytes[start:start + batch["num_verts"]
-                                  * batch["stride"]],
-                usage=wgpu.BufferUsage.VERTEX)}
-
-        buffer = self._resources(batch, build)["buffer"]
-        render_pass = self._out_pass(encoder)
-        render_pass.set_pipeline(pipeline)
-        render_pass.set_bind_group(
-            0, self._uniform_bind_group(pipeline, uniforms))
-        if batch.get("textures"):
-            render_pass.set_bind_group(
-                1, self._texture_bind_group(pipeline, batch))
-        render_pass.set_vertex_buffer(0, buffer)
-        if batch["kind"] == "dotcloud":
-            render_pass.draw(4, batch["num_verts"])
-        else:
-            render_pass.draw(batch["num_verts"])
+    def _resolve_generated(self, encoder, output_size, supersample):
+        source = self.resolve_texture or self.out_texture
+        if supersample == 1:
+            if self._spatial_texture is not None:
+                self._spatial_texture.destroy()
+                self._spatial_texture = self._spatial_binding = None
+            return source
+        if self._spatial_pipeline is None:
+            module = self._modules["resolve2"]
+            self._spatial_pipeline = self.device.create_render_pipeline(
+                layout="auto", vertex={"module": module, "entry_point": "vs_main"},
+                fragment={"module": module, "entry_point": "fs_main",
+                          "targets": [{"format": "rgba8unorm"}]},
+                primitive={"topology": "triangle-list"})
+        if self._spatial_texture is None:
+            self._spatial_texture = self.device.create_texture(
+                size=(*output_size, 1), format="rgba8unorm",
+                usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC)
+            self._spatial_binding = self.device.create_bind_group(
+                layout=self._spatial_pipeline.get_bind_group_layout(0),
+                entries=[{"binding": 0, "resource": source.create_view()}])
+        render_pass = encoder.begin_render_pass(color_attachments=[{
+            "view": self._spatial_texture.create_view(), "load_op": "clear",
+            "store_op": "store", "clear_value": (0, 0, 0, 0)}])
+        render_pass.set_pipeline(self._spatial_pipeline)
+        render_pass.set_bind_group(0, self._spatial_binding)
+        render_pass.draw(3)
         render_pass.end()
+        return self._spatial_texture
 
-    def _encode_vmobject(self, encoder, header, batch, vertex_bytes, samples):
-        device = self.device
-        uniforms = {**header["camera"], **batch["uniforms"]}
-        instances = batch["num_verts"] // 3
-        stroke_verts = batch.get("stroke_verts", 64)
-        depth = bool(batch.get("depth_test"))
+    def close(self):
+        """Release a completed native renderer; future captures create a new one."""
+        if self._closed:
+            return
+        destroyed = set()
 
-        def build():
-            start = batch["offset"]
-            resources = {"buffer": device.create_buffer_with_data(
-                data=vertex_bytes[start:start + batch["num_verts"]
-                                  * VERTEX_STRIDE],
-                usage=wgpu.BufferUsage.VERTEX)}
-            tri = batch.get("tri")
-            if tri is not None:
-                resources["tri_vbo"] = device.create_buffer_with_data(
-                    data=vertex_bytes[
-                        tri["voffset"]:tri["voffset"] + tri["vcount"] * 40],
-                    usage=wgpu.BufferUsage.VERTEX)
-                resources["tri_ibo"] = device.create_buffer_with_data(
-                    data=vertex_bytes[
-                        tri["ioffset"]:tri["ioffset"] + tri["icount"] * 4],
-                    usage=wgpu.BufferUsage.INDEX)
-                resources["tri_icount"] = tri["icount"]
-            return resources
+        def destroy(resource):
+            if resource is not None and id(resource) not in destroyed:
+                resource.destroy()
+                destroyed.add(id(resource))
 
-        resources = self._resources(batch, build)
-        buffer = resources["buffer"]
+        for resources in self._generated_geometry.values():
+            destroy(resources["buffer"])
+            destroy(resources.get("index_buffer"))
+        for buffer, _ in self._generated_uniforms.values():
+            destroy(buffer)
+        for buffer, _ in self._generated_paints.values():
+            destroy(buffer)
+        for texture in self.texture_cache.values():
+            destroy(texture)
+        for name in ("out_texture", "resolve_texture", "depth_texture", "_spatial_texture"):
+            destroy(getattr(self, name, None))
+        self._generated_geometry.clear()
+        self._generated_uniforms.clear()
+        self._generated_textures.clear()
+        self._generated_paints.clear()
+        self.texture_cache.clear()
+        self._pipelines.clear()
+        self._spatial_binding = self._spatial_pipeline = self._spatial_texture = None
+        self.device.destroy()
+        self._closed = True
 
-        def draw_winding_fill():
-            x, y, width, height = self._fill_rectangle(header, batch)
-            if width == 0 or height == 0:
-                return  # Empty/offscreen fill; ordinary strokes still draw.
-            target = self._fill_target(width, height)
-            frame_width, frame_height = header["resolution"]
-            fill_uniforms = {**uniforms, "clip_transform": (
-                frame_width / width, frame_height / height,
-                (frame_width - 2 * x - width) / width,
-                (2 * y + height - frame_height) / height,
-            )}
-            # Pass A: preserve the existing 2x sample grid in a small target.
-            fill_pipeline = self._pipeline("fill", 1)
-            border_pipeline = self._pipeline("border", 1)
-            fill_pass = encoder.begin_render_pass(color_attachments=[{
-                "view": target["view"], "load_op": "clear",
-                "store_op": "store", "clear_value": (0.0, 0.0, 0.0, 0.0),
-            }])
-            fill_pass.set_viewport(0, 0, 2 * width, 2 * height, 0, 1)
-            fill_pass.set_pipeline(fill_pipeline)
-            fill_pass.set_bind_group(
-                0, self._uniform_bind_group(fill_pipeline, fill_uniforms))
-            fill_pass.set_vertex_buffer(0, buffer)
-            fill_pass.draw(6, instances)
-            fill_pass.set_pipeline(border_pipeline)
-            fill_pass.set_bind_group(
-                0, self._uniform_bind_group(border_pipeline, fill_uniforms,
-                                            border_mode=1.0))
-            fill_pass.set_vertex_buffer(0, buffer)
-            fill_pass.draw(stroke_verts, instances)
-            fill_pass.end()
-            # Pass B: composite onto the scene target
-            composite_pipeline = self._pipeline("composite", samples)
-            out_pass = self._out_pass(encoder)
-            out_pass.set_viewport(x, y, width, height, 0, 1)
-            out_pass.set_scissor_rect(x, y, width, height)
-            out_pass.set_pipeline(composite_pipeline)
-            uv_scale = device.create_buffer_with_data(
-                data=np.array([2 * width / target["size"][0],
-                               2 * height / target["size"][1], 0, 0],
-                              dtype=np.float32).tobytes(),
-                usage=wgpu.BufferUsage.UNIFORM)
-            out_pass.set_bind_group(0, self.device.create_bind_group(
-                layout=composite_pipeline.get_bind_group_layout(0),
-                entries=[
-                    {"binding": 0, "resource": target["view"]},
-                    {"binding": 1, "resource": self.sampler},
-                    {"binding": 2, "resource": {"buffer": uv_scale}},
-                ]))
-            out_pass.set_vertex_buffer(0, self.quad_buffer)
-            out_pass.draw(4)
-            out_pass.end()
-
-        def draw_triangulated_fill():
-            if "tri_vbo" not in resources:
-                return
-            # Depth forced on, as in the native path
-            pipeline = self._pipeline("surface_depth", samples)
-            out_pass = self._out_pass(encoder)
-            out_pass.set_pipeline(pipeline)
-            out_pass.set_bind_group(
-                0, self._uniform_bind_group(pipeline, uniforms))
-            out_pass.set_vertex_buffer(0, resources["tri_vbo"])
-            out_pass.set_index_buffer(resources["tri_ibo"], "uint32")
-            out_pass.draw_indexed(resources["tri_icount"])
-            out_pass.end()
-
-        def draw_fill():
-            if batch.get("fill_mode") == "triangulated":
-                draw_triangulated_fill()
-            else:
-                draw_winding_fill()
-
-        def draw_stroke():
-            pipeline = self._pipeline(
-                "stroke_depth" if depth else "stroke", samples)
-            out_pass = self._out_pass(encoder)
-            out_pass.set_pipeline(pipeline)
-            out_pass.set_bind_group(
-                0, self._uniform_bind_group(pipeline, uniforms))
-            out_pass.set_vertex_buffer(0, buffer)
-            out_pass.draw(stroke_verts, instances)
-            out_pass.end()
-
-        if batch.get("stroke_behind"):
-            draw_stroke()
-            draw_fill()
-        else:
-            draw_fill()
-            draw_stroke()
+    release = close

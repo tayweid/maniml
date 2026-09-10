@@ -10,8 +10,8 @@ from maniml.camera.camera import Camera
 from maniml.camera.camera_frame import CameraFrame
 from maniml.mobject.geometry import Square
 from maniml.mobject.mobject import Group, Point
-from maniml.rendering.shader_wrapper import VShaderWrapper
-from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+from tests.gl_reference_shader_wrapper import VShaderWrapper
+from tests.winding_reference_geometry import GeometryCache, parse_geometry_message, serialize_scene
 
 
 class GeometryMeshCache(unittest.TestCase):

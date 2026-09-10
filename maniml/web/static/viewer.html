@@ -150,6 +150,11 @@
     box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035); }
   body.playback #playback-video { display: block; }
   body.playback #view { display: none !important; }
+  #render-error { position: absolute; max-width: 520px; margin: 24px;
+    padding: 18px 22px; border: 1px solid var(--warn); border-radius: 10px;
+    background: var(--glass-solid); color: var(--text); z-index: 2; }
+  #render-error[hidden] { display: none; }
+  body.render-error #view { opacity: .25; }
   /* No WebGPU: the stage says so instead of showing an empty canvas */
   #gpu-unsupported { display: none; max-width: 430px; padding: 24px 25px 22px;
     border: 1px solid var(--line-strong); border-radius: 15px;
@@ -271,7 +276,9 @@
   #export-pod.working .export-icon.running { color: var(--warn); opacity: 1; }
   #export-pod.success .export-icon.running { color: var(--good); opacity: 1; }
   #export-pod.failed .export-icon.running { color: var(--bad); opacity: 1; }
-  #renderer-name { padding: 0 5px 0 8px; color: var(--dim); font-size: 11px; }
+  #renderer-select { margin: 0 5px; padding: 4px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    font: inherit; font-size: 11px; }
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
     color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
@@ -396,6 +403,7 @@
 <body class="disconnected">
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
+  <div id="render-error" role="alert" hidden></div>
   <div id="gpu-unsupported" role="alert">
     <h2>This viewer needs WebGPU</h2>
     <p>maniml renders the scene in your browser with WebGPU, and this
@@ -450,7 +458,10 @@
     </span>
 
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
-      <span id="renderer-name">WebGPU</span>
+      <select id="renderer-select" aria-label="Scene renderer">
+        <option value="triangles" selected>Phase A</option>
+        <option value="winding">Original 2D</option>
+      </select>
       <span id="glwarn"></span>
     </span>
 
@@ -511,6 +522,8 @@
   </div>
 </div>
 <script src="webgpu.js"></script>
+<script src="winding_webgpu.js"></script>
+<script src="renderer_selection.js"></script>
 <script src="presentation.js"></script>
 <script src="rail.js"></script>
 <script>
@@ -706,9 +719,12 @@ function present() {
 }
 
 async function handleFrame(blob) {
+  const generation = rendererSession.generation;
   const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
   if (head !== 3) return;
-  geometryQueue.push(await blob.arrayBuffer());
+  const buffer = await blob.arrayBuffer();
+  if (generation !== rendererSession.generation) return;
+  geometryQueue.push(buffer);
   schedulePresent();
 }
 
@@ -716,33 +732,34 @@ async function handleFrame(blob) {
 //    payloads with WebGPU. There is no server-side picture: a browser
 //    without WebGPU gets the notice on the stage and nothing else. --
 const glWarn = document.getElementById("glwarn");
-let gpuReady = false;      // ManimlWGPU.init(canvas) succeeded
-let gpuStarting = null;    // the in-flight init, so reconnects share it
-
-// Tell the engine whether there is a renderer to draw for. With one, it
-// streams geometry and skips native capture; without, only state and
-// console output flow. The snapshot request paints the current frame
-// straight away rather than on the next change.
-function sendRendererMode() {
-  send({ type: "mode", geometry: gpuReady });
-  if (gpuReady) send({ type: "geometry_request" });
+const rendererSelect = document.getElementById("renderer-select");
+const rendererOrigin = crypto.randomUUID();
+const rendererSession = new ManimlRendererSelection(canvas, {
+  triangles: ManimlWGPU, winding: ManimlWindingWGPU,
+});
+for (const driver of Object.values(rendererSession.drivers)) {
+  driver.onCacheMiss = () => send({ type: "geometry_reset" });
 }
 
-async function startRenderer() {
-  if (gpuReady) { sendRendererMode(); return true; }
-  if (!gpuStarting) {
-    gpuStarting = (async () => {
-      await ManimlWGPU.init(canvas);
-      // Evicted a batch the server still considers sent: ask for a
-      // full resend on the next payload
-      ManimlWGPU.onCacheMiss = () => send({ type: "geometry_reset" });
-      gpuReady = true;
-    })();
+function sendRendererMode() {
+  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback",
+         renderer: rendererSession.mode, renderer_origin: rendererOrigin });
+  if (rendererSession.ready && stageSource !== "playback") send({ type: "geometry_request" });
+}
+
+async function startRenderer(mode = rendererSession.mode, announce = true) {
+  const changed = mode !== rendererSession.mode;
+  if (changed) {
+    geometryQueue = [];
+    if (announce) send({ type: "mode", geometry: false, renderer: mode, renderer_origin: rendererOrigin });
   }
+  rendererSelect.value = mode;
+  const starting = rendererSession.select(mode);
+  const generation = rendererSession.generation;
   try {
-    await gpuStarting;
+    if (!await starting) return false;
   } catch (err) {
-    gpuStarting = null;
+    if (generation !== rendererSession.generation) return false;
     document.body.classList.add("nogpu");
     document.getElementById("gpu-unsupported-detail").textContent =
       "WebGPU error: " + err.message;
@@ -752,19 +769,32 @@ async function startRenderer() {
     return false;
   }
   document.body.classList.remove("nogpu");
+  glWarn.textContent = "";
+  glWarn.classList.remove("on");
   sendRendererMode();
   return true;
 }
+rendererSelect.onchange = () => {
+  // Compare the live scene at the recorded checkpoint being viewed.
+  if (stageSource === "playback") exitPlayback({ endPresentation: true });
+  void startRenderer(rendererSelect.value);
+};
 
-let renderChain = Promise.resolve();
+function setRenderError(error) {
+  const box = document.getElementById("render-error");
+  if (error) {
+    geometryQueue = [];
+    if (rendererSession.ready) rendererSession.invalidate();
+    box.textContent = "Frame could not be rendered: " + error.message;
+  }
+  box.hidden = !error;
+  document.body.classList.toggle("render-error", !!error);
+}
+
 function handleGeometry(arrayBuffer) {
-  if (!gpuReady) return;
-  // Chain renders: texture decodes are async, and messages must apply
-  // in arrival order
-  renderChain = renderChain.then(async () => {
-    const header = await ManimlWGPU.render(arrayBuffer);
-    // Content the serializer cannot express is simply absent from the
-    // picture, with nothing behind it: say so in the bar
+  rendererSession.render(arrayBuffer).then((header) => {
+    if (!header) return;
+    setRenderError(null);
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";
     glWarn.classList.toggle("on", header.unsupported.length > 0);
@@ -773,8 +803,20 @@ function handleGeometry(arrayBuffer) {
 
 // -- Scene state and the pausepoint timeline --
 function handleMessage(data) {
-  if (data.type === "state") {
+  if (data.type === "render_error") {
+    setRenderError(data.error);
+  }
+  else if (data.type === "renderer") {
+    // Local selection already took effect; delayed acknowledgments must
+    // not undo a second quick selection in this tab.
+    if (data.origin !== rendererOrigin &&
+        (data.renderer === "triangles" || data.renderer === "winding")) {
+      void startRenderer(data.renderer, false);
+    }
+  }
+  else if (data.type === "state") {
     lastLiveState = data;
+    if (data.render_error) setRenderError(data.render_error);
     // During playback the recording owns the presenter; the engine's
     // states keep the badges fresh but never touch the rail.
     if (stageSource !== "playback") {

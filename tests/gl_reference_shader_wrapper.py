@@ -1,3 +1,4 @@
+"""Frozen native GL wrappers used only by the historical rendering oracle."""
 from __future__ import annotations
 
 import os
@@ -9,10 +10,10 @@ import numpy as np
 from functools import lru_cache
 
 from maniml.config import manim_config
-from maniml.utils.shaders import get_shader_code_from_file
-from maniml.utils.shaders import get_shader_program
-from maniml.utils.shaders import image_path_to_texture
-from maniml.utils.shaders import set_program_uniform
+from tests.gl_reference_shaders import get_shader_code_from_file
+from tests.gl_reference_shaders import get_shader_program
+from tests.gl_reference_shaders import image_path_to_texture
+from tests.gl_reference_shaders import set_program_uniform
 
 from typing import TYPE_CHECKING
 
@@ -518,7 +519,7 @@ class VShaderWrapper(ShaderWrapper):
         # Get or create surface shader program
         if not hasattr(self, '_surface_program'):
             # Load surface shader
-            from maniml.utils.shaders import get_shader_code_from_file
+            from tests.gl_reference_shaders import get_shader_code_from_file
             vertex_shader = get_shader_code_from_file(
                 os.path.join("surface", "vert.glsl")
             )
@@ -560,7 +561,7 @@ class VShaderWrapper(ShaderWrapper):
                 break
         
         # Also set mobject uniforms
-        from maniml.utils.shaders import set_program_uniform
+        from tests.gl_reference_shaders import set_program_uniform
         for name, value in self.mobject_uniforms.items():
             set_program_uniform(self._surface_program, name, value)
         

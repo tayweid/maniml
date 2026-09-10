@@ -97,80 +97,82 @@ class GeneratedGeometryWire(unittest.TestCase):
                     encode([draw, invalid], cache)
                 self.assertEqual(cache.sent, {"previous"})
 
+    def test_shared_camera_values_accept_numpy_and_nested_sequences(self):
+        camera = {"view": np.eye(4), "light_position": np.array([1., 2., 3.])}
+        for view in (np.eye(4), np.eye(4).tolist(), list(np.eye(4))):
+            draw = replace(quad(), uniforms={"view": view,
+                "light_position": (1., 2., 3.), "shading": np.array([.2, .3, .4])})
+            header, _ = parse_geometry_message(serialize_generated_frame(
+                TriangleFrame((32, 16), (0, 0, 0, 0), 4, [draw]), camera))
+            self.assertEqual(header["batches"][0]["uniforms"], {"shading": [.2, .3, .4]})
+        draw.uniforms["view"] = np.eye(4) * 2
+        header, _ = parse_geometry_message(serialize_generated_frame(
+            TriangleFrame((32, 16), (0, 0, 0, 0), 4, [draw]), camera))
+        self.assertEqual(header["batches"][0]["uniforms"]["view"], (np.eye(4) * 2).tolist())
+
     def test_empty_operations_do_not_create_zero_byte_gpu_buffers(self):
         header, raw = parse_geometry_message(encode([replace(quad(), count=0)]))
         self.assertEqual(header["batches"], [])
         self.assertEqual(raw, b"")
 
-    def test_selector_validates_and_resets_transport_state(self):
+    def test_immutable_mesh_digest_is_reused_and_absent_entries_retire(self):
+        from maniml.web.triangle_scene import _readonly
+        draw, cache = quad(), GeometryCache()
+        draw = replace(draw, vertices=_readonly(draw.vertices), indices=_readonly(draw.indices))
+        first = encode([draw], cache)
+        with patch("maniml.web.generated_geometry.hashlib.blake2b", side_effect=AssertionError("rehashed frozen mesh")):
+            header, raw = parse_geometry_message(encode([draw], cache))
+        self.assertTrue(header["batches"][0]["cached"])
+        self.assertEqual(raw, b"")
+        self.assertEqual(len(cache.generated_payloads), 1)
+        encode([], cache)
+        self.assertEqual(cache.generated_payloads, {})
+        self.assertEqual(encode([draw], cache), first)
+
+    def test_readonly_owned_arrays_cannot_be_trusted_as_immutable(self):
+        draw, cache = quad(), GeometryCache()
+        draw.vertices.setflags(write=False)
+        before, _ = parse_geometry_message(encode([draw], cache))
+        self.assertEqual(cache.generated_payloads, {})
+        draw.vertices.setflags(write=True)
+        draw.vertices["point"][0, 0] += .125
+        after, raw = parse_geometry_message(encode([draw], cache))
+        self.assertNotEqual(before["batches"][0]["hash"], after["batches"][0]["hash"])
+        self.assertTrue(raw)
+
+    def test_shared_renderer_is_default_and_switches_reset_transport_state(self):
         cache = GeometryCache()
         cache.sent.add("stale")
-        with patch.dict(os.environ, {"MANIML_RENDERER": "triangles"}), \
+        with patch.dict(os.environ, {}, clear=True), \
                 patch("maniml.web.geometry._serialize_triangle_scene", return_value=b"frame") as generate:
             self.assertEqual(serialize_scene(object(), cache), b"frame")
             generate.assert_called_once()
-        self.assertEqual(cache.renderer, "triangles")
         self.assertEqual(cache.sent, set())
+        self.assertEqual(cache.renderer, "triangles")
         with self.assertRaisesRegex(ValueError, "MANIML_RENDERER"):
             serialize_scene(object(), renderer="typo")
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is required for recording replay")
 class RecordedGeometryReplay(unittest.TestCase):
-    def test_player_seek_recovers_after_render_rejection(self):
-        # Execute the real player and its key handler: a rejected texture/frame
-        # render must reach that caller without poisoning subsequent seeks.
-        module = Path(__file__).parents[1] / "maniml/web/static/player.js"
-        script = r"""
-          const assert = require('node:assert/strict');
-          const fs = require('node:fs'), vm = require('node:vm');
-          (async () => {
-            const elements = new Map(), listeners = new Map(), rendered = [];
-            function element() {
-              return {replaceChildren() {}, appendChild() {}};
-            }
-            let failNext = false;
-            const meta = {format_version: 2, scene: 'recovery', fps: 30,
-                          frames: [{len: 1, segment: 0}], segments: 1, lines: [1]};
-            const context = {
-              console,
-              document: {
-                getElementById(id) {
-                  if (!elements.has(id)) elements.set(id, element());
-                  return elements.get(id);
-                },
-                createElement: element,
-                addEventListener(name, handler) { listeners.set(name, handler); },
-              },
-              fetch: async path => path === 'scene.json'
-                ? {json: async () => meta} : {body: {pipeThrough: value => value}},
-              DecompressionStream: class {},
-              Response: class {async arrayBuffer() { return new Uint8Array([3]).buffer; }},
-              setInterval: () => 1, clearInterval() {},
-              ManimlRecording: {index: () => ({frame: index => index})},
-              ManimlWGPU: {
-                init: async () => {},
-                async render(frame) {
-                  rendered.push(frame);
-                  if (failNext) { failNext = false; throw new Error('texture decode failed'); }
-                },
-              },
-            };
-            await vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
-            assert.deepEqual(rendered, [0]);
-            const seek = () => listeners.get('keydown')({
-              key: 'ArrowLeft', shiftKey: true, preventDefault() {},
-            });
-            failNext = true;
-            await assert.rejects(seek(), /texture decode failed/);
-            await seek();
-            assert.deepEqual(rendered, [0, 0, 0]);
-            process.stdout.write('player recovered');
-          })().catch(error => { console.error(error); process.exitCode = 1; });
-        """
-        result = subprocess.run([shutil.which("node"), "-e", script, str(module)],
-                                capture_output=True, text=True, timeout=20, check=True)
-        self.assertEqual(result.stdout, "player recovered")
+    def run_player(self, mode):
+        harness = Path(__file__).with_name("player_commands.cjs")
+        result = subprocess.run([shutil.which("node"), str(harness), mode],
+                                input=base64.b64encode(encode([quad()])).decode(),
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_player_seek_and_playback_recover_without_unhandled_rejections(self):
+        self.run_player("recovery")
+
+    def test_segment_selection_displays_first_frame_and_single_frame_segments(self):
+        self.run_player("segments")
+
+    def test_player_chooses_renderer_from_headers_across_recording_formats(self):
+        self.run_player("formats")
+
+    def test_corrupt_recording_reports_error_before_initializing_a_renderer(self):
+        self.run_player("corrupt")
 
     def test_reverse_seek_reconstructs_indices_after_geometry_was_retired(self):
         draw, cache = quad(), GeometryCache()

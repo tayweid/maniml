@@ -61,7 +61,7 @@ class TriangleRendererGPU(unittest.TestCase):
     def test_gpu_box_resolve_matches_four_texel_average(self):
         from benchmarks.triangle_renderer import TrianglePrototype
         from benchmarks.triangle_scene import TriangleDraw, TriangleFrame
-        from maniml.web.geometry import SURFACE_DTYPE
+        from tests.winding_reference_geometry import SURFACE_DTYPE
         from tests.renderer_fixtures import build_scene
 
         scene = build_scene(resolution=(64, 36))
@@ -89,8 +89,8 @@ class TriangleRendererGPU(unittest.TestCase):
 
     def test_ordered_output_preserves_all_fixture_pixels(self):
         from benchmarks.ordered_output import OrderedOutputControl
-        from maniml.web.geometry import parse_geometry_message, serialize_scene
-        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.winding_reference_geometry import parse_geometry_message, serialize_scene
+        from tests.winding_reference_renderer import WgpuRenderer
         from tests.renderer_fixtures import renderer_cases
 
         current, ordered = WgpuRenderer(), OrderedOutputControl()

@@ -15,8 +15,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from maniml import Square, VGroup
-from maniml.web.geometry import parse_geometry_message, serialize_scene
-from maniml.web.wgpu_renderer import WgpuRenderer
+from tests.winding_reference_geometry import parse_geometry_message, serialize_scene
+from tests.winding_reference_renderer import WgpuRenderer
 from tests.test_fill_bounds import _wordmark
 
 

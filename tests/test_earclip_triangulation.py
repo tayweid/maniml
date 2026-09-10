@@ -8,7 +8,7 @@ import numpy as np
 from maniml.mobject.geometry import Polygon, Square
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.types.vmobject_3d import VMobject3D
-from maniml.rendering.shader_wrapper import VShaderWrapper
+from tests.gl_reference_shader_wrapper import VShaderWrapper
 from maniml.utils.space_ops import earclip_triangulation
 
 

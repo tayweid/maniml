@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "maniml"
 version = "0.0.1"
-description = "Animation engine for explanatory math videos with OpenGL renderer"
+description = "Animation engine for explanatory math videos with a shared WebGPU renderer"
 readme = "README.md"
 authors = [
     {name = "maniml Contributors"},
@@ -33,7 +33,6 @@ requires-python = ">=3.11"
 dependencies = [
     "audioop-lts>=0.2.1; python_version >= '3.13'",
     "numpy>=1.19.0",
-    "moderngl>=5.6.0",
     "pillow>=8.0.0",
     "pydub>=0.25.1",
     "scipy>=1.5.0",
@@ -41,7 +40,6 @@ dependencies = [
     "pygments>=2.6.0",
     "PyYAML>=5.3.0",
     "addict>=2.4.0",
-    "PyOpenGL>=3.1.0",
     "validators>=0.18.0",
     "screeninfo>=0.6.0",
     "appdirs>=1.4.0",
@@ -55,17 +53,18 @@ dependencies = [
     "websockets>=13.0",
     "rich>=13.0.0",
     "fonttools>=4.0.0",
-]
-
-[project.optional-dependencies]
-# The wgpu-py reference renderer (tests / future native backend);
-# the browser's WebGPU needs nothing installed
-webgpu = [
     "wgpu>=0.32",
 ]
 
+[project.optional-dependencies]
+# Retain the old install extra as an alias; native WebGPU is now required.
+webgpu = []
+
 [dependency-groups]
 dev = [
+    # Independent historical GL visual oracle; never a runtime dependency.
+    "moderngl>=5.6.0",
+    "PyOpenGL>=3.1.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "black>=24.0.0",
@@ -102,14 +101,13 @@ debug = false
 [tool.setuptools.package-data]
 maniml = [
     "*.yml",
-    "rendering/shaders/*.glsl",
-    "rendering/shaders/**/*.glsl",
     "web/static/*.html",
     "web/static/*.css",
     "web/static/*.js",
     "web/static/*.webmanifest",
     "web/static/icons/*",
     "web/static/wgsl/*",
+    "web/static/winding_wgsl/*",
 ]
 
 [tool.black]

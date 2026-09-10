@@ -43,17 +43,21 @@ class AppShellE2E(unittest.TestCase):
             f.write(SCENE_SOURCE)
 
         cls.proc = subprocess.Popen(
-            [sys.executable, "-m", "maniml", "app", cls.tmpdir.name,
-             "--no-browser"],
+            # This suite owns its server and root. The interactive CLI may
+            # intentionally hand off to the user's engine on port 8685.
+            [sys.executable, "-c",
+             "import sys; from maniml.web.cli import run_app; "
+             "run_app(sys.argv[1], open_browser=False, port=0)", cls.tmpdir.name],
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
                  "PYTHONUNBUFFERED": "1",
                  "MANIML_RECENTS_PATH": os.path.join(
                      cls.tmpdir.name, "recents.json")},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         cls.lines = []
-        threading.Thread(
+        cls._reader = threading.Thread(
             target=lambda: [cls.lines.append(l) for l in cls.proc.stdout],
-            daemon=True).start()
+            daemon=True)
+        cls._reader.start()
 
         deadline = time.time() + 15
         cls.url = None
@@ -77,6 +81,9 @@ class AppShellE2E(unittest.TestCase):
             cls.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             cls.proc.kill()
+            cls.proc.wait(timeout=5)
+        cls._reader.join(timeout=5)
+        cls.proc.stdout.close()
         cls.tmpdir.cleanup()
         cls.outside_tmpdir.cleanup()
 
@@ -134,6 +141,8 @@ class AppShellE2E(unittest.TestCase):
                 max_size=2**24, origin=self.url.rstrip("/")) as ws:
             ready = json.loads(ws.recv(timeout=10))
             self.assertEqual(ready["type"], "ready")
+            # Geometry is sent only after the browser announces a renderer.
+            ws.send(json.dumps({"type": "mode", "geometry": True, "renderer": "triangles"}))
             deadline = time.time() + 10
             got_frame = False
             while time.time() < deadline and not got_frame:

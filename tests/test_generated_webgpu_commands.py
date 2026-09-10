@@ -22,8 +22,20 @@ class GeneratedWebGPUCommands(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_both_runtime_drivers_drain_pending_decode_destroy_and_reinitialize(self):
+        self.run_case("lifecycle")
+
+    def test_sample_coverage_depth_replay_and_stencil_reference_rollover(self):
+        self.run_case("coverage")
+
     def test_one_pass_preserves_order_depth_alpha_and_exact_sample_count(self):
         self.run_case("ordering")
+
+    def test_spatial_resolve_uses_internal_pixels_and_preserves_final_size_and_uniforms(self):
+        self.run_case("supersample")
+
+    def test_paint_storage_updates_independently_of_retained_geometry(self):
+        self.run_case("paint")
 
     def test_geometry_and_distinct_uniform_bindings_reuse_across_frames(self):
         self.run_case("reuse")
@@ -34,7 +46,7 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_texture_bindings_reuse_and_missing_texture_requests_resend(self):
         self.run_case("textures")
 
-    def test_legacy_and_generated_resources_remain_independent(self):
+    def test_legacy_wire_is_rejected_and_render_queue_recovers(self):
         self.run_case("modes")
 
     def test_overlapping_texture_decode_and_resize_preserve_frame_order(self):

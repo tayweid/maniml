@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import moderngl
 from PIL import Image
 
 from maniml.constants import DL, DR, UL, UR
@@ -25,7 +24,7 @@ class ImageMobject(Mobject):
         ('im_coords', np.float32, (2,)),
         ('opacity', np.float32, (1,)),
     ]
-    render_primitive: int = moderngl.TRIANGLES
+    render_primitive: int = 4
 
     def __init__(
         self,
@@ -35,7 +34,10 @@ class ImageMobject(Mobject):
     ):
         self._height = height
         self.image_path = get_full_raster_image_path(filename)
-        self.image = Image.open(self.image_path)
+        # Pillow opens filenames lazily. Keep pixels for point_to_rgb without
+        # retaining the file descriptor for this mobject's entire lifetime.
+        with Image.open(self.image_path) as image:
+            self.image = image.copy()
         super().__init__(texture_paths={"Texture": self.image_path}, **kwargs)
 
     def init_data(self) -> None:

@@ -1,0 +1,25 @@
+{
+  "policy": {
+    "samples": 4,
+    "supersample": 2
+  },
+  "source_contract_preserved": true,
+  "regions": {
+    "interior_left": {
+      "max_change_when_border_enabled": 0.0,
+      "max_rgb_error_255": 0.40000010132791886,
+      "alpha_min_max": [
+        255.0,
+        255.0
+      ]
+    },
+    "interior_right": {
+      "max_change_when_border_enabled": 0.0,
+      "max_rgb_error_255": 0.2000001251697654,
+      "alpha_min_max": [
+        255.0,
+        255.0
+      ]
+    }
+  }
+}

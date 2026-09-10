@@ -1,0 +1,248 @@
+{
+  "selected_policy": {
+    "supersample": 2,
+    "samples": 4
+  },
+  "production_default_legacy_rgb_threshold": "all five fixtures pass",
+  "known_legacy_pixel_departure": "Border-free zoomed text fails the old full-frame sample-grid threshold (0.8829% pixels over24 vs0.5% limit); the generated16x coverage reference instead favors2x+4. This is explicit sampling departure, not byte-identical legacy parity.",
+  "coverage_reference_scope": "16x reference reuses the same generated mesh/paint, so it validates sampling only. Exact triangle area control is independent of the renderer.",
+  "visual_inspection": "Default normal and zoomed TeX preserve glyphs and counters. Edges are smooth; normal text differs subtly in edge weight from the GL golden. Wide translucent border has no dark opacity ring. Affine/nonlinear gradient images are continuous and the light/shadow probes respond correctly.",
+  "border_contract": "Manim variable widths/joints/partial sentinels generate hard border triangles. Per-sample stencil ownership paints fill first and border outside its owned samples; depth-only replay retains the closest actual world depth. No CPU border union is used.",
+  "nonplanar_contract": "An ordinary nonplanar VMobject outline is explicitly rejected because it lacks a defined interior. Explicit Surface/VMobject3D geometry remains supported with world z and source bytes preserved.",
+  "production_metrics": {
+    "tex_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.13750128600823044,
+        "fraction_rgb_over_24": 0.0021334876543209875,
+        "max_rgba_difference": 113.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "paragraph": {
+          "mean_rgb_difference": 3.850439276485788,
+          "fraction_rgb_over_24": 0.060852713178294576,
+          "max_rgba_difference": 113.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "small_math": {
+          "mean_rgb_difference": 1.7271419437340154,
+          "fraction_rgb_over_24": 0.02565537084398977,
+          "max_rgba_difference": 99.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "geometry": {
+        "draws": 101,
+        "array_bytes": 1239760,
+        "retained_cpu_bytes": 2399056
+      }
+    },
+    "tex_zoom_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.18433963477366255,
+        "fraction_rgb_over_24": 0.0011246141975308642,
+        "max_rgba_difference": 123.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "paragraph": {
+          "mean_rgb_difference": 1.441062324568941,
+          "fraction_rgb_over_24": 0.009602165320501805,
+          "max_rgba_difference": 123.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "small_math": {
+          "mean_rgb_difference": 0.6425101153678384,
+          "fraction_rgb_over_24": 0.0030684535896394567,
+          "max_rgba_difference": 87.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "geometry": {
+        "draws": 101,
+        "array_bytes": 1607652,
+        "retained_cpu_bytes": 2823056
+      }
+    },
+    "hairlines_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.05621463477366255,
+        "fraction_rgb_over_24": 0.0005825617283950617,
+        "max_rgba_difference": 102.0,
+        "mean_alpha_difference": 0.13488811728395061,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "thin_strokes": {
+          "mean_rgb_difference": 0.5693324095610433,
+          "fraction_rgb_over_24": 0.004453902113129114,
+          "max_rgba_difference": 64.0,
+          "mean_alpha_difference": 1.7302419953481467,
+          "scope": "region"
+        },
+        "hole_0": {
+          "mean_rgb_difference": 2.583904892546868,
+          "fraction_rgb_over_24": 0.05212620027434842,
+          "max_rgba_difference": 102.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "hole_1": {
+          "mean_rgb_difference": 3.056030389363723,
+          "fraction_rgb_over_24": 0.05982905982905983,
+          "max_rgba_difference": 88.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "hole_2": {
+          "mean_rgb_difference": 2.8856881572930955,
+          "fraction_rgb_over_24": 0.05761316872427984,
+          "max_rgba_difference": 88.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "geometry": {
+        "draws": 2,
+        "array_bytes": 7048,
+        "retained_cpu_bytes": 12772
+      }
+    },
+    "perspective_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.031884002057613166,
+        "fraction_rgb_over_24": 0.00032407407407407406,
+        "max_rgba_difference": 88.0,
+        "mean_alpha_difference": 0.09231481481481481,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "far": {
+          "mean_rgb_difference": 0.9160822814399252,
+          "fraction_rgb_over_24": 0.011044880785413744,
+          "max_rgba_difference": 64.0,
+          "mean_alpha_difference": 2.167251051893408,
+          "scope": "region"
+        },
+        "near": {
+          "mean_rgb_difference": 0.6612466124661247,
+          "fraction_rgb_over_24": 0.005420054200542005,
+          "max_rgba_difference": 64.0,
+          "mean_alpha_difference": 2.3272106795142027,
+          "scope": "region"
+        },
+        "tilted": {
+          "mean_rgb_difference": 1.1406224802451217,
+          "fraction_rgb_over_24": 0.012336719883889695,
+          "max_rgba_difference": 88.0,
+          "mean_alpha_difference": 2.977261731978713,
+          "scope": "region"
+        }
+      },
+      "geometry": {
+        "draws": 12,
+        "array_bytes": 116924,
+        "retained_cpu_bytes": 181600
+      }
+    },
+    "border_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.08555362654320987,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 9.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "border_arc_left": {
+          "mean_rgb_difference": 0.924396681749623,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 9.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "border_arc_right": {
+          "mean_rgb_difference": 1.0480769230769231,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 8.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "interior_left": {
+          "mean_rgb_difference": 0.3333333333333333,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 1.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "interior_right": {
+          "mean_rgb_difference": 0.6666666666666666,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 1.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "outside_right": {
+          "mean_rgb_difference": 1.3333333333333333,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 2.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "geometry": {
+        "draws": 2,
+        "array_bytes": 37516,
+        "retained_cpu_bytes": 46708
+      }
+    }
+  },
+  "nonplanar_probe": {
+    "saddle_corners": [
+      [
+        -1,
+        -1,
+        0
+      ],
+      [
+        1,
+        -1,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        -1,
+        1,
+        0
+      ]
+    ],
+    "probe_xy": [
+      0.1,
+      0
+    ],
+    "VMobject3D_resolution12_world_z": 0.25000000609592954,
+    "old_first_anchor_fan_world_z": 0.5
+  },
+  "reproduce": [
+    "python -m benchmarks.renderer_aa --output /private/tmp/maniml-phase-a-quality --samples 1",
+    "python -m benchmarks.renderer_paint --output /private/tmp/maniml-phase-a-paint"
+  ],
+  "raw_quality_report_sha256": "2d7f9db6688d8c46e4f95f1ada4d12f58e2e5b2c462dba247b57572a3fb65d37",
+  "paint_execution_provenance": "Executed /private/tmp/maniml-phase-a-paint-probes.py; benchmark renderer_paint.py packages the same probe logic under a main() CLI wrapper after that successful run.",
+  "paint_executed_script_sha256": "b581af65a6ed527fc95dd869a345c1d184af3498bda12918a37963b1bfb929d2"
+}

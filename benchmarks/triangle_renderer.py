@@ -24,9 +24,9 @@ import wgpu
 from wgpu.backends import wgpu_native
 
 from benchmarks.triangle_scene import prepare_triangle_frame
-from maniml.web.geometry import parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import GENERATOR_ID, LyonFillTessellator
-from maniml.web.wgpu_renderer import (
+from tests.winding_reference_renderer import (
     COMPOSITE_BLEND, DEPTH_FORMAT, MODULE_SOURCES, PIPELINE_SPECS,
     UNIFORM_BYTES, WgpuRenderer, load_wgsl, pack_uniforms,
 )

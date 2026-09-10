@@ -1,0 +1,88 @@
+{
+  "scope": "The grouped vector emitter and canonical source cache are compared with the scalar emitter used for the accepted GPU quality run on the exact source records and uniforms of all 10 fixtures. Comparisons include expanded source data, subdivision counts, float32 positions and lighting-normal endpoints consumed by the GPU.",
+  "cases": {
+    "tex_normal_production_default": {
+      "objects": 101,
+      "triangles": 7686,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "tex_normal_zero_for_aa": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "tex_zoom_production_default": {
+      "objects": 101,
+      "triangles": 10048,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "tex_zoom_zero_for_aa": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "hairlines_normal_production_default": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "hairlines_normal_zero_for_aa": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "perspective_normal_production_default": {
+      "objects": 6,
+      "triangles": 630,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "perspective_normal_zero_for_aa": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "border_normal_production_default": {
+      "objects": 1,
+      "triangles": 256,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    },
+    "border_normal_zero_for_aa": {
+      "objects": 0,
+      "triangles": 0,
+      "different_position_components": 0,
+      "different_normal_point_components": 0,
+      "maximum_world_position_difference": 0,
+      "source_and_count_differences": 0
+    }
+  },
+  "scalar_source_sha256": "6f012de51b301c6c23c0dff7871f50115b609f5a0cde2e3a4ed44dae3eada998",
+  "vector_source_sha256": "092fd8e28e034c049a1f4cad16ca2ab682e28e4bee5862cf8c45f4ae5a4955a6",
+  "passed": true
+}

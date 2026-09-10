@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import importlib.util
+import io
 import os
 from types import SimpleNamespace
 import tempfile
@@ -27,12 +28,18 @@ def _draw(color=(1, 0, 0, .5), *, pipeline="surface", indexed=True, uniforms=Non
                            count=6, instances=1, uniforms={} if uniforms is None else uniforms)
 
 
-def _message(*draws, samples=1, cache=None, background=(0, 0, 0, 0)):
+def _constant_paint(color):
+    return [0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, *color, *([0] * 8)]
+
+
+def _message(*draws, samples=1, cache=None, background=(0, 0, 0, 0), supersample=1):
     scene = build_scene(resolution=(64, 36))
     scene.camera.refresh_uniforms()
     frame = SimpleNamespace(draws=draws, resolution=(64, 36), samples=samples,
                             background=background, limitations=[])
-    return parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, cache))
+    header, raw = parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, cache))
+    header["supersample"] = supersample
+    return header, raw
 
 
 class _Buffer:
@@ -72,6 +79,7 @@ class _Device:
     def __init__(self):
         self.events, self.buffers = [], []
         self.queue = SimpleNamespace(
+            write_texture=Mock(),
             submit=lambda commands: self.events.append(("submit", commands)),
             read_texture=lambda source, layout, size: bytes(size[0] * size[1] * 4))
 
@@ -86,6 +94,12 @@ class _Device:
     def create_bind_group(self, **descriptor):
         return descriptor
 
+    def create_texture(self, **descriptor):
+        return SimpleNamespace(create_view=lambda: descriptor, destroy=Mock(), size=descriptor["size"])
+
+    def create_render_pipeline(self, **descriptor):
+        return SimpleNamespace(name="spatial_resolve", get_bind_group_layout=lambda group: group)
+
 
 @unittest.skipUnless(importlib.util.find_spec("wgpu"), "optional WebGPU dependency unavailable")
 class GeneratedWgpuCommands(unittest.TestCase):
@@ -93,14 +107,20 @@ class GeneratedWgpuCommands(unittest.TestCase):
         from maniml.web.wgpu_renderer import WgpuRenderer
         self.renderer = WgpuRenderer.__new__(WgpuRenderer)
         self.renderer.device = _Device()
-        self.renderer.batch_cache = {"legacy": {}}
         self.renderer._generated_geometry = {}
         self.renderer._generated_uniforms = {}
         self.renderer._generated_textures = {}
+        self.renderer._generated_paints = {}
         self.renderer.texture_cache = {}
+        self.renderer.sampler = object()
         self.renderer._ensure_targets = Mock()
+        self.renderer._modules = {"resolve2": object()}
+        self.renderer._spatial_pipeline = None
+        self.renderer._spatial_texture = None
+        self.renderer._spatial_binding = None
         self.renderer.resolve_texture = None
-        self.renderer.out_texture = self.renderer.out_view = object()
+        self.renderer.out_texture = self.renderer.device.create_texture(size=(128, 72, 1))
+        self.renderer.out_view = self.renderer.out_texture.create_view()
         self.renderer.depth_view = object()
         self.renderer._pipeline = Mock(side_effect=lambda name, samples: SimpleNamespace(
             name=name, get_bind_group_layout=lambda group: (name, samples, group)))
@@ -123,7 +143,7 @@ class GeneratedWgpuCommands(unittest.TestCase):
                      UNIFORM_FIELDS[:[field[0] for field in UNIFORM_FIELDS].index("premultiplied_output")])
         for buffer, group in self.renderer._generated_uniforms.values():
             self.assertEqual(np.frombuffer(buffer.data, dtype="f4")[offset], 1)
-        self.assertEqual(self.renderer.batch_cache, {"legacy": {}})
+        self.assertFalse(hasattr(self.renderer, "batch_cache"))
 
     def test_same_geometry_can_have_different_uniforms_without_buffer_mutation(self):
         header, data = _message(_draw(), _draw(uniforms={"is_fixed_in_frame": 1}))
@@ -170,29 +190,288 @@ class GeneratedWgpuCommands(unittest.TestCase):
                     self.renderer.render(bad, data)
         self.assertFalse(any(event[0] == "submit" for event in self.renderer.device.events))
 
-    def test_generated_pipeline_blend_and_depth_preserve_legacy_specs(self):
-        from maniml.web.wgpu_renderer import ALPHA_BLEND, COMPOSITE_BLEND, PIPELINE_SPECS
-        for base in ("surface", "stroke", "dot", "image", "texsurface"):
+    def test_generated_pipeline_blend_and_depth_use_shared_scene_target(self):
+        from maniml.web.wgpu_renderer import PREMULTIPLIED_BLEND, PIPELINE_SPECS
+        self.assertTrue(all(name.startswith("generated_") for name in PIPELINE_SPECS))
+        for base in ("surface", "paint", "stroke", "dot", "image", "texsurface"):
             for suffix in ("", "_depth"):
-                old, new = PIPELINE_SPECS[base + suffix], PIPELINE_SPECS["generated_" + base + suffix]
-                self.assertEqual(old[4], ALPHA_BLEND)
-                self.assertEqual(new[4], COMPOSITE_BLEND)
-                self.assertEqual(old[:4], new[:4])
-                self.assertEqual(new[-1], bool(suffix))
+                spec = PIPELINE_SPECS["generated_" + base + suffix]
+                self.assertEqual(spec[3:5], ("out", PREMULTIPLIED_BLEND))
+                self.assertEqual(spec[-1], bool(suffix))
+
+    def test_legacy_wire_is_rejected_without_submission(self):
+        header, raw = _message(_draw())
+        header.pop("renderer")
+        with self.assertRaisesRegex(ValueError, "requires generated triangle"):
+            self.renderer.render(header, raw)
+        self.assertFalse(self.renderer.device.events)
+
+    def test_paint_updates_reuse_geometry_and_retire_only_unused_materials(self):
+        from maniml.web.geometry import GeometryCache
+        cache = GeometryCache()
+        first = _draw(pipeline="paint")
+        first.paint = _constant_paint([1, 0, 0, .5])
+        second = deepcopy(first)
+        second.paint = _constant_paint([0, 0, 1, .75])
+        header, raw = _message(first, second, cache=cache)
+        self.renderer.render(header, raw)
+        self.assertEqual(len(self.renderer._generated_geometry), 1)
+        self.assertEqual(len(self.renderer._generated_paints), 2)
+        geometry = next(iter(self.renderer._generated_geometry.values()))["buffer"]
+        materials = list(self.renderer._generated_paints.values())
+        header, raw = _message(second, cache=cache)
+        self.assertEqual(raw, b"")
+        self.renderer.render(header, raw)
+        self.assertIs(next(iter(self.renderer._generated_geometry.values()))["buffer"], geometry)
+        self.assertTrue(materials[0][0].destroyed)
+        self.assertFalse(materials[1][0].destroyed)
+
+    def test_spatial_resolve_preserves_wire_uniforms_and_final_output_size(self):
+        header, raw = _message(_draw(uniforms={"pixel_size": .02, "anti_alias_width": 1.25}),
+                                supersample=2)
+        before = deepcopy(header)
+        image = self.renderer.render(header, raw)
+        self.assertEqual(image.size, (64, 36))
+        self.renderer._ensure_targets.assert_called_once_with((128, 72), 1)
+        self.assertEqual(self.renderer._spatial_texture.size, (64, 36, 1))
+        passes = [event for event in self.renderer.device.events if event[0] == "begin_render_pass"]
+        self.assertEqual(len(passes), 2)
+        packed = np.frombuffer(next(iter(self.renderer._generated_uniforms.values()))[0].data, dtype="f4")
+        self.assertAlmostEqual(float(packed[27]), .01)
+        self.assertEqual(float(packed[31]), 2.5)
+        self.assertEqual(header, before)
+
+    def test_coverage_rollover_loads_color_and_depth_and_replays_depth_only(self):
+        draw = _draw(pipeline="surface_depth")
+        draw.coverage = True
+        header, raw = _message(*([draw] * 256))
+        self.renderer.render(header, raw)
+        events = self.renderer.device.events
+        passes = [event[1] for event in events if event[0] == "begin_render_pass"]
+        self.assertEqual(len(passes), 2)
+        self.assertEqual(passes[0]["depth_stencil_attachment"]["stencil_load_op"], "clear")
+        self.assertEqual(passes[1]["color_attachments"][0]["load_op"], "load")
+        self.assertEqual(passes[1]["depth_stencil_attachment"]["depth_load_op"], "load")
+        self.assertEqual(passes[1]["depth_stencil_attachment"]["stencil_load_op"], "clear")
+        refs = [event[1] for event in events if event[0] == "set_stencil_reference"]
+        self.assertEqual(refs, [*range(1, 256), 1])
+        names = [event[1].name for event in events if event[0] == "set_pipeline"]
+        self.assertEqual(names, ["generated_surface_depth_coverage", "generated_surface_depth_depth_only"] * 256)
+        self.assertEqual(len(self.renderer._generated_geometry), 1)
+        self.assertEqual(len(self.renderer._generated_uniforms), 2)
+
+    def test_texture_storage_and_bindings_retire_on_empty_frame_then_rehydrate(self):
+        from PIL import Image
+        encoded = io.BytesIO()
+        Image.new("RGBA", (2, 2), "red").save(encoded, format="PNG")
+        png = encoded.getvalue()
+        header, _ = _message(_draw(indexed=False))
+        batch = header["batches"][0]
+        batch.update(pipeline="image", hash="image", stride=24, num_verts=3,
+                     count=3, textures={"Texture": "red"})
+        raw = bytes(72) + png
+        header["texture_data"] = {"red": {"offset": 72, "nbytes": len(png)}}
+        self.renderer.render(header, raw)
+        original = self.renderer.texture_cache["red"]
+        binding = next(iter(self.renderer._generated_textures.values()))
+        self.renderer.render({**header, "texture_data": {}}, raw[:72])
+        self.assertIs(self.renderer.texture_cache["red"], original)
+        self.assertIs(next(iter(self.renderer._generated_textures.values())), binding)
+        original.destroy.assert_not_called()
+        self.renderer.render({**header, "batches": [], "texture_data": {}}, b"")
+        original.destroy.assert_called_once()
+        self.assertFalse(self.renderer.texture_cache)
+        self.assertFalse(self.renderer._generated_textures)
+        self.renderer.render(header, raw)
+        self.assertIsNot(self.renderer.texture_cache["red"], original)
+        self.assertIsNot(next(iter(self.renderer._generated_textures.values())), binding)
+
+    def test_independent_triangle_area_reference_covers_boundary_pixels(self):
+        from benchmarks.renderer_aa import exact_triangle_coverage
+        coverage = exact_triangle_coverage([[0, 0], [2, 0], [0, 2]], (2, 2))
+        np.testing.assert_array_equal(coverage, [[1, .5], [.5, 0]])
+        self.assertEqual(coverage.sum(), 2)
 
 
 @unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "real WebGPU check not requested")
 class GeneratedWgpuPixels(unittest.TestCase):
+    def test_real_tex_101_glyph_fast_path_is_identical_to_stencil_at_both_zooms(self):
+        from dataclasses import replace
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import TriangleMeshCache, coalesce_draws, prepare_triangle_frame
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.renderer_quality_fixtures import _configure_camera, build_quality_frame
+        renderer, tessellator, cache = WgpuRenderer(), LyonFillTessellator(), TriangleMeshCache()
+        quality = build_quality_frame("tex", border_policy="production_default")
+        for zoom in (1, 2):
+            _configure_camera(quality.scene, zoom, (.37, .19))
+            frame = prepare_triangle_frame(quality.scene, tessellator, mesh_cache=cache,
+                                            fill_borders=True, coalesce=False)
+            self.assertEqual(len(frame.draws), 101)
+            self.assertTrue(all(not draw.coverage for draw in frame.draws))
+            reference = replace(frame, samples=4, supersample=2,
+                                 draws=[replace(draw, coverage=True) for draw in frame.draws])
+            actual = replace(frame, samples=4, supersample=2, draws=coalesce_draws(frame.draws))
+            self.assertEqual(len(actual.draws), 1)
+            expected = renderer.render(*parse_geometry_message(
+                serialize_generated_frame(reference, quality.scene.camera.uniforms)))
+            observed = renderer.render(*parse_geometry_message(
+                serialize_generated_frame(actual, quality.scene.camera.uniforms)))
+            np.testing.assert_array_equal(observed, expected)
+        renderer.close()
+
+    def test_opaque_painter_fast_path_is_pixel_identical_to_per_object_stencil(self):
+        from dataclasses import replace
+        from maniml.mobject.geometry import Circle, Square
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import TriangleMeshCache, coalesce_draws, prepare_triangle_frame
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer, tessellator, cache = WgpuRenderer(), LyonFillTessellator(), TriangleMeshCache()
+        red = Square(fill_color="#ff0000", fill_opacity=1, stroke_width=0, fill_border_width=20)
+        blue = Circle(fill_color="#0000ff", fill_opacity=1, stroke_width=0, fill_border_width=20).shift([.2, .1, 0])
+        red.uniforms["clip_plane"] = blue.uniforms["clip_plane"] = [1, 0, 0, .7]
+        scene = build_scene(red, blue, resolution=(128, 72))
+        for offset in (0, .037, .081):
+            scene.camera.frame.shift([offset, offset / 2, 0]).scale(.93)
+            for shapes in ((red, blue), (blue, red)):
+                scene.render_groups[0].set_submobjects(list(shapes))
+                scene.mobjects[:] = shapes
+                frame = prepare_triangle_frame(scene, tessellator, mesh_cache=cache,
+                                                fill_borders=True, coalesce=False)
+                self.assertEqual(len(frame.draws), 2)
+                self.assertTrue(all(not draw.coverage for draw in frame.draws))
+                for samples in (1, 4):
+                    for supersample in (1, 2):
+                        reference = replace(frame, samples=samples, supersample=supersample,
+                            draws=[replace(draw, coverage=True) for draw in frame.draws])
+                        actual = replace(frame, samples=samples, supersample=supersample,
+                                         draws=coalesce_draws(frame.draws))
+                        self.assertEqual(len(actual.draws), 1)
+                        expected = renderer.render(*parse_geometry_message(
+                            serialize_generated_frame(reference, scene.camera.uniforms)))
+                        observed = renderer.render(*parse_geometry_message(
+                            serialize_generated_frame(actual, scene.camera.uniforms)))
+                        np.testing.assert_array_equal(observed, expected)
+                        np.testing.assert_array_equal(np.asarray(observed)[36, 64, :3],
+                            [0, 0, 255] if shapes[-1] is blue else [255, 0, 0])
+        renderer.close()
+
+    def test_coverage_union_is_once_per_sample_and_nearest_depth_is_retained(self):
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer = WgpuRenderer()
+        draw = _draw(pipeline="surface_depth")
+        # Fill comes first. The overlapping border lies closer to the camera;
+        # it contributes no second alpha but must still update scene depth.
+        border = draw.vertices.copy()
+        border["point"][:, 2] = .5
+        border["d_normal_point"][:, 2] = .501
+        draw.vertices = np.concatenate([draw.vertices, border])
+        draw.indices = np.concatenate([draw.indices, draw.indices + 4])
+        draw.count = 12
+        draw.coverage = True
+        middle = _draw((0, 1, 0, 1), pipeline="surface_depth")
+        middle.vertices["point"][:, 2] = .25
+        middle.vertices["d_normal_point"][:, 2] = .251
+        for samples in (1, 4):
+            for supersample in (1, 2):
+                image = renderer.render(*_message(draw, middle, samples=samples, supersample=supersample))
+                np.testing.assert_allclose(np.asarray(image)[18, 32], [128, 0, 0, 128], atol=1)
+                # An earlier occluder hides the fill, so its failed depth test
+                # must not claim stencil coverage against the closer border.
+                image = renderer.render(*_message(middle, draw, samples=samples, supersample=supersample))
+                np.testing.assert_allclose(np.asarray(image)[18, 32], [128, 127, 0, 255], atol=1)
+        renderer.close()
+
+    def test_coverage_reference_rollover_matches_independent_object_compositing(self):
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer = WgpuRenderer()
+        ordinary = _draw((.7, .2, .9, .05))
+        covered = deepcopy(ordinary)
+        covered.indices = np.tile(ordinary.indices, 2)
+        covered.count = 12
+        covered.coverage = True
+        expected = renderer.render(*_message(*([ordinary] * 256), samples=4, supersample=2))
+        actual = renderer.render(*_message(*([covered] * 256), samples=4, supersample=2))
+        np.testing.assert_array_equal(actual, expected)
+        renderer.close()
+
+    def test_paint_storage_updates_change_pixels_without_geometry_upload(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer, cache = WgpuRenderer(), GeometryCache()
+        draw = _draw(pipeline="paint")
+        draw.paint = _constant_paint([1, 0, 0, .5])
+        before = np.asarray(renderer.render(*_message(draw, cache=cache, samples=4, supersample=2)))
+        geometry = next(iter(renderer._generated_geometry.values()))["buffer"]
+        draw.paint = _constant_paint([0, 0, 1, .75])
+        header, raw = _message(draw, cache=cache, samples=4, supersample=2)
+        self.assertEqual(raw, b"")
+        after = np.asarray(renderer.render(header, raw))
+        self.assertIs(next(iter(renderer._generated_geometry.values()))["buffer"], geometry)
+        np.testing.assert_allclose(before[18, 32], [128, 0, 0, 128], atol=1)
+        np.testing.assert_allclose(after[18, 32], [0, 0, 191, 191], atol=1)
+        renderer.close()
+
+    def test_more_spatial_samples_converge_toward_exact_pixel_coverage(self):
+        from benchmarks.renderer_aa import area_control
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer = WgpuRenderer()
+        values = area_control(renderer)
+        means = {name: np.mean([sample["rms_coverage_error"] for sample in samples])
+                 for name, samples in values.items()}
+        self.assertLess(means["ss2_msaa4"], means["msaa4"])
+        self.assertLess(means["ss2_msaa4"], means["ss2"])
+        renderer.close()
+
+    def test_spatial_resolve_matches_high_resolution_rgba_during_subpixel_motion_and_resize(self):
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer = WgpuRenderer()
+        draw = _draw((.8, .3, .5, .4))
+        draw.vertices["point"][2, :2] = [.17, 1.51]
+        pictures = []
+        for samples in (1, 4):
+            for shift in (0., .037, .081):
+                moved = deepcopy(draw)
+                moved.vertices["point"][:, 0] += shift
+                header, raw = _message(moved, samples=samples, supersample=2,
+                                        background=(.2, .3, .4, .25))
+                before = deepcopy(header)
+                low = np.asarray(renderer.render(header, raw))
+                high_header = deepcopy(header)
+                high_header["resolution"] = [128, 72]
+                high_header["supersample"] = 1
+                high_header["camera"]["pixel_size"] /= 2
+                for batch in high_header["batches"]:
+                    batch["uniforms"]["anti_alias_width"] = 2 * batch["uniforms"].get("anti_alias_width", 1.5)
+                high = np.asarray(renderer.render(high_header, raw))
+                expected = high.reshape(36, 2, 64, 2, 4).mean(axis=(1, 3))
+                self.assertLessEqual(float(np.abs(low - expected).max()), .501)
+                self.assertEqual(header, before)
+                pictures.append(low)
+        self.assertFalse(np.array_equal(pictures[0], pictures[2]))
+        renderer.close()
+        renderer.close()
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            renderer.render(header, raw)
+
     def test_all_primitive_layouts_textures_and_delta_lifetime(self):
         from PIL import Image
         from maniml.mobject.geometry import Square
         from maniml.mobject.types.dot_cloud import DotCloud
         from maniml.mobject.types.image_mobject import ImageMobject
         from maniml.mobject.types.surface import Surface, TexturedSurface
-        from maniml.web.geometry import GeometryCache, serialize_scene
+        from maniml.web.geometry import GeometryCache
+        from tests.winding_reference_geometry import serialize_scene
+        from tests.winding_reference_renderer import WgpuRenderer as WindingRenderer
         from maniml.web.triangle_scene import prepare_triangle_frame
         from maniml.web.wgpu_renderer import WgpuRenderer
-        generated, legacy = WgpuRenderer(), WgpuRenderer()
+        generated, legacy = WgpuRenderer(), WindingRenderer()
+        def render(message):
+            # This comparison isolates primitive semantics; spatial AA has its
+            # own exact-resolve and quality tests against native goldens.
+            header, raw = message
+            header["supersample"] = 1
+            return generated.render(header, raw)
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "texture.png")
             Image.new("RGBA", (8, 8), (40, 160, 230, 255)).save(path)
@@ -207,25 +486,29 @@ class GeneratedWgpuPixels(unittest.TestCase):
                 with self.subTest(primitive=kind):
                     scene = build_scene(mobject, resolution=(96, 54))
                     frame = prepare_triangle_frame(scene, None)
+                    frame.samples = 1
                     self.assertEqual({draw.pipeline.removesuffix("_depth") for draw in frame.draws}, {kind})
                     cache = GeometryCache()
                     first = parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, cache))
-                    pixels = np.asarray(generated.render(*first))
+                    pixels = np.asarray(render(first))
                     reference = np.asarray(legacy.render(*parse_geometry_message(serialize_scene(scene))))
                     np.testing.assert_allclose(pixels[..., :3], reference[..., :3], atol=1)
                     self.assertGreater(np.count_nonzero(pixels[..., :3]), 0)
                     same = parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, cache))
                     self.assertEqual(same[1], b"")
-                    np.testing.assert_array_equal(generated.render(*same), pixels)
+                    np.testing.assert_array_equal(render(same), pixels)
                     absent = deepcopy(frame)
                     absent.draws = []
-                    generated.render(*parse_geometry_message(serialize_generated_frame(absent, scene.camera.uniforms, cache)))
+                    render(parse_geometry_message(serialize_generated_frame(absent, scene.camera.uniforms, cache)))
                     self.assertFalse(generated._generated_geometry)
                     self.assertFalse(generated._generated_uniforms)
                     self.assertFalse(generated._generated_textures)
+                    self.assertFalse(generated.texture_cache)
                     returning = parse_geometry_message(serialize_generated_frame(frame, scene.camera.uniforms, cache))
                     self.assertTrue(all(not batch.get("cached") for batch in returning[0]["batches"]))
-                    np.testing.assert_array_equal(generated.render(*returning), pixels)
+                    if kind in ("image", "texsurface"):
+                        self.assertTrue(returning[0]["texture_data"])
+                    np.testing.assert_array_equal(render(returning), pixels)
 
     def test_depth_draws_occlude_independently_of_order_and_painter_overlay_wins(self):
         from maniml.web.wgpu_renderer import WgpuRenderer
@@ -234,13 +517,13 @@ class GeneratedWgpuPixels(unittest.TestCase):
         blue = _draw((0, 0, 1, 1), pipeline="surface_depth")
         blue.vertices["point"][:, 2] = .5
         blue.vertices["d_normal_point"][:, 2] = .501
-        first = renderer.render(*_message(red, blue, samples=4))
-        second = renderer.render(*_message(blue, red, samples=4))
+        first = renderer.render(*_message(red, blue, samples=4, supersample=2))
+        second = renderer.render(*_message(blue, red, samples=4, supersample=2))
         np.testing.assert_array_equal(first, second)
         overlay = _draw((1, 1, 1, 1))
         overlay.vertices["point"][:, 2] = -10
         overlay.vertices["d_normal_point"][:, 2] = -9.999
-        overlaid = renderer.render(*_message(red, blue, overlay, samples=4))
+        overlaid = renderer.render(*_message(red, blue, overlay, samples=4, supersample=2))
         np.testing.assert_array_equal(np.asarray(overlaid)[18, 32], [255, 255, 255, 255])
 
     def test_painter_order_and_premultiplied_alpha_at_both_sample_counts(self):

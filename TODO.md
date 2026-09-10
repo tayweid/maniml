@@ -10,12 +10,13 @@ architecture after the beeline lives beside this repo in
 
 ## Where things stand
 
-One live surface: the browser, rendering every frame itself with
-WebGPU from the geometry stream. The pyglet window, the pixel stream,
-and WebGL2 are gone (2026-09-02). Native GL remains for exactly two
-things: headless `--render` / `--export-checkpoints`, and the oracle
-the fidelity tests diff the WebGPU port against. The suite is clean
-except the two long-standing `test_app.AppShellE2E` failures.
+The browser and native movie/checkpoint output share the Phase A triangle
+WebGPU backend. Source points and fill generation remain on the CPU. The
+viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
+2026-09-10; **Phase A** is the default. Native GL survives only in test
+references, excluded from the package. See the
+[cutover record](docs_unified_triangle_renderer_phase_a.md) for validation and
+explicit limits.
 
 ## Now: the dogfood pause
 
@@ -73,9 +74,9 @@ signal. What it has surfaced so far, and what is ready regardless:
    plays. A day; it is the plan's stated prerequisite and decides its
    sync policy.
 
-Also: fix or delete the two `AppShellE2E` failures
-(`missing_module_hint`, `open_scene_from_landing`); they have been red
-since before 2026-08-26 and make every full run need a caveat.
+The two longstanding `AppShellE2E` failures are fixed: tests bind their own
+ephemeral app port and announce geometry mode before waiting for frames, so
+they cannot hand off to an unrelated running user engine.
 
 Profile anything that lags with `MANIML_PERF_PATH` before choosing:
 the two engine costs show up in different stages (`checkpoint.*`
@@ -93,23 +94,22 @@ The architecture, compatibility specification, research, and staged plan are in
 It supersedes the earlier atlas proposal; those experiments remain evidence,
 not measurements of this new renderer. The [A0 results](docs_unified_triangle_renderer_a0_results.md)
 preserve the earlier experiments. The [A1 integration checkpoint](docs_unified_triangle_renderer_a1_integration.md)
-adds packaged generation, both shared WebGPU drivers, uniform border unions,
-stable Write endpoints, and format-2 playback under `MANIML_RENDERER=triangles`.
-Text/border AA, complete paint semantics and representative performance remain
-open A2 gates; the default renderer has not switched. Detailed GPU work is
-in [the separate Phase B specification](docs_gpu_geometry_generation_plan.md).
+records the former opt-in route. [Phase A](docs_unified_triangle_renderer_phase_a.md)
+adds shared native output, default 2×/4× AA, stencil fill-border ownership,
+source-space fill paint and bounded generated-resource retention. The old
+browser winding implementation remains a deliberate dogfood option; do not
+remove it without Taylor's direction. Detailed GPU source/geometry work is in
+[the separate Phase B specification](docs_gpu_geometry_generation_plan.md).
 
-## Held: native GL removal (beeline step 4)
+## Native GL cutover (beeline step 4)
 
-Move `--render` onto wgpu-py, fold 2x supersampling into that render,
-then delete the native GL pipeline (`rendering/`, the GL parts of
-`camera/`, the geometry shaders). Offline output, the browser, and the
-fidelity reference become literally the same WGSL, and the fidelity
-tests turn into golden-image regression plus CE conformance. **Held by
-Taylor on 2026-09-04** until the pause has produced confidence. It is
-also the instruction-stream plan's first prerequisite (compute shaders
-have to exist in both mirrors), so nothing in that plan starts before
-it. Windows/Linux CI and packaging return after it.
+Taylor's 2026-09-10 authorization supersedes the September 4 hold, conditional
+on keeping Original 2D selectable in the viewer. Native rendering now uses
+wgpu-py and the common shader/resolve path. GL runtime dependencies and assets
+are retired from the wheel; independent historical references live in tests.
+The custom native `ShaderWrapper` export is intentionally retired with GL,
+and its CE name baseline is updated rather than replaced with a dummy symbol.
+Windows/Linux packaging remains separate follow-up work.
 
 ## After: the instruction stream
 
@@ -139,9 +139,9 @@ Python has nothing to stream for a parked scene).
   a z_index=10 child of group A still draws under group B added after
   A; and a top-level mobject's z_index change after add() reorders only
   on its next add. Within a family it is CE's since 2026-09-02.
-- **3D fills.** Triangulated fill flattens each submobject to one
-  colour (no gradients), and a mobject morphing under depth test
-  re-triangulates every frame (measurable for large Text).
+- **GPU geometry generation.** General changing paths still rebuild fills on
+  the CPU. Phase B owns moving source evaluation and correct variable topology
+  onto the GPU. Nonplanar contours still need an explicitly defined surface.
 - **`AddTextWordByWord`** groups label/isolate spans rather than words.
   Fix if a course scene uses it; diagnosis in `PERFORMANCE.md`.
 - **Typography drift vs CE** for multi-part `MathTex` joins. Cosmetic.

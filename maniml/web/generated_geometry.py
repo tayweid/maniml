@@ -17,14 +17,30 @@ from maniml.web.geometry import (
 )
 
 
-PIPELINE_STRIDES = {"surface": 40, "stroke": 68, "dot": 32,
+PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
                     "image": 24, "texsurface": 36}
+
+
+def _immutable(array):
+    """Only bytes-backed views are safe: a read-only owned ndarray can thaw."""
+    if array is None:
+        return True
+    while isinstance(array, np.ndarray):
+        if array.flags.writeable:
+            return False
+        array = array.base
+    return isinstance(array, bytes)
 
 
 def serialize_generated_frame(frame, camera_uniforms, cache=None):
     """Pack a prepared frame; both drivers consume exactly these operations."""
+    supersample = getattr(frame, "supersample", 1)
+    if type(supersample) is not int or supersample not in (1, 2):
+        raise ValueError("supersample must be 1 or 2")
     camera = {key: _jsonable(value) for key, value in camera_uniforms.items()}
     batches, blobs, offset, current_hashes, texture_hashes = [], [], 0, set(), set()
+    previous_payloads = getattr(cache, "generated_payloads", {})
+    retained_payloads = {}
     for draw in frame.draws:
         base = draw.pipeline.removesuffix("_depth")
         if base not in PIPELINE_STRIDES:
@@ -40,13 +56,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             continue
         indices = None if draw.indices is None else np.asarray(draw.indices)
         if indices is not None:
-            if (base != "surface" or indices.ndim != 1
+            if (base not in ("surface", "paint") or indices.ndim != 1
                     or not np.issubdtype(indices.dtype, np.integer)
                     or np.any(indices < 0) or np.any(indices >= len(vertices))
                     or draw.count > len(indices) or draw.count % 3):
                 raise ValueError("invalid generated triangle indices or draw count")
             indices = np.ascontiguousarray(indices, dtype="<u4")
-        elif base in ("surface", "image", "texsurface"):
+        elif base in ("surface", "paint", "image", "texsurface"):
             if draw.count > len(vertices) or draw.count % 3:
                 raise ValueError("invalid generated triangle draw count")
         elif base == "dot":
@@ -55,28 +71,57 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         elif base == "stroke":
             if draw.count < 4 or draw.count > 64 or draw.count % 2 or draw.instances * 3 > len(vertices):
                 raise ValueError("invalid generated stroke draw count")
-        raw = vertices.tobytes()
-        index_raw = b"" if indices is None else indices.tobytes()
-        identity = hashlib.blake2b(digest_size=16)
-        identity.update(draw.pipeline.encode())
-        identity.update(b"\0indexed\0" if indices is not None else b"\0plain\0")
-        # Frame the two byte streams: a trailing all-zero vertex can otherwise
-        # be reinterpreted as leading zero indices without changing the digest.
-        identity.update(struct.pack("<QQ", len(raw), len(index_raw)))
-        identity.update(raw)
-        identity.update(index_raw)
-        content_hash = identity.hexdigest()
-        uniforms = {key: _jsonable(value) for key, value in draw.uniforms.items()}
+        payload_key = (draw.pipeline, id(vertices), id(indices))
+        retained = previous_payloads.get(payload_key)
+        if retained is not None and retained[0] is vertices and retained[1] is indices:
+            content_hash = retained[2]
+        else:
+            identity = hashlib.blake2b(digest_size=16)
+            identity.update(draw.pipeline.encode())
+            identity.update(b"\0indexed\0" if indices is not None else b"\0plain\0")
+            # Frame both byte streams, and hash their views without allocating
+            # another frame-sized copy. Mutable diagnostic data is always read.
+            identity.update(struct.pack("<QQ", vertices.nbytes, 0 if indices is None else indices.nbytes))
+            identity.update(memoryview(vertices).cast("B"))
+            if indices is not None:
+                identity.update(memoryview(indices).cast("B"))
+            content_hash = identity.hexdigest()
+        if _immutable(vertices) and _immutable(indices):
+            retained_payloads[payload_key] = (vertices, indices, content_hash)
         # Shared camera values appear once on the wire, while fixed-frame and
-        # per-object overrides remain local to their operation.
-        uniforms = {key: value for key, value in uniforms.items()
-                    if key not in camera or camera[key] != value}
+        # per-object overrides remain local to their operation. Production
+        # preparation already normalized these values: avoid recursively
+        # copying the same camera lists once per object. Diagnostic callers
+        # may still provide NumPy arrays or tuples, which need normalization.
+        uniforms = {}
+        for key, value in draw.uniforms.items():
+            if key in camera:
+                try:
+                    shared = value == camera[key]
+                    if type(shared) is bool and shared:
+                        continue
+                except ValueError:  # Nested NumPy arrays have no scalar truth.
+                    pass
+            normalized = _jsonable(value)
+            if key not in camera or normalized != camera[key]:
+                uniforms[key] = normalized
         batch = {"kind": "generated", "pipeline": draw.pipeline,
                  "hash": content_hash, "num_verts": len(vertices),
                  "stride": vertices.dtype.itemsize, "uniforms": uniforms,
                  "count": int(draw.count), "instances": int(draw.instances),
                  "indexed": indices is not None,
                  "index_count": 0 if indices is None else len(indices)}
+        if getattr(draw, "coverage", False):
+            if base not in ("surface", "paint"):
+                raise ValueError("coverage ownership requires triangle surface geometry")
+            batch["coverage"] = True
+        if base == "paint":
+            paint = np.asarray(getattr(draw, "paint", None), dtype="f4")
+            if (paint.ndim != 1 or len(paint) < 24 or (len(paint) - 24) % 8
+                    or not np.isfinite(paint).all() or paint[3] <= 0
+                    or paint[7] != (len(paint) - 24) // 8 or paint[11] not in (0, 1)):
+                raise ValueError("invalid generated paint coefficients")
+            batch["paint"] = paint.tolist()
         textures = getattr(draw, "textures", None)
         if textures:
             batch["textures"] = textures
@@ -85,10 +130,12 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             batch["cached"] = True
         else:
             batch["offset"] = offset
+            raw = vertices.tobytes()
             blobs.append(raw)
             offset += len(raw)
             if indices is not None:
                 batch["index_offset"] = offset
+                index_raw = indices.tobytes()
                 blobs.append(index_raw)
                 offset += len(index_raw)
         current_hashes.add(content_hash)
@@ -96,20 +143,22 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     texture_data = {}
     for key in sorted(texture_hashes):
         if cache is None or f"tex:{key}" not in cache.sent:
-            raw = _TEXTURE_BY_HASH[key]
+            raw = getattr(frame, "texture_data", {}).get(key)
+            if raw is None:
+                raw = _TEXTURE_BY_HASH[key]
             texture_data[key] = {"offset": offset, "nbytes": len(raw)}
             blobs.append(raw)
             offset += len(raw)
     header = {"format_version": GEOMETRY_FORMAT_VERSION, "renderer": "triangles",
               "camera": camera, "background": list(frame.background),
               "resolution": list(frame.resolution), "samples": frame.samples,
+              "supersample": supersample,
               "batches": batches, "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
     encoded = json.dumps(header).encode()
     message = b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
                         encoded, *blobs))
     if cache is not None:
-        # Preserve texture knowledge: both drivers retain textures separately.
-        cache.sent = current_hashes | {key for key in cache.sent if key.startswith("tex:")}
-        cache.sent.update(f"tex:{key}" for key in texture_hashes)
+        cache.sent = current_hashes | {f"tex:{key}" for key in texture_hashes}
+        cache.generated_payloads = retained_payloads
     return message

@@ -11,7 +11,8 @@ const CAMERA = {
   frame_rescale_factors: [1, 1, 1], camera_position: [0, 0, 10],
   light_position: [0, 0, 10],
 };
-const STRIDE = { surface: 40, stroke: 68, dot: 32, image: 24, texsurface: 36 };
+const STRIDE = { surface: 40, paint: 40, stroke: 68, dot: 32, image: 24, texsurface: 36 };
+const constantPaint = color => [0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, ...color, ...Array(8).fill(0)];
 
 function payload(specs, overrides = {}) {
   let offset = 0;
@@ -21,6 +22,7 @@ function payload(specs, overrides = {}) {
     const batch = { kind: "generated", pipeline: "surface", hash: `shape-${i}`,
       num_verts: 3, stride: STRIDE[base], count: 3, instances: 1,
       indexed: false, index_count: 0, uniforms: {}, ...spec };
+    if (base === "paint" && !batch.paint) batch.paint = constantPaint([1, 0, 0, .5]);
     if (!batch.cached) {
       batch.offset = offset;
       const data = Buffer.alloc(batch.num_verts * batch.stride, i % 255);
@@ -33,7 +35,7 @@ function payload(specs, overrides = {}) {
     }
     return batch;
   });
-  const header = { renderer: "triangles", resolution: [320, 180], samples: 1,
+  const header = { renderer: "triangles", resolution: [320, 180], samples: 1, supersample: 1,
     background: [0.2, 0.4, 0.6, 0.5], camera: CAMERA, batches, ...overrides };
   const json = Buffer.from(JSON.stringify(header));
   const out = Buffer.alloc(5 + json.length + offset);
@@ -54,6 +56,7 @@ async function driver(options = {}) {
     textures.push(texture); return texture;
   };
   const device = {
+    destroy() { events.push(["device_destroy"]); },
     createShaderModule: descriptor => descriptor,
     createRenderPipeline(descriptor) {
       const pipeline = { descriptor, id: ++sequence,
@@ -78,6 +81,7 @@ async function driver(options = {}) {
           passes.push(pass);
           return {
             setPipeline(pipeline) { pass.pipeline = pipeline; },
+            setStencilReference(reference) { pass.stencil = reference; },
             setBindGroup(index, binding) { pass.bindings.set(index, binding); },
             setVertexBuffer(index, buffer) { pass.vertices[index] = buffer; },
             setIndexBuffer(buffer, format) { pass.index = { buffer, format }; },
@@ -90,13 +94,14 @@ async function driver(options = {}) {
             // when two shader entry points declare the same uniform struct.
             assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
             pass.draws.push({ pipeline: pass.pipeline, bindings: new Map(pass.bindings),
-              vertices: [...pass.vertices], index: indexed ? pass.index : null, indexed, args });
+              stencil: pass.stencil, vertices: [...pass.vertices], index: indexed ? pass.index : null, indexed, args });
           }
         },
         finish() { assert.ok(passes.every(p => p.ended)); return passes; },
       };
     },
     queue: {
+      onSubmittedWorkDone: async () => { events.push(["completed"]); },
       copyExternalImageToTexture() {},
       submit(commands) {
         for (const passes of commands) {
@@ -120,23 +125,24 @@ async function driver(options = {}) {
       },
     },
   };
-  const canvas = { getContext: () => ({ configure() {},
+  const canvas = { getContext: () => ({ configure() {}, unconfigure() { events.push(["unconfigure"]); },
     getCurrentTexture: () => makeTexture({ format: "canvas", size: [canvas.width, canvas.height] }),
   }) };
   const context = {
     navigator: { gpu: { requestAdapter: async () => ({ requestDevice: async () => device }),
       getPreferredCanvasFormat: () => "bgra8unorm" } },
-    GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4 },
+    GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4, STORAGE: 8 },
     GPUTextureUsage: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_DST: 4 },
     fetch: async name => ({ ok: true, text: async () => fs.readFileSync(path.join(STATIC, name), "utf8") }),
     createImageBitmap: options.decode || (async () => ({ width: 2, height: 2, close() {} })),
     Blob, TextDecoder, ArrayBuffer, Uint8Array, Uint32Array, Float32Array, DataView,
   };
-  vm.runInNewContext(fs.readFileSync(path.join(STATIC, "webgpu.js"), "utf8")
-    + "\nglobalThis.renderer = ManimlWGPU;", context);
+  vm.runInNewContext(fs.readFileSync(path.join(STATIC, options.legacy ? "winding_webgpu.js" : "webgpu.js"), "utf8")
+    + "\nglobalThis.renderer = " + (options.legacy ? "ManimlWindingWGPU" : "ManimlWGPU") + ";", context);
   await context.renderer.init(canvas);
   context.renderer.onCacheMiss = () => { cacheMisses++; };
   return { buffers, textures, submissions, events, cacheMisses: () => cacheMisses,
+    destroy: () => context.renderer.destroy(), init: () => context.renderer.init(canvas),
     async render(specs, overrides) {
       await context.renderer.render(payload(specs, overrides)); return submissions.at(-1);
     },
@@ -149,6 +155,97 @@ const uniform = draw => new Float32Array(uniformBuffer(draw).bytes);
 const near = (actual, expected) => expected.forEach((v, i) => assert.ok(Math.abs(actual[i] - v) < 1e-6));
 
 const cases = {
+  async lifecycle() {
+    for (const legacy of [false, true]) {
+      let release;
+      const d = await driver({legacy, decode: () => new Promise(resolve => { release = resolve; })});
+      const specs = [{kind: legacy ? "image" : "generated", pipeline: "image", textures: {Texture: "light"}}];
+      const options = {renderer: legacy ? "winding" : "triangles", texture_data: {light: {offset: 0, nbytes: 4}}};
+      const drawing = d.render(specs, options);
+      await new Promise(resolve => setImmediate(resolve));
+      const stopping = d.destroy();
+      const duplicate = d.destroy();
+      assert.equal(stopping, duplicate, "concurrent shutdown shares one drain");
+      await assert.rejects(d.render([], options), /not active/);
+      assert.equal(d.events.filter(([kind]) => kind === "device_destroy").length, 0);
+      release({width: 2, height: 2, close() {}});
+      await drawing;
+      await stopping;
+      assert.equal(d.events.filter(([kind]) => kind === "device_destroy").length, 1);
+      assert.ok(d.buffers.every(buffer => buffer.destroyed));
+      assert.ok(d.textures.filter(texture => texture.descriptor.format !== "canvas").every(texture => texture.destroyed));
+      await d.destroy();
+      assert.equal(d.events.filter(([kind]) => kind === "device_destroy").length, 1);
+      await d.init();
+      const restarting = d.render(specs, options);
+      await new Promise(resolve => setImmediate(resolve));
+      release({width: 2, height: 2, close() {}});
+      const restarted = await restarting;
+      assert.equal(restarted[legacy ? 1 : 0].draws.length, 1);
+      await d.destroy();
+      assert.equal(d.events.filter(([kind]) => kind === "device_destroy").length, 2);
+    }
+  },
+  async coverage() {
+    const d = await driver();
+    const specs = Array.from({length: 256}, () => ({pipeline: "paint_depth", coverage: true, hash: "same"}));
+    const passes = await d.render(specs, {samples: 4, supersample: 2});
+    assert.equal(passes.length, 3, "255 ownership values then stencil-clear restart, then presentation");
+    assert.equal(passes[0].draws.length, 510);
+    assert.equal(passes[1].draws.length, 2);
+    assert.equal(passes[1].descriptor.colorAttachments[0].loadOp, "load");
+    assert.equal(passes[1].descriptor.depthStencilAttachment.depthLoadOp, "load");
+    assert.equal(passes[1].descriptor.depthStencilAttachment.stencilLoadOp, "clear");
+    for (const [i, pass] of passes.slice(0, 2).entries()) {
+      for (let j = 0; j < pass.draws.length; j += 2) {
+        const color = pass.draws[j], depth = pass.draws[j + 1];
+        assert.equal(color.stencil, j / 2 + 1);
+        assert.equal(color.pipeline.descriptor.depthStencil.stencilFront.compare, "not-equal");
+        assert.equal(color.pipeline.descriptor.depthStencil.stencilFront.passOp, "replace");
+        assert.equal(color.pipeline.descriptor.depthStencil.stencilFront.depthFailOp, "keep");
+        assert.equal(color.pipeline.descriptor.depthStencil.depthWriteEnabled, false);
+        assert.equal(depth.pipeline.descriptor.fragment.targets[0].writeMask, 0);
+        assert.equal(depth.pipeline.descriptor.depthStencil.depthWriteEnabled, true);
+        assert.equal(depth.pipeline.descriptor.depthStencil.stencilFront.compare, "always");
+        assert.equal(color.vertices[0], depth.vertices[0]);
+        assert.notEqual(color.bindings.get(0), depth.bindings.get(0));
+        assert.notEqual(color.bindings.get(1), depth.bindings.get(1));
+      }
+    }
+  },
+  async paint() {
+    const d = await driver();
+    const red = {pipeline: 'paint', hash: 'geometry', paint: constantPaint([1, 0, 0, .5])};
+    const blue = {...red, paint: constantPaint([0, 0, 1, .75])};
+    const draws = (await d.render([red, blue]))[0].draws;
+    assert.equal(draws[0].vertices[0], draws[1].vertices[0]);
+    const materials = draws.map(draw => draw.bindings.get(1).entries[0].resource.buffer);
+    assert.notEqual(materials[0], materials[1]);
+    near(Array.from(new Float32Array(materials[0].bytes)).slice(12, 16), [1, 0, 0, .5]);
+    const updated = (await d.render([{...blue, cached: true}]))[0].draws[0];
+    assert.equal(updated.vertices[0], draws[0].vertices[0]);
+    assert.equal(updated.bindings.get(1), draws[1].bindings.get(1));
+    assert.ok(materials[0].destroyed);
+    assert.ok(!materials[1].destroyed);
+    await d.render([]);
+    assert.ok(materials[1].destroyed);
+  },
+  async supersample() {
+    const d = await driver();
+    const specs = [{ uniforms: {pixel_size: .02, anti_alias_width: 1.25} }];
+    const passes = await d.render(specs, {supersample: 2, samples: 4});
+    assert.equal(passes.length, 2, "scene MSAA resolve followed by spatial resolve/presentation");
+    assert.deepEqual(Array.from(passes[0].descriptor.colorAttachments[0].view.texture.descriptor.size), [640, 360]);
+    assert.deepEqual(Array.from(passes[1].descriptor.colorAttachments[0].view.texture.descriptor.size), [320, 180]);
+    assert.equal(passes[1].draws[0].bindings.get(0).entries.length, 1, "exact textureLoad resolve needs no sampler");
+    assert.ok(passes[1].draws[0].pipeline.descriptor.fragment.module.code.includes('textureLoad'));
+    near([uniform(passes[0].draws[0])[27], uniform(passes[0].draws[0])[31]], [.01, 2.5]);
+    assert.equal(specs[0].uniforms.pixel_size, .02);
+    assert.equal(specs[0].uniforms.anti_alias_width, 1.25);
+    const restored = await d.render(specs, {supersample: 1, samples: 1, resolution: [640, 360]});
+    assert.deepEqual(Array.from(restored[1].descriptor.colorAttachments[0].view.texture.descriptor.size), [640, 360]);
+    assert.equal(restored[1].draws[0].bindings.get(0).entries.length, 2);
+  },
   async ordering() {
     const d = await driver();
     const specs = Object.keys(STRIDE).flatMap(base => ["", "_depth"].map(suffix => ({
@@ -231,21 +328,24 @@ const cases = {
     assert.equal(bindings[0].resource.texture, bindings[1].resource.texture);
     const second = (await d.render(specs.map(s => ({ ...s, cached: true }))))[0].draws;
     first.forEach((draw, i) => assert.equal(draw.bindings.get(1), second[i].bindings.get(1)));
+    const original = first[0].bindings.get(1).entries[0].resource.texture;
+    await d.render([]);
+    assert.ok(original.destroyed, "empty frame retires texture storage");
+    const submitted = d.events.findIndex(([event, n]) => event === "submit" && n === 3);
+    assert.ok(d.events.findIndex(([event, texture]) => event === "texture" && texture === original) > submitted);
+    const returning = (await d.render(specs, { texture_data: { light: { offset: 0, nbytes: 4 } } }))[0].draws;
+    const recreated = returning[0].bindings.get(1).entries[0].resource.texture;
+    assert.notEqual(recreated, original);
+    assert.notEqual(returning[0].bindings.get(1), first[0].bindings.get(1), "retired texture binding must be recreated");
+    assert.ok(!recreated.destroyed);
     const missing = await d.render([{ pipeline: "image", textures: { Texture: "unknown" } }]);
     assert.equal(missing[0].draws.length, 0);
     assert.equal(d.cacheMisses(), 1);
   },
   async modes() {
     const d = await driver();
-    const spec = { kind: "surface", pipeline: "surface", hash: "same-hash" };
-    const legacy = await d.render([spec], { renderer: "legacy", samples: 0 });
-    const old = legacy[1].draws[0];
-    assert.equal(uniform(old)[42], 0);
-    const generated = (await d.render([{ ...spec, kind: "generated" }]))[0].draws[0];
-    assert.notEqual(generated.vertices[0], old.vertices[0]);
-    await d.render([{ ...spec, cached: true }], { renderer: "legacy", samples: 0 });
-    assert.ok(generated.vertices[0].destroyed);
-    assert.equal(old.vertices[0].destroyed, false);
+    await assert.rejects(d.render([], { renderer: "winding", samples: 0 }), /requires generated triangle/);
+    assert.equal(d.submissions.length, 0);
     await assert.rejects(d.render([], { samples: 0 }), /sample count/);
     await assert.rejects(d.render([{ pipeline: "fill", stride: 40 }]), /unsupported generated pipeline/);
     assert.equal((await d.render([])).length, 2, "a rejected frame must not poison the render queue");

@@ -40,12 +40,11 @@ class WebDemo(Scene):
 """
 
 UNSUPPORTED_GEOMETRY_SOURCE = """
-import moderngl
 from manim import *
 
 class CustomCloud(PMobject):
     shader_folder = "true_dot"
-    render_primitive = moderngl.POINTS
+    render_primitive = 0
     data_dtype = DotCloud.data_dtype
 
     def init_uniforms(self):
@@ -59,6 +58,7 @@ class CustomCloud(PMobject):
 class UnsupportedDemo(Scene):
     def construct(self):
         self.add(CustomCloud())
+        self.wait(.1)
 """
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -119,6 +119,9 @@ class _ViewerHarness:
             cls.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             cls.proc.kill()
+            cls.proc.wait(timeout=5)
+        cls._reader.join(timeout=5)
+        cls.proc.stdout.close()
         cls.tmpdir.cleanup()
 
     @classmethod
@@ -552,14 +555,32 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 b["num_verts"] * b.get("stride", 68)
                 + (b["tri"]["vcount"] * 40 + b["tri"]["icount"] * 4
                    if "tri" in b else 0)
+                + (b["index_count"] * 4 if b.get("indexed") else 0)
                 for b in header["batches"] if not b.get("cached"))
+            total += sum(info["nbytes"] for info in header.get("texture_data", {}).values())
             self.assertEqual(total, len(vertex_bytes))
 
     def test_future_chips(self):
         with self._connect() as ws:
-            frames, states = self._collect(ws, 3)
-            self.assertTrue(states, "no state after connect")
-            state = states[-1]
+            def wait_for_state(predicate, description):
+                deadline = time.monotonic() + MESSAGE_TIMEOUT
+                observed = []
+                while time.monotonic() < deadline:
+                    try:
+                        message = ws.recv(timeout=max(0.05, deadline - time.monotonic()))
+                    except TimeoutError:
+                        break
+                    if isinstance(message, bytes):
+                        continue
+                    update = json.loads(message)
+                    if update.get("type") != "state":
+                        continue
+                    observed.append(update)
+                    if predicate(update):
+                        return update
+                self.fail(f"no {description}; observed states: {observed}")
+
+            state = wait_for_state(lambda update: True, "state after connect")
             # Un-run play-units appear as future chips with source lines
             if not state["future"]:
                 self.skipTest("scene already fully run by test ordering")
@@ -569,10 +590,13 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
 
             # Clicking a future chip runs the scene forward to that unit
             ws.send(json.dumps({"type": "chip_future", "unit": target["unit"]}))
-            frames, states = self._collect(ws, 5)
-            self.assertTrue(states, "no state after future-chip click")
-            self.assertGreater(states[-1]["count"], state["count"])
-            self.assertEqual(states[-1]["future"], [])
+            landed = wait_for_state(
+                lambda update: update["count"] > state["count"]
+                and update["current"] > state["current"] and not update["future"],
+                "completed navigation after future-chip click")
+            self.assertGreater(landed["count"], state["count"])
+            self.assertGreater(landed["current"], state["current"])
+            self.assertEqual(landed["future"], [])
 
     def test_untrusted_origin_is_rejected(self):
         with self.assertRaises(Exception):
@@ -760,35 +784,43 @@ class CurveRedrawDemo(Scene):
 
 
 class UnsupportedGeometryE2E(_ViewerHarness, unittest.TestCase):
-    """Unsupported custom drawables are declared in the payload header and
-    left out of the picture; there is no server-side frame to fall back to,
-    so the client shows the header's list instead."""
+    """Rejected frames remain explicit while navigation and recovery stay live."""
 
     SOURCE = UNSUPPORTED_GEOMETRY_SOURCE
     SCENE = "UnsupportedDemo"
     FILENAME = "unsupported_scene.py"
 
-    def test_unsupported_content_is_declared_not_captured(self):
+    def test_unsupported_frame_reports_error_and_valid_checkpoint_recovers(self):
         from maniml.web.geometry import parse_geometry_message
 
         with self._connect() as ws:
-            self._collect(ws, 2)
-            ws.send(json.dumps(
-                {"type": "key", "action": "down", "key": "ArrowRight"}))
-            self._collect(ws, 2)
+            self._collect(ws, .5)
             ws.send(json.dumps({"type": "mode", "geometry": True}))
-            ws.send(json.dumps({"type": "geometry_request"}))
-            frames, messages = self._collect(ws, 4)
-
-            geometry = [f for f in frames if f[0] == 0x03]
-            self.assertTrue(geometry, "no geometry payload for the scene")
-            self.assertEqual(len(frames), len(geometry),
-                             "a non-geometry frame was sent")
-            header, _ = parse_geometry_message(geometry[-1])
-            self.assertIn("CustomCloud", header["unsupported"])
-            self.assertFalse(any(
-                message.get("type") == "renderer_fallback"
-                for message in messages), "the fallback protocol is gone")
+            self._collect(ws, .3)
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+            ws.send(json.dumps({"type": "key", "action": "up", "key": "ArrowRight"}))
+            frames, messages = self._collect(ws, 1)
+            failures = [m["error"] for m in messages if m.get("type") == "render_error" and m.get("error")]
+            self.assertTrue(failures, "no explicit error for unsupported scene")
+            self.assertIn("CustomCloud", failures[-1]["message"])
+            self.assertEqual(failures[-1]["renderer"], "triangles")
+            self.assertFalse(frames, "rejected frame must not publish a partial picture")
+            states = [m for m in messages if m.get("type") == "state"]
+            self.assertTrue(states)
+            self.assertIsNotNone(states[-1]["render_error"])
+            self.assertIsNone(self.proc.poll(), "render error killed the viewer")
+            # Going back to the valid empty checkpoint must clear the error and
+            # produce a full frame, without restarting the scene or renderer.
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowLeft"}))
+            ws.send(json.dumps({"type": "key", "action": "up", "key": "ArrowLeft"}))
+            frames, messages = self._collect(ws, 1)
+            self.assertTrue(frames, "valid checkpoint did not resume rendering")
+            self.assertEqual(parse_geometry_message(frames[-1])[0]["unsupported"], [])
+            self.assertTrue(any(m.get("type") == "render_error" and m.get("error") is None
+                                for m in messages))
+            states = [m for m in messages if m.get("type") == "state"]
+            self.assertEqual(states[-1]["current"], 0)
+            self.assertIsNone(states[-1]["render_error"])
 
 
 class StreamPolicyTests(unittest.TestCase):
@@ -817,26 +849,19 @@ class StreamPolicyTests(unittest.TestCase):
             "the throttle is close enough to the frame period to alias "
             "against it once real timing jitter is involved")
 
-    def test_native_capture_is_skipped_whenever_a_client_renders(self):
-        """The browser is the only viewer, so a native frame is only ever
-        worth capturing when nobody is rendering client-side: no client, or
-        a client that reported no WebGPU. Unsupported content is not a
-        reason to capture — nothing would show the native frame."""
+    def test_live_browser_skips_native_before_connect_and_without_gpu(self):
         from types import SimpleNamespace
         from maniml.web.viewer import WebViewer
 
-        viewer = SimpleNamespace(
-            _geometry_mode=True,
-            scene=object(),
-            server=SimpleNamespace(has_clients=lambda: True),
-        )
+        writer = SimpleNamespace(write_to_movie=False, save_last_frame=False)
+        viewer = SimpleNamespace(scene=SimpleNamespace(file_writer=writer))
         self.assertTrue(WebViewer.can_skip_native_capture(viewer))
-
-        viewer._geometry_mode = False
+        writer.write_to_movie = True
         self.assertFalse(WebViewer.can_skip_native_capture(viewer))
-
-        viewer._geometry_mode = True
-        viewer.server = SimpleNamespace(has_clients=lambda: False)
+        writer.write_to_movie = False
+        writer.save_last_frame = True
+        self.assertFalse(WebViewer.can_skip_native_capture(viewer))
+        viewer.scene = None
         self.assertFalse(WebViewer.can_skip_native_capture(viewer))
 
 
@@ -1122,6 +1147,47 @@ class SceneSwitchE2E(_ViewerHarness, unittest.TestCase):
             current = (after or before)["scene"]
             self.assertEqual(current, before["scene"])
             self.assertTrue(self.proc.poll() is None, "process died")
+
+
+class RendererSwitchE2E(_ViewerHarness, unittest.TestCase):
+    SOURCE = """
+from manim import *
+class RendererDemo(Scene):
+    def setup(self):
+        self.add(Square(fill_opacity=1, stroke_width=2))
+    def construct(self):
+        self.wait(.1)
+"""
+    SCENE = "RendererDemo"
+
+    def test_renderer_switch_returns_full_geometry_at_the_same_checkpoint(self):
+        from maniml.web.geometry import parse_geometry_message
+
+        with self._connect() as ws:
+            self._collect(ws, .2)
+            for mode in ("triangles", "winding", "triangles"):
+                ws.send(json.dumps({"type": "mode", "geometry": True, "renderer": mode}))
+                header, state = None, None
+                deadline = time.monotonic() + MESSAGE_TIMEOUT
+                while time.monotonic() < deadline and (header is None or state is None):
+                    try:
+                        message = ws.recv(timeout=max(.01, deadline - time.monotonic()))
+                    except TimeoutError:
+                        break
+                    if isinstance(message, bytes):
+                        candidate, _ = parse_geometry_message(message)
+                        if candidate["renderer"] == mode and header is None:
+                            header = candidate
+                    else:
+                        candidate = json.loads(message)
+                        if candidate.get("type") == "state" and candidate.get("renderer") == mode:
+                            state = candidate
+                self.assertIsNotNone(header, "no frame for " + mode)
+                self.assertTrue(header["batches"], "fixture must draw a shape")
+                self.assertFalse(any(batch.get("cached") for batch in header["batches"]))
+                self.assertIsNotNone(state, "no state for " + mode)
+                self.assertEqual(state["current"], 0)
+                self.assertEqual(state["scene"], "RendererDemo")
 
 
 if __name__ == "__main__":

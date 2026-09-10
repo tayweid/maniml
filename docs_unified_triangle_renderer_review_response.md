@@ -108,4 +108,57 @@ intentional-change candidate above, not a blanket pass. The missed border and
 small-scene timings prevent treating that pilot as general fidelity or speed
 acceptance. Text/hairline AA, full border/material behavior, representative
 animated-frame performance, packaging, and the selected route's remaining
-quality gates are still open. Native GL retirement remains held.
+quality gates were still open at this checkpoint. Native GL retirement
+remained held; the September 10 authorization below supersedes that status.
+
+## Fifth-round disposition and Phase A cutover
+
+The [fifth code review](docs_unified_triangle_renderer_code_review.md) audited
+`a7eb644b`, before the cutover work. The [Phase A record](docs_unified_triangle_renderer_phase_a.md)
+owns the final specification and validation. This disposition records the
+decisions separately from the reviewer's document.
+
+1. **Plain-2D antialiasing mismatch — accepted and fixed.** The production
+   serializer chooses its own 4× MSAA plus 2× spatial resolve, independently
+   of `Camera.samples`. Benchmarks call that public default directly.
+2. **Rust adoption — explicit decision.** The helper is required by the
+   default renderer, so it remains a required build. Source/editable installs
+   need Cargo/linker; compatible wheels need neither. The README states this.
+   An optional extension would leave a successful install unable to render.
+3. **Border union geometry explosion — accepted, technique adapted.** Borders
+   use per-sample stencil ownership and actual world-space border triangles.
+   They share the final AA policy, so they need no separate winding image or
+   CPU polygon union. The hard border emitter preserves Manim's own join,
+   width, partial-path and camera-facing geometry. Depth-only replay preserves
+   the nearest border depth for later objects.
+4. **Repeated hashing — accepted.** Immutable bytes-backed derived arrays
+   cache digests. Mutable arrays still hash actual contents. Public source
+   validation retains the direct-array-write contract; a revision alone
+   cannot establish renderer cache validity.
+5. **Recording versions — accepted.** The player accepts versions 1/2/3,
+   selects the renderer from the validated recording, and reports corrupt
+   recordings visibly. Playback errors stop playback and permit a later seek.
+6. **Write — retained.** No change to the validated exact-endpoint fix.
+
+Generated textures retire with the active frame. Both live renderer modes
+share bounded, replacement-aware CPU image reads. The original viewer
+renderer remains selectable because Taylor requested it for dogfooding.
+The native GL camera/wrappers/GLSL and the old native winding driver are
+test-only references, excluded from the package.
+
+The AA evidence preserves one specific disagreement with the old sampler:
+zero-border zoom misses its former full-frame threshold, while exact pixel
+area and 8×/16× convergence controls favor the selected AA. No threshold was
+broadened to hide it. All five production-style fixtures pass. Vectorized
+border emission and exact source caches replace the expensive scalar path.
+An additional exact opaque/unshaded painter fast path reduces the 101-glyph
+control to one draw; real GPU tests match separate stencil draws pixel for
+pixel. Translucent, gradient, shaded and depth paths retain ownership.
+
+The final complete-frame medians are B0 **80.57 → 25.31 ms** and moving-camera
+TeX **6.87 → 15.91 ms**. Text remains slower, primarily in CPU preparation;
+the proposed no-regression gate is not reported as passed. The cutover record
+explicitly accepts that case for the requested default-renderer dogfood
+rollout, records its payload cost and preserves Original 2D for comparison.
+This decision rests on current shared-renderer/ordered-output benefits, not
+an assumed Phase B speedup.

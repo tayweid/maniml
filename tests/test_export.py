@@ -25,6 +25,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class WebExportE2E(unittest.TestCase):
+    # The original viewer environment preference cannot change baked exports.
     renderer = "winding"
 
     def test_export_and_replay(self):
@@ -45,10 +46,10 @@ class WebExportE2E(unittest.TestCase):
 
             out = os.path.join(tmp, "media", "ExportDemo_web")
             for name in ["index.html", "player.js", "webgpu.js",
-                         "geometry_recording.js", "scene.json", "scene.bin.gz"]:
+                         "winding_webgpu.js", "geometry_recording.js", "scene.json", "scene.bin.gz"]:
                 self.assertTrue(os.path.exists(os.path.join(out, name)),
                                 f"missing {name}")
-            for dirname in ["wgsl"]:
+            for dirname in ["wgsl", "winding_wgsl"]:
                 self.assertTrue(
                     os.listdir(os.path.join(out, dirname)),
                     f"empty {dirname}")
@@ -85,7 +86,8 @@ class WebExportE2E(unittest.TestCase):
                 self.assertEqual(
                     header["format_version"], GEOMETRY_FORMAT_VERSION)
                 self.assertEqual(header["unsupported"], [])
-                self.assertEqual(header.get("renderer", "winding"), self.renderer)
+                self.assertEqual(header["renderer"], "triangles")
+                self.assertEqual((header["samples"], header["supersample"]), (4, 2))
                 for batch in header["batches"]:
                     content_hash = batch["hash"]
                     if batch.get("cached"):

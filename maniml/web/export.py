@@ -30,8 +30,8 @@ from maniml.web.geometry import (
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-PLAYER_ASSETS = ["player.html", "player.js", "webgpu.js", "geometry_recording.js"]
-PLAYER_ASSET_DIRS = ["wgsl"]
+PLAYER_ASSETS = ["player.html", "player.js", "webgpu.js", "winding_webgpu.js", "geometry_recording.js"]
+PLAYER_ASSET_DIRS = ["wgsl", "winding_wgsl"]
 
 
 class GeometryRecorder:
@@ -55,8 +55,12 @@ class GeometryRecorder:
     def end_animation(self):
         pass  # tail frames stay with the finished segment
 
+    def can_skip_native_capture(self):
+        writer = self.scene.file_writer
+        return not (writer.write_to_movie or writer.save_last_frame)
+
     def on_frame_rendered(self):
-        message = serialize_scene(self.scene, self.cache)
+        message = serialize_scene(self.scene, self.cache, renderer="triangles")
         self.frames.append((message, self.segment))
 
 

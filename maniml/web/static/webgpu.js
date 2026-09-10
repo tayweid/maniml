@@ -9,7 +9,7 @@ const ManimlWGPU = (() => {
   const VERTEX_STRIDE = 68;
   const INSTANCE_STRIDE = 3 * VERTEX_STRIDE;
   const UNIFORM_FLOATS = 48;  // must match UNIFORM_FIELDS / struct Uniforms
-  const DEPTH_FORMAT = "depth24plus";
+  const DEPTH_FORMAT = "depth24plus-stencil8";
 
   // Field order mirrors wgpu_renderer.UNIFORM_FIELDS
   const UNIFORM_LAYOUT = [
@@ -31,13 +31,6 @@ const ManimlWGPU = (() => {
   const layout = (arrayStride, stepMode, attributes) =>
     [{ arrayStride, stepMode, attributes }];
 
-  const FILL_LAYOUT = layout(INSTANCE_STRIDE, "instance", [
-    attr("float32x3", 0, 0), attr("float32x3", 68, 1),
-    attr("float32x3", 136, 2),
-    attr("float32x4", 36, 3), attr("float32x4", 104, 4),
-    attr("float32x4", 172, 5),
-    attr("float32x3", 52, 6), attr("float32x3", 120, 7),
-  ]);
   const STROKE_LAYOUT = layout(INSTANCE_STRIDE, "instance", [
     attr("float32x3", 0, 0), attr("float32x3", 68, 1),
     attr("float32x3", 136, 2),
@@ -48,17 +41,6 @@ const ManimlWGPU = (() => {
     attr("float32", 32, 9), attr("float32", 168, 10),
     attr("float32x3", 120, 11),
   ]);
-  const BORDER_LAYOUT = layout(INSTANCE_STRIDE, "instance", [
-    attr("float32x3", 0, 0), attr("float32x3", 68, 1),
-    attr("float32x3", 136, 2),
-    attr("float32x4", 36, 3), attr("float32x4", 104, 4),
-    attr("float32x4", 172, 5),
-    attr("float32", 64, 6), attr("float32", 132, 7),
-    attr("float32", 200, 8),
-    attr("float32", 32, 9), attr("float32", 168, 10),
-    attr("float32x3", 120, 11),
-  ]);
-  const COMPOSITE_LAYOUT = layout(8, "vertex", [attr("float32x2", 0, 0)]);
   const SURFACE_LAYOUT = layout(40, "vertex", [
     attr("float32x3", 0, 0), attr("float32x3", 12, 1),
     attr("float32x4", 24, 2),
@@ -76,99 +58,66 @@ const ManimlWGPU = (() => {
     attr("float32x2", 24, 2), attr("float32", 32, 3),
   ]);
 
-  const ALPHA_BLEND = {
-    color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha",
-             operation: "add" },
-    alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha",
-             operation: "add" },
-  };
-  const FILL_ACCUMULATE_BLEND = {
-    color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha",
-             operation: "add" },
-    alpha: { srcFactor: "one-minus-dst-alpha", dstFactor: "one",
-             operation: "add" },
-  };
-  const MAX_BLEND = {
-    color: { srcFactor: "one", dstFactor: "one", operation: "max" },
-    alpha: { srcFactor: "one", dstFactor: "one", operation: "max" },
-  };
-  const COMPOSITE_BLEND = {
+  const PREMULTIPLIED_BLEND = {
     color: { srcFactor: "one", dstFactor: "one-minus-src-alpha",
              operation: "add" },
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha",
              operation: "add" },
   };
 
-  // name -> [module, layout, topology, target, blend, depthTest]
-  const PIPELINE_SPECS = {
-    fill: ["fill", FILL_LAYOUT, "triangle-list", "fill",
-           FILL_ACCUMULATE_BLEND, false],
-    border: ["stroke", BORDER_LAYOUT, "triangle-strip", "fill",
-             MAX_BLEND, false],
-    composite: ["composite", COMPOSITE_LAYOUT, "triangle-strip", "out",
-                COMPOSITE_BLEND, false],
-    stroke: ["stroke", STROKE_LAYOUT, "triangle-strip", "out",
-             ALPHA_BLEND, false],
-    stroke_depth: ["stroke", STROKE_LAYOUT, "triangle-strip", "out",
-                   ALPHA_BLEND, true],
-    surface: ["surface", SURFACE_LAYOUT, "triangle-list", "out",
-              ALPHA_BLEND, false],
-    surface_depth: ["surface", SURFACE_LAYOUT, "triangle-list", "out",
-                    ALPHA_BLEND, true],
-    dot: ["dot", DOT_LAYOUT, "triangle-strip", "out", ALPHA_BLEND, false],
-    dot_depth: ["dot", DOT_LAYOUT, "triangle-strip", "out",
-                ALPHA_BLEND, true],
-    image: ["image", IMAGE_LAYOUT, "triangle-list", "out",
-            ALPHA_BLEND, false],
-    image_depth: ["image", IMAGE_LAYOUT, "triangle-list", "out",
-                  ALPHA_BLEND, true],
-    texsurface: ["texsurface", TEXSURFACE_LAYOUT, "triangle-list", "out",
-                 ALPHA_BLEND, false],
-    texsurface_depth: ["texsurface", TEXSURFACE_LAYOUT, "triangle-list",
-                       "out", ALPHA_BLEND, true],
-  };
-  // Generated geometry draws directly into one premultiplied scene target.
-  // Keep the legacy shaders/layouts, with separate output and blend state.
-  for (const base of ["stroke", "surface", "dot", "image", "texsurface"]) {
-    for (const suffix of ["", "_depth"]) {
-      const name = base + suffix;
-      const [module, buffers, topology, target, , depth] = PIPELINE_SPECS[name];
-      PIPELINE_SPECS["generated_" + name] =
-        [module, buffers, topology, target, COMPOSITE_BLEND, depth];
+  // All operations share a premultiplied scene target, with explicit depth.
+  const PIPELINE_SPECS = {};
+  for (const [module, buffers, topology] of [
+    ["stroke", STROKE_LAYOUT, "triangle-strip"],
+    ["surface", SURFACE_LAYOUT, "triangle-list"],
+    ["paint", SURFACE_LAYOUT, "triangle-list"],
+    ["dot", DOT_LAYOUT, "triangle-strip"],
+    ["image", IMAGE_LAYOUT, "triangle-list"],
+    ["texsurface", TEXSURFACE_LAYOUT, "triangle-list"],
+  ]) {
+    for (const depth of [false, true]) {
+      PIPELINE_SPECS["generated_" + module + (depth ? "_depth" : "")] =
+        [module, buffers, topology, "out", PREMULTIPLIED_BLEND, depth];
+    }
+  }
+
+  for (const [name, spec] of Object.entries(PIPELINE_SPECS)) {
+    if (spec[0] === "surface" || spec[0] === "paint") {
+      PIPELINE_SPECS[name + "_coverage"] = spec;
+      if (spec[5]) PIPELINE_SPECS[name + "_depth_only"] = spec;
     }
   }
 
   const MODULE_SOURCES = {
-    fill: ["common.wgsl", "fill.wgsl"],
     stroke: ["common.wgsl", "stroke.wgsl"],
-    composite: ["composite.wgsl"],
     surface: ["common.wgsl", "surface.wgsl"],
+    paint: ["common.wgsl", "paint.wgsl"],
     dot: ["common.wgsl", "dot.wgsl"],
     image: ["common.wgsl", "image.wgsl"],
     texsurface: ["common.wgsl", "texsurface.wgsl"],
     blit: ["blit.wgsl"],
+    resolve2: ["resolve2.wgsl"],
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
-  let modules = {}, pipelines = new Map(), blitPipeline = null;
-  let quadBuffer, sampler;
+  let modules = {}, pipelines = new Map(), blitPipeline = null, resolve2Pipeline = null;
+  let sampler;
   let outTexture, resolveTexture, depthTexture;
   let outView, resolveView, depthView;
   let targetKey = null;
-  const fillTargets = new Map();
-  let usedFillTargets = new Set();
   const textureCache = new Map();
-  const batchCache = new Map();
   const generatedGeometry = new Map();
   const generatedUniforms = new Map();
   const generatedTextures = new Map();
+  const generatedPaints = new Map();
   let usedGeneratedGeometry = new Set();
   let usedGeneratedUniforms = new Set();
   let usedGeneratedTextures = new Set();
-  const CACHE_MAX = 512;
+  let usedGeneratedPaints = new Set();
   let cacheMissed = false;
-  let frameBuffers = [];  // per-frame uniform buffers, destroyed post-submit
   let renderQueue = Promise.resolve();
+  let closing = false;
+  let teardown = null;
 
   async function fetchWgsl(names) {
     const parts = [];
@@ -181,6 +130,9 @@ const ManimlWGPU = (() => {
   }
 
   async function init(canvasEl) {
+    if (device) throw new Error("renderer is already initialized");
+    closing = false;
+    teardown = null;
     if (!navigator.gpu) throw new Error("WebGPU unavailable");
     const adapter = await navigator.gpu.requestAdapter(
       { powerPreference: "high-performance" });
@@ -202,8 +154,13 @@ const ManimlWGPU = (() => {
       fragment: { module: modules.blit, entryPoint: "fs_main",
                   targets: [{ format: canvasFormat }] },
     });
-    quadBuffer = makeBuffer(
-      new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]).buffer, GPUBufferUsage.VERTEX);
+    resolve2Pipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: modules.resolve2, entryPoint: "vs_main" },
+      primitive: { topology: "triangle-list" },
+      fragment: { module: modules.resolve2, entryPoint: "fs_main",
+                  targets: [{ format: canvasFormat }] },
+    });
     sampler = device.createSampler({
       magFilter: "linear", minFilter: "linear",
       addressModeU: "repeat", addressModeV: "repeat" });
@@ -230,37 +187,36 @@ const ManimlWGPU = (() => {
       vertex: { module: modules[moduleKey], entryPoint: "vs_main", buffers },
       primitive: { topology },
     };
-    if (target === "fill") {
-      descriptor.fragment = {
-        module: modules[moduleKey], entryPoint: "fs_main",
-        targets: [{ format: "rgba16float", blend }] };
-    } else {
-      descriptor.fragment = {
-        module: modules[moduleKey], entryPoint: "fs_main",
-        targets: [{ format: "rgba8unorm", blend }] };
-      descriptor.depthStencil = {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: depthTest,
-        depthCompare: depthTest ? "less" : "always",
-      };
-      descriptor.multisample = { count: samples };
-    }
+    const coverage = name.endsWith("_coverage");
+    const depthOnly = name.endsWith("_depth_only");
+    descriptor.fragment = {
+      module: modules[moduleKey], entryPoint: "fs_main",
+      targets: [{ format: "rgba8unorm", blend, writeMask: depthOnly ? 0 : 15 }] };
+    descriptor.depthStencil = {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: depthTest && !coverage,
+      depthCompare: depthTest ? "less" : "always",
+      stencilFront: { compare: coverage ? "not-equal" : "always",
+        failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
+      stencilBack: { compare: coverage ? "not-equal" : "always",
+        failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
+      stencilReadMask: 255, stencilWriteMask: coverage ? 255 : 0,
+    };
+    descriptor.multisample = { count: samples };
     const pipeline = device.createRenderPipeline(descriptor);
     pipelines.set(key, pipeline);
     return pipeline;
   }
 
-  function ensureTargets(width, height, samples) {
-    const key = width + "x" + height + "@" + samples;
+  function ensureTargets(width, height, samples, outputWidth = width, outputHeight = height) {
+    const key = width + "x" + height + "@" + samples + ":" + outputWidth + "x" + outputHeight;
     if (targetKey === key) return;
     targetKey = key;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     for (const t of [outTexture, resolveTexture, depthTexture]) {
       if (t) t.destroy();
     }
-    for (const target of fillTargets.values()) target.texture.destroy();
-    fillTargets.clear();
     const attach = GPUTextureUsage.RENDER_ATTACHMENT;
     resolveTexture = null; resolveView = null;
     if (samples > 1) {
@@ -283,38 +239,7 @@ const ManimlWGPU = (() => {
     depthView = depthTexture.createView();
   }
 
-  function fillRect(batch, width, height) {
-    const rect = batch.fill_rect;
-    if (!Array.isArray(rect) || rect.length !== 4
-        || !rect.every(Number.isSafeInteger)) return [0, 0, width, height];
-    const [x, y, w, h] = rect;
-    if (x < 0 || y < 0 || w < 0 || h < 0
-        || x + w > width || y + h > height) return [0, 0, width, height];
-    return w === 0 || h === 0 ? null : rect;
-  }
-
-  function fillTarget(width, height, outputWidth, outputHeight) {
-    // Keep the original 2x sampling grid, while sharing small scratch
-    // allocations among batches whose bounds fit the same bucket.
-    const bucketWidth = Math.min(2 * outputWidth,
-      2 ** Math.ceil(Math.log2(width)));
-    const bucketHeight = Math.min(2 * outputHeight,
-      2 ** Math.ceil(Math.log2(height)));
-    const key = bucketWidth + "x" + bucketHeight;
-    usedFillTargets.add(key);
-    let target = fillTargets.get(key);
-    if (!target) {
-      const texture = device.createTexture({
-        size: [bucketWidth, bucketHeight], format: "rgba16float",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-      target = { texture, view: texture.createView(),
-                 width: bucketWidth, height: bucketHeight };
-      fillTargets.set(key, target);
-    }
-    return target;
-  }
-
-  function outPass(encoder, clearColor) {
+  function outPass(encoder, clearColor, clearStencil = false) {
     const color = {
       view: outView,
       loadOp: clearColor ? "clear" : "load",
@@ -332,6 +257,8 @@ const ManimlWGPU = (() => {
         depthLoadOp: clearColor ? "clear" : "load",
         depthStoreOp: "store",
         depthClearValue: 1.0,
+        stencilLoadOp: clearColor || clearStencil ? "clear" : "load",
+        stencilStoreOp: "store", stencilClearValue: 0,
       },
     });
   }
@@ -350,40 +277,6 @@ const ManimlWGPU = (() => {
       cursor += n;
     }
     return out.buffer;
-  }
-
-  function uniformBindGroup(pipeline, uniforms, borderMode = 0) {
-    const buffer = makeBuffer(packUniforms(uniforms, borderMode),
-                              GPUBufferUsage.UNIFORM);
-    frameBuffers.push(buffer);
-    return device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer } }],
-    });
-  }
-
-  function getResources(batch, builder) {
-    let res = batchCache.get(batch.hash);
-    if (res) {
-      batchCache.delete(batch.hash);
-      batchCache.set(batch.hash, res);
-      return res;
-    }
-    if (batch.cached) { cacheMissed = true; return null; }
-    res = builder();
-    batchCache.set(batch.hash, res);
-    while (batchCache.size > CACHE_MAX) {
-      const [oldHash, old] = batchCache.entries().next().value;
-      batchCache.delete(oldHash);
-      for (const b of old.buffers) b.destroy();
-    }
-    return res;
-  }
-
-  function batchPipelineName(batch) {
-    const base = { dotcloud: "dot", image: "image", surface: "surface",
-                   texsurface: "texsurface" }[batch.kind];
-    return base + (batch.depth_test ? "_depth" : "");
   }
 
   function generatedResources(batch, vertexBytes) {
@@ -444,8 +337,8 @@ const ManimlWGPU = (() => {
     return binding;
   }
 
-  function encodeGenerated(pass, header, batch, vertexBytes, samples) {
-    const name = "generated_" + batch.pipeline;
+  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, depthOnly = false) {
+    const name = "generated_" + batch.pipeline + (depthOnly ? "_depth_only" : batch.coverage ? "_coverage" : "");
     if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
       throw new Error("unsupported generated pipeline " + batch.pipeline);
     }
@@ -458,8 +351,26 @@ const ManimlWGPU = (() => {
       if (!textureBinding) return;
     }
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, generatedUniformBinding(name, samples, pipeline,
-      { ...header.camera, ...batch.uniforms }));
+    const uniforms = { ...header.camera, ...batch.uniforms };
+    uniforms.pixel_size = (uniforms.pixel_size ?? 1) / supersample;
+    uniforms.anti_alias_width = (uniforms.anti_alias_width ?? 1.5) * supersample;
+    pass.setBindGroup(0, generatedUniformBinding(name, samples, pipeline, uniforms));
+    if (batch.pipeline === "paint" || batch.pipeline === "paint_depth") {
+      const packed = new Float32Array(batch.paint);
+      const key = name + "@" + samples + ":" + new Uint32Array(packed.buffer).join(",");
+      usedGeneratedPaints.add(key);
+      let material = generatedPaints.get(key);
+      if (!material) {
+        const buffer = makeBuffer(packed.buffer, GPUBufferUsage.STORAGE);
+        const binding = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(1),
+          entries: [{ binding: 0, resource: { buffer } }],
+        });
+        material = { binding, buffers: [buffer] };
+        generatedPaints.set(key, material);
+      }
+      pass.setBindGroup(1, material.binding);
+    }
     if (textureBinding) pass.setBindGroup(1, textureBinding);
     pass.setVertexBuffer(0, res.vertex);
     if (batch.indexed) {
@@ -470,10 +381,11 @@ const ManimlWGPU = (() => {
     }
   }
 
-  function retireGeneratedResources() {
+  function retireGeneratedResources(textureHashes) {
     for (const [cache, used] of [
       [generatedGeometry, usedGeneratedGeometry],
       [generatedUniforms, usedGeneratedUniforms],
+      [generatedPaints, usedGeneratedPaints],
     ]) {
       for (const [key, res] of cache) {
         if (!used.has(key)) {
@@ -485,9 +397,13 @@ const ManimlWGPU = (() => {
     for (const key of generatedTextures.keys()) {
       if (!usedGeneratedTextures.has(key)) generatedTextures.delete(key);
     }
+    for (const [key, texture] of textureCache) {
+      if (!textureHashes.has(key)) { texture.destroy(); textureCache.delete(key); }
+    }
   }
 
   function render(arrayBuffer) {
+    if (closing || !device) return Promise.reject(new Error("renderer is not active"));
     // Texture decoding yields to the event loop. Serialize complete frames so
     // a later resize or cache retirement cannot replace an earlier frame's
     // targets/resources before it submits, or present frames out of order.
@@ -504,12 +420,18 @@ const ManimlWGPU = (() => {
     const vertexBytes = bytes.subarray(5 + headerLen);
 
     const [width, height] = header.resolution;
-    const generated = header.renderer === "triangles";
-    const samples = generated ? header.samples : (header.samples ? 4 : 1);
-    if (generated && samples !== 1 && samples !== 4) {
+    if (header.renderer !== "triangles") {
+      throw new Error("browser renderer requires generated triangle geometry");
+    }
+    const samples = header.samples;
+    if (samples !== 1 && samples !== 4) {
       throw new Error("generated sample count must be 1 or 4");
     }
-    ensureTargets(width, height, samples);
+    const supersample = header.supersample ?? 2;
+    if (supersample !== 1 && supersample !== 2) {
+      throw new Error("generated supersample factor must be 1 or 2");
+    }
+    ensureTargets(width * supersample, height * supersample, samples, width, height);
     cacheMissed = false;
 
     for (const [texHash, ref] of Object.entries(header.texture_data || {})) {
@@ -527,28 +449,29 @@ const ManimlWGPU = (() => {
       textureCache.set(texHash, texture);
     }
 
-    usedFillTargets = new Set();
     usedGeneratedGeometry = new Set();
     usedGeneratedUniforms = new Set();
     usedGeneratedTextures = new Set();
+    usedGeneratedPaints = new Set();
     const encoder = device.createCommandEncoder();
-    if (generated) {
-      const [r, g, b, a] = header.background;
-      const pass = outPass(encoder, [r * a, g * a, b * a, a]);
-      for (const batch of header.batches) {
-        encodeGenerated(pass, header, batch, vertexBytes, samples);
-      }
-      pass.end();
-    } else {
-      outPass(encoder, header.background).end();
-      for (const batch of header.batches) {
-        if (batch.kind === "vmobject") {
-          encodeVMobject(encoder, header, batch, vertexBytes, samples);
-        } else {
-          encodePlain(encoder, header, batch, vertexBytes, samples);
+    const [r, g, b, a] = header.background;
+    let pass = outPass(encoder, [r * a, g * a, b * a, a]);
+    let coverageRef = 0;
+    for (const batch of header.batches) {
+      if (batch.coverage) {
+        if (coverageRef === 255) {
+          pass.end();
+          pass = outPass(encoder, null, true);
+          coverageRef = 0;
         }
+        pass.setStencilReference(++coverageRef);
+      }
+      encodeGenerated(pass, header, batch, vertexBytes, samples, supersample);
+      if (batch.coverage && batch.pipeline.endsWith("_depth")) {
+        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, true);
       }
     }
+    pass.end();
 
     // Present: blit the (resolved) scene target onto the canvas
     const blitPass = encoder.beginRenderPass({ colorAttachments: [{
@@ -556,13 +479,14 @@ const ManimlWGPU = (() => {
       loadOp: "clear", storeOp: "store",
       clearValue: { r: 0, g: 0, b: 0, a: 1 },
     }] });
-    blitPass.setPipeline(blitPipeline);
+    // The exact box resolve is also the presentation pass. Native rendering
+    // uses this same shader with an rgba8 output texture for file readback.
+    const presentPipeline = supersample === 2 ? resolve2Pipeline : blitPipeline;
+    blitPass.setPipeline(presentPipeline);
+    const entries = [{ binding: 0, resource: (resolveView || outView) }];
+    if (supersample === 1) entries.push({ binding: 1, resource: sampler });
     blitPass.setBindGroup(0, device.createBindGroup({
-      layout: blitPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: (resolveView || outView) },
-        { binding: 1, resource: sampler },
-      ],
+      layout: presentPipeline.getBindGroupLayout(0), entries,
     }));
     blitPass.draw(3);
     blitPass.end();
@@ -570,161 +494,42 @@ const ManimlWGPU = (() => {
     device.queue.submit([encoder.finish()]);
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
-    retireGeneratedResources();
-    // Never destroy a target while this frame's unsubmitted commands
-    // may still refer to it. Retain only buckets used by the new frame.
-    for (const [key, target] of fillTargets) {
-      if (!usedFillTargets.has(key)) {
-        target.texture.destroy();
-        fillTargets.delete(key);
-      }
-    }
-    for (const b of frameBuffers) b.destroy();
-    frameBuffers = [];
+    retireGeneratedResources(new Set(header.batches.flatMap(
+      batch => Object.values(batch.textures || {}))));
     if (cacheMissed && ManimlWGPU.onCacheMiss) ManimlWGPU.onCacheMiss();
     return header;
   }
 
-  function encodePlain(encoder, header, batch, vertexBytes, samples) {
-    const name = batchPipelineName(batch);
-    const pipeline = getPipeline(name, samples);
-    const uniforms = { ...header.camera, ...batch.uniforms };
-    const res = getResources(batch, () => ({
-      buffers: [makeBuffer(vertexBytes.subarray(
-        batch.offset, batch.offset + batch.num_verts * batch.stride),
-        GPUBufferUsage.VERTEX)],
-    }));
-    if (!res) return;
-
-    const pass = outPass(encoder);
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, uniformBindGroup(pipeline, uniforms));
-    if (batch.textures) {
-      const hashes = Object.values(batch.textures);
-      const views = hashes.map((h) => {
-        const t = textureCache.get(h);
-        return t ? t.createView() : null;
-      });
-      if (views.some((v) => !v)) { cacheMissed = true; pass.end(); return; }
-      if (views.length === 1 && batch.kind === "texsurface") {
-        views.push(views[0]);  // DarkTexture falls back to light
+  function destroy() {
+    if (teardown) return teardown;
+    closing = true;
+    teardown = (async () => {
+      await renderQueue;
+      if (!device) return;
+      try { await device.queue.onSubmittedWorkDone(); }
+      finally {
+        for (const cache of [generatedGeometry, generatedUniforms, generatedPaints]) {
+          for (const res of cache.values()) for (const buffer of res.buffers) buffer.destroy();
+          cache.clear();
+        }
+        generatedTextures.clear();
+        for (const texture of textureCache.values()) texture.destroy();
+        textureCache.clear();
+        for (const texture of [outTexture, resolveTexture, depthTexture]) {
+          if (texture) texture.destroy();
+        }
+        context.unconfigure();
+        device.destroy();
+        device = canvas = context = null;
+        outTexture = resolveTexture = depthTexture = null;
+        outView = resolveView = depthView = targetKey = null;
+        modules = {}; pipelines.clear();
+        blitPipeline = resolve2Pipeline = sampler = null;
+        renderQueue = Promise.resolve();
       }
-      const entries = views.map((v, i) => ({ binding: i, resource: v }));
-      entries.push({ binding: views.length, resource: sampler });
-      pass.setBindGroup(1, device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(1), entries }));
-    }
-    pass.setVertexBuffer(0, res.buffers[0]);
-    if (batch.kind === "dotcloud") pass.draw(4, batch.num_verts);
-    else pass.draw(batch.num_verts);
-    pass.end();
+    })();
+    return teardown;
   }
 
-  function encodeVMobject(encoder, header, batch, vertexBytes, samples) {
-    const uniforms = { ...header.camera, ...batch.uniforms };
-    const instances = batch.num_verts / 3;
-    const strokeVerts = batch.stroke_verts || 64;
-    const depth = !!batch.depth_test;
-
-    const res = getResources(batch, () => {
-      const out = { buffers: [makeBuffer(vertexBytes.subarray(
-        batch.offset, batch.offset + batch.num_verts * VERTEX_STRIDE),
-        GPUBufferUsage.VERTEX)] };
-      const tri = batch.tri;
-      if (tri) {
-        out.triVbo = makeBuffer(vertexBytes.subarray(
-          tri.voffset, tri.voffset + tri.vcount * 40),
-          GPUBufferUsage.VERTEX);
-        out.triIbo = makeBuffer(vertexBytes.subarray(
-          tri.ioffset, tri.ioffset + tri.icount * 4),
-          GPUBufferUsage.INDEX);
-        out.triCount = tri.icount;
-        out.buffers.push(out.triVbo, out.triIbo);
-      }
-      return out;
-    });
-    if (!res) return;
-    const buffer = res.buffers[0];
-
-    const drawWindingFill = () => {
-      const [width, height] = header.resolution;
-      const rect = fillRect(batch, width, height);
-      if (rect === null) return;
-      const [x, y, w, h] = rect;
-      const target = fillTarget(2 * w, 2 * h, width, height);
-      const fillUniforms = { ...uniforms, clip_transform: [
-        width / w, height / h,
-        (width - 2 * x - w) / w, (2 * y + h - height) / h,
-      ] };
-      const fillPipeline = getPipeline("fill", 1);
-      const borderPipeline = getPipeline("border", 1);
-      const fillPass = encoder.beginRenderPass({ colorAttachments: [{
-        view: target.view, loadOp: "clear", storeOp: "store",
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-      }] });
-      fillPass.setViewport(0, 0, 2 * w, 2 * h, 0, 1);
-      fillPass.setPipeline(fillPipeline);
-      fillPass.setBindGroup(0, uniformBindGroup(fillPipeline, fillUniforms));
-      fillPass.setVertexBuffer(0, buffer);
-      fillPass.draw(6, instances);
-      fillPass.setPipeline(borderPipeline);
-      fillPass.setBindGroup(0, uniformBindGroup(borderPipeline, fillUniforms, 1));
-      fillPass.setVertexBuffer(0, buffer);
-      fillPass.draw(strokeVerts, instances);
-      fillPass.end();
-
-      const compositePipeline = getPipeline("composite", samples);
-      const uvScale = makeBuffer(new Float32Array([
-        2 * w / target.width, 2 * h / target.height, 0, 0,
-      ]).buffer, GPUBufferUsage.UNIFORM);
-      frameBuffers.push(uvScale);
-      const pass = outPass(encoder);
-      pass.setViewport(x, y, w, h, 0, 1);
-      pass.setScissorRect(x, y, w, h);
-      pass.setPipeline(compositePipeline);
-      pass.setBindGroup(0, device.createBindGroup({
-        layout: compositePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: target.view },
-          { binding: 1, resource: sampler },
-          { binding: 2, resource: { buffer: uvScale } },
-        ],
-      }));
-      pass.setVertexBuffer(0, quadBuffer);
-      pass.draw(4);
-      pass.end();
-    };
-
-    const drawTriangulatedFill = () => {
-      if (!res.triVbo) return;
-      const pipeline = getPipeline("surface_depth", samples);
-      const pass = outPass(encoder);
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, uniformBindGroup(pipeline, uniforms));
-      pass.setVertexBuffer(0, res.triVbo);
-      pass.setIndexBuffer(res.triIbo, "uint32");
-      pass.drawIndexed(res.triCount);
-      pass.end();
-    };
-
-    const drawFill = () => {
-      if (batch.fill_mode === "triangulated") drawTriangulatedFill();
-      else drawWindingFill();
-    };
-
-    const drawStroke = () => {
-      const pipeline = getPipeline(depth ? "stroke_depth" : "stroke", samples);
-      const pass = outPass(encoder);
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, uniformBindGroup(pipeline, uniforms));
-      pass.setVertexBuffer(0, buffer);
-      pass.draw(strokeVerts, instances);
-      pass.end();
-    };
-
-    if (batch.stroke_behind) { drawStroke(); drawFill(); }
-    else { drawFill(); drawStroke(); }
-  }
-
-  return { init, render, onCacheMiss: null };
+  return { init, render, destroy, onCacheMiss: null };
 })();

@@ -43,7 +43,6 @@ from maniml.utils.space_ops import rotation_between_vectors
 from maniml.utils.space_ops import rotation_matrix_transpose
 from maniml.utils.space_ops import poly_line_length
 from maniml.utils.space_ops import z_to_vector
-from maniml.rendering.shader_wrapper import VShaderWrapper
 
 from typing import TYPE_CHECKING
 from typing import Generic, TypeVar, Iterable
@@ -52,7 +51,6 @@ SubVmobjectType = TypeVar('SubVmobjectType', bound='VMobject')
 if TYPE_CHECKING:
     from typing import Callable, Tuple, Any, Optional
     from maniml.typing import ManimColor, Vect3, Vect4, Vect3Array, Self
-    from moderngl.context import Context
 
 
 class VMobject(Mobject):
@@ -1292,27 +1290,6 @@ class VMobject(Mobject):
         return self
 
     # For shaders
-
-    def init_shader_wrapper(self, ctx: Context):
-        self.shader_wrapper = VShaderWrapper(
-            ctx=ctx,
-            vert_data=self.data,
-            mobject_uniforms=self.uniforms,
-            code_replacements=self.shader_code_replacements,
-            stroke_behind=self.stroke_behind,
-            depth_test=self.depth_test
-        )
-        # Store reference to the mobject in the shader wrapper
-        self.shader_wrapper.mobject = self
-
-    def refresh_shader_wrapper_id(self):
-        for submob in self.get_family():
-            if submob.shader_wrapper is not None:
-                submob.shader_wrapper.stroke_behind = submob.stroke_behind
-                # Also update depth_test!
-                submob.shader_wrapper.depth_test = submob.depth_test
-        super().refresh_shader_wrapper_id()
-        return self
 
     def get_shader_data(self) -> np.ndarray:
         # Do we want this elsewhere? Say whenever points are refreshed or something?

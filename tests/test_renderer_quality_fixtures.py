@@ -8,7 +8,7 @@ import numpy as np
 
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.utils.safe_text_cache import SafeTextCache
-from maniml.web.geometry import parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import parse_geometry_message, serialize_scene
 from tests.renderer_quality_fixtures import (
     QualityFixtureUnavailable, RESOLUTION, build_quality_frame,
     quality_cases, quality_sequence, require_tex_tools,

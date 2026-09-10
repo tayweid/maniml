@@ -5,6 +5,25 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### Shared renderer
+
+- Phase A is the default WebGPU renderer for the live viewer, movies,
+  checkpoint images and new baked exports. The viewer's renderer control
+  switches to **Original 2D** for comparison at the same checkpoint.
+- Planar vector fills use retained triangle meshes with explicit painter
+  order, shared antialiasing and single-contribution fill/border coverage.
+  Source point arrays remain on the CPU; moving their updates and geometry
+  generation to the GPU is the next phase.
+- The player opens existing winding recordings as well as new triangle
+  recordings. Unsupported live content and corrupt recordings display an
+  error and permit navigation to valid content.
+- Native OpenGL and custom GLSL wrappers are retired. Source/editable installs
+  now require Cargo and a linker for the Lyon fill helper; compatible wheels
+  include it. `wgpu` is a required runtime dependency. Nonplanar ordinary
+  vector fills fail explicitly; use `Surface` or `VMobject3D` for a defined
+  surface. See the [cutover record](docs_unified_triangle_renderer_phase_a.md)
+  for validation, measured performance and compatibility limits.
+
 ### The viewer
 
 - The chrome is now Plass and Knuth's toolbar rather than a resemblance of

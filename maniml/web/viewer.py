@@ -179,6 +179,8 @@ class WebViewer:
         # True once a client has reported its WebGPU renderer is up; only
         # then is there anyone to draw for
         self._geometry_mode = False
+        self._renderer_mode = "triangles"
+        self._render_error = None
         self._export_lock = threading.Lock()
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
@@ -241,14 +243,16 @@ class WebViewer:
         return self.server.has_clients()
 
     def can_skip_native_capture(self) -> bool:
-        """True whenever a client renders: the browser is the only viewer.
+        """A browser session has no native pixel consumer, even before connect.
 
-        Content the serializer cannot express is not a reason to capture
-        natively — nothing would show the native frame. It is listed in
-        the payload's `unsupported` header and the client says so.
+        Explicit movie or final-image output still needs native capture. The
+        browser's renderer readiness controls geometry streaming independently.
         """
-        return bool(self._geometry_mode and self.scene is not None
-                    and self.server.has_clients())
+        if self.scene is None:
+            return False
+        writer = getattr(self.scene, "file_writer", None)
+        return not (getattr(writer, "write_to_movie", False)
+                    or getattr(writer, "save_last_frame", False))
 
     def has_undrawn_event(self) -> bool:
         return self._has_undrawn_event
@@ -380,7 +384,23 @@ class WebViewer:
         it and force a full resend.
         """
         from maniml.web.geometry import serialize_scene
-        payload = serialize_scene(self.scene, self._geometry_cache)
+        try:
+            payload = serialize_scene(self.scene, self._geometry_cache,
+                                      renderer=self._renderer_mode)
+        except Exception as error:
+            # A rejected frame must not kill the editor or imply a partial
+            # picture. Preserve scene/checkpoint input and report the error;
+            # another source edit or navigation can produce a valid frame.
+            self._geometry_cache.reset()
+            failure = {"renderer": self._renderer_mode,
+                       "message": str(error), "exception": type(error).__name__}
+            if failure != getattr(self, "_render_error", None):
+                self._render_error = failure
+                self.server.broadcast_json({"type": "render_error", "error": failure})
+            return
+        if getattr(self, "_render_error", None) is not None:
+            self._render_error = None
+            self.server.broadcast_json({"type": "render_error", "error": None})
         with performance.stage("transport.broadcast"):
             self.server.broadcast(payload)
         performance.increment("transport.geometry_frames")
@@ -623,9 +643,21 @@ class WebViewer:
             # playback): nothing but state and console output. Reset
             # deltas on enable so a rejoining client starts from a full
             # payload.
+            requested = event.get("renderer", self._renderer_mode)
+            if requested not in ("triangles", "winding"):
+                return
+            if requested != self._renderer_mode:
+                self._renderer_mode = requested
+                self._geometry_cache.reset()
+                self._last_state = None
+                self.server.broadcast_json({"type": "renderer", "renderer": requested,
+                                            "origin": event.get("renderer_origin")})
             self._geometry_mode = bool(event.get("geometry"))
             if self._geometry_mode:
                 self._geometry_cache.reset()
+                # Enabling an already-selected renderer is also a fresh
+                # client snapshot: pair its full geometry with current state.
+                self._last_state = None
             self._needs_refresh = self._geometry_mode
             self._dirty = False
 
@@ -900,6 +932,8 @@ class WebViewer:
             current = self._rail_anchor(current)
         return {
             "type": "state",
+            "renderer": self._renderer_mode,
+            "render_error": getattr(self, "_render_error", None),
             "scene": type(scene).__name__,
             "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",

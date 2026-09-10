@@ -1,6 +1,6 @@
 # ManimLive
 
-ManimLive speeds up Manim's animation workflow by bringing hot reloading and interactive navigation on top of ManimGL's OpenGL renderer, targeting compatibility with the current ManimCE API.
+ManimLive speeds up Manim's animation workflow by bringing hot reloading and interactive navigation with a shared WebGPU renderer, targeting compatibility with the current ManimCE API.
 
 ## Features
 
@@ -26,12 +26,11 @@ uses the checked-in Cargo lockfile and may download its pinned dependencies.
 A compatible prebuilt wheel already contains this helper and needs no Rust
 toolchain. Importing ManimLive or rendering a scene never compiles it.
 
-For testing the shared triangle backend, use
-`MANIML_RENDERER=triangles maniml scene.py SceneName` (also works with
-`--export`). The default remains the existing winding renderer. Text edge
-quality and some fill materials still have open acceptance checks; offline
-movie/checkpoint rendering still uses native GL. See the
-[integration status and limitations](docs_unified_triangle_renderer_a1_integration.md).
+Phase A is the default for the browser, movie rendering and checkpoint
+images. The viewer's **Scene renderer** menu also offers **Original 2D**, so
+you can compare the old winding renderer at the same checkpoint while
+dogfooding. This choice affects the live viewer; exports use Phase A.
+See the [renderer contract and validation](docs_unified_triangle_renderer_phase_a.md).
 
 ```bash
 python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"
@@ -156,14 +155,14 @@ next unit's source in the restored namespace; UP/DOWN restore stored
 checkpoints; the file watcher re-anchors checkpoints against the edited
 source and replays only what changed.
 
-## OpenGL Backend and 3D Scenes
+## Shared renderer and 3D scenes
 
-All mobjects live in 3D; 2D scenes are simply viewed with a flat camera
-at z=0, and `z_index` (CE-compatible) orders overlapping draws of
-top-level mobjects (within a family, draw order follows insertion). In
-`ThreeDScene`, filled shapes render as triangulated meshes with real
-depth, so intersections between filled mobjects and surfaces are
-per-pixel correct.
+Source mobjects live in 3D. Ordinary scenes use painter order; `ThreeDScene`
+uses depth-tested triangles. Both use the same WebGPU shaders, with 4× MSAA
+at twice the final resolution and a shared downsample. Python still updates
+points and generates fill meshes on the CPU; moving that work onto the GPU
+is Phase B. A nonplanar filled outline needs a defined `Surface` or
+`VMobject3D`, since a closed 3D contour alone has no unique interior.
 
 ## Status
 

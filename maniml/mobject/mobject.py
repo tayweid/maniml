@@ -9,7 +9,6 @@ import pickle
 import random
 import sys
 
-import moderngl
 import numbers
 import numpy as np
 
@@ -23,12 +22,10 @@ from maniml.constants import DEFAULT_MOBJECT_COLOR
 from maniml.event_handler import EVENT_DISPATCHER
 from maniml.event_handler.event_listner import EventListener
 from maniml.event_handler.event_type import EventType
-from maniml.rendering.shader_wrapper import ShaderWrapper
 from maniml.utils.color import color_gradient
 from maniml.utils.color import color_to_rgb
 from maniml.utils.color import get_colormap_list
 from maniml.utils.color import rgb_to_hex
-from maniml.utils.family_ops import assemble_draw_batches
 from maniml.utils.iterables import arrays_match
 from maniml.utils.iterables import array_is_constant
 from maniml.utils.iterables import list_update
@@ -53,7 +50,6 @@ if TYPE_CHECKING:
     from typing import Callable, Iterator, Union, Tuple, Optional, Any
     import numpy.typing as npt
     from maniml.typing import ManimColor, Vect3, Vect4Array, Vect3Array, UniformDict, Self
-    from moderngl.context import Context
 
     T = TypeVar('T')
     TimeBasedUpdater = Callable[["Mobject", float], "Mobject" | None]
@@ -83,7 +79,7 @@ class Mobject(object):
     """
     dim: int = 3
     shader_folder: str = ""
-    render_primitive: int = moderngl.TRIANGLE_STRIP
+    render_primitive: int = 5  # Legacy primitive metadata: triangle strip
     # Must match in attributes of vert shader
     data_dtype: np.dtype = np.dtype([
         ('point', np.float32, (3,)),
@@ -121,7 +117,6 @@ class Mobject(object):
         self.saved_state = None
         self.target = None
         self.bounding_box: Vect3Array = np.zeros((3, 3))
-        self.shader_wrapper: Optional[ShaderWrapper] = None
         self._is_animating: bool = False
         self._needs_new_bounding_box: bool = True
         self._data_has_changed: bool = True
@@ -236,7 +231,7 @@ class Mobject(object):
     # by z_index when assembling render groups (see
     # Scene.assemble_render_groups), and each render group stably sorts
     # its family members when flattening for draw (see
-    # get_shader_wrapper_list), so higher z_index draws on top and
+    # assemble_draw_batches), so higher z_index draws on top and
     # equal z_index preserves add/family order. A child's z_index
     # orders it within its own top-level group but cannot lift it over
     # a different group; in 3D the depth buffer decides true occlusion.
@@ -844,7 +839,6 @@ class Mobject(object):
         # won't have changed, just directly match.
         result.updaters = list(self.updaters)
         result._data_has_changed = True
-        result.shader_wrapper = None
 
         family = self.get_family()
         for attr, value in self.__dict__.items():
@@ -2016,7 +2010,7 @@ class Mobject(object):
         it can be handy to acknowledge which pieces of data
         won't change during the animation so that calls to
         interpolate can skip this, and so that it's not
-        read into the shader_wrapper objects needlessly
+        repacked into render buffers needlessly
         """
         if self.has_updaters():
             return self
@@ -2137,7 +2131,6 @@ class Mobject(object):
     def replace_shader_code(self, old: str, new: str) -> Self:
         for mob in self.get_family():
             mob.shader_code_replacements[old] = new
-            mob.shader_wrapper = None
         return self
 
     def set_color_by_code(self, glsl_code: str) -> Self:
@@ -2181,54 +2174,14 @@ class Mobject(object):
 
     # For shader data
 
-    def init_shader_wrapper(self, ctx: Context):
-        self.shader_wrapper = ShaderWrapper(
-            ctx=ctx,
-            vert_data=self.data,
-            shader_folder=self.shader_folder,
-            mobject_uniforms=self.uniforms,
-            texture_paths=self.texture_paths,
-            depth_test=self.depth_test,
-            render_primitive=self.render_primitive,
-            code_replacements=self.shader_code_replacements,
-        )
-
     def refresh_shader_wrapper_id(self):
-        for submob in self.get_family():
-            if submob.shader_wrapper is not None:
-                submob.shader_wrapper.depth_test = submob.depth_test
-                submob.shader_wrapper.refresh_id()
+        """Invalidate CPU render state after a shader-related source change.
+
+        Kept for source compatibility; GPU resources belong to the renderer.
+        """
         for mob in (self, *self.get_ancestors()):
             mob._data_has_changed = True
         return self
-
-    def get_shader_wrapper(self, ctx: Context) -> ShaderWrapper:
-        if self.shader_wrapper is None:
-            self.init_shader_wrapper(ctx)
-        return self.shader_wrapper
-
-    def get_shader_wrapper_list(self, ctx: Context) -> list[ShaderWrapper]:
-        family = self.family_members_with_points()
-        # CE-faithful draw batches: stable z_index sort within the
-        # family, same-key neighbors merged, and a batch split rather
-        # than allowing its all-fills-then-all-strokes pass order to
-        # paint a member under an earlier member's stroke (see
-        # utils/family_ops.py)
-        batches = assemble_draw_batches(
-            family, lambda sm: sm.get_shader_wrapper(ctx).get_id()
-        )
-
-        result = []
-        for sid, submobs in batches:
-            shader_wrapper = submobs[0].shader_wrapper
-            data_list = [sm.get_shader_data() for sm in submobs]
-            shader_wrapper.read_in(data_list)
-            # The wrapper renders the whole batch but only knows
-            # submobs[0] as self.mobject; paths that need per-mobject
-            # information (triangulated fill) use this list
-            shader_wrapper.batch_mobjects = submobs
-            result.append(shader_wrapper)
-        return result
 
     def get_shader_data(self) -> np.ndarray:
         indices = self.get_shader_vert_indices()
@@ -2242,15 +2195,6 @@ class Mobject(object):
 
     def get_shader_vert_indices(self) -> Optional[np.ndarray]:
         return None
-
-    def render(self, ctx: Context, camera_uniforms: dict):
-        if self._data_has_changed:
-            self.shader_wrappers = self.get_shader_wrapper_list(ctx)
-            self._data_has_changed = False
-        for shader_wrapper in self.shader_wrappers:
-            shader_wrapper.update_program_uniforms(camera_uniforms)
-            shader_wrapper.pre_render()
-            shader_wrapper.render()
 
     # Event Handlers
     """

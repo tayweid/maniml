@@ -1,4 +1,4 @@
-// Execute the shipped browser driver with a recording WebGPU device. This
+// Execute the preserved winding browser driver with a recording WebGPU device. This
 // validates commands and resource lifetimes; it does not simulate pixels.
 "use strict";
 
@@ -8,7 +8,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const STATIC = path.join(__dirname, "..", "maniml", "web", "static");
-const source = fs.readFileSync(path.join(STATIC, "webgpu.js"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "winding_reference_webgpu.js"), "utf8");
 
 function shaderName(code) {
   if (code.includes("struct FillIn")) return "fill";
@@ -138,7 +138,7 @@ async function driver() {
     GPUBufferUsage: { VERTEX: 1, UNIFORM: 2, INDEX: 4 },
     GPUTextureUsage: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_DST: 4 },
     fetch: async name => ({ ok: true,
-      text: async () => fs.readFileSync(path.join(STATIC, name), "utf8") }),
+      text: async () => fs.readFileSync(path.join(__dirname, name.replace("wgsl/", "winding_wgsl/")), "utf8") }),
     TextDecoder, ArrayBuffer, Uint8Array, Float32Array, DataView, console,
   };
   vm.runInNewContext(source + "\nglobalThis.renderer = ManimlWGPU;", context);

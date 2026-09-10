@@ -18,7 +18,7 @@ from maniml.constants import BLUE, GREEN, RED, WHITE, YELLOW
 from maniml.mobject.geometry import Annulus, Circle, Line, Polygon, Square
 from maniml.mobject.mobject import Group, Point
 from maniml.mobject.types.vectorized_mobject import VGroup
-from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import GeometryCache, parse_geometry_message, serialize_scene
 
 try:
     import wgpu  # noqa: F401
@@ -175,7 +175,7 @@ class FillBoundsMetadata(unittest.TestCase):
 class BoundedFillFidelity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.winding_reference_renderer import WgpuRenderer
         cls.renderer = WgpuRenderer()
 
     def assertSamePicture(self, header, data, max_channel_error=0):

@@ -736,6 +736,14 @@ selector. Preserve golden frames and independent geometric tests rather than
 a permanent second production renderer. CPU generation fallback, where needed
 later, still feeds the **same** triangle renderer.
 
+**2026-09-10 cutover clarification:** Taylor authorized finishing Phase A as
+the main renderer and confirmed native GL removal, conditional on retaining
+an **Original 2D** viewer option for dogfooding. This supersedes the earlier
+hold and the instruction above to remove the comparison selector. Native
+and offline output use the shared backend; the original browser winding path
+remains explicitly selectable. [The cutover record](docs_unified_triangle_renderer_phase_a.md)
+defines the delivered contract and records acceptance.
+
 ## 8. Phase B interface: GPU evaluation and generation
 
 The [GPU geometry-generation research specification](docs_gpu_geometry_generation_plan.md)

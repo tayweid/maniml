@@ -92,6 +92,67 @@ def _max_boundary_error(path, draw, camera):
     return float(distance.min(axis=1).max())
 
 
+class TriangleProjectionReuse(unittest.TestCase):
+    def test_contour_reuse_requires_exact_points_and_the_same_builtin_rule(self):
+        from maniml.web.triangle_scene import _MeshSource
+        path = Circle()
+        first = _MeshSource.read(path).frozen()
+        same = _MeshSource.read(path, previous=first)
+        self.assertIs(same.points, first.points)
+        self.assertIs(same.ends, first.ends)
+        path.data["point"][1, 0] += .125  # Deliberately no revision notification.
+        changed = _MeshSource.read(path, previous=first)
+        self.assertIsNot(changed.points, first.points)
+        np.testing.assert_array_equal(changed.points, path.get_points())
+        # A custom rule must be evaluated even if the point values match.
+        with patch.object(path, "get_subpath_end_indices_from_points",
+                          return_value=np.array([2])) as custom:
+            overridden = _MeshSource.read(path, previous=changed).frozen()
+            _MeshSource.read(path, previous=overridden)
+            self.assertEqual(custom.call_count, 2)
+        restored = _MeshSource.read(path, previous=overridden)
+        np.testing.assert_array_equal(restored.ends,
+                                      path.get_subpath_end_indices_from_points(path.get_points()))
+
+    def test_shared_hull_bounds_charge_both_plane_fit_and_flattening(self):
+        from types import SimpleNamespace
+        from maniml.web.triangle_scene import _MeshGeometry, planar_projection_error
+        scene = build_scene(resolution=(960, 540))
+        points = np.array([[-1.3, -.4, 0], [.2, .7, 0], [1.4, -.3, 0]])
+        basis = np.eye(3)[:2]
+        bases = np.zeros((2, 3, 3))
+        bases[0, :2], bases[1] = basis, np.eye(3)
+        for angle in (0, 27, 64):
+            for residual in (1e-15, 1e-7):
+                scene.camera.frame.reorient(13, angle, 7)
+                scene.camera.refresh_uniforms()
+                source_points = points + [[0, 0, residual], [0, 0, -residual], [0, 0, 0]]
+                source = SimpleNamespace(points=source_points, border_settings=(0, "bevel"))
+                geometry = _MeshGeometry(np.empty(0), np.empty(0), points, basis, .001,
+                                         residual, np.concatenate([source_points, points]), bases)
+                uniforms, resolution = scene.camera.uniforms, scene.camera.draw_fbo.size
+                separate = (planar_projection_error(source_points, points, uniforms, resolution)
+                            + .001 * projection_scale_bound(points, basis, uniforms, resolution))
+                shared = geometry.pixel_error(source, uniforms, resolution)
+                self.assertGreaterEqual(shared + 1e-12, separate)
+                self.assertLess(shared, separate * 1.00001 + 1e-12)
+
+    def test_projection_scratch_keys_actual_camera_values_and_supports_nested_views(self):
+        from maniml.web.triangle_scene import _projection_state
+        scene = build_scene()
+        scene.camera.refresh_uniforms()
+        uniforms = {**scene.camera.uniforms, "view": list(scene.camera.uniforms["view"])}
+        scratch = {}
+        first = _projection_state(uniforms, (960, 540), scratch)
+        self.assertIs(_projection_state(uniforms, (960, 540), scratch), first)
+        uniforms["view"][12] += .125
+        changed = _projection_state(uniforms, (960, 540), scratch)
+        self.assertNotEqual(first[0], changed[0])
+        uniforms["view"] = np.asarray(uniforms["view"]).reshape(4, 4).tolist()
+        nested = _projection_state(uniforms, (960, 540), scratch)
+        self.assertEqual(changed[0], nested[0])
+
+
 class TriangleDrawCoalescing(unittest.TestCase):
     def fill(self, position, *, pipeline="surface", uniforms=None):
         vertices = np.zeros(3, dtype=SURFACE_DTYPE)
@@ -216,21 +277,21 @@ class TriangleSceneCapabilityGate(unittest.TestCase):
             with self.subTest(options=kwargs), self.assertRaises(ValueError):
                 TriangleMeshCache(**kwargs)
 
-    def test_unproved_fill_appearance_is_rejected_before_meshing(self):
+    def test_diagnostic_candidates_cannot_bypass_paint_and_border_contracts(self):
         for name, message in (("gradient_curve", "per-point fill"),
                               ("fill_border_wide", "fill-border")):
             with self.subTest(fixture=name):
                 tessellator = Mock()
                 with self.assertRaisesRegex(UnsupportedPrototype, message):
-                    prepare_triangle_frame(get_fixture(name).build(), tessellator)
+                    prepare_triangle_frame(get_fixture(name).build(), tessellator, fill_builder=Mock())
                 tessellator.tessellate.assert_not_called()
 
-    def test_unproved_fill_lighting_is_rejected_before_meshing(self):
+    def test_diagnostic_candidate_without_material_support_rejects_lighting(self):
         path = Square(fill_opacity=1, stroke_width=0)
         path.set_shading(0.2, 0.3, 0.4)
         tessellator = Mock()
         with self.assertRaises(UnsupportedPrototype):
-            prepare_triangle_frame(build_scene(path), tessellator)
+            prepare_triangle_frame(build_scene(path), tessellator, fill_builder=Mock())
         tessellator.tessellate.assert_not_called()
 
 
@@ -356,6 +417,39 @@ class TriangleSceneMeshCache(unittest.TestCase):
     def assert_quality(self, frame, tolerance=0.25):
         self.assertLessEqual(_max_boundary_error(self.path, frame.draws[0], self.scene.camera),
                              tolerance + 1e-4)
+
+    def test_opaque_constant_painter_borders_coalesce_without_changing_object_order(self):
+        red = Square(fill_color=RED, fill_opacity=1, stroke_width=0, fill_border_width=20)
+        blue = Circle(fill_color="#0000ff", fill_opacity=1, stroke_width=0, fill_border_width=20).shift([.2, .1, 0])
+        self.scene = build_scene(red, blue)
+        source = [(shape.data["point"].copy(), shape.data["fill_rgba"].copy()) for shape in (red, blue)]
+        separate = self.prepare(fill_borders=True, coalesce=False)
+        self.assertEqual(len(separate.draws), 2)
+        self.assertTrue(all(not draw.coverage for draw in separate.draws))
+        merged = self.prepare(fill_borders=True)
+        self.assertEqual(len(merged.draws), 1)
+        np.testing.assert_array_equal(merged.draws[0].vertices[merged.draws[0].indices],
+            np.concatenate([draw.vertices[draw.indices] for draw in separate.draws]))
+        for shape, (points, rgba) in zip((red, blue), source):
+            np.testing.assert_array_equal(shape.data["point"], points)
+            np.testing.assert_array_equal(shape.data["fill_rgba"], rgba)
+
+    def test_translucent_paint_shading_and_depth_borders_keep_coverage_ownership(self):
+        for kind in ("translucent", "paint", "shaded", "depth"):
+            with self.subTest(kind=kind):
+                shape = Square(fill_color=RED, fill_opacity=1, stroke_width=0, fill_border_width=20)
+                if kind == "translucent":
+                    shape.data["fill_rgba"][:, 3] = .999
+                elif kind == "paint":
+                    shape.data["fill_rgba"][0] = [0, 0, 1, 1]
+                elif kind == "shaded":
+                    shape.uniforms["shading"] = [.2, 0, 0]
+                else:
+                    shape.depth_test = True
+                self.scene = build_scene(shape)
+                frame = self.prepare(fill_borders=True)
+                self.assertEqual(len(frame.draws), 1)
+                self.assertTrue(frame.draws[0].coverage)
 
     def test_fill_only_runs_skip_stroke_expansion_share_camera_and_preserve_exact_edits(self):
         other = self.path.copy().shift([1.5, 0, 0])
@@ -509,6 +603,23 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertEqual(updated.mesh_cache_stats["retained_bytes"], first.mesh_cache_stats["retained_bytes"])
         with self.assertRaises(ValueError):
             draw.vertices.flags.writeable = True
+
+    def test_float64_paint_overflow_rejects_cache_refresh_like_fresh_generation(self):
+        first = self.prepare()
+        preserved = first.draws[0].vertices.copy()
+        self.path.data = self.path.data.astype(np.dtype([
+            (name, "f8", self.path.data.dtype.fields[name][0].shape)
+            for name in self.path.data.dtype.names]))
+        self.path.data["fill_rgba"][:, 0] = 1e300
+        self.assertTrue(np.isfinite(self.path.data["fill_rgba"]).all())
+        source = self.path.data.tobytes()
+        for cache in (self.cache, None):
+            with self.subTest(cached=cache is not None), self.assertRaisesRegex(
+                    ValueError, "attributes must be finite float32 values"):
+                prepare_triangle_frame(self.scene, self.tessellator, mesh_cache=cache)
+        self.assertEqual(self.cache.stats["entries"], 0)
+        self.assertEqual(self.path.data.tobytes(), source)
+        np.testing.assert_array_equal(first.draws[0].vertices, preserved)
 
     def test_changed_paint_does_not_skip_geometry_or_camera_invalidation(self):
         self.prepare()

@@ -62,6 +62,9 @@ jobs:
           tests.test_generated_wgpu
           tests.test_generated_geometry
           tests.test_generated_scene
+          tests.test_fill_paint
+          tests.test_texture_retention
+          tests.test_border_geometry
           tests.test_fill_bounds
           tests.test_geometry_cache
           tests.test_earclip_triangulation
@@ -77,6 +80,9 @@ jobs:
           tests.test_scene_lifecycle
           tests.test_animations
           tests.test_creation
+          tests.test_native_camera
+          tests.test_renderer_selection
+          tests.test_winding_texture_retention
           tests.test_coordinate_systems
           tests.test_vectorized_mobject
           tests.test_present_bundle

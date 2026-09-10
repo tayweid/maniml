@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import moderngl
 import numpy as np
 
 from maniml.constants import GREY
@@ -26,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class Surface(Mobject):
-    render_primitive: int = moderngl.TRIANGLES
+    render_primitive: int = 4
     shader_folder: str = "surface"
     data_dtype: np.dtype = np.dtype([
         ('point', np.float32, (3,)),

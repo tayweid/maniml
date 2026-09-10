@@ -21,6 +21,13 @@ REQUIRED_ASSETS = {
     "maniml/web/static/player.js",
     "maniml/web/static/geometry_recording.js",
     "maniml/web/static/webgpu.js",
+    "maniml/web/static/winding_webgpu.js",
+    "maniml/web/static/renderer_selection.js",
+    "maniml/web/winding_geometry.py",
+    "maniml/web/border_geometry.py",
+    "maniml/web/fill_paint.py",
+    "maniml/web/static/wgsl/paint.wgsl",
+    "maniml/web/static/wgsl/resolve2.wgsl",
     "maniml/web/generated_geometry.py",
     "maniml/web/triangle_scene.py",
     "maniml/web/triangle_geometry.py",
@@ -32,10 +39,15 @@ REQUIRED_ASSETS = {
     "maniml/web/static/icons/maniml-512.png",
     "maniml/utils/safe_text_cache.py",
 }
+REQUIRED_ASSETS.update(
+    f"maniml/web/static/winding_wgsl/{name}.wgsl"
+    for name in ("common", "fill", "blit", "composite", "stroke",
+                 "surface", "image", "texsurface", "dot")
+)
 REQUIRED_LICENSES = {"LICENSE", "LICENSE.community", "THIRD_PARTY_LICENSES.txt",
                      "RUST_STANDARD_LIBRARY_LICENSES.html"}
-RETIRED_ASSETS = {"maniml/web/static/gl.js"}
-RETIRED_PREFIXES = ("maniml/web/static/glsl/",)
+RETIRED_ASSETS = {"maniml/web/static/gl.js", "maniml/rendering/shader_wrapper.py"}
+RETIRED_PREFIXES = ("maniml/web/static/glsl/", "maniml/rendering/shaders/")
 
 
 def check_wheel(path: Path) -> None:
@@ -57,7 +69,7 @@ def check_wheel(path: Path) -> None:
             if name in RETIRED_ASSETS or name.startswith(RETIRED_PREFIXES)
         )
         if retired:
-            raise SystemExit(f"wheel contains retired WebGL2 assets: {retired[:5]}")
+            raise SystemExit(f"wheel contains retired GL assets: {retired[:5]}")
         leaked = sorted(
             name for name in names if name.startswith(("tests/", "example_scenes/"))
         )
@@ -86,9 +98,11 @@ def check_wheel(path: Path) -> None:
         )
 
     dependencies = [value.lower() for value in metadata.get_all("Requires-Dist", [])]
-    for required in ("audioop-lts", "pydub", "websockets"):
+    for required in ("audioop-lts", "pydub", "websockets", "wgpu"):
         if not any(value.startswith(required) for value in dependencies):
             raise SystemExit(f"wheel is missing dependency metadata for {required}")
+    if any(value.startswith(("moderngl", "pyopengl")) for value in dependencies):
+        raise SystemExit("wheel still requires the retired GL runtime")
     if any(value.startswith("diskcache") for value in dependencies):
         raise SystemExit("wheel still depends on unsafe pickle cache diskcache")
 

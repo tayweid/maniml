@@ -1,0 +1,91 @@
+{
+  "route": "serialize_scene(renderer='triangles') -> WgpuRenderer.render",
+  "scope": "Interior paint and source-over; boundary AA is checked by renderer_aa.",
+  "cases": {
+    "affine_rgba": {
+      "oracle": "Analytic affine RGBA field followed by one premultiplied source-over; independent of tessellation and CPU spline evaluator.",
+      "policies": {
+        "pixel_center": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.6991039347195382,
+          "mean_rgb_error_255": 0.2674575230130818,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        },
+        "ss2_msaa4": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.6762517864773656,
+          "mean_rgb_error_255": 0.2702490342925669,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        }
+      },
+      "coverage_draws": 1,
+      "source_contract_preserved": true
+    },
+    "gradient_curve": {
+      "oracle": "Existing nonlinear gradient fixture; shader field compared against the production CPU field evaluator. This is CPU/GPU agreement, not an independent interior semantic oracle.",
+      "policies": {
+        "pixel_center": {
+          "probe_pixels": 9604,
+          "max_rgb_error_255": 0.7411330699920597,
+          "mean_rgb_error_255": 0.2644269670958561,
+          "max_alpha_error_255": 7.599592208862305e-06,
+          "passed": true
+        },
+        "ss2_msaa4": {
+          "probe_pixels": 9604,
+          "max_rgb_error_255": 0.8665240585803957,
+          "mean_rgb_error_255": 0.2752096048862828,
+          "max_alpha_error_255": 7.599592208862305e-06,
+          "passed": true
+        }
+      },
+      "coverage_draws": 0,
+      "source_contract_preserved": true
+    },
+    "diffuse_front": {
+      "oracle": "Analytic cosine diffuse/backside attenuation at each pixel center; uniform source paint and zero gloss.",
+      "policies": {
+        "pixel_center": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.659908514974731,
+          "mean_rgb_error_255": 0.348750590154203,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        },
+        "ss2_msaa4": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.659391357019544,
+          "mean_rgb_error_255": 0.34829155540654244,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        }
+      },
+      "coverage_draws": 1,
+      "source_contract_preserved": true
+    },
+    "shadow_back": {
+      "oracle": "Analytic cosine diffuse/backside attenuation at each pixel center; uniform source paint and zero gloss.",
+      "policies": {
+        "pixel_center": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.4795573214259896,
+          "mean_rgb_error_255": 0.2517597196818308,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        },
+        "ss2_msaa4": {
+          "probe_pixels": 2784,
+          "max_rgb_error_255": 0.4795573214259896,
+          "mean_rgb_error_255": 0.2517597196818308,
+          "max_alpha_error_255": 0.0,
+          "passed": true
+        }
+      },
+      "coverage_draws": 1,
+      "source_contract_preserved": true
+    }
+  },
+  "passed": true
+}

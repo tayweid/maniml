@@ -77,7 +77,7 @@ class CheckpointSceneTest(unittest.TestCase):
         # Each headless scene owns a standalone GL context; macOS caps
         # them per process, so a suite that leaks one per test starves
         # the GPU tests that run after it.
-        self.scene.camera.ctx.release()
+        self.scene.camera.release()
         self.tmpdir.cleanup()
 
     def write_scene(self, content):
@@ -580,7 +580,7 @@ class PauseAnchoredSceneTest(unittest.TestCase):
         self.scene._create_checkpoint_zero()
 
     def tearDown(self):
-        self.scene.camera.ctx.release()
+        self.scene.camera.release()
         self.tmpdir.cleanup()
 
     def write_scene(self, content):
@@ -801,7 +801,7 @@ class TestTrackerAcrossUnits(unittest.TestCase):
         self.scene._create_checkpoint_zero()
 
     def tearDown(self):
-        self.scene.camera.ctx.release()
+        self.scene.camera.release()
         self.tmpdir.cleanup()
 
     def assert_follows(self, x):
@@ -878,7 +878,7 @@ class TestGhostMobjects(unittest.TestCase):
         self.scene._create_checkpoint_zero()
 
     def tearDown(self):
-        self.scene.camera.ctx.release()
+        self.scene.camera.release()
         self.tmpdir.cleanup()
 
     def content(self):

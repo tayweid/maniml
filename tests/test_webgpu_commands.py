@@ -1,6 +1,6 @@
 """Exercise the browser renderer's commands without a browser or GPU.
 
-The Node harness runs the shipped webgpu.js against a recording device.
+The Node harness runs the preserved winding reference webgpu.js against a recording device.
 Pixel fidelity is covered separately by test_wgpu_port; these checks cover
 scratch allocation, command ordering, and the browser's uniform contract.
 """

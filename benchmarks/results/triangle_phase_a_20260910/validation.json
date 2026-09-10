@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-10",
+  "full_suite": {
+    "tests": 623,
+    "seconds": 214.255,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "command": "MANIML_TEST_GPU=1 MANIML_VERIFY_LEDGER=1 python -m unittest discover -s tests -t .",
+    "note": "The order-dependent navigation checks passed separately in fresh scene processes after correcting their message-type assertion."
+  },
+  "fresh_navigation": {
+    "tests": 2,
+    "seconds": 5.281,
+    "skipped": 0,
+    "result": "pass"
+  },
+  "final_cleanup_slice": {
+    "tests": 92,
+    "seconds": 3.64,
+    "result": "pass",
+    "real_gpu": true,
+    "resource_warnings": "treated as errors; none emitted",
+    "scope": "native camera, scene lifecycle, texture ownership/retention, generated scene/driver and historical GL parity"
+  },
+  "packaging": {
+    "platform": "macOS arm64 Python 3.13",
+    "sdist": "pass",
+    "wheel": "pass",
+    "extracted_native_helper": "pass",
+    "complete_original_2d_assets": "pass",
+    "retired_GL_excluded": "pass",
+    "twine": "pass",
+    "offline_lock_check": "pass",
+    "compileall": "pass"
+  },
+  "source_sha256": {
+    "maniml/camera/camera.py": "8c621994798297786f99c192c0c46c810ab2aade6bcb9152a3cfbfd2b16e14c0",
+    "maniml/scene/scene.py": "93ac801cefa0993e4e4733ba3059928e66c538f2e25a38219b22fa957d08eb29",
+    "maniml/mobject/types/image_mobject.py": "c79107ae85db839bd344fcfefad7ebaab1f6c3a2fef8052a97b81d4922f54256",
+    "maniml/web/geometry.py": "b7da417537365071c7177d8d2b2a902a7e82929043f85cb3e4773725b61b21ff",
+    "maniml/web/generated_geometry.py": "cb2f10fb0e9ba0787f3fe64a36590ace176080f890bdf3b54842d87ca395eae4",
+    "maniml/web/triangle_scene.py": "38f27ec13c87a614449924f4f662df8e3a896601b021c6239417d1ae592c1214",
+    "maniml/web/border_geometry.py": "092fd8e28e034c049a1f4cad16ca2ab682e28e4bee5862cf8c45f4ae5a4955a6",
+    "maniml/web/fill_paint.py": "2e69a93935a4e5eff1e37b03b1ba3f4deee5faa11294c3cbef7c93929ba86126",
+    "maniml/web/wgpu_renderer.py": "41a9409cf3cda66009cfd040f9563f45e156664a63a335a5c7d9eb4415611b34",
+    "maniml/web/winding_geometry.py": "9533271e9eeb49c0a2fd61831965edd50426b76c2bff987ff7920c15b02a6240",
+    "maniml/web/viewer.py": "72a359eae55fa3b952b78eb67cba0a61710e8331eb9e61d2419d8eaf470e89b4",
+    "maniml/web/static/viewer.html": "2ca2ceb268fb0de0e93206147a281ade1634b4785e17a491ba240367ffb9d060",
+    "maniml/web/static/renderer_selection.js": "8f94134a38791962a0c1f100332db27b7e00be33f752837bfc44f46a78c1ae6a",
+    "maniml/web/static/webgpu.js": "90ef78890566a2b004af9c0738faeaea8555ba2ac3c7d64d5a3bca0fabcdb84b",
+    "maniml/web/static/winding_webgpu.js": "7991921f28ea71bb715aff71e8013c2d3d58215f6f13826cbafb240902e3e67e",
+    "maniml/web/static/player.js": "f3d49225e296f70b7f1d2ae84f0c6f5f128f3c8b0c2e78ca12216f7bb30aa22a"
+  }
+}

@@ -285,11 +285,11 @@ class ViewerTests(unittest.TestCase):
         fall back to or compare against, so the page must not offer one: a
         browser without WebGPU gets the notice on the stage instead."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("await ManimlWGPU.init(canvas);", viewer)
+        self.assertIn("new ManimlRendererSelection(canvas,", viewer)
         self.assertIn("void startRenderer();", viewer)
         self.assertIn('id="gpu-unsupported"', viewer)
         self.assertIn('document.body.classList.add("nogpu");', viewer)
-        self.assertIn('send({ type: "mode", geometry: gpuReady });', viewer)
+        self.assertIn('renderer: rendererSession.mode', viewer)
         for gone in ('data-renderer="pixel"', 'id="split"', 'id="gpuview"',
                      "renderer_fallback", "createImageBitmap",
                      'getContext("2d")', "pixels:"):

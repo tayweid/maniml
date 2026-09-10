@@ -29,7 +29,14 @@ from maniml.constants import (
 from maniml.mobject.geometry import Circle, Dot, Line, Polygon, Square
 from maniml.mobject.svg.text_mobject import Text
 from maniml.scene.scene import Scene, ThreeDScene
-from maniml.web.geometry import parse_geometry_message, serialize_scene
+from tests.winding_reference_geometry import parse_geometry_message, serialize_scene as _serialize_scene
+from tests.gl_reference_camera import Camera as GLReferenceCamera
+
+
+def serialize_scene(scene, cache=None):
+    # Preserve this historical GL-versus-winding oracle independently of the
+    # production default. Native triangle output has separate semantic tests.
+    return _serialize_scene(scene, cache, renderer="winding")
 
 try:
     import wgpu  # noqa: F401
@@ -40,11 +47,15 @@ except ImportError:
 
 
 class PortScene(Scene):
+    camera_class = GLReferenceCamera
+
     def construct(self):
         pass
 
 
 class Port3DScene(ThreeDScene):
+    camera_class = GLReferenceCamera
+
     def construct(self):
         pass
 
@@ -159,7 +170,7 @@ def build_scene():
 
 class GeometryPayloadTests(unittest.TestCase):
     def test_payload_wellformed(self):
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+        from tests.winding_reference_geometry import GEOMETRY_FORMAT_VERSION
 
         scene = build_scene()
         header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
@@ -218,7 +229,7 @@ CASES = [
 @unittest.skipUnless(HAVE_WGPU, "wgpu not installed")
 class WgpuPortFidelity(unittest.TestCase):
     def test_wgpu_matches_native(self):
-        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.winding_reference_renderer import WgpuRenderer
 
         # Capture every native image before instantiating the wgpu
         # renderer (native standalone-GL contexts and wgpu coexist, but
@@ -257,8 +268,8 @@ class WgpuPortFidelity(unittest.TestCase):
 @unittest.skipUnless(HAVE_WGPU, "wgpu not installed")
 class WgpuDeltaEncoding(unittest.TestCase):
     def test_cached_batches_render_identically(self):
-        from maniml.web.geometry import GeometryCache
-        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.winding_reference_geometry import GeometryCache
+        from tests.winding_reference_renderer import WgpuRenderer
 
         scene = PortScene(window=None)
         circle = Circle(color=BLUE, fill_opacity=0.6).shift(LEFT * 3)
@@ -295,7 +306,7 @@ class FamilyDrawOrder(unittest.TestCase):
     renderer; the two "matches CE" cases also pixel-diff the wgpu port."""
 
     def _render_both(self, scene):
-        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.winding_reference_renderer import WgpuRenderer
         scene.update_frame(dt=0, force_draw=True)
         native = np.asarray(scene.get_image().convert("RGB"), dtype=np.float64)
         header, vertex_bytes = parse_geometry_message(serialize_scene(scene))
