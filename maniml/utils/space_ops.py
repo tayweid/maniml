@@ -503,6 +503,11 @@ def earclip_triangulation(verts: Vect3Array | Vect2Array, ring_ends: list[int]) 
             used[j] = True
             v += rings[j]
             ring_ends.append(len(v))
-        res += [v[i] for i in earcut(verts[v, :2], ring_ends)]
+        # The native binding requires typed arrays (not Python ring-end lists).
+        # Keep conversion at this boundary so every renderer uses the same fix.
+        res += [v[i] for i in earcut(
+            np.asarray(verts[v, :2], dtype=np.float32),
+            np.asarray(ring_ends, dtype=np.uint32),
+        )]
 
     return res

@@ -54,6 +54,7 @@ jobs:
           tests.test_static_assets
           tests.test_webgpu_commands
           tests.test_fill_bounds
+          tests.test_earclip_triangulation
           tests.test_hosted_site
           tests.test_safe_text_cache
           tests.test_headless_import

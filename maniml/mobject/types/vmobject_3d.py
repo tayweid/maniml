@@ -84,7 +84,16 @@ class VMobject3D(Surface):
         
         # Triangulate the polygon
         try:
-            triangle_indices = earclip_triangulation(polygon_points[:, :2], ring_ends)
+            # Choose a nonsingular coordinate projection for planar 3D fills.
+            # Always taking x/y collapses a vertical square or glyph to a line.
+            # Keep the original world vertices; Earcut's endpoint perturbation
+            # is local to the classification/triangulation working copy.
+            centered = polygon_points - polygon_points[0]
+            _, _, basis = np.linalg.svd(centered, full_matrices=False)
+            drop_axis = int(np.argmax(np.abs(basis[-1])))
+            axes = [axis for axis in range(3) if axis != drop_axis]
+            projected = np.array(polygon_points[:, axes], copy=True)
+            triangle_indices = earclip_triangulation(projected, ring_ends)
         except Exception as e:
             # print(f"Triangulation failed: {e}")
             # Fallback: create a simple triangulated shape
