@@ -187,7 +187,7 @@ while keeping strokes. Bounds refresh even when vertex data is cached.
 Coverage lives in `tests/test_fill_bounds.py` and the Node-backed
 `tests/test_webgpu_commands.py`; `benchmarks/vector_fill.py` measures the gain.
 
-The default is format-5 ordered generated geometry from `web/triangle_scene.py`
+The default is format-6 ordered generated geometry from `web/triangle_scene.py`
 and `web/generated_geometry.py`, with independently retained binary paint
 definitions and GPU border sources. Both WebGPU drivers draw the same operations,
 including per-sample border ownership and source-space paint. Native movie and
