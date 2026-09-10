@@ -20,11 +20,17 @@ from __future__ import annotations
 
 import io
 import os
+import json
 import re
 import struct
 from math import lcm
 
 import numpy as np
+
+from maniml.web.gpu_border_geometry import (
+    INDICES_PER_CURVE, MAX_BORDER_CURVES, MAX_VERTICES_PER_CURVE, expand_run_indices,
+    indices_per_curve, validate_capacity, validate_layout,
+)
 from PIL import Image
 
 import wgpu
@@ -185,6 +191,7 @@ class WgpuRenderer:
         self._border_sources = {}
         self._border_outputs = {}
         self._border_compute_pipeline = None
+        self._stale_index_buffers = []
         self._size = None
         self._spatial_texture = None
         self._spatial_pipeline = None
@@ -302,10 +309,34 @@ class WgpuRenderer:
             raise ValueError("native renderer requires generated triangle geometry")
         return self._render_generated(header, vertex_bytes)
 
+    def _border_run(self, batch):
+        """(capacity, layout) of a GPU border batch; layout is None for the
+        format 5 wire, whose complete index buffer travelled with the fill.
+        A cached format 6 batch omits its layout: the retained geometry
+        holds it."""
+        border = batch.get("border")
+        if border is None:
+            return None, None
+        if "capacity" not in border:
+            return MAX_VERTICES_PER_CURVE, None
+        capacity = validate_capacity(border.get("capacity"))
+        layout = border.get("layout")
+        if layout is None:
+            resources = self._generated_geometry.get(batch["hash"])
+            if resources is None or "run_layout" not in resources:
+                raise KeyError(f"generated geometry cache miss for batch {batch['hash']}")
+            layout = resources["run_layout"]
+        return capacity, layout
+
     def _generated_resources(self, batch, vertex_bytes):
-        layout = (batch["pipeline"], batch["stride"], batch["num_verts"],
+        capacity, run_layout = self._border_run(batch)
+        # A run's reserved capacity changes its output size but not what
+        # was uploaded, so it stays out of the retained layout identity.
+        layout = (batch["pipeline"], batch["stride"],
+                  None if run_layout is not None else batch["num_verts"],
                   bool(batch.get("indexed")), batch.get("index_count", 0),
-                  batch.get("fill_num_verts", batch["num_verts"]))
+                  batch.get("fill_num_verts", batch["num_verts"]),
+                  None if run_layout is None else json.dumps(run_layout))
         resources = self._generated_geometry.get(batch["hash"])
         if resources is not None:
             if resources["layout"] != layout:
@@ -329,7 +360,17 @@ class WgpuRenderer:
         resources = {"layout": layout, "buffer": buffer(
             batch["offset"], fill_count * batch["stride"], vertex_usage)}
         try:
-            if batch.get("indexed"):
+            if batch.get("indexed") and run_layout is not None:
+                # Only the fill indices travel. Keep them to expand the
+                # ordered fill/strip buffer for whatever capacity is drawn.
+                offset, size = batch["index_offset"], batch["index_count"] * 4
+                if (type(offset) is not int or not 0 <= offset <= len(vertex_bytes)
+                        or not 0 <= size <= len(vertex_bytes) - offset):
+                    raise ValueError("generated geometry buffer extends beyond payload")
+                resources["fill_indices"] = bytes(vertex_bytes[offset:offset + size])
+                resources["index_buffers"] = {}
+                resources["run_layout"] = run_layout
+            elif batch.get("indexed"):
                 resources["index_buffer"] = buffer(
                     batch["index_offset"], batch["index_count"] * 4, wgpu.BufferUsage.INDEX)
         except Exception:
@@ -337,6 +378,26 @@ class WgpuRenderer:
             raise
         self._generated_geometry[batch["hash"]] = resources
         return resources
+
+    def _run_index_buffer(self, batch, resources):
+        """The expanded index buffer for a border run at its current capacity."""
+        capacity, run_layout = self._border_run(batch)
+        buffers = resources["index_buffers"]
+        index_buffer = buffers.get(capacity)
+        if index_buffer is None:
+            fill_count = batch["fill_num_verts"]
+            expanded = expand_run_indices(np.frombuffer(resources["fill_indices"], dtype="<u4"),
+                                          run_layout, fill_count, capacity)
+            if len(expanded) != batch["count"]:
+                raise ValueError("invalid GPU border geometry layout or draw count")
+            index_buffer = self.device.create_buffer_with_data(
+                data=expanded.tobytes(), usage=wgpu.BufferUsage.INDEX)
+            # An earlier reservation's buffer is retired after this frame's
+            # commands, like every other generated resource.
+            self._stale_index_buffers.extend(buffers.values())
+            buffers.clear()
+            buffers[capacity] = index_buffer
+        return index_buffer
 
     def _prepare_borders(self, header, payload, encoder, temporary):
         """Generate changed border tails before the ordered render pass begins."""
@@ -351,7 +412,7 @@ class WgpuRenderer:
                 raise ValueError("invalid border definition span")
             offset, size = ref.get("offset"), ref.get("nbytes")
             if (type(offset) is not int or type(size) is not int or size <= 0
-                    or size % 176 or size > 52428 * 176 or offset < 0
+                    or size % 176 or size > MAX_BORDER_CURVES * 176 or offset < 0
                     or offset > len(payload) or size > len(payload) - offset):
                 raise ValueError("invalid border definition span or curve count")
             data = bytes(payload[offset:offset + size])
@@ -370,8 +431,8 @@ class WgpuRenderer:
         max_dispatch = limits.get("max-compute-workgroups-per-dimension", 65535)
         alignment = limits.get("min-storage-buffer-offset-alignment", 256)
         outputs, used_sources, used_outputs, completed = {}, set(), set(), []
-        uniform_buffers = {}
-        for ordinal, batch in enumerate(header["batches"]):
+        uniform_buffers, occurrences = {}, {}
+        for batch in header["batches"]:
             if "border" not in batch:
                 continue
             border = batch["border"]
@@ -379,16 +440,30 @@ class WgpuRenderer:
                 raise ValueError("GPU border requires a format 5 border descriptor")
             key, count = border.get("hash"), border.get("num_curves")
             fill_count, vertex_count = batch.get("fill_num_verts"), batch.get("num_verts")
-            index_count = batch.get("index_count")
+            index_count, draw_count = batch.get("index_count"), batch.get("count")
             if (not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None
-                    or type(count) is not int or not 1 <= count <= 52428
+                    or type(count) is not int or not 1 <= count <= MAX_BORDER_CURVES
                     or type(fill_count) is not int or fill_count < 0
-                    or type(vertex_count) is not int or vertex_count != fill_count + 64 * count
+                    or type(vertex_count) is not int or type(index_count) is not int
+                    or type(draw_count) is not int or index_count % 3
                     or batch.get("pipeline") not in ("surface", "surface_depth", "paint", "paint_depth")
                     or batch.get("stride") != 40 or batch.get("indexed") is not True
-                    or type(index_count) is not int or index_count < 186 * count or index_count % 3
-                    or type(batch.get("count")) is not int or batch["count"] != index_count
                     or type(batch.get("instances")) is not int or batch["instances"] != 1):
+                raise ValueError("invalid GPU border geometry layout or draw count")
+            try:
+                capacity, run_layout = self._border_run(batch)
+                if run_layout is not None:
+                    run_layout = validate_layout(run_layout, index_count, fill_count, count)
+            except ValueError as error:
+                raise ValueError(f"invalid GPU border geometry layout or draw count: {error}")
+            if run_layout is None:
+                # Format 5: the complete ordered index buffer is on the wire.
+                addressable = vertex_count
+                valid = index_count >= INDICES_PER_CURVE * count and draw_count == index_count
+            else:
+                addressable = fill_count
+                valid = draw_count == index_count + indices_per_curve(capacity) * count
+            if not valid or vertex_count != fill_count + capacity * count:
                 raise ValueError("invalid GPU border geometry layout or draw count")
             size = vertex_count * 40
             # Align the storage view to a whole Surface vertex as well as the
@@ -416,7 +491,7 @@ class WgpuRenderer:
                 if not np.isfinite(np.frombuffer(payload[vertex_offset:vertex_offset + fill_count * 40], dtype="<f4")).all():
                     raise ValueError("border fill vertices must be finite")
                 indices = np.frombuffer(payload[offset:offset + 4 * index_count], dtype="<u4")
-                if np.any(indices >= vertex_count):
+                if np.any(indices >= addressable):
                     raise ValueError("border index exceeds generated vertex count")
             values = {**header["camera"], **batch.get("uniforms", {})}
             packed = pack_uniforms(values)
@@ -433,7 +508,13 @@ class WgpuRenderer:
                     data=data, usage=wgpu.BufferUsage.STORAGE)}
                 self._border_sources[key] = source
             used_sources.add(key)
-            output_key = (batch["hash"], key, ordinal)
+            # Outputs belong to draw occurrences: the same geometry drawn
+            # twice with different uniforms needs two. Number occurrences of
+            # the same geometry rather than every batch, so inserting an
+            # unrelated object earlier in the frame rekeys nothing.
+            occurrence = occurrences.get((batch["hash"], key), 0)
+            occurrences[(batch["hash"], key)] = occurrence + 1
+            output_key = (batch["hash"], key, capacity, occurrence)
             used_outputs.add(output_key)
             output = self._border_outputs.get(output_key)
             if self._border_compute_pipeline is None:
@@ -463,12 +544,13 @@ class WgpuRenderer:
             compute.set_bind_group(1, output["binding"])
             for offset in range(0, count, max_dispatch):
                 chunk = min(max_dispatch, count - offset)
-                params = self.device.create_buffer_with_data(data=struct.pack("<IIIf", offset, chunk,
-                    fill_count - storage_offset // 40 + 64 * offset, .0001), usage=wgpu.BufferUsage.UNIFORM)
+                params = self.device.create_buffer_with_data(data=struct.pack("<IIIfIIII", offset, chunk,
+                    fill_count - storage_offset // 40 + capacity * offset, .0001, capacity, 0, 0, 0),
+                    usage=wgpu.BufferUsage.UNIFORM)
                 temporary.append(params)
                 group = self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
                     {"binding": 0, "resource": {"buffer": camera, "size": UNIFORM_BYTES}},
-                    {"binding": 1, "resource": {"buffer": params, "size": 16}}])
+                    {"binding": 1, "resource": {"buffer": params, "size": 32}}])
                 compute.set_bind_group(0, group)
                 compute.dispatch_workgroups(chunk)
             compute.end()
@@ -619,7 +701,9 @@ class WgpuRenderer:
                     render_pass.set_bind_group(1, self._generated_textures[texture_key])
                 render_pass.set_vertex_buffer(0, border_outputs.get(id(batch), resources["buffer"]))
                 if batch.get("indexed"):
-                    render_pass.set_index_buffer(resources["index_buffer"], "uint32")
+                    index_buffer = (resources["index_buffer"] if "index_buffer" in resources
+                                    else self._run_index_buffer(batch, resources))
+                    render_pass.set_index_buffer(index_buffer, "uint32")
                     render_pass.draw_indexed(batch["count"], batch["instances"])
                 else:
                     render_pass.draw(batch["count"], batch["instances"])
@@ -634,6 +718,11 @@ class WgpuRenderer:
             resources["buffer"].destroy()
             if "index_buffer" in resources:
                 resources["index_buffer"].destroy()
+            for index_buffer in resources.get("index_buffers", {}).values():
+                index_buffer.destroy()
+        for index_buffer in self._stale_index_buffers:
+            index_buffer.destroy()
+        self._stale_index_buffers = []
         for key in self._generated_uniforms.keys() - used_uniforms:
             self._generated_uniforms.pop(key)[0].destroy()
         for key in self._generated_textures.keys() - used_textures:

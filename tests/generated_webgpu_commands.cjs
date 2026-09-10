@@ -157,7 +157,8 @@ async function driver(options = {}) {
                 const params = new Uint32Array(draw.bindings.get(0).entries[1].resource.buffer.bytes);
                 const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
                 assert.ok((params[0] + params[1]) * 176 <= source.size);
-                assert.ok((params[2] + params[1] * 64) * 40 <= output.size);
+                assert.ok(params[4] % 2 === 0 && params[4] >= 4 && params[4] <= 64, "capacity is an even vertex count");
+                assert.ok((params[2] + params[1] * params[4]) * 40 <= output.size);
                 assert.equal(output.offset % (device.limits.minStorageBufferOffsetAlignment ?? 256), 0);
                 assert.ok(output.size <= (device.limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2));
                 assert.equal(draw.count, params[1]);
@@ -237,7 +238,84 @@ function borderFixture(count = 3, fillCount = 40, hash = "c".repeat(32)) {
     options: {format_version: 5, border_definitions: {[hash]: records}, paint_padding: 1}, records};
 }
 
+// The format 6 wire: fill indices plus the run layout, at a reserved
+// capacity the driver expands the strip pattern for locally.
+function borderRunFixture(count = 3, fillCount = 40, hash = "c".repeat(32), capacity = 8) {
+  const legacy = borderFixture(count, fillCount, hash);
+  const indices = [0, 1, 2, 0, 2, 3];
+  const spec = {...legacy.spec, num_verts: fillCount + capacity * count,
+    count: indices.length + 6 * (capacity / 2 - 1) * count, index_count: indices.length,
+    index_values: indices, border: {hash, num_curves: count, capacity, layout: [[indices.length, fillCount, count]]}};
+  return {spec, options: {...legacy.options, format_version: 6}, records: legacy.records};
+}
+
+function expectedRunIndices(fillCount, count, capacity) {
+  const indices = [0, 1, 2, 0, 2, 3];
+  for (let curve = 0; curve < count; curve++) {
+    for (let strip = 0; strip < capacity / 2 - 1; strip++) {
+      const base = fillCount + curve * capacity + strip * 2;
+      indices.push(base, base + 1, base + 2, base + 1, base + 2, base + 3);
+    }
+  }
+  return indices;
+}
+
 const cases = {
+  async borderRuns() {
+    const d = await driver();
+    const fixture = borderRunFixture();
+    const scene = passes => passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const first = await d.render([fixture.spec], fixture.options);
+    const draw = scene(first).draws[0];
+    assert.equal(draw.args[0], fixture.spec.count);
+    assert.deepEqual(Array.from(new Uint32Array(draw.index.buffer.bytes)), expectedRunIndices(40, 3, 8));
+    const compute = first.filter(pass => pass.compute);
+    assert.equal(compute.length, 1);
+    const params = compute[0].draws[0].bindings.get(0).entries[1].resource;
+    assert.equal(params.size, 32);
+    assert.equal(new Uint32Array(params.buffer.bytes)[4], 8, "the compute stage learns the reserved capacity");
+    const view = compute[0].draws[0].bindings.get(1).entries[1].resource;
+    assert.equal(view.offset + view.size, (40 + 8 * 3) * 40);
+    const output = draw.vertices[0], fillBuffer = first.find(pass => pass.copy).copy[0];
+    assert.equal(output.bytes.byteLength, (40 + 8 * 3) * 40);
+    // A larger reservation on a cached batch uploads nothing: fill bytes are
+    // reused, the index buffer and output are rebuilt, and the old ones are
+    // destroyed only after the frame is submitted.
+    const grown = {...fixture.spec, cached: true, num_verts: 40 + 16 * 3, count: 6 + 6 * 7 * 3,
+      border: {...fixture.spec.border, capacity: 16}};
+    const destroyedBefore = d.events.length;
+    const second = await d.render([grown], {format_version: 6});
+    const draw2 = scene(second).draws[0];
+    assert.deepEqual(Array.from(new Uint32Array(draw2.index.buffer.bytes)), expectedRunIndices(40, 3, 16));
+    assert.notEqual(draw2.index.buffer, draw.index.buffer);
+    assert.ok(draw.index.buffer.destroyed && output.destroyed);
+    assert.notEqual(draw2.vertices[0], output);
+    assert.equal(draw2.vertices[0].bytes.byteLength, (40 + 16 * 3) * 40);
+    assert.equal(second.find(pass => pass.copy).copy[0], fillBuffer, "fill bytes are reused, not re-uploaded");
+    assert.ok(!fillBuffer.destroyed);
+    const retired = d.events.slice(destroyedBefore).filter(event => event[0] === "buffer");
+    assert.ok(retired.some(event => event[1] === draw.index.buffer) && retired.some(event => event[1] === output));
+    // Outputs are keyed by occurrence of the same geometry, so an unrelated
+    // object inserted earlier in the frame rekeys nothing.
+    const third = await d.render([{pipeline: "surface", hash: "plain"}, grown], {format_version: 6});
+    assert.equal(scene(third).draws[1].vertices[0], draw2.vertices[0]);
+    assert.equal(scene(third).draws[1].index.buffer, draw2.index.buffer);
+    assert.equal(third.filter(pass => pass.compute || pass.copy).length, 0);
+    // Layout and capacity are validated before any resource is touched.
+    const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
+    const before = resident();
+    for (const border of [{capacity: 66}, {capacity: "16"}, {layout: [[6, 40]]}, {layout: [[3, 40, 3]]},
+                         {layout: [[6, 40, 0]]}, {layout: []}]) {
+      await assert.rejects(d.render([{...grown, border: {...grown.border, ...border}}], {format_version: 6}), /border/i);
+      assert.equal(resident(), before);
+    }
+    await assert.rejects(d.render([{...grown, count: grown.count - 3}], {format_version: 6}), /border/i);
+    await assert.rejects(d.render([{...grown, num_verts: grown.num_verts + 1}], {format_version: 6}), /border/i);
+    await d.render([], {format_version: 6});
+    assert.ok(draw2.index.buffer.destroyed && draw2.vertices[0].destroyed && fillBuffer.destroyed);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
   async lifecycle() {
     for (const legacy of [false, true]) {
       let release;

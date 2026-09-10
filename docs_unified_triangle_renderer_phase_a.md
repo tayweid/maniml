@@ -51,10 +51,15 @@ widths, partial-path sentinels and join formulas. Those formulas differ from
 the SVG styles with the same names. It emits actual world-space triangles,
 including camera-facing borders. The source is never rewritten.
 
-The default GPU generator stores 32 vertex pairs per active curve and clamps
-unused pairs to a degenerate tail. Fill storage and border sources are retained
-separately; small camera-only updates send uniforms instead of replacement
-border triangles. The original CPU emitter remains available explicitly with
+The default GPU generator reserves output vertices per curve for each run from
+the steps its curves need at the current zoom (two per step, doubled for
+headroom, capped at 64) and clamps unused pairs to a degenerate tail; the
+reservation grows only when a zoom outgrows it. Fill storage and border sources
+are retained separately; small camera-only updates send uniforms instead of
+replacement border triangles, and a grown reservation resends nothing. The
+wire (format 6) carries fill indices only: each driver expands the per-object
+strip pattern from the run layout, so the deterministic index pattern never
+travels. The original CPU emitter remains available explicitly with
 `MANIML_BORDER_GENERATOR=cpu`, through the same Phase A renderer. This is a
 diagnostic reference, not an automatic fallback. The
 [GPU generation specification](docs_gpu_geometry_generation_plan.md#23-generation-work-and-research-gate)

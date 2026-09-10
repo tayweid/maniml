@@ -106,11 +106,15 @@ existing 48-byte source records, a retained subdivision density, activity flag,
 a density-overflow flag, a reserved word and the object's actual RGBA. The
 overflow flag preserves the old CPU policy of 32 samples when finite source
 coordinates overflow the float32 density calculation. One 64-thread workgroup emits
-32 vertex pairs into the existing 40-byte surface layout. The 186 fixed indices
-per curve clamp unused samples to the final pair, producing zero-area tails.
-This first kernel uses fixed capacity; it does not claim compact variable-count
-output or general fill topology. Compact prefix allocation/indirect arguments
-remain a measured alternative if padding costs justify them.
+up to 32 vertex pairs into the existing 40-byte surface layout; a run reserves
+the pairs its curves need at the current zoom, doubled for headroom and capped
+at 32 (2026-09-10, after the seventh review), and the strip indices for that
+capacity clamp unused samples to the final pair, producing zero-area tails. The
+indices are built by each driver from the run layout rather than sent. This
+kernel still uses bounded fixed capacity per run; it does not claim compact
+variable-count output or general fill topology. Compact prefix allocation and
+indirect arguments remain a measured alternative if the remaining padding
+costs justify them.
 
 Fill vertices occupy the start of each output buffer, border vertices its
 tail. Static indices preserve fill A, border A, fill B, border B even when the
@@ -126,15 +130,17 @@ request the existing reset/recovery path, and failed frames discard their new
 resources. Recordings reconstruct format 5 source definitions for arbitrary
 seeks, independently of the device's retained history.
 
-The padded border allocation is 2,560 vertex bytes plus 744 index bytes and
-176 source bytes per active curve, excluding fill buffers and other resources.
+The border allocation is 40 vertex bytes and 12 index bytes per reserved
+vertex (at most 64 per curve) plus 176 source bytes per active curve, excluding
+fill buffers and other resources; the index buffer lives only on the device.
 Compared with CPU triangle expansion this can use more memory for nearly
 straight curves and less for heavily subdivided curves. Compatible runs split
 at the portable 128 MiB output budget. A larger individual object binds only
 its aligned border tail for compute; the full buffer and each storage view are
-checked against separate device limits. The original per-object active triangle
-limit still applies before coalescing, rather than treating padded capacity as
-actual geometry. Host source/recipe retention shares the fill cache's 64 MiB bound, counting
+checked against separate device limits. The CPU emitter's per-object triangle
+budget no longer gates GPU recipes: their output is sized and checked by the
+drivers, so the budget only turned a deep zoom into a render error. Host
+source/recipe retention shares the fill cache's 64 MiB bound, counting
 the immutable input references pinned by an assembly as well as its arrays.
 
 Validation compares operation order, opacity/paint coverage, fixed-frame and

@@ -24,7 +24,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 5
+GEOMETRY_FORMAT_VERSION = 6
 
 
 class GeometryCache:

@@ -20,7 +20,9 @@ from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _textur
 from maniml.web.triangle_geometry import TessellationError
 from maniml.web.border_geometry import BorderSource, MAX_BORDER_TRIANGLES, emit_border_triangles
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
-from maniml.web.gpu_border_geometry import BorderRecipeCache, MAX_RUN_OUTPUT_BYTES
+from maniml.web.gpu_border_geometry import (
+    BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
+)
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -45,6 +47,11 @@ class TriangleDraw:
     paint: np.ndarray | list | None = None
     coverage: bool = False
     border_sources: np.ndarray | None = None
+    # GPU border runs: vertices reserved per curve, and the per-object
+    # (fill index count, fill vertex count, curve count) layout the drivers
+    # expand into the interleaved fill/border index buffer locally.
+    border_capacity: int = MAX_VERTICES_PER_CURVE
+    border_layout: tuple | None = None
 
 
 def coalesce_draws(draws, *, border_cache=None):
@@ -77,10 +84,12 @@ def coalesce_draws(draws, *, border_cache=None):
 
     def combine(run, run_kind):
         if run[0].border_sources is not None:
-            vertices, indices, curves = border_cache.assemble(
-                [(draw.vertices, draw.indices, draw.border_sources) for draw in run])
-            return replace(run[0], vertices=vertices, indices=indices,
-                           border_sources=curves, count=len(indices))
+            vertices, indices, curves, capacity, layout = border_cache.assemble(
+                [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
+                 for draw in run])
+            return replace(run[0], vertices=vertices, indices=indices, border_sources=curves,
+                           border_capacity=capacity, border_layout=layout,
+                           count=len(indices) + indices_per_curve(capacity) * len(curves))
         if len(run) == 1:
             return run[0]
         first = run[0]
@@ -98,6 +107,14 @@ def coalesce_draws(draws, *, border_cache=None):
                        instances=sum(draw.instances for draw in run) if run_kind == "stroke" else 1)
 
     result, run, run_kind, vertex_count = [], [], None, 0
+    curve_count, run_capacity = 0, 0
+
+    def border_run_bytes(draw):
+        # A run reserves its largest member's capacity for every curve.
+        capacity = max(run_capacity, draw.border_capacity)
+        curves = curve_count + len(draw.border_sources)
+        return (vertex_count + len(draw.vertices) + capacity * curves) * 40
+
     for draw in draws:
         draw_kind = kind(draw)
         compatible = (run and run_kind is not None and draw_kind == run_kind
@@ -105,20 +122,20 @@ def coalesce_draws(draws, *, border_cache=None):
                       and draw.vertices.dtype == run[0].vertices.dtype
                       and draw.uniforms == run[0].uniforms
                       and draw.textures == run[0].textures
-                      and (draw_kind != "border" or
-                           (vertex_count + len(draw.vertices) + 64 * len(draw.border_sources)) * 40
-                           <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind != "border" or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
                             and vertex_count + len(draw.vertices) <= 2 ** 32)))
         if run and not compatible:
             result.append(combine(run, run_kind))
-            run, vertex_count = [], 0
+            run, vertex_count, curve_count, run_capacity = [], 0, 0, 0
         run.append(draw)
         run_kind = draw_kind
-        vertex_count += len(draw.vertices) + (0 if draw.border_sources is None
-                                              else 64 * len(draw.border_sources))
+        vertex_count += len(draw.vertices)
+        if draw.border_sources is not None:
+            curve_count += len(draw.border_sources)
+            run_capacity = max(run_capacity, draw.border_capacity)
     if run:
         result.append(combine(run, run_kind))
     return result
@@ -926,7 +943,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                     fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
                                         vertices, uniforms, indices, len(indices), paint=paint,
                                         coverage=coverage and not opaque_painter,
-                                        border_sources=border_curves if coverage else None)
+                                        border_sources=border_curves if coverage else None,
+                                        border_capacity=(border_cache.capacity(sm)
+                                                         if gpu_borders and coverage
+                                                         else MAX_VERTICES_PER_CURVE))
         stroke = None
         if np.any(sm.data["stroke_width"]) and np.any(sm.data["stroke_rgba"][:, 3]):
             data = np.ascontiguousarray(sm.get_shader_data()).copy()

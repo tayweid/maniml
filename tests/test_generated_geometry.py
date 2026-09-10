@@ -340,17 +340,18 @@ class GeneratedGeometryWire(unittest.TestCase):
 @unittest.skipUnless(shutil.which("node"), "Node is required for recording replay")
 class RecordedGeometryReplay(unittest.TestCase):
     @staticmethod
-    def border_draw(color=(1, 0, 0, .5), *, fill=True):
-        from maniml.web.gpu_border_geometry import border_indices, readonly
+    def border_draw(color=(1, 0, 0, .5), *, fill=True, capacity=64):
+        from maniml.web.gpu_border_geometry import indices_per_curve, readonly
         draw = painted_quad()
         curves = np.zeros((1, 44), dtype="<f4")
         curves[0, 37] = 1
         curves[0, 40:44] = color
         vertices = draw.vertices if fill else draw.vertices[:0]
-        indices = np.concatenate((draw.indices if fill else draw.indices[:0],
-                                  border_indices(1, len(vertices))))
-        return replace(draw, vertices=vertices, indices=readonly(indices), count=len(indices),
-                       border_sources=readonly(curves))
+        indices = draw.indices if fill else draw.indices[:0]
+        return replace(draw, vertices=vertices, indices=readonly(indices),
+                       count=len(indices) + indices_per_curve(capacity),
+                       border_sources=readonly(curves), border_capacity=capacity,
+                       border_layout=((len(indices), len(vertices), 1),))
 
     def run_player(self, mode):
         harness = Path(__file__).with_name("player_commands.cjs")
@@ -408,7 +409,12 @@ class RecordedGeometryReplay(unittest.TestCase):
             self.assertEqual(raw[batch["offset"]:batch["index_offset"]], expected.vertices.tobytes())
             self.assertEqual(raw[batch["index_offset"]:batch["index_offset"] + batch["index_count"] * 4],
                              expected.indices.tobytes())
-            self.assertGreater(int(expected.indices.max()), batch["fill_num_verts"])
+            # Only fill indices travel; the strip pattern is the drivers' to build.
+            self.assertEqual(batch["index_count"], 6)
+            self.assertEqual(batch["count"], 6 + 186)
+            self.assertEqual(batch["border"]["capacity"], 64)
+            self.assertEqual(batch["border"]["layout"], [[6, 4, 1]])
+            self.assertLess(int(expected.indices.max()), batch["fill_num_verts"])
             self.assertEqual(set(header["border_data"]), {batch["border"]["hash"]})
             info = header["border_data"][batch["border"]["hash"]]
             self.assertEqual(raw[info["offset"]:info["offset"] + info["nbytes"]],
@@ -441,7 +447,8 @@ class RecordedGeometryReplay(unittest.TestCase):
                     "nonfinite", "width", "density", "active", "capped", "reserved", "source_count",
                     "old_version", "descriptor", "curves", "curve_limit", "fill", "output", "stride",
                     "pipeline", "indexed", "instances", "index_count", "count", "index", "fill_nan",
-                    "cached_fill", "cached_indices", "orphan_fill", "definitions")
+                    "cached_fill", "cached_indices", "orphan_fill", "definitions",
+                    "capacity", "capacity_type", "layout", "layout_sum", "layout_curves")
         for failure in failures:
             with self.subTest(failure=failure):
                 header, raw = parse_geometry_message(good)
@@ -470,13 +477,19 @@ class RecordedGeometryReplay(unittest.TestCase):
                 elif failure == "old_version": header["format_version"] = 4
                 elif failure == "descriptor": batch["border"] = []
                 elif failure in ("curves", "curve_limit"):
-                    batch["border"]["num_curves"] = .5 if failure == "curves" else 52429
+                    from maniml.web.gpu_border_geometry import MAX_BORDER_CURVES
+                    batch["border"]["num_curves"] = .5 if failure == "curves" else MAX_BORDER_CURVES + 1
                 elif failure in ("fill", "output", "stride", "pipeline", "indexed", "instances", "index_count", "count"):
                     key, value = {"fill": ("fill_num_verts", -1), "output": ("num_verts", 67),
                                   "stride": ("stride", 68), "pipeline": ("pipeline", "stroke"),
                                   "indexed": ("indexed", False), "instances": ("instances", 2),
-                                  "index_count": ("index_count", 6), "count": ("count", 189)}[failure]
+                                  "index_count": ("index_count", 9), "count": ("count", 189)}[failure]
                     batch[key] = value
+                elif failure == "capacity": batch["border"]["capacity"] = 66
+                elif failure == "capacity_type": batch["border"]["capacity"] = "64"
+                elif failure == "layout": batch["border"]["layout"] = [[6, 4]]
+                elif failure == "layout_sum": batch["border"]["layout"] = [[3, 4, 1]]
+                elif failure == "layout_curves": batch["border"]["layout"] = [[6, 4, 0]]
                 elif failure == "index": struct.pack_into("<I", raw, batch["index_offset"], 68)
                 elif failure == "fill_nan": struct.pack_into("<f", raw, batch["offset"], np.nan)
                 elif failure in ("cached_fill", "cached_indices"):

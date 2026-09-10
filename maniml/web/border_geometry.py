@@ -61,13 +61,16 @@ class BorderSource:
     frame_scale: float
 
     @classmethod
-    def read(cls, mobject, uniforms, *, previous=None):
+    def read(cls, mobject, uniforms, *, previous=None, budget=True):
         """Reuse expanded curves only after exact canonical-data comparison.
 
         No revision counter substitutes for reading public arrays. Custom
         source getters may depend on arbitrary state, so their output is read
         every time. Standard getters also honor dirty normals/joints and direct
         edits of the derived expansion indices before taking a fresh snapshot.
+
+        ``budget`` enforces the CPU emitter's triangle bound; the GPU recipe
+        path sizes its own fixed-capacity output and passes False.
         """
         cacheable = (mobject.data.flags.c_contiguous
                      and all(getattr(getattr(mobject, name), "__func__", None) is method
@@ -102,7 +105,7 @@ class BorderSource:
         else:
             counts = _density_counts(density, frame_scale)
             triangle_count = int(np.sum(2 * (counts[active] - 1)))
-        if triangle_count > MAX_BORDER_TRIANGLES:
+        if budget and triangle_count > MAX_BORDER_TRIANGLES:
             raise TessellationLimitError(f"border exceeds {MAX_BORDER_TRIANGLES} triangles")
         flat = bool(uniforms.get("flat_stroke", 1)) or bool(uniforms.get("is_fixed_in_frame", 0))
         scale = float(uniforms.get("scale_stroke_with_zoom", 1))

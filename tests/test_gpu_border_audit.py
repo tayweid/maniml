@@ -8,7 +8,7 @@ from unittest.mock import patch
 from maniml.mobject.geometry import Square
 from maniml.web.generated_geometry import serialize_generated_frame
 from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
-from maniml.web.gpu_border_geometry import BorderRecipeCache, readonly
+from maniml.web.gpu_border_geometry import BorderRecipeCache, indices_per_curve, readonly
 from maniml.web.triangle_geometry import LyonFillTessellator
 from maniml.web.triangle_scene import TriangleDraw, TriangleFrame, TriangleMeshCache, prepare_triangle_frame
 from tests.renderer_fixtures import build_scene
@@ -21,8 +21,11 @@ def recipe_frame():
     curves[0, [0, 12, 24]] = [-1, 0, 1]
     curves[0, [7, 19, 31]] = 20
     curves[0, [11, 23, 35]] = 1
-    vertices, indices, curves = BorderRecipeCache().assemble([(vertices, indices, readonly(curves))])
-    draw = TriangleDraw("surface", vertices, {}, indices=indices, count=len(indices), border_sources=curves)
+    vertices, indices, curves, capacity, layout = BorderRecipeCache().assemble(
+        [(vertices, indices, readonly(curves), 64)])
+    draw = TriangleDraw("surface", vertices, {}, indices=indices,
+                        count=len(indices) + indices_per_curve(capacity) * len(curves),
+                        border_sources=curves, border_capacity=capacity, border_layout=layout)
     return TriangleFrame((64, 36), (0, 0, 0, 0), 1, draws=[draw])
 
 
@@ -69,7 +72,7 @@ class GpuBorderWireAudit(unittest.TestCase):
         for invalid in (replace(draw, count=draw.count - 3),
                         replace(draw, indices=draw.indices[:3], count=3)):
             with self.subTest(count=invalid.count):
-                with self.assertRaisesRegex(ValueError, "complete ordered index range"):
+                with self.assertRaisesRegex(ValueError, "draw count|run layout"):
                     encode(replace(frame, draws=[invalid]), cache)
                 self.assertEqual(cache.sent, sent)
                 self.assertEqual(cache.generated_borders, memos)
@@ -120,7 +123,10 @@ class GpuBorderCacheAudit(unittest.TestCase):
                     frame = self.prepare(scene, cache)
                     self.assertTrue(any(draw.border_sources is not None for draw in frame.draws),
                                     "disabling retention must preserve the returned drawing")
-                    self.assertTrue(all(draw.count == len(draw.indices) for draw in frame.draws))
+                    self.assertTrue(all(
+                        draw.count == len(draw.indices)
+                        + indices_per_curve(draw.border_capacity) * len(draw.border_sources)
+                        for draw in frame.draws))
                     self.assertFalse(cache._entries)
                     self.assertFalse(cache.gpu_border_cache.sources)
                     self.assertFalse(cache.gpu_border_cache.runs)

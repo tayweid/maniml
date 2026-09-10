@@ -114,6 +114,11 @@ const ManimlWGPU = (() => {
   const generatedPaintBindings = new Map();
   const borderSources = new Map(), borderOutputs = new Map();
   let borderPipeline = null;
+  // Index buffers superseded by a run's new reservation; destroyed with the
+  // other retired resources after the frame's commands are submitted.
+  let staleIndexBuffers = [];
+  // Sources are 176 bytes per curve and must fit one portable storage binding.
+  const MAX_BORDER_CURVES = Math.floor((128 << 20) / 176);
   let usedGeneratedGeometry = new Set();
   let usedGeneratedUniforms = new Set();
   let usedGeneratedTextures = new Set();
@@ -284,11 +289,70 @@ const ManimlWGPU = (() => {
     return out.buffer;
   }
 
+  // [capacity, layout] of a GPU border batch. Format 6 runs carry only their
+  // fill indices and the per-object layout the driver expands at the run's
+  // reserved capacity; format 5 shipped the complete buffer at capacity 64.
+  // A cached format 6 batch omits its layout: the retained geometry holds
+  // it, and a batch that has neither is a cache miss (layout undefined).
+  function borderRun(batch) {
+    const border = batch.border;
+    if (!border) return [null, null];
+    if (!("capacity" in border)) return [64, null];
+    const capacity = border.capacity;
+    if (!Number.isSafeInteger(capacity) || capacity % 2 || capacity < 4 || capacity > 64) {
+      throw new Error("invalid GPU border geometry layout or draw count");
+    }
+    if ("layout" in border) return [capacity, border.layout];
+    const res = generatedGeometry.get(batch.hash);
+    return [capacity, res && res.runLayout ? res.runLayout : undefined];
+  }
+
+  function validateRunLayout(layout, indexCount, fillCount, curveCount) {
+    if (!Array.isArray(layout) || !layout.length) throw new Error("invalid GPU border run layout");
+    let indices = 0, vertices = 0, curves = 0;
+    for (const part of layout) {
+      if (!Array.isArray(part) || part.length !== 3
+          || part.some(value => !Number.isSafeInteger(value) || value < 0) || part[2] < 1) {
+        throw new Error("invalid GPU border run layout");
+      }
+      indices += part[0]; vertices += part[1]; curves += part[2];
+    }
+    if (indices !== indexCount || vertices !== fillCount || curves !== curveCount) {
+      throw new Error("GPU border run layout does not match its fill and source arrays");
+    }
+  }
+
+  function expandRunIndices(fillIndices, layout, fillCount, capacity) {
+    const strips = capacity / 2 - 1;
+    let total = 0;
+    for (const [indices, , curves] of layout) total += indices + 6 * strips * curves;
+    const out = new Uint32Array(total);
+    let write = 0, read = 0, curveOffset = 0;
+    for (const [indices, , curves] of layout) {
+      out.set(fillIndices.subarray(read, read + indices), write);
+      write += indices; read += indices;
+      for (let curve = 0; curve < curves; curve++) {
+        const base = fillCount + capacity * (curveOffset + curve);
+        for (let strip = 0; strip < strips; strip++) {
+          const v = base + 2 * strip;
+          out[write++] = v; out[write++] = v + 1; out[write++] = v + 2;
+          out[write++] = v + 1; out[write++] = v + 2; out[write++] = v + 3;
+        }
+      }
+      curveOffset += curves;
+    }
+    return out;
+  }
+
   function generatedResources(batch, vertexBytes) {
     usedGeneratedGeometry.add(batch.hash);
     let res = generatedGeometry.get(batch.hash);
-    const descriptor = JSON.stringify([batch.pipeline, batch.stride, batch.num_verts,
-      !!batch.indexed, batch.index_count || 0, batch.fill_num_verts ?? batch.num_verts]);
+    const [, runLayout] = borderRun(batch);
+    if (runLayout === undefined) { cacheMissed = true; return null; }
+    // A run's reserved capacity changes its output size but not what was
+    // uploaded, so it stays out of the retained layout identity.
+    const descriptor = JSON.stringify([batch.pipeline, batch.stride, runLayout ? null : batch.num_verts,
+      !!batch.indexed, batch.index_count || 0, batch.fill_num_verts ?? batch.num_verts, runLayout ?? null]);
     if (res) {
       if (res.descriptor !== descriptor) throw new Error("cached generated geometry layout changed");
       return res;
@@ -298,15 +362,36 @@ const ManimlWGPU = (() => {
       batch.offset, batch.offset + (batch.fill_num_verts ?? batch.num_verts) * batch.stride),
       GPUBufferUsage.VERTEX | (batch.border ? GPUBufferUsage.COPY_SRC : 0));
     const buffers = [vertex];
-    let index = null;
-    if (batch.indexed) {
+    let index = null, fillIndices = null, indexBuffers = null;
+    if (batch.indexed && runLayout) {
+      // Only the fill indices travel. Keep them to expand the ordered
+      // fill/strip buffer for whatever capacity is drawn.
+      const copy = vertexBytes.slice(batch.index_offset, batch.index_offset + batch.index_count * 4);
+      fillIndices = new Uint32Array(copy.buffer, 0, batch.index_count);
+      indexBuffers = new Map();
+    } else if (batch.indexed) {
       index = makeBuffer(vertexBytes.subarray(
         batch.index_offset, batch.index_offset + batch.index_count * 4), GPUBufferUsage.INDEX);
       buffers.push(index);
     }
-    res = { vertex, index, buffers, descriptor };
+    res = { vertex, index, buffers, descriptor, fillIndices, indexBuffers, runLayout: runLayout ?? null };
     generatedGeometry.set(batch.hash, res);
     return res;
+  }
+
+  function runIndexBuffer(batch, res) {
+    const [capacity, layout] = borderRun(batch);
+    let buffer = res.indexBuffers.get(capacity);
+    if (!buffer) {
+      const expanded = expandRunIndices(res.fillIndices, layout, batch.fill_num_verts, capacity);
+      if (expanded.length !== batch.count) throw new Error("invalid GPU border geometry layout or draw count");
+      buffer = makeBuffer(expanded.buffer, GPUBufferUsage.INDEX);
+      for (const old of res.indexBuffers.values()) staleIndexBuffers.push(old);
+      res.indexBuffers.clear();
+      res.indexBuffers.set(capacity, buffer);
+      res.buffers = [res.vertex, buffer];
+    }
+    return buffer;
   }
 
   function generatedUniformBinding(name, samples, pipeline, uniforms) {
@@ -362,7 +447,7 @@ const ManimlWGPU = (() => {
       }
       const {offset, nbytes} = ref;
       if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes)
-          || offset < 0 || nbytes <= 0 || nbytes % 176 || nbytes > 52428 * 176
+          || offset < 0 || nbytes <= 0 || nbytes % 176 || nbytes > MAX_BORDER_CURVES * 176
           || offset > payload.length || nbytes > payload.length - offset) {
         throw new Error("invalid border definition span or curve count");
       }
@@ -391,8 +476,8 @@ const ManimlWGPU = (() => {
     const gcd = (a, b) => b ? gcd(b, a % b) : a;
     const vertexAlignment = 40 * alignment / gcd(40, alignment);
     const outputs = new Map(), usedSources = new Set(), usedOutputs = new Set(), completed = [];
-    const cameras = new Map();
-    for (const [ordinal, batch] of header.batches.entries()) {
+    const cameras = new Map(), occurrences = new Map();
+    for (const batch of header.batches) {
       if (!("border" in batch)) continue;
       const border = batch.border;
       if ((header.format_version ?? 0) < 5 || border === null
@@ -400,13 +485,25 @@ const ManimlWGPU = (() => {
         throw new Error("GPU border requires a format 5 border descriptor");
       }
       const key = border.hash, count = border.num_curves, fillCount = batch.fill_num_verts;
-      if (!validHash(key) || !Number.isSafeInteger(count) || count < 1 || count > 52428
+      if (!validHash(key) || !Number.isSafeInteger(count) || count < 1 || count > MAX_BORDER_CURVES
           || !Number.isSafeInteger(fillCount) || fillCount < 0
-          || !Number.isSafeInteger(batch.num_verts) || batch.num_verts !== fillCount + 64 * count
+          || !Number.isSafeInteger(batch.num_verts)
           || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)
           || batch.stride !== 40 || batch.indexed !== true
-          || !Number.isSafeInteger(batch.index_count) || batch.index_count < 186 * count
-          || batch.index_count % 3 || batch.count !== batch.index_count || batch.instances !== 1) {
+          || !Number.isSafeInteger(batch.index_count) || batch.index_count % 3
+          || !Number.isSafeInteger(batch.count) || batch.instances !== 1) {
+        throw new Error("invalid GPU border geometry layout or draw count");
+      }
+      const [capacity, runLayout] = borderRun(batch);
+      if (runLayout === undefined) { cacheMissed = true; outputs.set(batch, null); continue; }
+      if (runLayout) validateRunLayout(runLayout, batch.index_count, fillCount, count);
+      // Format 5 shipped the complete ordered index buffer; format 6 ships
+      // the fills and the driver appends each object's strip pattern.
+      const addressable = runLayout ? fillCount : batch.num_verts;
+      const complete = runLayout
+        ? batch.count === batch.index_count + 6 * (capacity / 2 - 1) * count
+        : batch.index_count >= 186 * count && batch.count === batch.index_count;
+      if (!complete || batch.num_verts !== fillCount + capacity * count) {
         throw new Error("invalid GPU border geometry layout or draw count");
       }
       const size = batch.num_verts * 40;
@@ -431,7 +528,7 @@ const ManimlWGPU = (() => {
         }
         const indices = new DataView(payload.buffer, payload.byteOffset + offset, batch.index_count * 4);
         for (let i = 0; i < batch.index_count; i++) {
-          if (indices.getUint32(4 * i, true) >= batch.num_verts) {
+          if (indices.getUint32(4 * i, true) >= addressable) {
             throw new Error("border index exceeds generated vertex count");
           }
         }
@@ -459,7 +556,14 @@ const ManimlWGPU = (() => {
         borderSources.set(key, source);
       }
       usedSources.add(key);
-      const outputKey = JSON.stringify([batch.hash, key, ordinal]);
+      // Outputs belong to draw occurrences: the same geometry drawn twice
+      // with different uniforms needs two. Number occurrences of the same
+      // geometry rather than every batch, so inserting an unrelated object
+      // earlier in the frame rekeys nothing.
+      const occurrenceKey = batch.hash + ":" + key;
+      const occurrence = occurrences.get(occurrenceKey) ?? 0;
+      occurrences.set(occurrenceKey, occurrence + 1);
+      const outputKey = JSON.stringify([batch.hash, key, capacity, occurrence]);
       usedOutputs.add(outputKey);
       let output = borderOutputs.get(outputKey);
       if (!borderPipeline) borderPipeline = device.createComputePipeline({layout: "auto",
@@ -487,14 +591,15 @@ const ManimlWGPU = (() => {
       compute.setBindGroup(1, output.binding);
       for (let offset = 0; offset < count; offset += maxDispatch) {
         const chunk = Math.min(maxDispatch, count - offset);
-        const data = new ArrayBuffer(16), view = new DataView(data);
+        const data = new ArrayBuffer(32), view = new DataView(data);
         view.setUint32(0, offset, true); view.setUint32(4, chunk, true);
-        view.setUint32(8, fillCount - storageOffset / 40 + 64 * offset, true);
+        view.setUint32(8, fillCount - storageOffset / 40 + capacity * offset, true);
         view.setFloat32(12, .0001, true);
+        view.setUint32(16, capacity, true);
         const params = makeBuffer(data, GPUBufferUsage.UNIFORM); temporary.push(params);
         compute.setBindGroup(0, device.createBindGroup({layout: borderPipeline.getBindGroupLayout(0), entries: [
           {binding: 0, resource: {buffer: camera, size: 192}},
-          {binding: 1, resource: {buffer: params, size: 16}}]}));
+          {binding: 1, resource: {buffer: params, size: 32}}]}));
         compute.dispatchWorkgroups(chunk);
       }
       compute.end();
@@ -628,7 +733,7 @@ const ManimlWGPU = (() => {
     if (textureBinding) pass.setBindGroup(1, textureBinding);
     pass.setVertexBuffer(0, borderBuffers.get(batch) || res.vertex);
     if (batch.indexed) {
-      pass.setIndexBuffer(res.index, "uint32");
+      pass.setIndexBuffer(res.index || runIndexBuffer(batch, res), "uint32");
       pass.drawIndexed(batch.count, batch.instances);
     } else {
       pass.draw(batch.count, batch.instances);
@@ -636,6 +741,8 @@ const ManimlWGPU = (() => {
   }
 
   function retireGeneratedResources(textureHashes) {
+    for (const buffer of staleIndexBuffers) buffer.destroy();
+    staleIndexBuffers = [];
     for (const [cache, used] of [
       [generatedGeometry, usedGeneratedGeometry],
       [generatedUniforms, usedGeneratedUniforms],
@@ -822,6 +929,8 @@ const ManimlWGPU = (() => {
           for (const resource of cache.values()) resource.buffer.destroy();
           cache.clear();
         }
+        for (const buffer of staleIndexBuffers) buffer.destroy();
+        staleIndexBuffers = [];
         borderPipeline = null;
         for (const texture of textureCache.values()) texture.destroy();
         textureCache.clear();

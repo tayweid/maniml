@@ -58,7 +58,11 @@ def _binary_paint_message(*colors, samples=1):
     return header, raw
 
 
-def _border_wire(*, curves=1, fill_count=4, copies=1, samples=4):
+def _border_wire(*, curves=1, fill_count=4, copies=1, samples=4, capacity=None):
+    """A GPU border message. ``capacity=None`` is the format 5 wire, whose
+    complete index buffer travelled at 64 vertices per curve; a capacity
+    makes the format 6 wire: fill indices plus the run layout."""
+    from maniml.web.gpu_border_geometry import indices_per_curve
     from tests.test_border_compute import source_records, strip_indices
     from tests.test_border_geometry import segment
     data = np.concatenate([segment(points=((-2, -2, 0), (0, -3, 0), (2, -2, 0)),
@@ -66,17 +70,29 @@ def _border_wire(*, curves=1, fill_count=4, copies=1, samples=4):
     data["fill_rgba"] = [1, 0, 0, .5]
     records = source_records(data)
     fill = np.resize(_draw().vertices, fill_count)
-    indices = np.concatenate([np.array([0, 1, 2, 0, 2, 3] if fill_count else [], dtype="<u4"),
-        *(strip_indices().reshape(-1) + fill_count + 64 * i for i in range(curves))]).astype("<u4")
+    fill_indices = np.array([0, 1, 2, 0, 2, 3] if fill_count else [], dtype="<u4")
+    if capacity is None:
+        indices = np.concatenate([fill_indices,
+            *(strip_indices().reshape(-1) + fill_count + 64 * i for i in range(curves))]).astype("<u4")
+        border = {"hash": None, "num_curves": curves}
+        version, vertex_count, count = 5, fill_count + 64 * curves, len(indices)
+    else:
+        indices = fill_indices
+        border = {"hash": None, "num_curves": curves, "capacity": capacity,
+                  "layout": [[len(indices), fill_count, curves]]}
+        version = 6
+        vertex_count = fill_count + capacity * curves
+        count = len(indices) + indices_per_curve(capacity) * curves
     header, _ = _message(_draw(), samples=samples, supersample=2)
     key = hashlib.blake2b(records.tobytes(), digest_size=16).hexdigest()
+    border["hash"] = key
     raw = fill.tobytes() + indices.tobytes() + b"x"
-    header.update(format_version=5, border_data={key: {"offset": len(raw), "nbytes": records.nbytes}})
+    header.update(format_version=version, border_data={key: {"offset": len(raw), "nbytes": records.nbytes}})
     raw += records.tobytes()
     batch = header["batches"][0]
     batch.update(hash="border-fill", offset=0, index_offset=fill.nbytes,
-        fill_num_verts=fill_count, num_verts=fill_count + 64 * curves,
-        index_count=len(indices), count=len(indices), border={"hash": key, "num_curves": curves},
+        fill_num_verts=fill_count, num_verts=vertex_count,
+        index_count=len(indices), count=count, border=border,
         coverage=True, uniforms={"flat_stroke": 0, "scale_stroke_with_zoom": 0})
     header["batches"] = [deepcopy(batch) for _ in range(copies)]
     return header, raw, data, fill
@@ -170,6 +186,7 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._border_sources = {}
         self.renderer._border_outputs = {}
         self.renderer._border_compute_pipeline = None
+        self.renderer._stale_index_buffers = []
         self.renderer.texture_cache = {}
         self.renderer.sampler = object()
         self.renderer._ensure_targets = Mock()
@@ -423,6 +440,86 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.assertFalse(self.renderer._border_sources)
         self.assertFalse(self.renderer._border_outputs)
         self.assertTrue(all(buffer.destroyed for buffer in outputs))
+
+    def test_format_6_border_runs_expand_indices_locally_and_rekey_by_occurrence(self):
+        import struct
+        from maniml.web.gpu_border_geometry import expand_run_indices, indices_per_curve
+        header, raw, _, _ = _border_wire(curves=3, fill_count=40, capacity=8)
+        batch = header["batches"][0]
+        self.assertEqual(batch["index_count"], 6)
+        self.assertEqual(batch["count"], 6 + 3 * indices_per_curve(8))
+        self.renderer.render(header, raw)
+        resources = self.renderer._generated_geometry["border-fill"]
+        fill_indices = np.array([0, 1, 2, 0, 2, 3], dtype="<u4")
+        self.assertEqual(resources["fill_indices"], fill_indices.tobytes())
+        self.assertNotIn("index_buffer", resources)
+        (capacity, index_buffer), = resources["index_buffers"].items()
+        self.assertEqual(capacity, 8)
+        expected = expand_run_indices(fill_indices, [[6, 40, 3]], 40, 8)
+        self.assertEqual(len(expected), batch["count"])
+        self.assertEqual(index_buffer.data, expected.tobytes())
+        self.assertEqual(int(expected.max()), 40 + 3 * 8 - 1)
+        events = self.renderer.device.events
+        self.assertEqual([e[1] for e in events if e[0] == "draw_indexed"], [batch["count"]])
+        self.assertIs(next(e[1] for e in events if e[0] == "set_index_buffer"), index_buffer)
+        params = next(e[2]["entries"][1]["resource"] for e in events
+                      if e[0] == "set_bind_group" and e[1] == 0 and e[2]["layout"] == ("compute", 0))
+        self.assertEqual(params["size"], 32)
+        self.assertEqual(struct.unpack("<IIIfIIII", params["buffer"].data)[4], 8)
+        output, = self.renderer._border_outputs.values()
+        self.assertEqual(output["buffer"].size, (40 + 3 * 8) * 40)
+        vertex_buffer = resources["buffer"]
+        # A larger reservation on a cached batch uploads nothing: the fill
+        # bytes stay, the index buffer and output are rebuilt at the new
+        # capacity, and the old ones go only after the frame is submitted.
+        header["border_data"] = {}
+        batch["cached"] = True
+        batch["border"]["capacity"] = 16
+        batch["num_verts"] = 40 + 3 * 16
+        batch["count"] = 6 + 3 * indices_per_curve(16)
+        self.renderer.device.events.clear()
+        self.renderer.render(header, b"")
+        events = self.renderer.device.events
+        self.assertIs(self.renderer._generated_geometry["border-fill"]["buffer"], vertex_buffer)
+        (capacity, grown), = resources["index_buffers"].items()
+        self.assertEqual(capacity, 16)
+        self.assertEqual(grown.data, expand_run_indices(fill_indices, [[6, 40, 3]], 40, 16).tobytes())
+        self.assertTrue(index_buffer.destroyed)
+        self.assertTrue(output["buffer"].destroyed)
+        submit = next(i for i, e in enumerate(events) if e[0] == "submit")
+        for retired in (index_buffer, output["buffer"]):
+            self.assertGreater(next(i for i, e in enumerate(events) if e[0] == "destroy" and e[1] is retired), submit)
+        new_output, = self.renderer._border_outputs.values()
+        self.assertEqual(new_output["buffer"].size, (40 + 3 * 16) * 40)
+        self.assertEqual([e[1] for e in events if e[0] == "draw_indexed"], [batch["count"]])
+        self.assertEqual(len([e for e in events if e[0] == "copy_buffer_to_buffer"]), 1)
+        # Outputs are keyed by occurrence of the same geometry, so an
+        # unrelated object inserted earlier in the frame rekeys nothing.
+        plain = {"kind": "generated", "pipeline": "surface", "hash": "plain", "num_verts": 3, "stride": 40,
+                 "uniforms": {}, "count": 3, "instances": 1, "indexed": False, "offset": 0}
+        header["batches"] = [plain, batch]
+        self.renderer.device.events.clear()
+        self.renderer.render(header, bytes(3 * 40))
+        events = self.renderer.device.events
+        self.assertEqual(list(self.renderer._border_outputs.values()), [new_output])
+        self.assertFalse(any(e[0] in ("dispatch_workgroups", "copy_buffer_to_buffer") for e in events))
+        self.assertEqual([e[1] for e in events if e[0] == "draw_indexed"], [batch["count"]])
+        # Layout and capacity are validated before any resource is touched.
+        for field, value in (("capacity", 66), ("capacity", "16"), ("layout", [[6, 40]]),
+                             ("layout", [[3, 40, 3]]), ("layout", [[6, 40, 0]]), ("layout", [])):
+            bad = deepcopy(header)
+            bad["batches"][1]["border"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, "[Bb]order"):
+                self.renderer.render(bad, bytes(3 * 40))
+        for field, value in (("count", batch["count"] - 3), ("num_verts", batch["num_verts"] + 1)):
+            bad = deepcopy(header)
+            bad["batches"][1][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "[Bb]order"):
+                self.renderer.render(bad, bytes(3 * 40))
+        header["batches"] = []
+        self.renderer.render(header, b"")
+        self.assertTrue(grown.destroyed)
+        self.assertTrue(new_output["buffer"].destroyed)
 
     def test_gpu_border_validates_spans_counts_widths_indices_and_failed_generation_state(self):
         header, raw, _, _ = _border_wire(fill_count=40)

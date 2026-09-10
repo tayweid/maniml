@@ -16,7 +16,9 @@ from maniml.web.geometry import (
     GEOMETRY_FORMAT_VERSION, GEOMETRY_MESSAGE_TYPE, _jsonable, _TEXTURE_BY_HASH,
 )
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
-from maniml.web.gpu_border_geometry import CURVE_WORDS
+from maniml.web.gpu_border_geometry import (
+    CURVE_WORDS, MAX_VERTICES_PER_CURVE, indices_per_curve, validate_capacity, validate_layout,
+)
 
 
 PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
@@ -111,22 +113,32 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         if draw.count == 0 or draw.instances == 0:
             continue
         border = getattr(draw, "border_sources", None)
-        border_hash = None
+        border_hash, capacity, layout = None, None, None
+        indices = None if draw.indices is None else np.asarray(draw.indices)
         if border is not None:
-            if base not in ("surface", "paint") or draw.indices is None or draw.instances != 1:
+            if base not in ("surface", "paint") or indices is None or draw.instances != 1:
                 raise ValueError("GPU border recipe requires one indexed surface operation")
             border_hash, border = _border_payload(border, previous_borders, retained_borders)
             borders[border_hash] = border
-        output_vertices = len(vertices) + (0 if border is None else 64 * len(border))
-        indices = None if draw.indices is None else np.asarray(draw.indices)
+            capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
+            layout = getattr(draw, "border_layout", None)
+            if layout is None:
+                raise ValueError("GPU border recipes require their run layout")
+            layout = validate_layout(layout, len(indices), len(vertices), len(border))
+        output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
         if indices is not None:
+            # A border run's wire indices cover only its fills; the drivers
+            # append each object's strip pattern from the layout, so the
+            # draw count exceeds the index count by exactly that pattern.
+            addressable = len(vertices) if border is not None else output_vertices
+            expected_count = (None if border is None
+                              else len(indices) + indices_per_curve(capacity) * len(border))
             if (base not in ("surface", "paint") or indices.ndim != 1
                     or not np.issubdtype(indices.dtype, np.integer)
-                    or np.any(indices < 0) or np.any(indices >= output_vertices)
-                    or draw.count > len(indices) or draw.count % 3):
+                    or np.any(indices < 0) or np.any(indices >= addressable)
+                    or (draw.count > len(indices) if border is None else draw.count != expected_count)
+                    or draw.count % 3):
                 raise ValueError("invalid generated triangle indices or draw count")
-            if border is not None and (draw.count != len(indices) or len(indices) < 186 * len(border)):
-                raise ValueError("GPU border recipes require their complete ordered index range")
             # An equivalent explicit-endian dtype can produce a fresh view
             # when NumPy normalizes it to native byte order. Preserve the
             # original immutable array so its retained digest remains usable.
@@ -141,7 +153,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         elif base == "stroke":
             if draw.count < 4 or draw.count > 64 or draw.count % 2 or draw.instances * 3 > len(vertices):
                 raise ValueError("invalid generated stroke draw count")
-        payload_key = (draw.pipeline, id(vertices), id(indices), output_vertices)
+        payload_key = (draw.pipeline, id(vertices), id(indices),
+                       None if border is None else (len(border), tuple(map(tuple, layout))))
         retained = previous_payloads.get(payload_key)
         if retained is not None and retained[0] is vertices and retained[1] is indices:
             content_hash = retained[2]
@@ -150,7 +163,12 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             identity.update(draw.pipeline.encode())
             identity.update(b"\0indexed\0" if indices is not None else b"\0plain\0")
             if border is not None:
+                # The run layout decides where each object's strips interleave;
+                # the reserved capacity does not change what is drawn, so it
+                # stays out of the identity and a zoom that raises it resends
+                # nothing.
                 identity.update(b"\0border\0" + struct.pack("<Q", len(border)))
+                identity.update(struct.pack(f"<{3 * len(layout)}Q", *(v for part in layout for v in part)))
             # Frame both byte streams, and hash their views without allocating
             # another frame-sized copy. Mutable diagnostic data is always read.
             identity.update(struct.pack("<QQ", vertices.nbytes, 0 if indices is None else indices.nbytes))
@@ -185,7 +203,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                  "index_count": 0 if indices is None else len(indices)}
         if border is not None:
             batch["fill_num_verts"] = len(vertices)
-            batch["border"] = {"hash": border_hash, "num_curves": len(border)}
+            batch["border"] = {"hash": border_hash, "num_curves": len(border), "capacity": capacity}
         if getattr(draw, "coverage", False):
             if base not in ("surface", "paint"):
                 raise ValueError("coverage ownership requires triangle surface geometry")
@@ -202,6 +220,10 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         if cache is not None and content_hash in cache.sent:
             batch["cached"] = True
         else:
+            # The run layout belongs to the geometry: a receiver that holds
+            # the fill bytes holds the layout too, so it travels once.
+            if border is not None:
+                batch["border"]["layout"] = layout
             batch["offset"] = offset
             raw = vertices.tobytes()
             blobs.append(raw)

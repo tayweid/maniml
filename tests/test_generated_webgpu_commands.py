@@ -49,6 +49,9 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_gpu_border_compute_precedes_draw_and_reuses_distinct_occurrence_outputs(self):
         self.run_case("borderCompute")
 
+    def test_format_6_border_runs_expand_indices_locally_and_rekey_by_occurrence(self):
+        self.run_case("borderRuns")
+
     def test_gpu_border_failure_rolls_back_buffers_and_preserves_generation_state(self):
         self.run_case("borderComputeFailures")
 

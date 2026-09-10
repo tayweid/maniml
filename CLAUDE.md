@@ -216,11 +216,14 @@ still updates source points and Lyon generates general fills. The shared
 drawing. Small camera changes update uniforms; genuine fill refinements still
 upload a new mesh. `MANIML_BORDER_GENERATOR=cpu` selects the preserved CPU
 emitter for comparison through the same renderer. GPU recipes share the fill
-cache's 64 MiB host budget; output reserves 32 vertex pairs per curve, which
-trades additional GPU memory for stable allocation and fewer uploads. Both
-drivers retire absent sources/outputs after submission and roll back new
+cache's 64 MiB host budget. A run reserves output vertices per curve from the
+steps its curves need at the current zoom, doubled for headroom and capped at
+64; the reservation grows only when a zoom outgrows it, and nothing is
+resent when it does. Only fill indices travel on the wire (format 6): each
+driver expands the per-object strip pattern from the run layout itself.
+Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
-formats 1–4 remain readable. These resources never enter checkpoints.
+formats 1–5 remain readable. These resources never enter checkpoints.
 See `docs_unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 

@@ -4,7 +4,7 @@
 "use strict";
 
 (async () => {
-  const EXPORT_FORMAT_VERSION = 5;
+  const EXPORT_FORMAT_VERSION = 6;
   const stage = document.getElementById("stage");
   const chipsEl = document.getElementById("chips");
   const playBtn = document.getElementById("playbtn");
@@ -22,7 +22,7 @@
   const meta = await (await fetch("scene.json")).json();
   document.title = meta.scene;
   document.getElementById("scene-name").textContent = meta.scene;
-  if (![1, 2, 3, 4, EXPORT_FORMAT_VERSION].includes(meta.format_version)) {
+  if (![1, 2, 3, 4, 5, EXPORT_FORMAT_VERSION].includes(meta.format_version)) {
     showPlayerError(
       "This scene export uses an incompatible format. Re-export this scene "
         + "with the current ManimLive version.",

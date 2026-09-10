@@ -65,7 +65,8 @@ class BorderComputePixels(unittest.TestCase):
     def tearDownClass(cls):
         cls.device.destroy()
 
-    def dispatch(self, records, uniforms, *, normal_offset=True, curve_offset=0, count=None, output_base=0):
+    def dispatch(self, records, uniforms, *, normal_offset=True, curve_offset=0, count=None, output_base=0,
+                 capacity=64):
         from maniml.web.wgpu_renderer import pack_uniforms
         wgpu, device = self.wgpu, self.device
         count = len(records) - curve_offset if count is None else count
@@ -80,9 +81,9 @@ class BorderComputePixels(unittest.TestCase):
                         light_position=(0, 0, 10), **uniforms)
         source = upload(records.tobytes(), wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
         camera = upload(pack_uniforms(complete), wgpu.BufferUsage.UNIFORM)
-        params = upload(struct.pack("<IIIf", curve_offset, count, output_base, .0001 if normal_offset else 0),
-                        wgpu.BufferUsage.UNIFORM)
-        output = upload(bytes((output_base + count * 64) * 40), wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
+        params = upload(struct.pack("<IIIfIIII", curve_offset, count, output_base, .0001 if normal_offset else 0,
+                                    capacity, 0, 0, 0), wgpu.BufferUsage.UNIFORM)
+        output = upload(bytes((output_base + count * capacity) * 40), wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
         try:
             group0 = device.create_bind_group(layout=self.pipeline.get_bind_group_layout(0), entries=[
                 {"binding": 0, "resource": {"buffer": camera}}, {"binding": 1, "resource": {"buffer": params}}])
@@ -99,10 +100,28 @@ class BorderComputePixels(unittest.TestCase):
             result = np.frombuffer(device.queue.read_buffer(output), dtype=SURFACE_DTYPE).copy()
             self.assertEqual(bytes(device.queue.read_buffer(source)), records.tobytes())
             self.assertEqual(result[:output_base].tobytes(), bytes(output_base * 40))
-            return result[output_base:].reshape(count, 64)
+            return result[output_base:].reshape(count, capacity)
         finally:
             for buffer in buffers:
                 buffer.destroy()
+
+    def test_smaller_capacity_writes_the_same_leading_vertices_and_nothing_beyond(self):
+        data = np.concatenate([segment(points=((-2, -2, 0), (0, -3, 0), (2, -2, 0)), widths=(40, 40, 40)),
+                               segment(points=((-1, 1, 0), (0, 1.2, 0), (1, 1, 0)), widths=(10, 10, 10))])
+        records = source_records(data)
+        uniforms = dict(frame_scale=8., scale_stroke_with_zoom=1, is_fixed_in_frame=0,
+                        flat_stroke=1, camera_position=(0, 0, 10), joint_type=1)
+        counts = border_step_counts(data["point"].reshape(-1, 3, 3), uniforms["frame_scale"])
+        capacity = int(2 * counts.max())
+        self.assertLess(capacity, 64, "the fixture must need fewer steps than the maximum")
+        full = self.dispatch(records, uniforms)
+        small = self.dispatch(records, uniforms, capacity=capacity)
+        # Every vertex the smaller reservation holds is exactly the vertex the
+        # full reservation computes; a curve reserves nothing past its steps.
+        np.testing.assert_array_equal(small.tobytes(), full[:, :capacity].tobytes())
+        for curve, count in enumerate(counts):
+            np.testing.assert_array_equal(full[curve, 2 * count:].tobytes(),
+                                          np.tile(full[curve, 2 * count - 2:2 * count], 32 - count).tobytes())
 
     def check_emission(self, data, uniforms, *, normal_offset=True, records=None):
         records = source_records(data) if records is None else records

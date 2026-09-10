@@ -16,8 +16,9 @@ from maniml.web.geometry import (
     GeometryCache, SURFACE_DTYPE, parse_geometry_message, serialize_scene,
 )
 from maniml.web.gpu_border_geometry import (
-    BorderRecipeCache, CURVE_BYTES, CURVE_WORDS, INDICES_PER_CURVE,
-    VERTICES_PER_CURVE, border_indices, pack_source, readonly,
+    BorderRecipeCache, CURVE_BYTES, CURVE_WORDS, INDICES_PER_CURVE, MAX_VERTICES_PER_CURVE,
+    MIN_VERTICES_PER_CURVE, VERTICES_PER_CURVE, border_indices, indices_per_curve,
+    pack_source, readonly, required_capacity, reserve_capacity, validate_capacity,
 )
 from tests.test_border_geometry import UNIFORMS
 from maniml.web.triangle_geometry import LyonFillTessellator
@@ -37,7 +38,94 @@ def fill_part(color=(1, 0, 0, 1), x=0):
     return tuple(readonly(array) for array in (vertices, indices, curves))
 
 
+def part(color=(1, 0, 0, 1), x=0, capacity=MAX_VERTICES_PER_CURVE):
+    return (*fill_part(color, x), capacity)
+
+
 class GpuBorderRecipe(unittest.TestCase):
+    def test_capacity_follows_step_counts_with_sticky_headroom(self):
+        # Two vertices per step, at least four; a reservation doubles the
+        # need and survives until the need outgrows it.
+        self.assertEqual(indices_per_curve(MAX_VERTICES_PER_CURVE), INDICES_PER_CURVE)
+        self.assertEqual(indices_per_curve(4), 6)
+        for bad in (3, 2, 66, 0, 8.0, True):
+            with self.subTest(capacity=bad), self.assertRaises(ValueError):
+                validate_capacity(bad)
+        self.assertEqual(reserve_capacity(4), 8)
+        self.assertEqual(reserve_capacity(6), 12)
+        self.assertEqual(reserve_capacity(40), 64)
+        self.assertEqual(reserve_capacity(6, 12), 12)
+        self.assertEqual(reserve_capacity(14, 12), 28)
+        shape = Circle(fill_opacity=.5, stroke_width=0, fill_border_width=4)
+        source = BorderSource.read(shape, UNIFORMS)
+        need = required_capacity(source)
+        self.assertEqual(need, 2 * int(source.counts[source.active].max()))
+        self.assertGreaterEqual(need, MIN_VERTICES_PER_CURVE)
+        pattern = border_indices(2, 10, 8)
+        self.assertEqual(len(pattern), 2 * indices_per_curve(8))
+        np.testing.assert_array_equal(pattern[:6], [10, 11, 12, 11, 12, 13])
+        np.testing.assert_array_equal(pattern[18:24], [18, 19, 20, 19, 20, 21])
+        self.assertEqual(int(pattern.max()), 10 + 2 * 8 - 1)
+        np.testing.assert_array_equal(border_indices(3, 5), border_indices(3, 5, 64))
+
+    def test_deep_zoom_past_the_cpu_triangle_budget_still_prepares_a_gpu_recipe(self):
+        # The CPU emitter's triangle budget bounds its own output arrays. GPU
+        # output is fixed capacity and checked against device limits by the
+        # drivers, so the budget only turned a deep zoom into a render error.
+        from maniml.constants import TAU
+        from maniml.mobject.geometry import Arc
+        from maniml.web.triangle_geometry import TessellationLimitError
+        shape = Arc(angle=TAU, n_components=1500, fill_opacity=.5, stroke_width=0, fill_border_width=4)
+        deep = dict(UNIFORMS, frame_scale=UNIFORMS["frame_scale"] / 1e4)
+        with self.assertRaises(TessellationLimitError):
+            BorderSource.read(shape, deep)
+        source = BorderSource.read(shape, deep, budget=False)
+        self.assertGreater(source.triangle_count, 87_381)
+        cache = BorderRecipeCache()
+        cache.begin_frame()
+        curves = cache.source(shape, deep)
+        self.assertEqual(len(curves), 1500)
+        self.assertEqual(cache.capacity(shape), MAX_VERTICES_PER_CURVE)
+
+    def test_reservation_is_per_object_and_grows_only_when_zoom_outgrows_it(self):
+        shape = Circle(fill_opacity=.5, stroke_width=0, fill_border_width=4)
+        cache = BorderRecipeCache()
+        cache.begin_frame()
+        cache.source(shape, UNIFORMS)
+        first = cache.capacity(shape)
+        need = required_capacity(BorderSource.read(shape, UNIFORMS))
+        self.assertEqual(first, min(64, 2 * need))
+        cache.finish_frame()
+        # A zoom that still fits keeps the reservation; the run resends nothing.
+        cache.begin_frame()
+        cache.source(shape, dict(UNIFORMS, frame_scale=UNIFORMS["frame_scale"] / 1.5))
+        self.assertEqual(cache.capacity(shape), first)
+        cache.finish_frame()
+        # A zoom that outgrows it doubles the new need, capped at the maximum.
+        cache.begin_frame()
+        closer = dict(UNIFORMS, frame_scale=UNIFORMS["frame_scale"] / 8)
+        cache.source(shape, closer)
+        grown = cache.capacity(shape)
+        self.assertGreater(grown, first)
+        self.assertEqual(grown, min(64, 2 * required_capacity(BorderSource.read(shape, closer))))
+        cache.finish_frame()
+        # Zooming back out keeps the larger reservation rather than churning.
+        cache.begin_frame()
+        cache.source(shape, UNIFORMS)
+        self.assertEqual(cache.capacity(shape), grown)
+        cache.finish_frame()
+        # Reservations outlive the byte budget but not the object's presence.
+        tiny = BorderRecipeCache(max_bytes=0)
+        tiny.begin_frame()
+        tiny.source(shape, UNIFORMS)
+        self.assertFalse(tiny.sources)
+        self.assertEqual(tiny.capacity(shape), first)
+        tiny.finish_frame()
+        tiny.begin_frame()
+        tiny.finish_frame()
+        with self.assertRaises(KeyError):
+            tiny.capacity(shape)
+
     def test_packed_records_preserve_source_fields_density_and_real_color(self):
         shape = Circle(fill_opacity=.5, stroke_width=0, fill_border_width=4)
         source = BorderSource.read(shape, UNIFORMS)
@@ -108,23 +196,30 @@ class GpuBorderRecipe(unittest.TestCase):
         np.testing.assert_array_equal(cache.source(shape, UNIFORMS), original)
 
     def test_assembly_interleaves_each_fill_and_border_while_storage_is_contiguous(self):
-        parts = (fill_part(), fill_part((0, 0, 1, .5), 3))
+        parts = (part(capacity=8), part((0, 0, 1, .5), 3, capacity=16))
         cache = BorderRecipeCache()
         cache.begin_frame()
-        vertices, indices, curves = cache.assemble(parts)
+        vertices, indices, curves, capacity, layout = cache.assemble(parts)
         self.assertEqual(len(vertices), 8)
         self.assertEqual(len(curves), 2)
-        self.assertEqual(len(indices), 12 + 2 * INDICES_PER_CURVE)
-        expected = np.concatenate((parts[0][1], border_indices(1, 8),
-                                   parts[1][1] + 4, border_indices(1, 8 + VERTICES_PER_CURVE)))
-        np.testing.assert_array_equal(indices, expected)
-        np.testing.assert_array_equal(vertices, np.concatenate([part[0] for part in parts]))
-        np.testing.assert_array_equal(curves, np.concatenate([part[2] for part in parts]))
+        # Only the fills travel: the strip pattern is rebuilt by the drivers
+        # from the layout, at the run's largest reservation.
+        self.assertEqual(len(indices), 12)
+        self.assertEqual(capacity, 16)
+        self.assertEqual(layout, ((6, 4, 1), (6, 4, 1)))
+        np.testing.assert_array_equal(indices, np.concatenate((parts[0][1], parts[1][1] + 4)))
+        np.testing.assert_array_equal(vertices, np.concatenate([p[0] for p in parts]))
+        np.testing.assert_array_equal(curves, np.concatenate([p[2] for p in parts]))
         for first, repeated in zip((vertices, indices, curves), cache.assemble(parts)):
             self.assertIs(first, repeated)
             with self.assertRaises(ValueError):
                 first.setflags(write=True)
         self.assertEqual(cache.assemblies, 1)
+        # The same arrays at another reservation are another run.
+        grown = cache.assemble((parts[0], (*parts[1][:3], 32)))
+        self.assertEqual(grown[3], 32)
+        np.testing.assert_array_equal(grown[1], indices)
+        self.assertEqual(cache.assemblies, 2)
 
     def test_mutable_and_owned_readonly_parts_cannot_reuse_stale_assembly(self):
         for owned_readonly in (False, True):
@@ -135,13 +230,13 @@ class GpuBorderRecipe(unittest.TestCase):
                         array.setflags(write=False)
                 cache = BorderRecipeCache()
                 cache.begin_frame()
-                previous = cache.assemble([tuple(arrays)])
+                previous = cache.assemble([(*arrays, 64)])
                 for array in arrays:
                     array.setflags(write=True)
                 arrays[0]["point"][:, 0] += .25
                 arrays[1][:] = [0, 1, 3, 1, 2, 3]
                 arrays[2][:, 40] = .3
-                current = cache.assemble([tuple(arrays)])
+                current = cache.assemble([(*arrays, 64)])
                 np.testing.assert_array_equal(current[0], arrays[0])
                 np.testing.assert_array_equal(current[1][:6], arrays[1])
                 np.testing.assert_array_equal(current[2], arrays[2])
@@ -152,7 +247,7 @@ class GpuBorderRecipe(unittest.TestCase):
         cache = BorderRecipeCache()
         cache.begin_frame()
         cache.source(shape, UNIFORMS)
-        result = cache.assemble([fill_part()])
+        result = cache.assemble([part()])
         self.assertGreater(cache.nbytes, 0)
         cache.finish_frame()
         cache.begin_frame()
@@ -160,7 +255,8 @@ class GpuBorderRecipe(unittest.TestCase):
         self.assertEqual(cache.nbytes, 0)
         self.assertFalse(cache.sources)
         self.assertFalse(cache.runs)
-        self.assertEqual(len(result[1]), 6 + INDICES_PER_CURVE)
+        self.assertEqual(len(result[1]), 6)
+        self.assertEqual(result[4], ((6, 4, 1),))
         cache.begin_frame()
         cache.source(shape, UNIFORMS)
         ref = weakref.ref(shape)
@@ -172,7 +268,7 @@ class GpuBorderRecipe(unittest.TestCase):
         bounded = BorderRecipeCache(max_bytes=0)
         bounded.begin_frame()
         bounded.source(Circle(fill_opacity=.5, fill_border_width=4), UNIFORMS)
-        bounded.assemble([fill_part()])
+        bounded.assemble([part()])
         self.assertEqual(bounded.nbytes, 0)
         self.assertFalse(bounded.sources)
         self.assertFalse(bounded.runs)
@@ -214,18 +310,24 @@ class GpuBorderPreparation(unittest.TestCase):
         self.assertEqual(len(separate.draws), 2)
         combined, = together.draws
         self.assertFalse(combined.coverage)
-        total_fill = sum(len(draw.vertices) for draw in separate.draws)
-        expected, fill_offset, curve_offset = [], 0, 0
+        expected, layout, fill_offset = [], [], 0
         for shape, draw in zip(scene.mobjects, separate.draws):
-            fill_count = len(draw.indices) - INDICES_PER_CURVE * len(draw.border_sources)
-            expected.extend((draw.indices[:fill_count] + fill_offset,
-                             border_indices(len(draw.border_sources),
-                                            total_fill + VERTICES_PER_CURVE * curve_offset)))
+            self.assertEqual(draw.count, len(draw.indices)
+                             + indices_per_curve(draw.border_capacity) * len(draw.border_sources))
+            self.assertEqual(draw.border_layout,
+                             ((len(draw.indices), len(draw.vertices), len(draw.border_sources)),))
+            expected.append(draw.indices + fill_offset)
+            layout.append((len(draw.indices), len(draw.vertices), len(draw.border_sources)))
             np.testing.assert_array_equal(draw.border_sources[:, 40:44],
                 np.tile(shape.data["fill_rgba"][0], (len(draw.border_sources), 1)))
             fill_offset += len(draw.vertices)
-            curve_offset += len(draw.border_sources)
         np.testing.assert_array_equal(combined.indices, np.concatenate(expected))
+        self.assertEqual(combined.border_layout, tuple(layout))
+        self.assertEqual(combined.border_capacity, max(d.border_capacity for d in separate.draws))
+        self.assertLess(combined.border_capacity, MAX_VERTICES_PER_CURVE,
+                        "a square's few steps per curve must not reserve the maximum")
+        self.assertEqual(combined.count, len(combined.indices)
+                         + indices_per_curve(combined.border_capacity) * len(combined.border_sources))
         np.testing.assert_array_equal(combined.border_sources,
                                       np.concatenate([d.border_sources for d in separate.draws]))
         self.assertEqual(self.authored_bytes(scene), before)
@@ -250,7 +352,11 @@ class GpuBorderPreparation(unittest.TestCase):
             self.assertEqual(payload, b"")
             self.assertEqual(updated["border_data"], {})
             self.assertEqual(updated["batches"][0]["hash"], header["batches"][0]["hash"])
-            self.assertEqual(updated["batches"][0]["border"], header["batches"][0]["border"])
+            # A cached batch resends neither its fill bytes nor its run layout.
+            self.assertTrue(updated["batches"][0]["cached"])
+            self.assertEqual(updated["batches"][0]["border"],
+                             {k: v for k, v in header["batches"][0]["border"].items() if k != "layout"})
+            self.assertIn("layout", header["batches"][0]["border"])
             self.assertNotEqual(updated["camera"], header["camera"])
             self.assertEqual(current.mesh_cache_stats["gpu_border_source_updates"], 2)
             self.assertEqual(current.mesh_cache_stats["gpu_border_assemblies"], 1)
@@ -328,7 +434,7 @@ class GpuBorderPreparation(unittest.TestCase):
     def test_compatible_runs_split_by_padded_output_budget_without_rejecting_sources(self):
         scene, cache = self.scene(), TriangleMeshCache()
         separate = self.prepare(scene, cache, coalesce=False)
-        one_object_bytes = max((len(draw.vertices) + VERTICES_PER_CURVE * len(draw.border_sources)) * 40
+        one_object_bytes = max((len(draw.vertices) + draw.border_capacity * len(draw.border_sources)) * 40
                                for draw in separate.draws)
         with patch("maniml.web.triangle_scene.MAX_RUN_OUTPUT_BYTES", one_object_bytes):
             split = self.prepare(scene, cache)

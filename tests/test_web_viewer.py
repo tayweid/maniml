@@ -574,10 +574,17 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                     border = batch["border"]
                     self.assertGreater(border["num_curves"], 0)
                     self.assertEqual(batch["stride"], 40)
-                    self.assertEqual(batch["num_verts"], fill_count + 64 * border["num_curves"])
+                    capacity = border["capacity"]
+                    self.assertIn(capacity, range(4, 65, 2))
+                    self.assertEqual(batch["num_verts"], fill_count + capacity * border["num_curves"])
                     self.assertTrue(batch["indexed"])
-                    self.assertEqual(batch["count"], batch["index_count"])
-                    self.assertGreaterEqual(batch["index_count"], 186 * border["num_curves"])
+                    # Only fill indices travel; each object's strip pattern is
+                    # the driver's to build from the run layout.
+                    self.assertEqual(batch["count"], batch["index_count"]
+                                     + 6 * (capacity // 2 - 1) * border["num_curves"])
+                    self.assertEqual(sum(part[0] for part in border["layout"]), batch["index_count"])
+                    self.assertEqual(sum(part[1] for part in border["layout"]), fill_count)
+                    self.assertEqual(sum(part[2] for part in border["layout"]), border["num_curves"])
                     self.assertIn(border["hash"], header["border_data"])
                     self.assertEqual(header["border_data"][border["hash"]]["nbytes"],
                                      176 * border["num_curves"])
@@ -588,7 +595,7 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                                             offset=batch["index_offset"])
                     self.assertTrue(np.all(indices < batch["num_verts"]))
                     if "border" in batch:
-                        self.assertTrue(np.any(indices >= fill_count), "recipe never addresses its GPU-generated tail")
+                        self.assertTrue(np.all(indices < fill_count), "wire indices address only the fills")
                 if "paint_hash" in batch:
                     self.assertIn(batch["paint_hash"], header["paint_data"])
                 for key in batch.get("textures", {}).values():

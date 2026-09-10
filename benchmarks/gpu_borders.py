@@ -133,13 +133,15 @@ def resource_summary(renderer, cache, header):
             scene_render_passes=1 + max(0, coverage - 1) // 255,
             resolve_draws=int(header.get("supersample", 1) > 1),
             source_curves=sum(batch.get("border", {}).get("num_curves", 0) for batch in header["batches"]),
-            indexed_triangles_including_padded_degenerates=sum(batch.get("index_count", 0) // 3 for batch in header["batches"]))
+            indexed_triangles_including_padded_degenerates=sum(batch.get("count", 0) // 3 for batch in header["batches"]),
+            wire_index_bytes=sum(4 * batch.get("index_count", 0) for batch in header["batches"] if not batch.get("cached")))
     if renderer is None:
         return result
     generated = getattr(renderer, "_generated_geometry", {})
     result.update(
         retained_gpu_fill_or_cpu_border_vertex_bytes=sum(item["buffer"].size for item in generated.values()),
-        retained_gpu_index_bytes=sum(item["index_buffer"].size for item in generated.values() if "index_buffer" in item),
+        retained_gpu_index_bytes=sum(item["index_buffer"].size for item in generated.values() if "index_buffer" in item)
+        + sum(buffer.size for item in generated.values() for buffer in item.get("index_buffers", {}).values()),
         retained_gpu_border_source_bytes=sum(item["buffer"].size for item in getattr(renderer, "_border_sources", {}).values()),
         retained_gpu_border_output_bytes=sum(item["buffer"].size for item in getattr(renderer, "_border_outputs", {}).values()),
         retained_gpu_uniform_bytes=sum(item[0].size for item in getattr(renderer, "_generated_uniforms", {}).values()),

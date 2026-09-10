@@ -34,7 +34,7 @@ globalThis.ManimlRecording = (() => {
   }
 
   function validateBorder(bytes) {
-    if (!bytes.length || bytes.length % 176 || bytes.length > 52428 * 176) {
+    if (!bytes.length || bytes.length % 176 || bytes.length > MAX_BORDER_CURVES * 176) {
       throw new Error("Invalid recorded border length");
     }
     const values = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -49,6 +49,34 @@ globalThis.ManimlRecording = (() => {
     return bytes;
   }
 
+  // Sources are 176 bytes per curve and must fit one portable storage binding.
+  const MAX_BORDER_CURVES = Math.floor((128 << 20) / 176);
+
+  // Format 6 border runs carry only their fill indices; the driver expands
+  // each object's strip pattern from this layout at the run's reserved
+  // capacity. Format 5 shipped the complete index buffer at capacity 64.
+  function borderRun(header, batch) {
+    const border = batch.border;
+    if (!("capacity" in border)) return {capacity: 64, layout: null};
+    const {capacity, layout} = border;
+    if (header.format_version < 6 || !Number.isSafeInteger(capacity) || capacity % 2
+        || capacity < 4 || capacity > 64 || !Array.isArray(layout) || !layout.length) {
+      throw new Error("Invalid recorded border geometry layout");
+    }
+    let indices = 0, vertices = 0, curves = 0;
+    for (const part of layout) {
+      if (!Array.isArray(part) || part.length !== 3
+          || part.some(value => !Number.isSafeInteger(value) || value < 0) || part[2] < 1) {
+        throw new Error("Invalid recorded border geometry layout");
+      }
+      indices += part[0]; vertices += part[1]; curves += part[2];
+    }
+    if (indices !== batch.index_count || vertices !== batch.fill_num_verts || curves !== border.num_curves) {
+      throw new Error("Invalid recorded border geometry layout");
+    }
+    return {capacity, layout};
+  }
+
   function borderLayout(header, batch) {
     if (!("border" in batch)) {
       if ("fill_num_verts" in batch) throw new Error("Recorded fill count requires a border descriptor");
@@ -58,14 +86,20 @@ globalThis.ManimlRecording = (() => {
     if (!Number.isSafeInteger(header.format_version) || header.format_version < 5
         || !border || typeof border !== "object" || Array.isArray(border)
         || typeof border.hash !== "string" || !/^[0-9a-f]{32}$/.test(border.hash)
-        || !Number.isSafeInteger(border.num_curves) || border.num_curves < 1 || border.num_curves > 52428
+        || !Number.isSafeInteger(border.num_curves) || border.num_curves < 1 || border.num_curves > MAX_BORDER_CURVES
         || !Number.isSafeInteger(batch.fill_num_verts) || batch.fill_num_verts < 0
-        || !Number.isSafeInteger(batch.num_verts) || batch.num_verts !== batch.fill_num_verts + 64 * border.num_curves
-        || !Number.isSafeInteger(batch.num_verts * 40) || batch.num_verts > 0xffffffff
+        || !Number.isSafeInteger(batch.index_count) || batch.index_count % 3
         || batch.kind !== "generated" || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)
-        || batch.stride !== 40 || batch.indexed !== true || batch.instances !== 1
-        || !Number.isSafeInteger(batch.index_count) || batch.index_count < 186 * border.num_curves
-        || batch.index_count % 3 || batch.count !== batch.index_count) {
+        || batch.stride !== 40 || batch.indexed !== true || batch.instances !== 1) {
+      throw new Error("Invalid recorded border geometry layout");
+    }
+    const {capacity, layout} = borderRun(header, batch);
+    const complete = layout === null
+      ? batch.index_count >= 186 * border.num_curves && batch.count === batch.index_count
+      : batch.count === batch.index_count + 6 * (capacity / 2 - 1) * border.num_curves;
+    if (!complete || !Number.isSafeInteger(batch.num_verts)
+        || batch.num_verts !== batch.fill_num_verts + capacity * border.num_curves
+        || !Number.isSafeInteger(batch.num_verts * 40) || batch.num_verts > 0xffffffff) {
       throw new Error("Invalid recorded border geometry layout");
     }
     return batch.fill_num_verts;
@@ -119,12 +153,20 @@ globalThis.ManimlRecording = (() => {
         borders.set(hash, bytes);
       }
       const batches = header.batches.map(batch => {
+        // A cached format 6 border batch omits its run layout; the geometry
+        // it refers to carries it, and a rehydrated frame must carry it too.
+        if (batch.cached && batch.border && "capacity" in batch.border && !("layout" in batch.border)) {
+          const retained = geometry.get(batch.hash);
+          if (!retained || !retained.layout) throw new Error(`Missing recorded geometry: ${batch.hash}`);
+          batch = {...batch, border: {...batch.border, layout: retained.layout}};
+        }
         const vertexCount = borderLayout(header, batch);
         if (!batch.cached) {
           const content = {vertices: span(batch.offset, vertexCount * batch.stride)};
           if (batch.kind === "generated" && batch.indexed) {
             content.indices = span(batch.index_offset, batch.index_count * 4);
           }
+          if (batch.border && "layout" in batch.border) content.layout = batch.border.layout;
           if (batch.tri) {
             content.triVertices = span(batch.tri.voffset, batch.tri.vcount * 40);
             content.triIndices = span(batch.tri.ioffset, batch.tri.icount * 4);
@@ -161,9 +203,11 @@ globalThis.ManimlRecording = (() => {
           for (let i = 0; i < vertices.byteLength; i += 4) {
             if (!Number.isFinite(vertices.getFloat32(i, true))) throw new Error("Nonfinite recorded border fill vertices");
           }
+          // Format 6 wire indices cover only the fills; format 5 addressed the tail too.
+          const addressable = "layout" in batch.border ? batch.fill_num_verts : batch.num_verts;
           const indices = new DataView(content.indices.buffer, content.indices.byteOffset, content.indices.byteLength);
           for (let i = 0; i < indices.byteLength; i += 4) {
-            if (indices.getUint32(i, true) >= batch.num_verts) throw new Error("Recorded border index exceeds output vertex count");
+            if (indices.getUint32(i, true) >= addressable) throw new Error("Recorded border index exceeds output vertex count");
           }
         }
         // Capture the definition now. A reverse seek must not resolve through

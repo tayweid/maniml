@@ -155,12 +155,12 @@ async function run(format, messages, transformMeta=x=>x) {
     await page.tick();
     assert.deepEqual(page.frameIds,[0,1,2,3]);
   } else if(mode==='formats') {
-    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding'],[5,'triangles','triangles'],[5,'winding','winding']]) {
+    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding'],[5,'triangles','triangles'],[5,'winding','winding'],[6,'triangles','triangles'],[6,'winding','winding']]) {
       const page=await run(format,[message(renderer)]);
       assert.deepEqual(page.initialized,[expected]);
       assert.deepEqual(page.rendered,[expected]);
     }
-    const future=await run(6,[message('triangles')]);
+    const future=await run(7,[message('triangles')]);
     assert.equal(future.initialized.length,0);
     assert.equal(future.elements.get('status').textContent,'Re-export required');
   } else if(mode==='paint') {

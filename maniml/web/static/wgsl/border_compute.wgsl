@@ -1,13 +1,18 @@
 // Hardened hard-coverage border emitter; compile after common.wgsl.
 // Input: 44 f32/curve = three 48-byte BorderSource records, density,
 // active, density_capped flag, one reserved float, then actual source RGBA.
-// Output: 64 Surface vertices/curve, ten tightly packed floats/vertex.
-// Fixed 186-index strips clamp unused sample pairs to a degenerate tail.
+// Output: vertices_per_curve Surface vertices/curve (even, 4..64), ten
+// tightly packed floats/vertex. The strip pattern the drivers build for
+// that capacity clamps unused sample pairs to a degenerate tail.
 struct BorderParams {
     curve_offset: u32,
     curve_count: u32,
     output_vertex_base: u32,
     normal_offset: f32,
+    vertices_per_curve: u32,
+    reserved0: u32,
+    reserved1: u32,
+    reserved2: u32,
 }
 @group(0) @binding(1) var<uniform> border_params: BorderParams;
 @group(1) @binding(0) var<storage, read> border_source: array<f32>;
@@ -58,9 +63,10 @@ fn border_write(vertex: u32, point: vec3f, normal: vec3f, rgba: vec4f) {
 @compute @workgroup_size(64)
 fn cs_main(@builtin(workgroup_id) group: vec3u,
            @builtin(local_invocation_index) vertex: u32) {
-    if (group.x >= border_params.curve_count) { return; }
+    let capacity = border_params.vertices_per_curve;
+    if (group.x >= border_params.curve_count || vertex >= capacity) { return; }
     let source = 44u * (border_params.curve_offset + group.x);
-    let output = border_params.output_vertex_base + 64u * group.x + vertex;
+    let output = border_params.output_vertex_base + capacity * group.x + vertex;
     let p0 = border_vec3(source);
     let p1 = border_vec3(source + 12u);
     let p2 = border_vec3(source + 24u);
@@ -75,9 +81,12 @@ fn cs_main(@builtin(workgroup_id) group: vec3u,
     // The old float32 area estimate can overflow for finite source points.
     // Its +infinity density always selects32 steps, even at very large zoom
     // scales. An explicit flag preserves that policy without storing infinity.
-    var count = 32u;
+    // The sender reserves capacity from the steps its curves need, so the
+    // capacity bound below only guards a stale reservation.
+    let most = min(32u, capacity / 2u);
+    var count = most;
     if (border_source[source + 38u] == 0.0) {
-        count = u32(clamp(2.0 + round(border_source[source + 36u] / u.frame_scale), 2.0, 32.0));
+        count = u32(clamp(2.0 + round(border_source[source + 36u] / u.frame_scale), 2.0, f32(most)));
     }
     let last = count - 1u;
     let step = min(vertex / 2u, last);
