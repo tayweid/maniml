@@ -91,14 +91,12 @@ on borders, gradients, general paths, and coverage before it can replace 2D.
 The architecture, compatibility specification, research, and staged plan are in
 [the unified renderer plan](docs_unified_triangle_renderer_plan.md).
 It supersedes the earlier atlas proposal; those experiments remain evidence,
-not measurements of this new renderer. A0 is underway: the opt-in prototype,
-native goldens, camera/source cache checks, generator comparison, and measured
-B0/text experiments are recorded in [the A0 results](docs_unified_triangle_renderer_a0_results.md).
-B0 improves substantially, but text borders and text-frame CPU costs remain
-open. The [code-review response](docs_unified_triangle_renderer_review_response.md#third-round-code-review-disposition)
-records the Earcut/projection fixes, uniform paint reuse, 4× zoom stress and
-remaining timing/quality limitations. These changes are still on the working branch;
-the A0 acceptance gates remain open. The default renderer has not switched. Detailed GPU work is
+not measurements of this new renderer. The [A0 results](docs_unified_triangle_renderer_a0_results.md)
+preserve the earlier experiments. The [A1 integration checkpoint](docs_unified_triangle_renderer_a1_integration.md)
+adds packaged generation, both shared WebGPU drivers, uniform border unions,
+stable Write endpoints, and format-2 playback under `MANIML_RENDERER=triangles`.
+Text/border AA, complete paint semantics and representative performance remain
+open A2 gates; the default renderer has not switched. Detailed GPU work is
 in [the separate Phase B specification](docs_gpu_geometry_generation_plan.md).
 
 ## Held: native GL removal (beeline step 4)

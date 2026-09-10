@@ -31,5 +31,5 @@ fn fs_main(vin: ImageOut) -> @location(0) vec4f {
     if (vin.v_clip < 0.0) { discard; }
     var frag = textureSample(image_texture, image_sampler, vin.uv);
     frag.a = frag.a * vin.opacity;
-    return frag;
+    return output_color(frag);
 }

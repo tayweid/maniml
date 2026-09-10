@@ -1,6 +1,9 @@
-Dependency notices for the optional maniml Lyon fill experiment.
+Dependency notices for the maniml Lyon fill helper.
 MIT is selected where upstream offers MIT OR Apache-2.0.
 Generated binaries are not committed to this repository.
+The Rust 1.97.0 standard-library notices are included separately in
+RUST_STANDARD_LIBRARY_LICENSES.html, copied from that toolchain's
+share/doc/rust/COPYRIGHT-library.html.
 
 lyon_tessellation 1.0.22, lyon_path 1.0.19, lyon_geom 1.0.19
 Source: https://github.com/nical/lyon

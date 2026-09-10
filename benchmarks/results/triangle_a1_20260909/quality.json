@@ -1,0 +1,179 @@
+{
+  "route": "serialize_scene(renderer='triangles') -> WgpuRenderer.render",
+  "candidate_samples": 4,
+  "native_goldens_samples": 0,
+  "native_goldens": "tests/goldens/triangle_renderer",
+  "timing": "No speed measurement; correctness/appearance only.",
+  "cases": {
+    "tex_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.1809471450617284,
+        "fraction_rgb_over_24": 0.0030111882716049383,
+        "max_rgba_difference": 132.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "paragraph": {
+          "mean_rgb_difference": 5.060206718346254,
+          "fraction_rgb_over_24": 0.08534883720930232,
+          "max_rgba_difference": 129.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "small_math": {
+          "mean_rgb_difference": 2.279917945439045,
+          "fraction_rgb_over_24": 0.03676470588235294,
+          "max_rgba_difference": 132.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "limitations": [
+        "fill borders use a binary Lyon union; auto joins and edge AA await parity acceptance"
+      ],
+      "draws": 1,
+      "vertices": 42302,
+      "indices": 235536,
+      "source_contract_preserved": true
+    },
+    "tex_zoom_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.3280960648148148,
+        "fraction_rgb_over_24": 0.0052334104938271606,
+        "max_rgba_difference": 167.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": false
+      },
+      "regions": {
+        "paragraph": {
+          "mean_rgb_difference": 2.548504897748754,
+          "fraction_rgb_over_24": 0.041179755971816466,
+          "max_rgba_difference": 167.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "small_math": {
+          "mean_rgb_difference": 1.1607553810748612,
+          "fraction_rgb_over_24": 0.01795947836288976,
+          "max_rgba_difference": 112.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "limitations": [
+        "fill borders use a binary Lyon union; auto joins and edge AA await parity acceptance"
+      ],
+      "draws": 1,
+      "vertices": 54274,
+      "indices": 304137,
+      "source_contract_preserved": true
+    },
+    "border_normal_production_default": {
+      "full_frame": {
+        "mean_rgb_difference": 0.08727109053497942,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 20.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "regions": {
+        "border_arc_left": {
+          "mean_rgb_difference": 1.0363876319758674,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 20.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "border_arc_right": {
+          "mean_rgb_difference": 1.1074660633484164,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 16.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "interior_left": {
+          "mean_rgb_difference": 0.3333333333333333,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 1.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "interior_right": {
+          "mean_rgb_difference": 0.6666666666666666,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 1.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        },
+        "outside_right": {
+          "mean_rgb_difference": 1.3333333333333333,
+          "fraction_rgb_over_24": 0.0,
+          "max_rgba_difference": 2.0,
+          "mean_alpha_difference": 0.0,
+          "scope": "region"
+        }
+      },
+      "limitations": [
+        "fill borders use a binary Lyon union; auto joins and edge AA await parity acceptance"
+      ],
+      "draws": 1,
+      "vertices": 678,
+      "indices": 3786,
+      "source_contract_preserved": true,
+      "zero_border_control": {
+        "mean_rgb_difference": 0.09054398148148148,
+        "fraction_rgb_over_24": 3.8580246913580246e-05,
+        "max_rgba_difference": 46.0,
+        "mean_alpha_difference": 0.0,
+        "scope": "full_frame",
+        "existing_rgb_threshold_met": true
+      },
+      "single_coverage_controls": {
+        "interior_left": {
+          "max_rgba_change_when_border_enabled": 0.0,
+          "max_rgb_error_from_one_source_over": 0.40000010132791886,
+          "actual_mean_rgb": [
+            155.0,
+            220.0,
+            133.0
+          ],
+          "expected_single_fill_rgb": [
+            154.80000240802764,
+            219.6000024616718,
+            132.59999989867208
+          ],
+          "alpha_min_max": [
+            255.0,
+            255.0
+          ]
+        },
+        "interior_right": {
+          "max_rgba_change_when_border_enabled": 0.0,
+          "max_rgb_error_from_one_source_over": 0.2000001251697654,
+          "actual_mean_rgb": [
+            253.0,
+            161.0,
+            51.0
+          ],
+          "expected_single_fill_rgb": [
+            253.20000012516977,
+            160.80000199079512,
+            51.00000101327895
+          ],
+          "alpha_min_max": [
+            255.0,
+            255.0
+          ]
+        }
+      },
+      "opaque_output_alpha_min_max": [
+        255,
+        255
+      ]
+    }
+  }
+}

@@ -1,5 +1,10 @@
 # A0 renderer experiments — 2026-09-09
 
+Historical A0 checkpoint. The later [A1 integration record](docs_unified_triangle_renderer_a1_integration.md)
+supersedes the implementation status below, adds border unions and packaged
+drivers, and records the remaining text-quality failure. Measurements below
+remain tied to their archived source snapshots.
+
 The shared-renderer direction has measured value on the original batching
 fixture, but the prototype is not ready to replace the current renderer.
 Missing fill-border treatment changes text weight; the stricter local image

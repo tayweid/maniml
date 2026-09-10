@@ -43,6 +43,7 @@ texture data, dot clouds, triangulated fills, and clip planes are supported.
 from __future__ import annotations
 
 import json
+import os
 import struct
 
 import numpy as np
@@ -62,7 +63,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 1
+GEOMETRY_FORMAT_VERSION = 2
 
 
 class GeometryCache:
@@ -73,6 +74,9 @@ class GeometryCache:
 
     def __init__(self):
         self.sent: set[str] = set()
+        self.renderer = None
+        self.triangle_tessellator = None
+        self.triangle_meshes = None
 
     def reset(self):
         self.sent.clear()
@@ -321,13 +325,23 @@ def _merge_records(records):
     return merged
 
 
-def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
+def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
+                    renderer: str | None = None) -> bytes:
     """Snapshot the scene's current visual state as a geometry message.
 
     With a GeometryCache, batches whose content the clients already
     hold ship as `"cached": true` + hash only — metadata (uniforms,
     stroke_verts) is still sent fresh, since it can change (e.g. with
     zoom) without the vertex bytes changing."""
+    renderer = renderer if renderer is not None else os.environ.get("MANIML_RENDERER", "winding")
+    if renderer not in ("winding", "triangles"):
+        raise ValueError("MANIML_RENDERER must be 'winding' or 'triangles'")
+    if cache is not None and cache.renderer != renderer:
+        cache.reset()
+        cache.renderer = renderer
+    if renderer == "triangles":
+        return _serialize_triangle_scene(scene, cache)
+
     import hashlib
 
     camera = scene.camera
@@ -438,6 +452,33 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
     performance.increment("geometry.cached_batches", cached_batches)
     performance.gauge("geometry.batch_count", len(batches))
     performance.gauge("geometry.unsupported_count", len(unsupported))
+    return message
+
+
+def _serialize_triangle_scene(scene, cache):
+    """Opt-in A1 path shared by the viewer, baked export and native WebGPU.
+
+    The loader and retained meshes belong to the transport, never the scene's
+    checkpoint graph. The selector remains temporary until A2/A3 acceptance.
+    Unsupported material semantics fail explicitly rather than dropping draws.
+    """
+    from maniml.web.generated_geometry import serialize_generated_frame
+    from maniml.web.triangle_geometry import LyonFillTessellator
+    from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
+
+    state = cache if cache is not None else GeometryCache()
+    if state.triangle_tessellator is None:
+        state.triangle_tessellator = LyonFillTessellator()
+        state.triangle_meshes = TriangleMeshCache()
+    with performance.stage("geometry.triangle_prepare"):
+        frame = prepare_triangle_frame(scene, state.triangle_tessellator,
+                                       mesh_cache=state.triangle_meshes, fill_borders=True)
+    with performance.stage("geometry.triangle_encode"):
+        message = serialize_generated_frame(frame, scene.camera.uniforms, cache)
+    performance.increment("geometry.serialize.calls")
+    performance.increment("geometry.serialized_bytes", len(message))
+    performance.gauge("geometry.batch_count", len(frame.draws))
+    performance.gauge("geometry.triangle_retained_bytes", frame.mesh_cache_stats["retained_bytes"])
     return message
 
 

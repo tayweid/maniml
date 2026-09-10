@@ -64,5 +64,5 @@ fn fs_main(vin: DotOut) -> @location(0) vec4f {
     }
 
     frag.a = frag.a * smoothstep(1.0, 1.0 - vin.scaled_aaw, r);
-    return frag;
+    return output_color(frag);
 }

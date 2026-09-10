@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel", "setuptools-rust==1.13.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,7 +11,8 @@ authors = [
     {name = "maniml Contributors"},
 ]
 license = "MIT"
-license-files = ["LICENSE", "LICENSE.community"]
+license-files = ["LICENSE", "LICENSE.community", "tools/lyon_fill/THIRD_PARTY_LICENSES.txt",
+                 "tools/lyon_fill/RUST_STANDARD_LIBRARY_LICENSES.html"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Education",
@@ -89,6 +90,14 @@ maniml = "maniml.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["maniml*"]  # never ship tests/ or example_scenes/
+
+[[tool.setuptools-rust.ext-modules]]
+# A C ABI loaded through ctypes; no Python API or Python binding crate.
+target = "maniml.web.maniml_lyon_fill"
+path = "tools/lyon_fill/Cargo.toml"
+binding = "NoBinding"
+cargo-manifest-args = ["--locked"]
+debug = false
 
 [tool.setuptools.package-data]
 maniml = [

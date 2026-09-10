@@ -39,6 +39,11 @@ jobs:
           version: "0.12.5"
           enable-cache: true
 
+      - name: Set up the pinned native-helper toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          rustup default 1.97.0
+
       - name: Install locked development environment
         run: uv sync --locked
 
@@ -53,9 +58,14 @@ jobs:
           tests.test_web_security
           tests.test_static_assets
           tests.test_webgpu_commands
+          tests.test_generated_webgpu_commands
+          tests.test_generated_wgpu
+          tests.test_generated_geometry
+          tests.test_generated_scene
           tests.test_fill_bounds
           tests.test_geometry_cache
           tests.test_earclip_triangulation
+          tests.test_triangle_geometry
           tests.test_renderer_fixtures
           tests.test_hosted_site
           tests.test_safe_text_cache
@@ -66,6 +76,7 @@ jobs:
           tests.test_remote_assets
           tests.test_scene_lifecycle
           tests.test_animations
+          tests.test_creation
           tests.test_coordinate_systems
           tests.test_vectorized_mobject
           tests.test_present_bundle
@@ -79,7 +90,7 @@ jobs:
         run: |
           uv build
           uv run --locked python -m twine check dist/*
-          uv run --locked python tests/check_wheel.py
+          uv run --locked python tests/check_wheel.py --load-native
 
       - name: Store release-candidate distributions
         if: matrix.python == '3.14'
@@ -113,6 +124,11 @@ jobs:
         with:
           version: "0.12.5"
           enable-cache: true
+
+      - name: Set up the pinned native-helper toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          rustup default 1.97.0
 
       - name: Install maniml
         run: uv sync --locked --no-dev

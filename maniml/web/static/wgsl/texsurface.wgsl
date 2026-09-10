@@ -51,5 +51,5 @@ fn fs_main(vin: TexSurfaceOut) -> @location(0) vec4f {
 
     var frag = finalize_color(color, vin.point, vin.unit_normal);
     frag.a = vin.opacity;
-    return frag;
+    return output_color(frag);
 }

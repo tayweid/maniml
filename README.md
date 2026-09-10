@@ -18,6 +18,21 @@ supported range. The current developer preview supports macOS. Windows and
 Linux support is intentionally deferred until the WebGPU renderer transition
 and cross-platform desktop packaging are complete.
 
+The Git and editable installs below build a small Rust helper for vector-fill
+meshes. Install the Rust toolchain through [rustup](https://rustup.rs/) and
+Apple's Command Line Tools (`xcode-select --install`) before running them.
+The tested toolchain is Rust 1.97.0; `cargo` must be on your `PATH`. The build
+uses the checked-in Cargo lockfile and may download its pinned dependencies.
+A compatible prebuilt wheel already contains this helper and needs no Rust
+toolchain. Importing ManimLive or rendering a scene never compiles it.
+
+For testing the shared triangle backend, use
+`MANIML_RENDERER=triangles maniml scene.py SceneName` (also works with
+`--export`). The default remains the existing winding renderer. Text edge
+quality and some fill materials still have open acceptance checks; offline
+movie/checkpoint rendering still uses native GL. See the
+[integration status and limitations](docs_unified_triangle_renderer_a1_integration.md).
+
 ```bash
 python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"
 ```

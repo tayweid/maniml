@@ -3,11 +3,12 @@
 //! Only the Python adapter calls this ABI. It is not a sandbox for untrusted
 //! native pointers. Output ownership belongs to Rust until ml_lyon_free.
 
-use lyon_tessellation::geometry_builder::{FillGeometryBuilder, GeometryBuilder};
+use lyon_tessellation::geometry_builder::{FillGeometryBuilder, GeometryBuilder, StrokeGeometryBuilder};
 use lyon_tessellation::math::point;
 use lyon_tessellation::path::Path;
 use lyon_tessellation::{
-    FillOptions, FillRule, FillTessellator, FillVertex, GeometryBuilderError, VertexId,
+    FillOptions, FillRule, FillTessellator, FillVertex, GeometryBuilderError, LineJoin,
+    StrokeOptions, StrokeTessellator, StrokeVertex, VertexId,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::{ptr, slice};
@@ -78,6 +79,22 @@ impl FillGeometryBuilder for BoundedMesh {
     }
 }
 
+impl StrokeGeometryBuilder for BoundedMesh {
+    fn add_stroke_vertex(&mut self, mut vertex: StrokeVertex) -> Result<VertexId, GeometryBuilderError> {
+        let count = self.vertices.len() / (2 + self.attributes);
+        if count >= self.max_vertices {
+            self.overflow = true;
+            return Err(GeometryBuilderError::TooManyVertices);
+        }
+        let p = vertex.position();
+        self.vertices.extend([p.x, p.y]);
+        if self.attributes > 0 {
+            self.vertices.extend_from_slice(vertex.interpolated_attributes());
+        }
+        Ok(VertexId(count as u32))
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ml_lyon_abi_version() -> u32 { 1 }
 
@@ -96,11 +113,48 @@ pub unsafe extern "C" fn ml_lyon_tessellate(
     max_vertices: usize, max_indices: usize,
     output: *mut MeshResult,
 ) -> u32 {
+    tessellate_impl(xy, point_count, contour_ends, contour_count, attributes,
+        attribute_count, tolerance, fill_rule, 0.0, 0, 4.0,
+        max_vertices, max_indices, output)
+}
+
+/// Add a uniform closed-path border, then resolve fill and stroke overlap to
+/// one nonzero mesh. Join codes: 0 bevel, 1 miter, 2 round. This is not Manim's
+/// angle-dependent auto join or its smooth antialiasing coverage ramp.
+///
+/// # Safety
+/// The same pointer and ownership requirements as ml_lyon_tessellate apply.
+#[no_mangle]
+pub unsafe extern "C" fn ml_lyon_tessellate_border(
+    xy: *const f32, point_count: usize,
+    contour_ends: *const u32, contour_count: usize,
+    attributes: *const f32, attribute_count: usize,
+    tolerance: f32, fill_rule: u32,
+    border_width: f32, border_join: u32, border_miter_limit: f32,
+    max_vertices: usize, max_indices: usize,
+    output: *mut MeshResult,
+) -> u32 {
+    tessellate_impl(xy, point_count, contour_ends, contour_count, attributes,
+        attribute_count, tolerance, fill_rule, border_width, border_join,
+        border_miter_limit, max_vertices, max_indices, output)
+}
+
+unsafe fn tessellate_impl(
+    xy: *const f32, point_count: usize,
+    contour_ends: *const u32, contour_count: usize,
+    attributes: *const f32, attribute_count: usize,
+    tolerance: f32, fill_rule: u32,
+    border_width: f32, border_join: u32, border_miter_limit: f32,
+    max_vertices: usize, max_indices: usize,
+    output: *mut MeshResult,
+) -> u32 {
     if output.is_null() { return 1; }
     *output = MeshResult::default();
     if point_count > MAX_SOURCE_POINTS || attribute_count > MAX_ATTRIBUTES
         || max_vertices > MAX_VERTICES || max_indices > MAX_INDICES
         || !tolerance.is_finite() || tolerance <= 0.0 || fill_rule > 1
+        || !border_width.is_finite() || border_width < 0.0 || border_join > 2
+        || !border_miter_limit.is_finite() || border_miter_limit < 1.0
         || (point_count > 0 && xy.is_null())
         || (contour_count > 0 && contour_ends.is_null())
         || (attribute_count > 0 && point_count > 0 && attributes.is_null())
@@ -121,6 +175,10 @@ pub unsafe extern "C" fn ml_lyon_tessellate(
             let end = raw_end as usize;
             if end <= start || end > point_count || (end - start) % 2 == 0 { return Err(1); }
             let attr = |i: usize| &attrs[i * attribute_count..(i + 1) * attribute_count];
+            // A geometric union carries one paint field. Varying attributes
+            // would need a separate, explicit field definition at overlaps.
+            if border_width > 0.0 && (start..end).step_by(2)
+                .any(|i| attr(i) != &attrs[..attribute_count]) { return Err(1); }
             builder.begin(point(points[2 * start], points[2 * start + 1]), attr(start));
             for i in ((start + 1)..end).step_by(2) {
                 // For quadratic P, uniform n-way chord error is bounded by
@@ -155,6 +213,52 @@ pub unsafe extern "C" fn ml_lyon_tessellate(
         if mesh.overflow { return Err(2); }
         result.map_err(|_| 3u32)?;
         if mesh.vertices.iter().any(|v| !v.is_finite()) { return Err(3); }
+        if border_width > 0.0 {
+            let join = match border_join { 0 => LineJoin::Bevel, 1 => LineJoin::Miter,
+                _ => LineJoin::Round };
+            let stroke_options = StrokeOptions::default().with_tolerance(tolerance)
+                .with_line_width(border_width).with_line_join(join)
+                .with_miter_limit(border_miter_limit);
+            // Stroke strips intentionally overlap. Never publish them directly
+            // to an ordinary source-over pipeline, especially with translucency.
+            let result = StrokeTessellator::new().tessellate_path(&path, &stroke_options, &mut mesh);
+            if mesh.overflow { return Err(2); }
+            result.map_err(|_| 3u32)?;
+            if mesh.vertices.iter().any(|v| !v.is_finite()) { return Err(3); }
+            // Each intermediate triangle contributes three straight sweep edges.
+            if mesh.indices.len() > MAX_FLATTENED_SEGMENTS { return Err(2); }
+            let mut union_builder = Path::builder_with_attributes(attribute_count);
+            let stride = 2 + attribute_count;
+            for triangle in mesh.indices.chunks_exact(3) {
+                let pos = |i: u32| {
+                    let offset = i as usize * stride;
+                    point(mesh.vertices[offset], mesh.vertices[offset + 1])
+                };
+                let a = pos(triangle[0]);
+                let mut b = pos(triangle[1]);
+                let mut c = pos(triangle[2]);
+                let cross = (b.x as f64 - a.x as f64) * (c.y as f64 - a.y as f64)
+                    - (b.y as f64 - a.y as f64) * (c.x as f64 - a.x as f64);
+                if cross < 0.0 { std::mem::swap(&mut b, &mut c); }
+                // All triangle contours have the same winding. Concatenating
+                // the original signed fill path and a stroke outline would
+                // permit cancellation, which is not a geometric union.
+                let uniform = &attrs[..attribute_count];
+                union_builder.begin(a, uniform);
+                union_builder.line_to(b, uniform);
+                union_builder.line_to(c, uniform);
+                union_builder.end(true);
+            }
+            let union_path = union_builder.build();
+            drop(mesh);
+            mesh = BoundedMesh { vertices: Vec::new(), indices: Vec::new(), attributes: attribute_count,
+                max_vertices, max_indices, overflow: false };
+            let union_options = options.with_fill_rule(FillRule::NonZero);
+            let result = FillTessellator::new().tessellate_path(&union_path, &union_options, &mut mesh);
+            if mesh.overflow { return Err(2); }
+            result.map_err(|_| 3u32)?;
+            if mesh.vertices.iter().any(|v| !v.is_finite()) { return Err(3); }
+        }
         Ok(mesh)
     }));
     match outcome {

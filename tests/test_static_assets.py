@@ -310,7 +310,8 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('<script src="webgpu.js"></script>', html)
         self.assertNotIn("gl.js", html)
         self.assertNotIn("ManimlGL", source)
-        self.assertIn("const EXPORT_FORMAT_VERSION = 1;", source)
+        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+        self.assertIn(f"const EXPORT_FORMAT_VERSION = {GEOMETRY_FORMAT_VERSION};", source)
         self.assertIn("Re-export this scene", source)
         self.assertIn("This browser doesn't support WebGPU.", source)
 

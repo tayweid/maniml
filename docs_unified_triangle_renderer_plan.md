@@ -2,12 +2,12 @@
 
 Proposed architecture and implementation plan — 2026-09-09.
 
-Status: A0 has started and remains incomplete. The opt-in Lyon prototype,
-independent source fixtures, index-identity correction, and retained mesh-quality
-cache have focused validation. Text/hairline AA, complete border/material
-coverage, the four-way comparison, packaging, and representative total-frame
-performance have not passed their acceptance gates. The default renderer and
-the user hold on native GL retirement remain unchanged.
+Status: the [A1 integration checkpoint](docs_unified_triangle_renderer_a1_integration.md)
+puts generated geometry in the package and both WebGPU drivers, with an opt-in
+selector, packaged Lyon helper, uniform border unions and seekable format-2
+exports. Appearance and representative performance gates remain open; zoomed
+text narrowly fails the current image threshold. This is not Phase A
+completion. The default renderer and native GL retirement hold remain unchanged.
 
 The [A0 measurement record](docs_unified_triangle_renderer_a0_results.md) now
 contains native goldens, text/border comparisons, generator coverage, camera
@@ -20,8 +20,8 @@ working branch. These changes do not complete A0 or select a new default.
 
 The initial source audit is against `2b5aeeba`. Performance numbers explicitly
 labelled as earlier experiments are not measurements of the proposed renderer.
-Research references were checked on 2026-09-09. Work is uncommitted on branch
-`plan/ordered-fill-atlas`; this is not a detached checkout.
+Research references were checked on 2026-09-09. The reviewer's commits preserve
+the A0 evidence; implementation continues on `plan/ordered-fill-atlas`.
 
 This replaces the shared-fill-atlas proposal as the intended renderer direction.
 The atlas document remains a record of useful experiments. It also amends the

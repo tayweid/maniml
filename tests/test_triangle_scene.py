@@ -12,12 +12,15 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from benchmarks.triangle_scene import (
+    TriangleDraw,
     TriangleMeshCache,
     UnsupportedPrototype,
+    coalesce_draws,
     planar_coordinates,
     plane_tolerance,
     prepare_triangle_frame,
     projection_scale_bound,
+    projection_matrix,
     world_to_pixel,
 )
 from maniml.constants import BLUE, GREEN, RED, WHITE, YELLOW
@@ -25,6 +28,7 @@ from maniml.mobject.geometry import Circle, Square
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.utils.color import color_to_rgb
 from maniml.web.triangle_geometry import LyonFillTessellator
+from maniml.web.geometry import SURFACE_DTYPE
 from tests.renderer_fixtures import (
     build_scene, closed_contours, concave_quad, get_fixture, renderer_cases,
 )
@@ -86,6 +90,50 @@ def _max_boundary_error(path, draw, camera):
     t = np.clip(np.sum(relative * delta, axis=-1) / np.sum(delta * delta, axis=-1), 0, 1)
     distance = np.linalg.norm(relative - t[..., None] * delta, axis=-1)
     return float(distance.min(axis=1).max())
+
+
+class TriangleDrawCoalescing(unittest.TestCase):
+    def fill(self, position, *, pipeline="surface", uniforms=None):
+        vertices = np.zeros(3, dtype=SURFACE_DTYPE)
+        vertices["point"] = [[position, 0, 0], [position + 1, 0, 0], [position, 1, 0]]
+        vertices["rgba"] = [position / 10, 0.5, 0.8, 0.4]
+        return TriangleDraw(pipeline, vertices, uniforms or {"shading": [0, 0, 0]},
+                            np.array([0, 1, 2], dtype="u4"), 3)
+
+    def test_indexed_merge_preserves_order_and_every_vertex_attribute(self):
+        draws = [self.fill(index) for index in (3, 1, 2)]
+        original = [draw.vertices.copy() for draw in draws]
+        combined, = coalesce_draws(draws)
+        np.testing.assert_array_equal(combined.vertices[combined.indices],
+                                      np.concatenate([draw.vertices[draw.indices] for draw in draws]))
+        self.assertEqual(combined.count, 9)
+        combined.vertices["point"][:] = 99
+        for draw, before in zip(draws, original):
+            np.testing.assert_array_equal(draw.vertices, before)
+
+    def test_stroke_runs_use_maximum_strip_count_and_preserve_curve_instances(self):
+        short = np.zeros(6, dtype=VMobject.data_dtype)
+        long = np.zeros(3, dtype=VMobject.data_dtype)
+        short["point"] = np.arange(18).reshape(6, 3)
+        long["point"] = -np.arange(9).reshape(3, 3)
+        draws = [TriangleDraw("stroke", short, {}, count=4, instances=2),
+                 TriangleDraw("stroke", long, {}, count=32, instances=1)]
+        combined, = coalesce_draws(draws)
+        self.assertEqual((combined.count, combined.instances), (32, 3))
+        np.testing.assert_array_equal(combined.vertices, np.concatenate([short, long]))
+
+    def test_fill_stroke_depth_uniform_and_partial_ranges_are_order_barriers(self):
+        fill = self.fill(0)
+        stroke = TriangleDraw("stroke", np.zeros(3, dtype=VMobject.data_dtype), {}, count=4)
+        depth = self.fill(1, pipeline="surface_depth")
+        lit = self.fill(2, uniforms={"shading": [0.5, 0, 0]})
+        partial = self.fill(3)
+        partial.count = 0
+        draws = [fill, stroke, fill, depth, lit, fill, partial, fill]
+        result = coalesce_draws(draws)
+        self.assertEqual(len(result), len(draws))
+        for actual, expected in zip(result, draws):
+            self.assertIs(actual, expected)
 
 
 class TriangleSceneCoordinates(unittest.TestCase):
@@ -272,7 +320,8 @@ class TriangleSceneMeshes(unittest.TestCase):
         fill = frame.draws[0]
         self.assertAlmostEqual(_area(fill), 2.4 ** 2, places=5)
         self.assertGreater(np.ptp(fill.vertices["point"][:, 2]), 0.5)
-        mixed = prepare_triangle_frame(get_fixture("mixed_depth").build(), self.tessellator)
+        mixed = prepare_triangle_frame(get_fixture("mixed_depth").build(), self.tessellator,
+                                        coalesce=False)
         self.assertEqual([draw.pipeline.endswith("_depth") for draw in mixed.draws],
                          [True, True, False])
         self.assertEqual(mixed.draws[-1].uniforms["is_fixed_in_frame"], 1.0)
@@ -307,6 +356,33 @@ class TriangleSceneMeshCache(unittest.TestCase):
     def assert_quality(self, frame, tolerance=0.25):
         self.assertLessEqual(_max_boundary_error(self.path, frame.draws[0], self.scene.camera),
                              tolerance + 1e-4)
+
+    def test_fill_only_runs_skip_stroke_expansion_share_camera_and_preserve_exact_edits(self):
+        other = self.path.copy().shift([1.5, 0, 0])
+        self.scene = build_scene(self.path, other)
+        source = [path.data.copy() for path in (self.path, other)]
+        self.prepare()
+        self.scene.camera.frame.scale(0.95)
+        with (patch.object(self.path, "get_shader_data", side_effect=AssertionError("unused stroke data")),
+              patch.object(other, "get_shader_data", side_effect=AssertionError("unused stroke data")),
+              patch("benchmarks.triangle_scene.projection_matrix", wraps=projection_matrix) as projection):
+            merged = self.prepare()
+        self.assertEqual(len(merged.draws), 1)
+        self.assertEqual(merged.mesh_cache_stats["hits"], 2)
+        self.assertEqual(projection.call_count, 1)
+        separate = self.prepare(coalesce=False)
+        np.testing.assert_array_equal(
+            merged.draws[0].vertices[merged.draws[0].indices],
+            np.concatenate([draw.vertices[draw.indices] for draw in separate.draws]))
+        for path, before in zip((self.path, other), source):
+            # Derived normal/joint data may refresh; authored geometry/paint cannot.
+            for field in ("point", "fill_rgba", "stroke_rgba", "stroke_width", "fill_border_width"):
+                np.testing.assert_array_equal(path.data[field], before[field])
+        other.data["point"][1, 0] += 0.125
+        edited = self.prepare()
+        self.assertEqual(edited.mesh_cache_stats["hits"], 1)
+        self.assertEqual(edited.mesh_cache_stats["regenerations"], 1)
+        self.assertFalse(np.array_equal(merged.draws[0].vertices, edited.draws[0].vertices))
 
     def test_unchanged_projection_reuses_error_but_tighter_quality_still_refines(self):
         self.prepare()
@@ -508,7 +584,7 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertEqual(self.prepare().mesh_cache_stats["regenerations"], 2)
         original = other.get_points().copy()
         other.data["point"][:, :2] *= 0.9
-        frame = self.prepare()
+        frame = self.prepare(coalesce=False)
         self.assertEqual(frame.mesh_cache_stats["hits"], 1)
         self.assertEqual(frame.mesh_cache_stats["regenerations"], 1)
         np.testing.assert_array_equal(_covered(frame.draws[1], [(0, 0), (0.75, 0)]), [False, True])
@@ -531,7 +607,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
         oversized = self.prepare()
         self.assertEqual(oversized.mesh_cache_stats["entries"], 0)
         self.assertEqual(oversized.mesh_cache_stats["retained_bytes"], 0)
-        self.assertEqual(len(oversized.draws), 2)
+        self.assertEqual(len(oversized.draws), 1)
+        self.assertAlmostEqual(_area(oversized.draws[0]), 2 * _area(first.draws[0]), places=5)
         self.cache = TriangleMeshCache()
         self.prepare()
         self.scene = build_scene()

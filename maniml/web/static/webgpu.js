@@ -22,7 +22,7 @@ const ManimlWGPU = (() => {
     ["joint_type", 1, 1], ["flat_stroke", 1, 0],
     ["scale_stroke_with_zoom", 1, 1], ["glow_factor", 1, 0],
     ["num_textures", 1, 0], ["border_mode", 1, 0],
-    ["_pad0", 1, 0], ["_pad1", 1, 0],
+    ["premultiplied_output", 1, 0], ["_pad1", 1, 0],
     ["clip_transform", 4, [1, 1, 0, 0]],
   ];
 
@@ -127,6 +127,16 @@ const ManimlWGPU = (() => {
     texsurface_depth: ["texsurface", TEXSURFACE_LAYOUT, "triangle-list",
                        "out", ALPHA_BLEND, true],
   };
+  // Generated geometry draws directly into one premultiplied scene target.
+  // Keep the legacy shaders/layouts, with separate output and blend state.
+  for (const base of ["stroke", "surface", "dot", "image", "texsurface"]) {
+    for (const suffix of ["", "_depth"]) {
+      const name = base + suffix;
+      const [module, buffers, topology, target, , depth] = PIPELINE_SPECS[name];
+      PIPELINE_SPECS["generated_" + name] =
+        [module, buffers, topology, target, COMPOSITE_BLEND, depth];
+    }
+  }
 
   const MODULE_SOURCES = {
     fill: ["common.wgsl", "fill.wgsl"],
@@ -149,9 +159,16 @@ const ManimlWGPU = (() => {
   let usedFillTargets = new Set();
   const textureCache = new Map();
   const batchCache = new Map();
+  const generatedGeometry = new Map();
+  const generatedUniforms = new Map();
+  const generatedTextures = new Map();
+  let usedGeneratedGeometry = new Set();
+  let usedGeneratedUniforms = new Set();
+  let usedGeneratedTextures = new Set();
   const CACHE_MAX = 512;
   let cacheMissed = false;
   let frameBuffers = [];  // per-frame uniform buffers, destroyed post-submit
+  let renderQueue = Promise.resolve();
 
   async function fetchWgsl(names) {
     const parts = [];
@@ -369,7 +386,117 @@ const ManimlWGPU = (() => {
     return base + (batch.depth_test ? "_depth" : "");
   }
 
-  async function render(arrayBuffer) {
+  function generatedResources(batch, vertexBytes) {
+    usedGeneratedGeometry.add(batch.hash);
+    let res = generatedGeometry.get(batch.hash);
+    if (res) return res;
+    if (batch.cached) { cacheMissed = true; return null; }
+    const vertex = makeBuffer(vertexBytes.subarray(
+      batch.offset, batch.offset + batch.num_verts * batch.stride), GPUBufferUsage.VERTEX);
+    const buffers = [vertex];
+    let index = null;
+    if (batch.indexed) {
+      index = makeBuffer(vertexBytes.subarray(
+        batch.index_offset, batch.index_offset + batch.index_count * 4), GPUBufferUsage.INDEX);
+      buffers.push(index);
+    }
+    res = { vertex, index, buffers };
+    generatedGeometry.set(batch.hash, res);
+    return res;
+  }
+
+  function generatedUniformBinding(name, samples, pipeline, uniforms) {
+    const packed = packUniforms({ ...uniforms, premultiplied_output: 1 },
+                                uniforms.border_mode || 0);
+    // Compare actual uploaded bits, including per-object overrides. A shared
+    // vertex buffer can occur with different uniforms in the same submission.
+    const key = name + "@" + samples + ":" + new Uint32Array(packed).join(",");
+    usedGeneratedUniforms.add(key);
+    let res = generatedUniforms.get(key);
+    if (!res) {
+      const buffer = makeBuffer(packed, GPUBufferUsage.UNIFORM);
+      const binding = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer } }],
+      });
+      res = { binding, buffers: [buffer] };
+      generatedUniforms.set(key, res);
+    }
+    return res.binding;
+  }
+
+  function generatedTextureBinding(name, samples, pipeline, batch) {
+    const hashes = Object.values(batch.textures);
+    if (hashes.length === 1 && batch.pipeline.startsWith("texsurface")) {
+      hashes.push(hashes[0]);  // DarkTexture falls back to light.
+    }
+    const key = name + "@" + samples + ":" + JSON.stringify(hashes);
+    usedGeneratedTextures.add(key);
+    if (generatedTextures.has(key)) return generatedTextures.get(key);
+    const textures = hashes.map(hash => textureCache.get(hash));
+    if (textures.some(texture => !texture)) { cacheMissed = true; return null; }
+    const entries = textures.map((texture, i) => ({ binding: i, resource: texture.createView() }));
+    entries.push({ binding: textures.length, resource: sampler });
+    const binding = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(1), entries,
+    });
+    generatedTextures.set(key, binding);
+    return binding;
+  }
+
+  function encodeGenerated(pass, header, batch, vertexBytes, samples) {
+    const name = "generated_" + batch.pipeline;
+    if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
+      throw new Error("unsupported generated pipeline " + batch.pipeline);
+    }
+    const res = generatedResources(batch, vertexBytes);
+    if (!res) return;
+    const pipeline = getPipeline(name, samples);
+    let textureBinding = null;
+    if (batch.textures) {
+      textureBinding = generatedTextureBinding(name, samples, pipeline, batch);
+      if (!textureBinding) return;
+    }
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, generatedUniformBinding(name, samples, pipeline,
+      { ...header.camera, ...batch.uniforms }));
+    if (textureBinding) pass.setBindGroup(1, textureBinding);
+    pass.setVertexBuffer(0, res.vertex);
+    if (batch.indexed) {
+      pass.setIndexBuffer(res.index, "uint32");
+      pass.drawIndexed(batch.count, batch.instances);
+    } else {
+      pass.draw(batch.count, batch.instances);
+    }
+  }
+
+  function retireGeneratedResources() {
+    for (const [cache, used] of [
+      [generatedGeometry, usedGeneratedGeometry],
+      [generatedUniforms, usedGeneratedUniforms],
+    ]) {
+      for (const [key, res] of cache) {
+        if (!used.has(key)) {
+          for (const buffer of res.buffers) buffer.destroy();
+          cache.delete(key);
+        }
+      }
+    }
+    for (const key of generatedTextures.keys()) {
+      if (!usedGeneratedTextures.has(key)) generatedTextures.delete(key);
+    }
+  }
+
+  function render(arrayBuffer) {
+    // Texture decoding yields to the event loop. Serialize complete frames so
+    // a later resize or cache retirement cannot replace an earlier frame's
+    // targets/resources before it submits, or present frames out of order.
+    const rendered = renderQueue.then(() => renderFrame(arrayBuffer));
+    renderQueue = rendered.catch(() => {});
+    return rendered;
+  }
+
+  async function renderFrame(arrayBuffer) {
     const bytes = new Uint8Array(arrayBuffer);
     const headerLen = new DataView(arrayBuffer, 1, 4).getUint32(0, true);
     const header = JSON.parse(
@@ -377,7 +504,11 @@ const ManimlWGPU = (() => {
     const vertexBytes = bytes.subarray(5 + headerLen);
 
     const [width, height] = header.resolution;
-    const samples = header.samples ? 4 : 1;
+    const generated = header.renderer === "triangles";
+    const samples = generated ? header.samples : (header.samples ? 4 : 1);
+    if (generated && samples !== 1 && samples !== 4) {
+      throw new Error("generated sample count must be 1 or 4");
+    }
     ensureTargets(width, height, samples);
     cacheMissed = false;
 
@@ -397,14 +528,25 @@ const ManimlWGPU = (() => {
     }
 
     usedFillTargets = new Set();
+    usedGeneratedGeometry = new Set();
+    usedGeneratedUniforms = new Set();
+    usedGeneratedTextures = new Set();
     const encoder = device.createCommandEncoder();
-    outPass(encoder, header.background).end();
-
-    for (const batch of header.batches) {
-      if (batch.kind === "vmobject") {
-        encodeVMobject(encoder, header, batch, vertexBytes, samples);
-      } else {
-        encodePlain(encoder, header, batch, vertexBytes, samples);
+    if (generated) {
+      const [r, g, b, a] = header.background;
+      const pass = outPass(encoder, [r * a, g * a, b * a, a]);
+      for (const batch of header.batches) {
+        encodeGenerated(pass, header, batch, vertexBytes, samples);
+      }
+      pass.end();
+    } else {
+      outPass(encoder, header.background).end();
+      for (const batch of header.batches) {
+        if (batch.kind === "vmobject") {
+          encodeVMobject(encoder, header, batch, vertexBytes, samples);
+        } else {
+          encodePlain(encoder, header, batch, vertexBytes, samples);
+        }
       }
     }
 
@@ -426,6 +568,9 @@ const ManimlWGPU = (() => {
     blitPass.end();
 
     device.queue.submit([encoder.finish()]);
+    // The sender also retains only current-frame geometry. Do not enforce an
+    // LRU bound here: even the first draw in a large frame is live until submit.
+    retireGeneratedResources();
     // Never destroy a target while this frame's unsubmitted commands
     // may still refer to it. Retain only buckets used by the new frame.
     for (const [key, target] of fillTargets) {

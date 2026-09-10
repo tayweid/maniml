@@ -202,5 +202,5 @@ fn fs_main(vin: StrokeOut) -> @location(0) vec4f {
         frag.a = frag.a * 0.95;
         frag = vec4f(frag.rgb * frag.a, frag.a);
     }
-    return frag;
+    return output_color(frag);
 }

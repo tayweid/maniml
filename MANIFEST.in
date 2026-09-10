@@ -1,0 +1,7 @@
+include tools/lyon_fill/Cargo.toml
+include tools/lyon_fill/Cargo.lock
+recursive-include tools/lyon_fill/src *.rs
+include tools/lyon_fill/THIRD_PARTY_LICENSES.txt
+include tools/lyon_fill/RUST_STANDARD_LIBRARY_LICENSES.html
+include tools/lyon_fill/README.md
+prune benchmarks/results

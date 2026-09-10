@@ -74,7 +74,15 @@ and [compositing](maniml/rendering/shader_wrapper.py#L635). Its goldens therefor
 record that artifact too. Direct stroke/triangulated-fill alpha `0.25` for
 styled opacity `0.5` over transparency is a separate blend-state defect.
 
-## Current implementation evidence
+## Fourth-round code review disposition
+
+The [A1 integration record](docs_unified_triangle_renderer_a1_integration.md#fourth-round-review-disposition)
+responds to the latest three findings, including the production Write fix and
+the retained exact-array renderer contract. It records shared-driver, border,
+packaging and playback changes, plus the open text AA gate. This supersedes
+the implementation status in the historical section below.
+
+## Current implementation evidence (A0 checkpoint)
 
 The index-content cache correction, isolated Lyon adapter, independent source
 fixtures, opt-in ordered triangle renderer, and retained mesh-quality cache

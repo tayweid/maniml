@@ -25,6 +25,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class WebExportE2E(unittest.TestCase):
+    renderer = "winding"
+
     def test_export_and_replay(self):
         import tempfile
 
@@ -35,14 +37,15 @@ class WebExportE2E(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, "-m", "maniml", scene_path, "ExportDemo",
                  "--export"],
-                cwd=tmp, env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                cwd=tmp, env={**os.environ, "PYTHONPATH": REPO_ROOT,
+                              "MANIML_RENDERER": self.renderer},
                 capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 0,
                              result.stdout + result.stderr)
 
             out = os.path.join(tmp, "media", "ExportDemo_web")
             for name in ["index.html", "player.js", "webgpu.js",
-                         "scene.json", "scene.bin.gz"]:
+                         "geometry_recording.js", "scene.json", "scene.bin.gz"]:
                 self.assertTrue(os.path.exists(os.path.join(out, name)),
                                 f"missing {name}")
             for dirname in ["wgsl"]:
@@ -82,6 +85,7 @@ class WebExportE2E(unittest.TestCase):
                 self.assertEqual(
                     header["format_version"], GEOMETRY_FORMAT_VERSION)
                 self.assertEqual(header["unsupported"], [])
+                self.assertEqual(header.get("renderer", "winding"), self.renderer)
                 for batch in header["batches"]:
                     content_hash = batch["hash"]
                     if batch.get("cached"):
@@ -93,6 +97,16 @@ class WebExportE2E(unittest.TestCase):
                 last_header = header
             self.assertTrue(available_batches)
             self.assertTrue(last_header["batches"])
+
+
+class TriangleWebExportE2E(WebExportE2E):
+    renderer = "triangles"
+
+    @classmethod
+    def setUpClass(cls):
+        from maniml.web.triangle_geometry import _packaged_library
+        if not os.environ.get("MANIML_LYON_LIBRARY") and _packaged_library() is None:
+            raise unittest.SkipTest("build or install the Lyon helper for triangle export")
 
 
 if __name__ == "__main__":

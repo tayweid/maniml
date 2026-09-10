@@ -25,5 +25,5 @@ fn vs_main(vin: SurfaceIn) -> SurfaceOut {
 @fragment
 fn fs_main(vin: SurfaceOut) -> @location(0) vec4f {
     if (vin.v_clip < 0.0) { discard; }
-    return vin.color;
+    return output_color(vin.color);
 }

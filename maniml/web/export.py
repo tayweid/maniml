@@ -30,7 +30,7 @@ from maniml.web.geometry import (
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-PLAYER_ASSETS = ["player.html", "player.js", "webgpu.js"]
+PLAYER_ASSETS = ["player.html", "player.js", "webgpu.js", "geometry_recording.js"]
 PLAYER_ASSET_DIRS = ["wgsl"]
 
 

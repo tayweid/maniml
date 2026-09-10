@@ -187,6 +187,17 @@ while keeping strokes. Bounds refresh even when vertex data is cached.
 Coverage lives in `tests/test_fill_bounds.py` and the Node-backed
 `tests/test_webgpu_commands.py`; `benchmarks/vector_fill.py` measures the gain.
 
+The temporary `MANIML_RENDERER=triangles` selector sends format-2 generated
+operations from `web/triangle_scene.py` / `web/generated_geometry.py`. Both
+WebGPU drivers draw them in one ordered scene pass with premultiplied output;
+unsupported materials fail explicitly. `web/triangle_geometry.py` loads the
+wheel's Lyon helper (source installs build it with Rust). Generated geometry
+and uniform bindings retain only active-frame content. Baked playback uses
+`static/geometry_recording.js` to restore requested frames from recorded CPU
+bytes, including reverse seeks after GPU eviction. See
+`docs_unified_triangle_renderer_a1_integration.md` for current acceptance gaps.
+Native GL remains the offline renderer and oracle under the existing hold.
+
 ## Delivery: one artifact, local only
 
 The interface is served by the engine that runs the scenes. `maniml app` (and

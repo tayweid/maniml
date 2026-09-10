@@ -20,7 +20,7 @@ struct Uniforms {
     glow_factor: f32,
     num_textures: f32,
     border_mode: f32,
-    _pad0: f32,
+    premultiplied_output: f32,
     _pad1: f32,
     clip_transform: vec4f,
 }
@@ -81,6 +81,15 @@ fn add_light(color: vec4f, point: vec3f, unit_normal: vec3f) -> vec4f {
 
 fn finalize_color(color: vec4f, point: vec3f, unit_normal: vec3f) -> vec4f {
     return add_light(color, point, unit_normal);
+}
+
+// Generated operations share premultiplied source-over for every material.
+// The temporary winding comparison path keeps its original output convention.
+fn output_color(color: vec4f) -> vec4f {
+    if (u.premultiplied_output != 0.0) {
+        return vec4f(color.rgb * color.a, color.a);
+    }
+    return color;
 }
 
 fn compute_clip_distance(point: vec3f) -> f32 {

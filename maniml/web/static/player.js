@@ -4,7 +4,7 @@
 "use strict";
 
 (async () => {
-  const EXPORT_FORMAT_VERSION = 1;
+  const EXPORT_FORMAT_VERSION = 2;
   const stage = document.getElementById("stage");
   const chipsEl = document.getElementById("chips");
   const playBtn = document.getElementById("playbtn");
@@ -40,11 +40,12 @@
   let offset = 0;
   for (const frame of meta.frames) {
     frames.push({
-      bytes: data.buffer.slice(offset, offset + frame.len),
+      bytes: data.subarray(offset, offset + frame.len),
       segment: frame.segment,
     });
     offset += frame.len;
   }
+  const recording = ManimlRecording.index(frames.map(frame => frame.bytes));
   // Segment k spans frames [starts[k], ends[k])
   const starts = [], ends = [];
   frames.forEach((frame, i) => {
@@ -74,16 +75,16 @@
   }
   statusEl.textContent = "WebGPU";
 
-  // Delta encoding means messages must be processed in order once so
-  // every batch's buffers are cached; afterwards any frame renders
-  // directly. Process everything up front (buffer uploads, fast).
-  let processed = -1;
-  async function show(i) {
-    while (processed < i) {
-      processed += 1;
-      await renderer.render(frames[processed].bytes);
-    }
-    if (processed > i) await renderer.render(frames[i].bytes);
+  // Rehydrate from the CPU recording so GPU caches can retire absent meshes.
+  // Serialize async texture loads; a newer seek supersedes queued stale frames.
+  let pending = Promise.resolve(), requested = 0;
+  function show(i) {
+    const request = ++requested;
+    const result = pending.then(async () => {
+      if (request === requested) await renderer.render(recording.frame(i));
+    });
+    pending = result.catch(() => {});
+    return result;
   }
 
   let current = 0;

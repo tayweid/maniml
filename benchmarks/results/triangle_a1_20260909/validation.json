@@ -1,0 +1,58 @@
+{
+  "full_suite": {
+    "command": "MANIML_TEST_GPU=1 MANIML_VERIFY_LEDGER=1 python -m unittest discover -s tests -t .",
+    "tests": 540,
+    "passed": 537,
+    "skipped": 1,
+    "failures": [
+      "tests.test_app.AppShellE2E.test_missing_module_hint",
+      "tests.test_app.AppShellE2E.test_open_scene_from_landing"
+    ],
+    "errors": 0,
+    "note": "Documented baseline app failures; Windows process termination test skipped on macOS."
+  },
+  "focused_generated_geometry": {
+    "tests": 10,
+    "passed": 10,
+    "covers": "wire framing, cached metadata, absent/return, invalid draws, reverse seek, legacy indexed/texture rehydration, player recovery"
+  },
+  "actual_browser": {
+    "surface": "Codex in-app browser WebGPU",
+    "frames": 10,
+    "gpu_errors": [],
+    "cache_misses": 0,
+    "cases": [
+      "B0 211 squares",
+      "delta reuse",
+      "absent/returning meshes",
+      "reverse seek",
+      "default TeX borders",
+      "resize"
+    ]
+  },
+  "post_measurement_docstrings": {
+    "maniml/web/triangle_geometry.py": "Only the first docstring line changed after measurement; its historical bytes match the report digest."
+  },
+  "source_files_sha256": {
+    "benchmarks/generated_output.py": "d4c85596d0913b12f3a11a12f195abf1cd50665d1943ee7ef11e4faecf3a538b",
+    "maniml/web/geometry.py": "53139fe29aaec8093ffe2ea03dbb6007ab6c4a7afd3deb82fc0e252c35b4c3f7",
+    "maniml/web/generated_geometry.py": "8ad12104013cb1afe6bccb3147276c8c01b69cdd299cd588494d9a467fe51d78",
+    "maniml/web/triangle_scene.py": "9eb20a2517a3e9b303a0fc7f119a65b26ced6a93fad8cded74fa0d3cd2913e96",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "644d5cd4893f3bda0ec52b83eabaafe08eb1bad0fdebfa211a35c7b5ecf267b2",
+    "tools/lyon_fill/src/lib.rs": "d1fe862b9b7e233c9fc537d8235b4b663557ecca8299ca1f1fe8f0e872f5397d",
+    "maniml/animation/creation.py": "35526873ccab32f2107a7ea3b1c209b8455407cc911f4092e80539608c1a9068",
+    "maniml/web/static/webgpu.js": "941bc21ec95bcfb9f50fe32e0769c39d07274a8959f025e253164ba04963b013",
+    "maniml/web/static/geometry_recording.js": "7456d2bb00e7ca713ac2be74217d314445e27abbb8cc21710a743e60eba31a02",
+    "maniml/web/static/player.js": "41c497d6f321d4789e6d72a88528c608d03709f875937f8961b0557d29972dda",
+    "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b"
+  }
+}

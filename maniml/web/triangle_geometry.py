@@ -1,4 +1,4 @@
-"""Opt-in CPU fill-mesh experiment; not used by the production serializer.
+"""CPU fill-mesh adapter for the opt-in shared triangle renderer.
 
 The input remains a list of Manim quadratic control-point contours. The output
 is disposable drawing data. Coordinates are two-dimensional *tessellation*
@@ -6,9 +6,9 @@ coordinates: the caller chooses a projection/local plane and converts a pixel
 error tolerance to that space. This module does not assume world xy is valid
 for arbitrary 3D paths, or claim perspective/error or paint-field equivalence.
 
-Build the pinned native helper as documented in tools/lyon_fill/README.md and
-pass its filename explicitly, or set MANIML_LYON_LIBRARY. Importing this module
-does not build, download, or load native code.
+The packaged helper is discovered beside this module. A constructor path or
+MANIML_LYON_LIBRARY overrides it. Importing this module does not build,
+download, or load native code.
 """
 
 from __future__ import annotations
@@ -45,6 +45,9 @@ class FillMesh:
     tolerance: float
     fill_rule: str
     generator: str = GENERATOR_ID
+    border_width: float = 0.0
+    border_join: str | None = None
+    border_miter_limit: float = 4.0
 
     @property
     def status(self) -> str:
@@ -68,6 +71,17 @@ def _limit(value: int, maximum: int, name: str) -> int:
     return int(value)
 
 
+def _packaged_library() -> Path | None:
+    """Locate setuptools-rust's NoBinding artifact, including ABI suffixes."""
+    folder = Path(__file__).parent
+    candidates = sorted({candidate for extension in ("so", "pyd", "dylib")
+                         for candidate in folder.glob(f"maniml_lyon_fill*.{extension}")
+                         if candidate.is_file()})
+    if len(candidates) > 1:
+        raise TessellationError("Multiple packaged Lyon helpers; select MANIML_LYON_LIBRARY explicitly")
+    return candidates[0] if candidates else None
+
+
 class LyonFillTessellator:
     """A reusable loader for the pinned, Python-version-independent C ABI.
 
@@ -77,11 +91,11 @@ class LyonFillTessellator:
     """
 
     def __init__(self, library_path: str | os.PathLike | None = None):
-        selected = library_path or os.environ.get("MANIML_LYON_LIBRARY")
+        selected = library_path or os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library()
         if not selected:
             raise TessellationError(
-                "Lyon is optional for the A0 prototype. Build tools/lyon_fill and "
-                "pass library_path or set MANIML_LYON_LIBRARY."
+                "The packaged Lyon helper is missing. Reinstall maniml or build "
+                "tools/lyon_fill and pass library_path or set MANIML_LYON_LIBRARY."
             )
         self.library_path = str(Path(selected).resolve(strict=True))
         self._library = ctypes.CDLL(self.library_path)
@@ -98,6 +112,16 @@ class LyonFillTessellator:
             ctypes.POINTER(_MeshResult),
         ]
         self._library.ml_lyon_tessellate.restype = ctypes.c_uint32
+        # The original ABI1 entry point remains usable with an older helper.
+        # Border requests require the additive union entry point explicitly.
+        self._border_function = getattr(self._library, "ml_lyon_tessellate_border", None)
+        if self._border_function is not None:
+            self._border_function.argtypes = [
+                *self._library.ml_lyon_tessellate.argtypes[:8],
+                ctypes.c_float, ctypes.c_uint32, ctypes.c_float,
+                *self._library.ml_lyon_tessellate.argtypes[8:],
+            ]
+            self._border_function.restype = ctypes.c_uint32
         self._library.ml_lyon_free.argtypes = [ctypes.POINTER(_MeshResult)]
         self._library.ml_lyon_free.restype = None
 
@@ -108,6 +132,9 @@ class LyonFillTessellator:
         attributes: Sequence[np.ndarray] | None = None,
         tolerance: float = 0.25,
         fill_rule: str = "nonzero",
+        border_width: float = 0.0,
+        border_join: str = "bevel",
+        border_miter_limit: float = 4.0,
         max_vertices: int = 262_144,
         max_indices: int = 1_572_864,
     ) -> FillMesh:
@@ -127,6 +154,15 @@ class LyonFillTessellator:
         Limits cover input/output and conservative curve-subdivision work. Lyon's
         internal sweep storage is not yet governed by a hard total-memory budget.
         A tolerance of 0.25 means pixels only when the supplied space is pixels.
+
+        A positive border_width unions the fill with a closed-path stroke in
+        these same coordinates. It accepts uniform endpoint attributes only.
+        Overlap has one triangle owner, including self-intersections and holes;
+        painting that mesh once does not accumulate interior opacity. Bevel,
+        miter (with a limit), and round are Lyon/SVG joins, not Manim's auto
+        join. The binary union does not contain an antialiasing coverage band.
+        ``tolerance`` controls Lyon curve flattening; it is not by itself a
+        proved Hausdorff bound for every stroked cusp or miter corner.
         """
         max_vertices = _limit(max_vertices, MAX_VERTICES, "max_vertices")
         max_indices = _limit(max_indices, MAX_INDICES, "max_indices")
@@ -141,6 +177,24 @@ class LyonFillTessellator:
             raise ValueError("tolerance is too small for float32")
         if fill_rule not in ("nonzero", "evenodd"):
             raise ValueError("fill_rule must be 'nonzero' or 'evenodd'")
+        try:
+            border_width = float(border_width)
+            border_miter_limit = float(border_miter_limit)
+        except (TypeError, ValueError) as error:
+            raise ValueError("border width and miter limit must be real scalars") from error
+        if (not np.isfinite(border_width) or not 0 <= border_width <= np.finfo("f4").max):
+            raise ValueError("border_width must be a finite nonnegative float32 value")
+        if (not np.isfinite(border_miter_limit)
+                or not 1 <= border_miter_limit <= np.finfo("f4").max):
+            raise ValueError("border_miter_limit must be a finite float32 value >= 1")
+        if border_join not in ("bevel", "miter", "round"):
+            raise ValueError("border_join must be 'bevel', 'miter', or 'round'")
+        if border_width > 0 and float(np.float32(border_width)) == 0:
+            raise ValueError("border_width is too small for float32")
+        border_width = float(np.float32(border_width))
+        border_miter_limit = float(np.float32(border_miter_limit))
+        if border_width > 0 and self._border_function is None:
+            raise TessellationError("Lyon helper lacks border union support; rebuild or reinstall it")
         contours = list(contours)
         if attributes is not None:
             attributes = list(attributes)
@@ -150,6 +204,7 @@ class LyonFillTessellator:
         points, ends, attribute_arrays = [], [], []
         total = 0
         attribute_count = None
+        uniform_attribute = None
         for index, contour in enumerate(contours):
             raw = np.asarray(contour)
             if raw.ndim != 2 or raw.shape[1] != 2:
@@ -178,6 +233,11 @@ class LyonFillTessellator:
                     raise ValueError("attributes must be finite float32 values")
                 if len(raw):
                     attribute_arrays.append(np.ascontiguousarray(attr, dtype="f4"))
+                    if border_width > 0:
+                        if uniform_attribute is None:
+                            uniform_attribute = attr[0]
+                        if not np.all(attr[::2] == uniform_attribute):
+                            raise ValueError("border union requires uniform endpoint attributes")
             if len(raw):
                 points.append(point_array)
                 ends.append(total)
@@ -188,13 +248,18 @@ class LyonFillTessellator:
         contour_ends = np.asarray(ends, dtype="u4")
         result = _MeshResult()
         try:
-            code = self._library.ml_lyon_tessellate(
+            args = [
                 xy.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(xy),
                 contour_ends.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)), len(ends),
                 attrs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), attribute_count,
-                tolerance, int(fill_rule == "evenodd"), max_vertices, max_indices,
-                ctypes.byref(result),
-            )
+                tolerance, int(fill_rule == "evenodd"),
+            ]
+            function = self._library.ml_lyon_tessellate
+            if border_width > 0:
+                function = self._border_function
+                args.extend([border_width, ("bevel", "miter", "round").index(border_join),
+                             border_miter_limit])
+            code = function(*args, max_vertices, max_indices, ctypes.byref(result))
             if code == 1:
                 raise ValueError("native Lyon adapter rejected invalid input")
             if code == 2:
@@ -221,6 +286,9 @@ class LyonFillTessellator:
                        if result.index_count else np.empty(0, dtype="u4"))
             if indices.size and int(indices.max()) >= len(positions):
                 raise TessellationError("Lyon helper returned an out-of-range index")
-            return FillMesh(positions, indices, out_attrs, tolerance, fill_rule)
+            return FillMesh(positions, indices, out_attrs, tolerance, fill_rule,
+                            GENERATOR_ID + ("/border-union-1" if border_width > 0 else ""),
+                            border_width, border_join if border_width > 0 else None,
+                            border_miter_limit)
         finally:
             self._library.ml_lyon_free(ctypes.byref(result))
