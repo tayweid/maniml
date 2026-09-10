@@ -1,0 +1,39 @@
+{
+  "scope": "Focused review-fix validation; no full application/browser/packaging or A0 acceptance claim.",
+  "cpu_tests": 128,
+  "native_gpu_fidelity_tests": 33,
+  "cpu_modules": "tests.test_geometry_cache tests.test_earclip_triangulation tests.test_renderer_fixtures tests.test_triangle_geometry tests.test_triangle_scene tests.test_renderer_quality_fixtures tests.test_renderer_quality tests.test_renderer_motion tests.test_analytic_geometry tests.test_analytic_scene tests.test_earcut_probe tests.test_webgpu_commands tests.test_fill_bounds.FillBoundsMetadata tests.test_vectorized_mobject",
+  "gpu_modules": "tests.test_triangle_renderer tests.test_wgpu_port tests.test_fill_bounds",
+  "environment": "MPLCONFIGDIR=/private/tmp/maniml-triangle-mpl PYTHONPATH=/private/tmp/maniml-triangle-python MANIML_LYON_LIBRARY=/private/tmp/maniml-triangle-target/release/libmaniml_lyon_fill.dylib; GPU tests also MANIML_TEST_GPU=1",
+  "python": "/Users/taylorjweidman/Projects/ManimLive/maniml/.venv/bin/python",
+  "known_test_warnings": [
+    "Existing checkpoint deepcopy warning for an mgl.Context",
+    "Existing ResourceWarning for surface image file"
+  ],
+  "sequence": "2D quality/motion/B0 reports precede the vertical-plane production correction; final tests cover that correction. Each report retains its measured source hashes.",
+  "earcut_reproduction": {
+    "old_list_boundary_square": {
+      "vertices": 241,
+      "indices": 720
+    },
+    "fixed_square": {
+      "vertices": 240,
+      "indices": 714
+    },
+    "method": "Temporarily wrap native call to convert ring ends back to a list; reproduce former binding error/fan, then restore and run fixed path."
+  },
+  "validated_source_files_sha256": {
+    "maniml/utils/space_ops.py": "afd739fe2d5b5c7f187c771bab860b008131987bec939c2e83ec785738741888",
+    "maniml/mobject/types/vmobject_3d.py": "41063bd0429018620520b1f2b683d4a7633aa6687a1c056da4a06210ade76d1a",
+    "benchmarks/triangle_scene.py": "490d1ad6dcfc0d1c74708eb8c6f7186f6f71c428eba97f92f0572776705b7ba5",
+    "benchmarks/analytic_scene.py": "23ebc6cb69aa07a52b5e10c4e302cdd9da95b1deadb7100a865887659878a156",
+    "benchmarks/analytic_geometry.py": "278384e40d44f91053bb9f685d1e128c5768249204a5b967c0c1df8f692a352e",
+    "benchmarks/renderer_quality.py": "0d30b03e71adc9d0d9bd71ec6c83cfb68f06d695d4abce4a8cf04501da1d818a",
+    "benchmarks/renderer_motion.py": "818f18b1e44fa6e21f6433e33e5eeefe071ccd7a66e9a7badc9915e1d9dda657",
+    "benchmarks/renderer_timing.py": "39edf8c04d803c959d633cfff47260abdeb5416b74b781fbc85884d84cb68a80",
+    "tests/test_earclip_triangulation.py": "7cd0d8abe5379c868c674862f92bfbe7c9ed7cd66edd8dc746bd1aee906994ab",
+    "tests/test_triangle_scene.py": "06698ead4f05521dc4559367e104dd8038c70923ad084c8223bcfedb6fcd16b9",
+    "tests/test_triangle_renderer.py": "cc374333bf00c190f73e373c82c25a21ba561b28073b23835c16e5dd1c675abd",
+    "docs_unified_triangle_renderer_code_review.md": "86351a3e05c9372370ded478fea30e6171cf671e548524e9ca542ac89e9c1fe6"
+  }
+}

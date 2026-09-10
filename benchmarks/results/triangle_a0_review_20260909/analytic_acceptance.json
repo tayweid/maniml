@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "date": "2026-09-09",
+  "scope": "CPU acceptance only; no GPU quality or performance acceptance",
+  "git_head": "2b5aeeba133baea4002ddb97a9bdd6854ec91612",
+  "python": "3.13.9",
+  "numpy": "2.5.2",
+  "entry_points": {
+    "direct_world_xy_strict": "build_analytic_mesh([p[:,:2] for p in glyph.get_subpaths()]); max_linearization_error=0",
+    "prepared_svd_bounded": "prepare_analytic_frame(build_scene(glyph), diagnostic=True), default 384x216 camera, pixel_tolerance=0.25; SVD projection and bounded numerical repair"
+  },
+  "before": {
+    "provenance": "Reproduced side by side in this audit before editing analytic_geometry.py or analytic_scene.py; aggregate transcribed from the execution output, no per-glyph raw baseline retained. Both coordinate paths used the same 101 source mobjects.",
+    "source_sha256": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88",
+    "code_sha256": {
+      "benchmarks/analytic_geometry.py": "6db4cc8916984f1fa6f258efd379cde53b038a2c5c8d2996f838967413078a1d",
+      "benchmarks/analytic_scene.py": "aa3707ea3e767db913d3f9ec54e2bd84b6407c3e22bdc186383efe756739c96c"
+    },
+    "direct_world_xy_strict": {
+      "accepted": 80,
+      "numerically ambiguous near-collinear curve": 4,
+      "numerically ambiguous interior triangle": 17
+    },
+    "prepared_svd_strict": {
+      "accepted": 5,
+      "analytic geometry: numerically ambiguous near-collinear curve": 77,
+      "analytic geometry: numerically ambiguous interior triangle": 19
+    }
+  },
+  "after": {
+    "code_sha256": {
+      "benchmarks/analytic_geometry.py": "278384e40d44f91053bb9f685d1e128c5768249204a5b967c0c1df8f692a352e",
+      "benchmarks/analytic_scene.py": "23ebc6cb69aa07a52b5e10c4e302cdd9da95b1deadb7100a865887659878a156",
+      "benchmarks/triangle_scene.py": "490d1ad6dcfc0d1c74708eb8c6f7186f6f71c428eba97f92f0572776705b7ba5",
+      "tests/renderer_quality_fixtures.py": "cd271b6989530c7aef38bd0d30fbe97d20ce4ffee75a99520bd7d4c8315d0832"
+    },
+    "cases": {
+      "tex": {
+        "source_sha256": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88",
+        "glyph_probes": {
+          "direct_world_xy_strict": {
+            "count": 101,
+            "counts": {
+              "accepted": 97,
+              "near-collinear approximation exceeds the geometry error budget": 4
+            },
+            "failures": [
+              {
+                "index": 15,
+                "class": "VMobjectFromSVGPath",
+                "source_points_sha256": "cf2bf3f7f7cc7d7e052b0b872ebc64a9010d6d5b25cfbf6dd09a4e3f71aa11f0",
+                "reason": "near-collinear approximation exceeds the geometry error budget"
+              },
+              {
+                "index": 41,
+                "class": "VMobjectFromSVGPath",
+                "source_points_sha256": "7d0d57499d4d6e37cd2e12999574e21e46036c6f791dc9da63231631b714a282",
+                "reason": "near-collinear approximation exceeds the geometry error budget"
+              },
+              {
+                "index": 49,
+                "class": "VMobjectFromSVGPath",
+                "source_points_sha256": "c3e2ef8b110c7a96afcbe3c30f22075e75eb8186bfcc71123f4a6eb1c71994df",
+                "reason": "near-collinear approximation exceeds the geometry error budget"
+              },
+              {
+                "index": 78,
+                "class": "VMobjectFromSVGPath",
+                "source_points_sha256": "89b040b917280f6303db5f48e62cdd7e15c41f378efe27bb664356b39ae32aed",
+                "reason": "near-collinear approximation exceeds the geometry error budget"
+              }
+            ]
+          },
+          "prepared_svd_bounded": {
+            "count": 101,
+            "counts": {
+              "accepted": 100,
+              "analytic geometry: interior mesh overlaps an analytic patch": 1
+            },
+            "failures": [
+              {
+                "index": 69,
+                "class": "VMobjectFromSVGPath",
+                "source_points_sha256": "38ab2ee9bcca24bb87b965c0634f3bee1b3652e01d222cd3f84a33c1cdeebc15",
+                "reason": "analytic geometry: interior mesh overlaps an analytic patch"
+              }
+            ]
+          }
+        },
+        "full_scene_960x540": {
+          "status": "rejected",
+          "reason": "analytic geometry: interior mesh overlaps an analytic patch"
+        }
+      },
+      "hairlines": {
+        "source_sha256": "5bda6d64f38ab165f4a54a15c82c664c5bf97d5b9a1d41ad0a489fde7ee56ca8",
+        "glyph_probes": {
+          "direct_world_xy_strict": {
+            "count": 9,
+            "counts": {
+              "accepted": 9
+            },
+            "failures": []
+          },
+          "prepared_svd_bounded": {
+            "count": 9,
+            "counts": {
+              "accepted": 9
+            },
+            "failures": []
+          }
+        },
+        "full_scene_960x540": {
+          "status": "accepted_for_rendering",
+          "draws": 9,
+          "limitations": []
+        }
+      },
+      "perspective": {
+        "source_sha256": "5e6b68874d5b19ac35890ae95fd526af1e14320371e208ed88a4257efea8e608",
+        "glyph_probes": {
+          "direct_world_xy_strict": {
+            "count": 9,
+            "counts": {
+              "accepted": 9
+            },
+            "failures": []
+          },
+          "prepared_svd_bounded": {
+            "count": 9,
+            "counts": {
+              "accepted": 9
+            },
+            "failures": []
+          }
+        },
+        "full_scene_960x540": {
+          "status": "accepted_for_rendering",
+          "draws": 12,
+          "limitations": []
+        }
+      },
+      "border": {
+        "source_sha256": "72ae37ae249b9cd103dcc2d549765a22a743809985463c996293e4d7776cb1f3",
+        "glyph_probes": {
+          "direct_world_xy_strict": {
+            "count": 3,
+            "counts": {
+              "accepted": 3
+            },
+            "failures": []
+          },
+          "prepared_svd_bounded": {
+            "count": 3,
+            "counts": {
+              "accepted": 3
+            },
+            "failures": []
+          }
+        },
+        "full_scene_960x540": {
+          "status": "accepted_for_rendering",
+          "draws": 3,
+          "limitations": []
+        }
+      }
+    }
+  },
+  "disposition": "Adapt finding 2: the 80-versus-5 count difference was coordinate-path provenance, not stale code. Explicitly budget near-collinear chord approximation; remove only exact-zero triangles; preserve and validate real nonzero slivers. Keep rejecting remaining interior/patch overlap; do not relax predicates to complete TeX."
+}

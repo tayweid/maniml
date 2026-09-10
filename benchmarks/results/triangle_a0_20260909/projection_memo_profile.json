@@ -1,0 +1,45 @@
+{
+  "status": "Archived aggregate output from the original paired CPU profiling run; not a rerun.",
+  "recorded_date": "2026-09-09",
+  "scope": "Warm prepare_triangle_frame CPU time only; no GPU rendering or completion.",
+  "method": "Three warmups, then 40 samples per variant in alternating order, sharing each scene and its warmed mesh cache. The recompute variant calls geometry.pixel_error on every hit; the memoized variant uses _MeshEntry.pixel_error. Setup and method patching are outside timed intervals.",
+  "raw_sample_availability": "Individual per-frame timing samples were held only in the original Python process and were not retained. These medians/p95 values and cache counters are copied exactly from that run's captured JSON console output. p95 is sorted(samples)[37] for 40 samples, as in the attached reproduction script.",
+  "reproduction_script": "projection_memo_profile.py",
+  "reproduction_command": "MPLCONFIGDIR=/private/tmp/maniml-triangle-mpl PYTHONPATH=/private/tmp/maniml-triangle-python MANIML_LYON_LIBRARY=/private/tmp/maniml-triangle-target/release/libmaniml_lyon_fill.dylib /Users/taylorjweidman/Projects/ManimLive/maniml/.venv/bin/python benchmarks/results/triangle_a0_20260909/projection_memo_profile.py",
+  "results": {
+    "B0": {
+      "recompute_projection": {
+        "median_ms": 19.852624496706994,
+        "p95_ms": 22.633125001448207
+      },
+      "memoized_projection": {
+        "median_ms": 10.519979499804322,
+        "p95_ms": 10.860375004995149
+      },
+      "last_frame_cache_stats": {
+        "hits": 211,
+        "regenerations": 0,
+        "evictions": 0,
+        "retained_bytes": 174708,
+        "entries": 211
+      }
+    },
+    "TeX": {
+      "recompute_projection": {
+        "median_ms": 8.702249997440958,
+        "p95_ms": 9.239583007001784
+      },
+      "memoized_projection": {
+        "median_ms": 3.813958497630665,
+        "p95_ms": 4.022375003842171
+      },
+      "last_frame_cache_stats": {
+        "hits": 101,
+        "regenerations": 0,
+        "evictions": 0,
+        "retained_bytes": 665716,
+        "entries": 101
+      }
+    }
+  }
+}

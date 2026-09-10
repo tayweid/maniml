@@ -1,0 +1,208 @@
+{
+  "scope": "CPU source audit, two warm frames excluded; no performance measurement.",
+  "source_files_sha256": {
+    "benchmarks/results/triangle_a0_review_20260909/write_source_audit.py": "1b4bc9daf2bd197b3c5e6145fcd6371adec83f3c5d09e3819c26f0ca36a5d8f6",
+    "benchmarks/renderer_motion.py": "818f18b1e44fa6e21f6433e33e5eeefe071ccd7a66e9a7badc9915e1d9dda657",
+    "benchmarks/triangle_scene.py": "490d1ad6dcfc0d1c74708eb8c6f7186f6f71c428eba97f92f0572776705b7ba5",
+    "maniml/animation/creation.py": "74702d406ed5cc44506593d78e25c8e7e8dd641cad06eea32864bcdb6f4cc01a",
+    "maniml/mobject/types/vectorized_mobject.py": "bb21b3f7dadaa721feaae9dfdb95b1f2236719f114218571ce7fd405c9997644"
+  },
+  "cache_lookup_causes": {
+    "unchanged": 1293,
+    "absent": 38,
+    "points,rgba,normal": 43,
+    "points,rgba": 13,
+    "rgba,normal": 1
+  },
+  "max_changed_point_distance_world_units": 2.6656007498500226e-07,
+  "frames": [
+    {
+      "index": 0,
+      "mesh_cache": {
+        "hits": 63,
+        "regenerations": 0,
+        "evictions": 0,
+        "paint_updates": 0,
+        "retained_bytes": 398308,
+        "entries": 63
+      }
+    },
+    {
+      "index": 1,
+      "mesh_cache": {
+        "hits": 63,
+        "regenerations": 0,
+        "evictions": 0,
+        "paint_updates": 0,
+        "retained_bytes": 398308,
+        "entries": 63
+      }
+    },
+    {
+      "index": 2,
+      "mesh_cache": {
+        "hits": 63,
+        "regenerations": 1,
+        "evictions": 0,
+        "paint_updates": 0,
+        "retained_bytes": 408660,
+        "entries": 64
+      }
+    },
+    {
+      "index": 3,
+      "mesh_cache": {
+        "hits": 63,
+        "regenerations": 4,
+        "evictions": 1,
+        "paint_updates": 0,
+        "retained_bytes": 430852,
+        "entries": 67
+      }
+    },
+    {
+      "index": 4,
+      "mesh_cache": {
+        "hits": 63,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 448656,
+        "entries": 70
+      }
+    },
+    {
+      "index": 5,
+      "mesh_cache": {
+        "hits": 65,
+        "regenerations": 8,
+        "evictions": 5,
+        "paint_updates": 0,
+        "retained_bytes": 466092,
+        "entries": 73
+      }
+    },
+    {
+      "index": 6,
+      "mesh_cache": {
+        "hits": 68,
+        "regenerations": 8,
+        "evictions": 5,
+        "paint_updates": 0,
+        "retained_bytes": 491232,
+        "entries": 76
+      }
+    },
+    {
+      "index": 7,
+      "mesh_cache": {
+        "hits": 71,
+        "regenerations": 8,
+        "evictions": 5,
+        "paint_updates": 0,
+        "retained_bytes": 512764,
+        "entries": 79
+      }
+    },
+    {
+      "index": 8,
+      "mesh_cache": {
+        "hits": 74,
+        "regenerations": 8,
+        "evictions": 5,
+        "paint_updates": 0,
+        "retained_bytes": 527100,
+        "entries": 82
+      }
+    },
+    {
+      "index": 9,
+      "mesh_cache": {
+        "hits": 77,
+        "regenerations": 7,
+        "evictions": 5,
+        "paint_updates": 0,
+        "retained_bytes": 542196,
+        "entries": 84
+      }
+    },
+    {
+      "index": 10,
+      "mesh_cache": {
+        "hits": 80,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 565276,
+        "entries": 87
+      }
+    },
+    {
+      "index": 11,
+      "mesh_cache": {
+        "hits": 83,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 584220,
+        "entries": 90
+      }
+    },
+    {
+      "index": 12,
+      "mesh_cache": {
+        "hits": 86,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 610504,
+        "entries": 93
+      }
+    },
+    {
+      "index": 13,
+      "mesh_cache": {
+        "hits": 89,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 637628,
+        "entries": 96
+      }
+    },
+    {
+      "index": 14,
+      "mesh_cache": {
+        "hits": 92,
+        "regenerations": 7,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 654384,
+        "entries": 99
+      }
+    },
+    {
+      "index": 15,
+      "mesh_cache": {
+        "hits": 95,
+        "regenerations": 6,
+        "evictions": 4,
+        "paint_updates": 0,
+        "retained_bytes": 665716,
+        "entries": 101
+      }
+    },
+    {
+      "index": 16,
+      "mesh_cache": {
+        "hits": 98,
+        "regenerations": 3,
+        "evictions": 3,
+        "paint_updates": 0,
+        "retained_bytes": 665716,
+        "entries": 101
+      }
+    }
+  ],
+  "interpretation": "Points are compared exactly, after shader-data preparation as in the timed harness. Mathematical shape invariance does not imply identical interpolated float32 source bytes. Normal changes also participate in the existing geometry key."
+}

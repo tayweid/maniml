@@ -1,0 +1,1079 @@
+{
+  "status": "A0 B0 wordmark comparison; no production compatibility acceptance",
+  "compatibility_accepted": false,
+  "environment": {
+    "recorded_utc": "2026-09-10T02:16:18.198876+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "python": "3.13.9",
+    "numpy": "2.5.2",
+    "pillow": "12.3.0",
+    "wgpu_python": "0.32.0",
+    "wgpu_native": [
+      29,
+      0,
+      1,
+      1
+    ],
+    "baseline_adapter": {
+      "vendor": "",
+      "architecture": "",
+      "device": "Apple M3",
+      "description": "",
+      "stackgroup_min_size": 4,
+      "stackgroup_max_size": 128,
+      "vendor_id": 0,
+      "device_id": 0,
+      "adapter_type": "IntegratedGPU",
+      "backend_type": "Metal"
+    },
+    "triangle_adapter": {
+      "vendor": "",
+      "architecture": "",
+      "device": "Apple M3",
+      "description": "",
+      "stackgroup_min_size": 4,
+      "stackgroup_max_size": 128,
+      "vendor_id": 0,
+      "device_id": 0,
+      "adapter_type": "IntegratedGPU",
+      "backend_type": "Metal"
+    },
+    "generator": "lyon_tessellation-1.0.22/maniml-abi-1",
+    "native_helper": {
+      "path": "/private/tmp/maniml-triangle-target/release/libmaniml_lyon_fill.dylib",
+      "abi": 1,
+      "sha256": "6165e9bc26cd438d112c3a13065034d9b97c3474af488b491d1450fdf63bd583",
+      "cargo_lock_sha256": "3522e2f7a6b49e8a4049cb5e14629e10fb8a643ef5713951c539768756031366",
+      "locked_packages": {
+        "arrayvec": "0.7.8",
+        "autocfg": "1.5.1",
+        "euclid": "0.22.14",
+        "float_next_after": "1.0.0",
+        "libm": "0.2.16",
+        "lyon_geom": "1.0.19",
+        "lyon_path": "1.0.19",
+        "lyon_tessellation": "1.0.22",
+        "maniml-lyon-fill": "0.1.0",
+        "num-traits": "0.2.19"
+      }
+    }
+  },
+  "source_files_sha256": {
+    "benchmarks/triangle_wordmark.py": "20ed7de5982e0292d3d055df5ddc1c6ffbb7e76a4a76879eb03484e2806254fa",
+    "benchmarks/vector_fill.py": "c13a4684fbb575b071aa086b88d687b6fe7a520c311dfa58dcc90f4fff4c7c54",
+    "tests/test_fill_bounds.py": "db0c84a39fddeb1a809921221d27b9362a9298f71b7de5964355957899614c81",
+    "benchmarks/triangle_scene.py": "18d783085ed0211ce7c68dc507f0b81065096420ec36d9637db1eab41986edeb",
+    "benchmarks/triangle_renderer.py": "36fe26a881cbf3e233fdeb593312ab204ad0129758649095506eb5c656b5809a",
+    "benchmarks/ordered_output.py": "edd27a132d5f05f655e6665e18661e617e4fe7dce49f53d7a4cdcb4f3104065f",
+    "benchmarks/renderer_motion.py": "87aadbfbb5a2c6623d7eaf3d1c04a0948bebfad676a6c3191e888f56e4c86c67",
+    "benchmarks/renderer_quality.py": "2b27caa251900a72c646f9e4f040d281d5f79e397f27f670d614c08965f6190f"
+  },
+  "source": {
+    "builder": "benchmarks.vector_fill.main wordmark styling and payload camera",
+    "squares": 211,
+    "groups": 1,
+    "logical_batches": 135,
+    "resolution": [
+      2160,
+      1080
+    ],
+    "camera": {
+      "view": [
+        0.6666666666666666,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.6666666666666666,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.6666666666666666,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "frame_scale": 1.5,
+      "frame_rescale_factors": [
+        0.125,
+        0.25,
+        0.1
+      ],
+      "pixel_size": 0.011111111111111112,
+      "camera_position": [
+        0,
+        0,
+        20
+      ],
+      "light_position": [
+        0,
+        0,
+        10
+      ]
+    },
+    "background": [
+      0.12941176470588237,
+      0.12941176470588237,
+      0.12941176470588237,
+      1
+    ],
+    "source_sha256": "2b4c6f039cd21b0b502f1562d2f9ca0d709558cc0235880e2506181f856dcba9",
+    "serialized_vertex_bytes": 172176,
+    "reconstructed_source_matches_original_payload": true,
+    "all_source_validation_passed": true
+  },
+  "cold_triangle_preparation": {
+    "ms": 35.62887500447687,
+    "mesh_cache": {
+      "hits": 0,
+      "regenerations": 211,
+      "evictions": 0,
+      "retained_bytes": 174708,
+      "entries": 211
+    },
+    "geometry_bytes": 211000,
+    "source_bytes": 129132
+  },
+  "samples_per_variant": 5,
+  "warmups_per_variant": 3,
+  "timing": "Fresh devices and three rotated warmup frames followed by rotated measured order. Each current/ordered sample includes fresh serialize_scene plus parse_geometry_message; each triangle sample includes preparation with a warm retained mesh cache. CPU preparation through completion includes target allocation, upload, command preparation, one-pixel completion readback and post-completion retirement. Source construction, validation, observer summaries, full-image readback and PNG output are outside timings. Source animation, transport, browser/UI presentation absent. Completion is not a pure GPU timestamp. Other host activity was not controlled; do not transfer speed ratios to unrelated runs.",
+  "aa": "Current/ordered retain production 2x winding textures with one-sample scene output. flat_samples1 uses one-sample triangle output as a sample-count control, not an equivalent AA treatment. flat_msaa4 uses four-sample triangle output. Existing stroke geometry/AA uniforms are reused; no zero-border/style override. The wordmark's class-default fill border is zero.",
+  "pixels": "Full raw RGBA equality checked current vs ordered. Raw-attachment RGB and alpha differences are reported separately for triangles: direct current strokes use the known source-alpha output-alpha factor, triangles use premultiplied source-over. RGB preview PNGs preserve raw attachment RGB; raw RGBA PNGs are archival attachment bytes, not normalized straight-alpha previews.",
+  "memory": "Reported retained CPU meshes and owned GPU buffers are post-completion state, not transient peaks. Nominal output color/depth bytes and winding targets are separately listed. Driver/pipeline/bind-group storage, source arrays unless stated, one-pixel/full-image staging and Lyon scratch excluded. Uniform upload counts for current/ordered omit composite UV-scale buffers. Current pass counts validated from B0's one fill/composite/stroke sequence per logical batch, not hardware counters.",
+  "variants": {
+    "current_webgpu": {
+      "samples": [
+        {
+          "encode_ms": 32.79766599735012,
+          "submit_through_completion_ms": 46.416083998337854,
+          "total_ms": 79.21374999568798,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.791042003897019,
+          "cpu_prepare_through_completion_ms": 86.01812500273809
+        },
+        {
+          "encode_ms": 31.804833000933286,
+          "submit_through_completion_ms": 38.073084004281554,
+          "total_ms": 69.87791700521484,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.720833996951114,
+          "cpu_prepare_through_completion_ms": 76.60887499514502
+        },
+        {
+          "encode_ms": 32.04774999903748,
+          "submit_through_completion_ms": 37.87829200155102,
+          "total_ms": 69.9260420005885,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.6375410024193116,
+          "cpu_prepare_through_completion_ms": 76.57716600078857
+        },
+        {
+          "encode_ms": 31.036667001899332,
+          "submit_through_completion_ms": 49.061290999816265,
+          "total_ms": 80.0979580017156,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.606457995076198,
+          "cpu_prepare_through_completion_ms": 86.71783300087554
+        },
+        {
+          "encode_ms": 30.957875002059154,
+          "submit_through_completion_ms": 29.13329200237058,
+          "total_ms": 60.091167004429735,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.680917002086062,
+          "cpu_prepare_through_completion_ms": 66.7832079998334
+        }
+      ],
+      "warmups": [
+        {
+          "encode_ms": 284.1821669935598,
+          "submit_through_completion_ms": 95.2125000039814,
+          "total_ms": 379.3946669975412,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 172176,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.6658330033533275,
+          "cpu_prepare_through_completion_ms": 406.14354200079106
+        },
+        {
+          "encode_ms": 33.962250003241934,
+          "submit_through_completion_ms": 41.575790994102135,
+          "total_ms": 75.53804099734407,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.705790998239536,
+          "cpu_prepare_through_completion_ms": 82.25654099805979
+        },
+        {
+          "encode_ms": 31.837124995945487,
+          "submit_through_completion_ms": 48.67379200004507,
+          "total_ms": 80.51091699599056,
+          "passes": 406,
+          "draws": 540,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_fill_target_bytes": 1015808,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 9.336250004707836,
+          "cpu_prepare_through_completion_ms": 89.85925000160933
+        }
+      ],
+      "timing_ms": {
+        "prepare_ms": {
+          "p50": 6.680917002086062,
+          "p95": 6.777000402507838,
+          "max": 6.791042003897019
+        },
+        "encode_ms": {
+          "p50": 31.804833000933286,
+          "p95": 32.647682797687594,
+          "max": 32.79766599735012
+        },
+        "submit_through_completion_ms": {
+          "p50": 38.073084004281554,
+          "p95": 48.53224959952058,
+          "max": 49.061290999816265
+        },
+        "cpu_prepare_through_completion_ms": {
+          "p50": 76.60887499514502,
+          "p95": 86.57789140124805,
+          "max": 86.71783300087554
+        }
+      },
+      "diagnostic_resources": {
+        "encode_ms": 34.51425000093877,
+        "submit_through_completion_ms": 27.175291994353756,
+        "total_ms": 61.68954199529253,
+        "passes": 406,
+        "draws": 540,
+        "uploaded_geometry_bytes": 0,
+        "uploaded_uniform_bytes": 155520,
+        "retained_gpu_geometry_bytes": 172176,
+        "retained_batch_count": 135,
+        "retained_fill_target_bytes": 1015808,
+        "retained_uniform_bytes": null,
+        "retained_cpu_mesh_bytes": 0,
+        "serialized_vertex_bytes": 172176,
+        "nominal_target_bytes": 18662400,
+        "prepare_ms": 6.8856669968226925,
+        "cpu_prepare_through_completion_ms": 132.07874999352498
+      },
+      "vs_current": {
+        "mean_rgb_difference": 0.0,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 0.0,
+        "mean_alpha_difference": 0.0,
+        "existing_rgb_threshold_met": true,
+        "exact_rgba_equal": true,
+        "changed_rgba_pixels": 0,
+        "changed_rgb_pixels": 0,
+        "changed_alpha_pixels": 0
+      }
+    },
+    "ordered_output": {
+      "samples": [
+        {
+          "encode_ms": 24.520624996512197,
+          "submit_through_completion_ms": 14.621375004935544,
+          "total_ms": 39.14200000144774,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 8.38645800104132,
+          "cpu_prepare_through_completion_ms": 48.22954200062668
+        },
+        {
+          "encode_ms": 24.4029999958002,
+          "submit_through_completion_ms": 15.706500002124812,
+          "total_ms": 40.10949999792501,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.86649999988731,
+          "cpu_prepare_through_completion_ms": 47.66420899977675
+        },
+        {
+          "encode_ms": 26.905333004833665,
+          "submit_through_completion_ms": 9.420624999620486,
+          "total_ms": 36.32595800445415,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.596958999580238,
+          "cpu_prepare_through_completion_ms": 43.670625003869645
+        },
+        {
+          "encode_ms": 31.929542004945688,
+          "submit_through_completion_ms": 9.654916997533292,
+          "total_ms": 41.58445900247898,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 8.809291997749824,
+          "cpu_prepare_through_completion_ms": 51.126541999110486
+        },
+        {
+          "encode_ms": 23.547458004031796,
+          "submit_through_completion_ms": 10.791708999022376,
+          "total_ms": 34.33916700305417,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.6707910009427,
+          "cpu_prepare_through_completion_ms": 41.701125002873596
+        }
+      ],
+      "warmups": [
+        {
+          "encode_ms": 31.3864170020679,
+          "submit_through_completion_ms": 24.84658300090814,
+          "total_ms": 56.23300000297604,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 172176,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 6.718666001688689,
+          "cpu_prepare_through_completion_ms": 63.7693329990725
+        },
+        {
+          "encode_ms": 25.001667003380135,
+          "submit_through_completion_ms": 37.34262500074692,
+          "total_ms": 62.344292004127055,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 8.967167006630916,
+          "cpu_prepare_through_completion_ms": 72.11479200486792
+        },
+        {
+          "encode_ms": 27.74104099808028,
+          "submit_through_completion_ms": 15.7391250031651,
+          "total_ms": 43.48016600124538,
+          "passes": 136,
+          "draws": 540,
+          "retained_fill_target_bytes": 22806528,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 77760,
+          "retained_gpu_geometry_bytes": 172176,
+          "retained_batch_count": 135,
+          "retained_uniform_bytes": null,
+          "retained_cpu_mesh_bytes": 0,
+          "serialized_vertex_bytes": 172176,
+          "nominal_target_bytes": 18662400,
+          "prepare_ms": 7.055667003442068,
+          "cpu_prepare_through_completion_ms": 51.27616700337967
+        }
+      ],
+      "timing_ms": {
+        "prepare_ms": {
+          "p50": 6.86649999988731,
+          "p95": 8.724725198408123,
+          "max": 8.809291997749824
+        },
+        "encode_ms": {
+          "p50": 24.520624996512197,
+          "p95": 30.924700204923283,
+          "max": 31.929542004945688
+        },
+        "submit_through_completion_ms": {
+          "p50": 10.791708999022376,
+          "p95": 15.489475002686959,
+          "max": 15.706500002124812
+        },
+        "cpu_prepare_through_completion_ms": {
+          "p50": 47.66420899977675,
+          "p95": 50.547141999413725,
+          "max": 51.126541999110486
+        }
+      },
+      "diagnostic_resources": {
+        "encode_ms": 23.77366700238781,
+        "submit_through_completion_ms": 11.892333001014777,
+        "total_ms": 35.66600000340259,
+        "passes": 136,
+        "draws": 540,
+        "retained_fill_target_bytes": 22806528,
+        "uploaded_geometry_bytes": 0,
+        "uploaded_uniform_bytes": 77760,
+        "retained_gpu_geometry_bytes": 172176,
+        "retained_batch_count": 135,
+        "retained_uniform_bytes": null,
+        "retained_cpu_mesh_bytes": 0,
+        "serialized_vertex_bytes": 172176,
+        "nominal_target_bytes": 18662400,
+        "prepare_ms": 6.990291003603488,
+        "cpu_prepare_through_completion_ms": 47.217166000336874
+      },
+      "vs_current": {
+        "mean_rgb_difference": 0.0,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 0.0,
+        "mean_alpha_difference": 0.0,
+        "existing_rgb_threshold_met": true,
+        "exact_rgba_equal": true,
+        "changed_rgba_pixels": 0,
+        "changed_rgb_pixels": 0,
+        "changed_alpha_pixels": 0
+      }
+    },
+    "flat_samples1": {
+      "samples": [
+        {
+          "encode_ms": 5.714833998354152,
+          "submit_through_completion_ms": 5.351166000764351,
+          "total_ms": 11.065999999118503,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 11.063999998441432,
+          "cpu_prepare_through_completion_ms": 22.2637089973432
+        },
+        {
+          "encode_ms": 5.675209002220072,
+          "submit_through_completion_ms": 1.5269159994204529,
+          "total_ms": 7.202125001640525,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.608333002892323,
+          "cpu_prepare_through_completion_ms": 17.956415998924058
+        },
+        {
+          "encode_ms": 5.653457999869715,
+          "submit_through_completion_ms": 3.88504200236639,
+          "total_ms": 9.538500002236106,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.958040998957586,
+          "cpu_prepare_through_completion_ms": 20.6201660039369
+        },
+        {
+          "encode_ms": 5.609375002677552,
+          "submit_through_completion_ms": 4.157208000833634,
+          "total_ms": 9.766583003511187,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.79379200382391,
+          "cpu_prepare_through_completion_ms": 20.700459004729055
+        },
+        {
+          "encode_ms": 6.0253330011619255,
+          "submit_through_completion_ms": 2.758083996013738,
+          "total_ms": 8.783416997175664,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.985083994455636,
+          "cpu_prepare_through_completion_ms": 19.875749996572267
+        }
+      ],
+      "warmups": [
+        {
+          "encode_ms": 12.572292005643249,
+          "submit_through_completion_ms": 3.210082999430597,
+          "total_ms": 15.782375005073845,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 205984,
+          "uploaded_uniform_bytes": 384,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 0,
+            "regenerations": 211,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 35.484250001900364,
+          "cpu_prepare_through_completion_ms": 51.50258300272981
+        },
+        {
+          "encode_ms": 5.641875002766028,
+          "submit_through_completion_ms": 1.5274999968823977,
+          "total_ms": 7.169374999648426,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 21.550541998294648,
+          "cpu_prepare_through_completion_ms": 28.8243750037509
+        },
+        {
+          "encode_ms": 5.725166003685445,
+          "submit_through_completion_ms": 1.7657499993219972,
+          "total_ms": 7.490916003007442,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 18662400,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.878125001909211,
+          "cpu_prepare_through_completion_ms": 18.465749999450054
+        }
+      ],
+      "timing_ms": {
+        "prepare_ms": {
+          "p50": 10.958040998957586,
+          "p95": 11.048216797644272,
+          "max": 11.063999998441432
+        },
+        "encode_ms": {
+          "p50": 5.675209002220072,
+          "p95": 5.963233200600371,
+          "max": 6.0253330011619255
+        },
+        "submit_through_completion_ms": {
+          "p50": 3.88504200236639,
+          "p95": 5.112374400778208,
+          "max": 5.351166000764351
+        },
+        "cpu_prepare_through_completion_ms": {
+          "p50": 20.6201660039369,
+          "p95": 21.951058998820372,
+          "max": 22.2637089973432
+        }
+      },
+      "diagnostic_resources": {
+        "encode_ms": 5.719165994378272,
+        "submit_through_completion_ms": 1.5277500060619786,
+        "total_ms": 7.246916000440251,
+        "passes": 1,
+        "draws": 422,
+        "geometry_bytes": 211000,
+        "retained_gpu_geometry_bytes": 205984,
+        "retained_uniform_bytes": 384,
+        "uploaded_geometry_bytes": 0,
+        "uploaded_uniform_bytes": 0,
+        "nominal_target_bytes": 18662400,
+        "mesh_cache": {
+          "hits": 211,
+          "regenerations": 0,
+          "evictions": 0,
+          "retained_bytes": 174708,
+          "entries": 211
+        },
+        "retained_cpu_mesh_bytes": 174708,
+        "source_array_bytes": 129132,
+        "limitations": [],
+        "prepare_ms": 10.48087499657413,
+        "cpu_prepare_through_completion_ms": 21.508459001779556
+      },
+      "vs_current": {
+        "mean_rgb_difference": 0.010245056012802926,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 118.0,
+        "mean_alpha_difference": 0.4842271090534979,
+        "existing_rgb_threshold_met": true,
+        "exact_rgba_equal": false,
+        "changed_rgba_pixels": 39550,
+        "changed_rgb_pixels": 30372,
+        "changed_alpha_pixels": 18450
+      }
+    },
+    "flat_msaa4": {
+      "samples": [
+        {
+          "encode_ms": 5.842790997121483,
+          "submit_through_completion_ms": 1.5301250023185275,
+          "total_ms": 7.372915999440011,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.695958000724204,
+          "cpu_prepare_through_completion_ms": 18.18079200165812
+        },
+        {
+          "encode_ms": 5.658957998093683,
+          "submit_through_completion_ms": 5.300875003740657,
+          "total_ms": 10.95983300183434,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.530084000492934,
+          "cpu_prepare_through_completion_ms": 21.595042002445552
+        },
+        {
+          "encode_ms": 5.686415999662131,
+          "submit_through_completion_ms": 1.5393339999718592,
+          "total_ms": 7.22574999963399,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.480290999112185,
+          "cpu_prepare_through_completion_ms": 17.817375002778135
+        },
+        {
+          "encode_ms": 5.759624997153878,
+          "submit_through_completion_ms": 1.9274169972050004,
+          "total_ms": 7.687041994358879,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.5800419987645,
+          "cpu_prepare_through_completion_ms": 18.37554200028535
+        },
+        {
+          "encode_ms": 5.6614580025780015,
+          "submit_through_completion_ms": 1.4723749991389923,
+          "total_ms": 7.133833001716994,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 11.238375001994427,
+          "cpu_prepare_through_completion_ms": 18.496291995688807
+        }
+      ],
+      "warmups": [
+        {
+          "encode_ms": 12.552542000776157,
+          "submit_through_completion_ms": 17.20295799896121,
+          "total_ms": 29.755499999737367,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 205984,
+          "uploaded_uniform_bytes": 384,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 0,
+            "regenerations": 211,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 35.21845799696166,
+          "cpu_prepare_through_completion_ms": 65.27620799897704
+        },
+        {
+          "encode_ms": 5.6609590028529055,
+          "submit_through_completion_ms": 1.5037080011097714,
+          "total_ms": 7.164667003962677,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 21.402582999144215,
+          "cpu_prepare_through_completion_ms": 28.664625002420507
+        },
+        {
+          "encode_ms": 5.671207996783778,
+          "submit_through_completion_ms": 1.498042001912836,
+          "total_ms": 7.169249998696614,
+          "passes": 1,
+          "draws": 422,
+          "geometry_bytes": 211000,
+          "retained_gpu_geometry_bytes": 205984,
+          "retained_uniform_bytes": 384,
+          "uploaded_geometry_bytes": 0,
+          "uploaded_uniform_bytes": 0,
+          "nominal_target_bytes": 83980800,
+          "mesh_cache": {
+            "hits": 211,
+            "regenerations": 0,
+            "evictions": 0,
+            "retained_bytes": 174708,
+            "entries": 211
+          },
+          "retained_cpu_mesh_bytes": 174708,
+          "source_array_bytes": 129132,
+          "limitations": [],
+          "prepare_ms": 10.831209001480602,
+          "cpu_prepare_through_completion_ms": 18.105916999047622
+        }
+      ],
+      "timing_ms": {
+        "prepare_ms": {
+          "p50": 10.5800419987645,
+          "p95": 11.129891601740383,
+          "max": 11.238375001994427
+        },
+        "encode_ms": {
+          "p50": 5.686415999662131,
+          "p95": 5.826157797127962,
+          "max": 5.842790997121483
+        },
+        "submit_through_completion_ms": {
+          "p50": 1.5393339999718592,
+          "p95": 4.626183402433525,
+          "max": 5.300875003740657
+        },
+        "cpu_prepare_through_completion_ms": {
+          "p50": 18.37554200028535,
+          "p95": 20.975292001094203,
+          "max": 21.595042002445552
+        }
+      },
+      "diagnostic_resources": {
+        "encode_ms": 6.301790999714285,
+        "submit_through_completion_ms": 2.864875001250766,
+        "total_ms": 9.166666000965051,
+        "passes": 1,
+        "draws": 422,
+        "geometry_bytes": 211000,
+        "retained_gpu_geometry_bytes": 205984,
+        "retained_uniform_bytes": 384,
+        "uploaded_geometry_bytes": 0,
+        "uploaded_uniform_bytes": 0,
+        "nominal_target_bytes": 83980800,
+        "mesh_cache": {
+          "hits": 211,
+          "regenerations": 0,
+          "evictions": 0,
+          "retained_bytes": 174708,
+          "entries": 211
+        },
+        "retained_cpu_mesh_bytes": 174708,
+        "source_array_bytes": 129132,
+        "limitations": [],
+        "prepare_ms": 10.705207998398691,
+        "cpu_prepare_through_completion_ms": 23.605666996445507
+      },
+      "vs_current": {
+        "mean_rgb_difference": 0.01020661865569273,
+        "fraction_rgb_over_24": 0.0,
+        "max_rgba_difference": 118.0,
+        "mean_alpha_difference": 0.4842271090534979,
+        "existing_rgb_threshold_met": true,
+        "exact_rgba_equal": false,
+        "changed_rgba_pixels": 39550,
+        "changed_rgb_pixels": 30253,
+        "changed_alpha_pixels": 18450
+      }
+    }
+  }
+}

@@ -1,0 +1,2179 @@
+{
+  "purpose": "A0 required nonzero coverage vs existing ring wrapper plus Earcut; not a production tessellator selection",
+  "python": "3.13.9",
+  "numpy": "2.5.2",
+  "mapbox_earcut": "2.0.0",
+  "unadapted_production_wrapper_square": "success",
+  "earcut_call_adapter": "none; production wrapper now passes float32 vertices and uint32 ring ends at its native boundary",
+  "source_files_sha256": {
+    "benchmarks/earcut_probe.py": "36875772b1790542c7d78ac7f739a80981f118826e3264ab658a3505fbfbc375",
+    "maniml/utils/space_ops.py": "afd739fe2d5b5c7f187c771bab860b008131987bec939c2e83ec785738741888"
+  },
+  "lyon_helper_sha256": "6165e9bc26cd438d112c3a13065034d9b97c3474af488b491d1450fdf63bd583",
+  "oracle": "independent 128-sample/curve signed ray crossing; probes exclude 4x flattening tolerance plus oracle error near boundary",
+  "timing_scope": "one untuned CPU generation call; not a performance comparison; oracle time excluded",
+  "limitations": [
+    "Passing sampled interior coverage does not prove arbitrary path correctness or AA quality.",
+    "Existing ring wrapper uses containment as holes without a general nonzero orientation policy.",
+    "Self intersections/coincident rings exceed Earcut's supported simple-ring contract.",
+    "Lyon passes here do not establish binary packaging, bounded heap use, or a GPU algorithm."
+  ],
+  "case_count": 34,
+  "typed_existing_wrapper_fails_lyon_passes": [
+    "repeated_winding",
+    "crossing_morph_0.666667",
+    "crossing_morph_0.800000",
+    "crossing_morph_1.000000",
+    "same_winding_nested",
+    "same_winding_duplicate",
+    "opposed_duplicate",
+    "real_tex_glyph_010",
+    "real_tex_glyph_018",
+    "real_tex_glyph_058"
+  ],
+  "direct_earcut_fails_lyon_passes": [
+    "repeated_winding",
+    "crossing_morph_0.666667",
+    "crossing_morph_0.800000",
+    "crossing_morph_1.000000",
+    "same_winding_duplicate"
+  ],
+  "cases": [
+    {
+      "name": "annulus_hole",
+      "features": [
+        "curves",
+        "holes"
+      ],
+      "input_contract": "nonzero source-path coverage",
+      "source_contours": 2,
+      "source_points": 34,
+      "source_sha256": "d3f1fa8a34c38d9480dda2ebf30e59ca028002ce486fa929309df92d36ae8795",
+      "local_tolerance": 0.0024000000953674316,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1350,
+      "discarded_near_boundary": 19,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 98,
+          "triangles": 98,
+          "generation_once_ms": 9.083541997824796,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 98,
+          "triangles": 98,
+          "generation_once_ms": 0.3142500063404441,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "nested_contours",
+      "features": [
+        "holes",
+        "winding"
+      ],
+      "input_contract": "nonzero source-path coverage",
+      "source_contours": 3,
+      "source_points": 27,
+      "source_sha256": "4fb0b082cfec37b424e85c59071c37a8fd6aa09bcbf6e235aef367b9bf3c70f8",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1334,
+      "discarded_near_boundary": 35,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 12,
+          "triangles": 10,
+          "generation_once_ms": 0.4392499977257103,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 12,
+          "triangles": 10,
+          "generation_once_ms": 0.12587499804794788,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "repeated_winding",
+      "features": [
+        "winding",
+        "coincident_edges"
+      ],
+      "input_contract": "nonzero source-path coverage",
+      "source_contours": 1,
+      "source_points": 17,
+      "source_sha256": "7b72e5bf6c33d4297485866a6e13786e7eed2f6cba4c49daf4c3c70a2a1483cb",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 841,
+          "vertices": 8,
+          "triangles": 5,
+          "generation_once_ms": 0.21508400095626712,
+          "witnesses": [
+            {
+              "point": [
+                -0.9622994594594594,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8941913513513513,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8260832432432432,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.757975135135135,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.6898670270270271,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.11116699897684157,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "fail",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 841,
+          "vertices": 8,
+          "triangles": 4,
+          "generation_once_ms": 0.10183399717789143,
+          "witnesses": [
+            {
+              "point": [
+                -0.9622994594594594,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8941913513513513,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8260832432432432,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.757975135135135,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.6898670270270271,
+                -0.9458172972972974
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reversed_winding",
+      "features": [
+        "winding"
+      ],
+      "input_contract": "nonzero source-path coverage",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "d04aaff710bee59e45ac3a36af7034cd76ac760729788641c9a6bfd02bf881bf",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.14829199790256098,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05270799738354981,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.06245899567147717,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "curved_fill",
+      "features": [
+        "curves",
+        "border_control"
+      ],
+      "input_contract": "nonzero source-path coverage",
+      "source_contours": 1,
+      "source_points": 33,
+      "source_sha256": "19b7b353f7b9b79713aa74ee1e36117217b467e58ffd33e8cd81c6096627f405",
+      "local_tolerance": 0.0024000000953674316,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1354,
+      "discarded_near_boundary": 15,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 65,
+          "triangles": 63,
+          "generation_once_ms": 0.36770900624105707,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 65,
+          "triangles": 63,
+          "generation_once_ms": 0.1046659963321872,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 65,
+          "triangles": 63,
+          "generation_once_ms": 0.19720799900824204,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.000000",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "cb71ead019e0ddb936f784998926c31028daf1adaffaebc5bf66aa09117bb36c",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.17608300549909472,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.0760830007493496,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.06054199911886826,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.250000",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "d09494def5796b8bbcb8db9c7ea5af61c9d08f4cd63f2f6242578c1419b729a2",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1359,
+      "discarded_near_boundary": 10,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.16662500274833292,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.06587499956367537,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05941700510447845,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.500000",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "ac443af4d387a685e902a1ea0763c5f9bc46c05dba18d5cde0c4592715f60520",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1355,
+      "discarded_near_boundary": 14,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.15016699762782082,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.055083000916056335,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.056208999012596905,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.665667",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "2b1d1ac080aec9bf82583bcae897b2e424c1e2ec414d9015346b1c0657f83a48",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.15358399832621217,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05091699858894572,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05658299778588116,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.666667",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "ea9ec889edcbc160d546363d4b8c686aa4d035c93f1edb7f6060a33da0f75864",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.1372499973513186,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.04495900066103786,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05583299935096875,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.667667",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "a7010599ba5ed36a740fd8c9915bcb9157e1baddad80eed28a279ae7fcbda9ce",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.1368750017718412,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.04304199683247134,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.0551249977434054,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_0.900000",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "e487459752b457ceeb3308705cb69562bdf99f87a5aba4514ac292257a716f26",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1360,
+      "discarded_near_boundary": 9,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.13699999544769526,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.04737500421470031,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05591600347543135,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "concave_morph_1.000000",
+      "features": [
+        "morph",
+        "concavity",
+        "degeneracy"
+      ],
+      "input_contract": "simple polygon including collinear vertices",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "e3681f639d9a3202ba3759d0eb4f30d4049c0e10e11b12d10a219017c9407df2",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1355,
+      "discarded_near_boundary": 14,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.12154099385952577,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.036249999538995326,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.0538749955012463,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_0.000000",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "6090583ebd3ab8cc233d2589c6cbd7e52ff08c9725003a9ccac9f50730aa3450",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.11045800056308508,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.03383299917913973,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.054292002459988,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_0.250000",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "5a35fa5654375e7dc5c2bddd92e59829db670f9c13b138e314cc9628bc89c70b",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1348,
+      "discarded_near_boundary": 21,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.1592920016264543,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05437499930849299,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.058707999414764345,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_0.500000",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "325940345a08a42b19f8f787d4290169f2b237848cd6316a3707efc1bae2ac34",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1355,
+      "discarded_near_boundary": 14,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.12583300122059882,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.045541994040831923,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.05516600504051894,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_0.666667",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "51f944a6816010b703eda4fee73b1a63fa89743c7dadaf1811fe05ba62ce292d",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1341,
+      "discarded_near_boundary": 28,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 220,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.14024999836692587,
+          "witnesses": [
+            {
+              "point": [
+                0.037700540540540506,
+                0.054182702702702645
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.17391675675675672,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.24202486486486485,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 5,
+          "triangles": 2,
+          "generation_once_ms": 0.07758299761917442,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "fail",
+          "coverage_mismatches": 220,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.11045800056308508,
+          "witnesses": [
+            {
+              "point": [
+                0.037700540540540506,
+                0.054182702702702645
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.17391675675675672,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.24202486486486485,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_0.800000",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "9254c3bac9a90f38b4fb1aaf5995d6b8311741301642804739630a5b508c2c5f",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1346,
+      "discarded_near_boundary": 23,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 319,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.14037499931873754,
+          "witnesses": [
+            {
+              "point": [
+                0.037700540540540506,
+                0.054182702702702645
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.17391675675675672,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.037700540540540506,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 5,
+          "triangles": 2,
+          "generation_once_ms": 0.05275000148685649,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "fail",
+          "coverage_mismatches": 319,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.056041004427243024,
+          "witnesses": [
+            {
+              "point": [
+                0.037700540540540506,
+                0.054182702702702645
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.17391675675675672,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.037700540540540506,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "crossing_morph_1.000000",
+      "features": [
+        "morph",
+        "self_intersection",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero; intermediate paths can self-intersect, outside Earcut's simple-ring guarantee",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "4ced1b36bf7d75054e80cda34c047411c9ae2ab0f4852a7f761d301caa87465a",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1340,
+      "discarded_near_boundary": 29,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 406,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.12379200052237138,
+          "witnesses": [
+            {
+              "point": [
+                0.037700540540540506,
+                0.054182702702702645
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                0.10580864864864864,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.17391675675675672,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.24202486486486485,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                0.3101329729729728,
+                0.054182702702702645
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 5,
+          "triangles": 2,
+          "generation_once_ms": 0.0428749990533106,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "fail",
+          "coverage_mismatches": 406,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 1,
+          "generation_once_ms": 0.055292002798523754,
+          "witnesses": [
+            {
+              "point": [
+                1.9447275675675673,
+                0.12229081081081072
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                1.876619459459459,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                1.9447275675675673,
+                0.1903989189189188
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                1.808511351351351,
+                0.2585070270270269
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            },
+            {
+              "point": [
+                1.876619459459459,
+                0.2585070270270269
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "same_winding_nested",
+      "features": [
+        "winding",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero overlapping nested regions; inner ring is not a hole",
+      "source_contours": 2,
+      "source_points": 18,
+      "source_sha256": "844fcd2c5063203b88c4814a2896d84cb1da20d5a619c2e8b992a580ffbad3d4",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 225,
+          "overdraw_probes": 0,
+          "vertices": 8,
+          "triangles": 8,
+          "generation_once_ms": 0.2687500018510036,
+          "witnesses": [
+            {
+              "point": [
+                -0.9710854054054054,
+                -0.9381210810810812
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                -0.8348691891891891,
+                -0.9381210810810812
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                -0.6986529729729729,
+                -0.9381210810810812
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                -0.5624367567567568,
+                -0.9381210810810812
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            },
+            {
+              "point": [
+                -0.4262205405405406,
+                -0.9381210810810812
+              ],
+              "expected_covered": true,
+              "mesh_covered": false,
+              "strict_triangle_count": 0
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 8,
+          "triangles": 10,
+          "generation_once_ms": 0.0946669970289804,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "opposite_winding_nested",
+      "features": [
+        "winding",
+        "degeneracy"
+      ],
+      "input_contract": "simple outer ring and hole",
+      "source_contours": 2,
+      "source_points": 18,
+      "source_sha256": "ab28f76a190d1c5e2357f4d83646db4a17334f32c83de94a5b66a9b211fc3789",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 8,
+          "triangles": 8,
+          "generation_once_ms": 0.2495420048944652,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 8,
+          "triangles": 8,
+          "generation_once_ms": 0.08633299876237288,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "same_winding_duplicate",
+      "features": [
+        "winding",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero coincident contours; coverage once",
+      "source_contours": 1,
+      "source_points": 19,
+      "source_sha256": "b40bd083bdc93ad3cccd2fe3b8e37bf9b9f2c388c322fa902f285aae130143fb",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 841,
+          "vertices": 8,
+          "triangles": 5,
+          "generation_once_ms": 0.2194580010836944,
+          "witnesses": [
+            {
+              "point": [
+                -1.9245989189189188,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.7883827027027026,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.6521664864864865,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.51595027027027,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.3797340540540541,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 2,
+          "generation_once_ms": 0.06725000275764614,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "fail",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 841,
+          "vertices": 8,
+          "triangles": 4,
+          "generation_once_ms": 0.10391699470346794,
+          "witnesses": [
+            {
+              "point": [
+                -1.9245989189189188,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.7883827027027026,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.6521664864864865,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.51595027027027,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.3797340540540541,
+                -1.8916345945945947
+              ],
+              "expected_covered": true,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "opposed_duplicate",
+      "features": [
+        "winding",
+        "degeneracy"
+      ],
+      "input_contract": "nonzero coincident opposing contours; empty coverage",
+      "source_contours": 2,
+      "source_points": 18,
+      "source_sha256": "447e2a676103526806b948995660f133ad8fa137fca64123e2083a2fcab71b16",
+      "local_tolerance": 0.004,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1369,
+      "discarded_near_boundary": 0,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 841,
+          "overdraw_probes": 841,
+          "vertices": 8,
+          "triangles": 4,
+          "generation_once_ms": 0.2587500057416037,
+          "witnesses": [
+            {
+              "point": [
+                -1.9245989189189188,
+                -1.8916345945945947
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.7883827027027026,
+                -1.8916345945945947
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.6521664864864865,
+                -1.8916345945945947
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.51595027027027,
+                -1.8916345945945947
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -1.3797340540540541,
+                -1.8916345945945947
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 0,
+          "generation_once_ms": 0.05849999433849007,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "collapsed_line",
+      "features": [
+        "winding",
+        "degeneracy"
+      ],
+      "input_contract": "degenerate zero-area path; empty coverage",
+      "source_contours": 1,
+      "source_points": 9,
+      "source_sha256": "9042ce5102f471dca0efa8ee7d4e0ec5e7d36cefb77dc9708d2f6a3968210319",
+      "local_tolerance": 0.002,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 702,
+      "discarded_near_boundary": 667,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 0,
+          "generation_once_ms": 0.1368750017718412,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 3,
+          "triangles": 0,
+          "generation_once_ms": 0.06916699931025505,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 4,
+          "triangles": 0,
+          "generation_once_ms": 0.0619589991401881,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_000",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 1,
+      "source_points": 105,
+      "source_sha256": "e29c4dc5c093926d45cbbc15ffd993481b67ced6e79944c54f1b386a8b435105",
+      "local_tolerance": 0.00013037109375,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1318,
+      "discarded_near_boundary": 51,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 157,
+          "triangles": 155,
+          "generation_once_ms": 0.7316249975701794,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 157,
+          "triangles": 155,
+          "generation_once_ms": 0.1968750002561137,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 157,
+          "triangles": 155,
+          "generation_once_ms": 0.5460419997689314,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_002",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 50,
+      "source_sha256": "88467c30acd62b6d592c89910db956d2364caf9f04eee573fe7a98ff48ebc884",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1324,
+      "discarded_near_boundary": 45,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 99,
+          "triangles": 99,
+          "generation_once_ms": 0.5750839991378598,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 99,
+          "triangles": 99,
+          "generation_once_ms": 0.12216599861858413,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_003",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 50,
+      "source_sha256": "988c7a2178fce0399e31ce0314c1178114a4639e3a8b84c0c5f7df8b90fe5122",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1324,
+      "discarded_near_boundary": 45,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 99,
+          "triangles": 99,
+          "generation_once_ms": 0.5952910069026984,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 99,
+          "triangles": 99,
+          "generation_once_ms": 0.09479200525674969,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_010",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 54,
+      "source_sha256": "958630a6a48c13b612eb68c12bdced8aecde59c345b38d5fec54adc19f584ceb",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1313,
+      "discarded_near_boundary": 56,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 128,
+          "overdraw_probes": 128,
+          "vertices": 103,
+          "triangles": 99,
+          "generation_once_ms": 0.5931659979978576,
+          "witnesses": [
+            {
+              "point": [
+                -0.8275487317240947,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8249703578408731,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8223919839576515,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8198136100744299,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.8172352361912083,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 103,
+          "triangles": 103,
+          "generation_once_ms": 0.11658300354611129,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_014",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 90,
+      "source_sha256": "fa33c40d7f3a449f52a4fd846ceb87a2afebdc0af8af97591df8cb1331a6fc24",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1303,
+      "discarded_near_boundary": 66,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 152,
+          "triangles": 152,
+          "generation_once_ms": 0.8346670001628809,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 152,
+          "triangles": 152,
+          "generation_once_ms": 0.19095799507340416,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_018",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 54,
+      "source_sha256": "47bc061ff363913bb89f39e9a754b8a6ace13bfead2bc780130387b24fb69eda",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1313,
+      "discarded_near_boundary": 56,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 128,
+          "overdraw_probes": 128,
+          "vertices": 103,
+          "triangles": 99,
+          "generation_once_ms": 0.5602080054813996,
+          "witnesses": [
+            {
+              "point": [
+                -0.10326296580526717,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.10068459262683022,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.09810621944839326,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.09552784626995632,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                -0.09294947309151937,
+                0.8034639789020822
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 103,
+          "triangles": 103,
+          "generation_once_ms": 0.08604200411355123,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_019",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 90,
+      "source_sha256": "8e425211c45f9ea0b0d99c56eca41942a963c5f9322f6675f8f470bd4a3925d3",
+      "local_tolerance": 0.0001,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1302,
+      "discarded_near_boundary": 67,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 152,
+          "triangles": 152,
+          "generation_once_ms": 0.8343330046045594,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 152,
+          "triangles": 152,
+          "generation_once_ms": 0.10891700367210433,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_050",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 2,
+      "source_points": 50,
+      "source_sha256": "1e4f31ff6cfd62a84a96bc4558c0d691f35cadcb01b118e2688b92e4a68a1ca2",
+      "local_tolerance": 0.00011997011303901672,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1325,
+      "discarded_near_boundary": 44,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 67,
+          "triangles": 63,
+          "generation_once_ms": 0.5302499994286336,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 67,
+          "triangles": 63,
+          "generation_once_ms": 0.12133400014135987,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_058",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 3,
+      "source_points": 79,
+      "source_sha256": "7f976f8de7e2d674f446dcb20898c94ba16788d54e97da5dff0f5c5b62ba14f0",
+      "local_tolerance": 0.00012337732315063476,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1318,
+      "discarded_near_boundary": 51,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "fail",
+          "coverage_mismatches": 138,
+          "overdraw_probes": 138,
+          "vertices": 145,
+          "triangles": 143,
+          "generation_once_ms": 0.7794170014676638,
+          "witnesses": [
+            {
+              "point": [
+                0.17941774925514814,
+                0.37850142280578614
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                0.1821318259996917,
+                0.37850142280578614
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                0.18484590274423524,
+                0.37850142280578614
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                0.17127551902151752,
+                0.3827029208374023
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            },
+            {
+              "point": [
+                0.17398959576606107,
+                0.3827029208374023
+              ],
+              "expected_covered": false,
+              "mesh_covered": true,
+              "strict_triangle_count": 2
+            }
+          ]
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 145,
+          "triangles": 147,
+          "generation_once_ms": 0.13475000014295802,
+          "witnesses": []
+        }
+      }
+    },
+    {
+      "name": "real_tex_glyph_100",
+      "features": [
+        "real_tex",
+        "glyph",
+        "curves",
+        "holes"
+      ],
+      "input_contract": "actual production TeX glyph; classify from its contours",
+      "source_contours": 1,
+      "source_points": 63,
+      "source_sha256": "c1e82aba906db9490f1c35ebc1a61047299bad87e9974873e59727945d964d04",
+      "local_tolerance": 0.00010187393426895142,
+      "grid_size": 37,
+      "relative_tolerance": 0.001,
+      "tested_probes": 1317,
+      "discarded_near_boundary": 52,
+      "generators": {
+        "earcut_ring_wrapper_typed": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 103,
+          "triangles": 101,
+          "generation_once_ms": 0.5152500016265549,
+          "witnesses": []
+        },
+        "lyon_nonzero": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 103,
+          "triangles": 101,
+          "generation_once_ms": 0.1244590021087788,
+          "witnesses": []
+        },
+        "direct_earcut_single_ring": {
+          "status": "pass",
+          "coverage_mismatches": 0,
+          "overdraw_probes": 0,
+          "vertices": 103,
+          "triangles": 101,
+          "generation_once_ms": 0.3584590012906119,
+          "witnesses": []
+        }
+      }
+    }
+  ]
+}
