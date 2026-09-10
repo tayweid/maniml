@@ -250,3 +250,121 @@ dependencies on the path.
 - The current renderer's B0 total moved by a third between runs on the same
   machine, which supports the results document's own caution about
   small-scene totals.
+
+## Fifth round: audit of the A1 integration
+
+Reviewer again, 2026-09-10, on commits `e46ebe42` (Write endpoints) and
+`a7eb644b` (generated geometry in both WebGPU drivers), against the
+[A1 integration record](docs_unified_triangle_renderer_a1_integration.md).
+Files were changing on disk again while this was written; anything after
+`a7eb644b` is not covered here.
+
+### What was checked
+
+- Full discovery with `MANIML_TEST_GPU=1`, `MANIML_VERIFY_LEDGER=1`, the Lyon
+  helper and the scratch WebGPU dependencies: 541 tests, the only failures
+  are the two long-standing AppShell end-to-end cases, one Windows-only skip.
+  This matches the record.
+- Read in full: `maniml/web/triangle_scene.py`, `generated_geometry.py`,
+  `static/geometry_recording.js`, the diffs to `geometry.py`,
+  `wgpu_renderer.py`, `webgpu.js`, every WGSL file, `player.js`,
+  `animation/creation.py`, `triangle_geometry.py`, `tools/lyon_fill/src/lib.rs`,
+  `pyproject.toml`, `MANIFEST.in`, and `ci.yml`. A delegated pass covered the
+  browser driver, the recording helper, the player, and the Node-backed tests.
+- Ran the production selector on a plain 2D scene and measured the border
+  union on the 101-glyph TeX fixture.
+
+### Findings, most important first
+
+1. **The shipped selector renders 2D fills with no antialiasing.** An
+   ordinary scene has `camera.samples = 0`. The winding path keeps its own
+   2× fill AA in that case; the triangle path maps it to one sample and draws
+   hard-edged fills. Verified: a plain Square through
+   `serialize_scene(renderer="triangles")` produces a header with one sample.
+   The A1 quality and timing tables come from `benchmarks/generated_output.py`,
+   which sets four samples for the triangle variant only (line 132). The
+   record therefore describes a renderer the environment variable does not
+   give. The triangle path should choose its own AA, 4× MSAA or the 2×
+   resolve, independent of the scene's sample setting.
+
+2. **Rust is now a hard build dependency for every source and editable
+   install.** `setuptools-rust` is in the build-system requires, so
+   `pip install -e .` needs cargo 1.97 and a linker for everyone, including
+   users who never set the selector. The plan said packaging evidence does not
+   automatically authorize adoption; this commit adopts it implicitly. The
+   default renderer never loads the helper, so the extension can be
+   `optional = true` in the ext-modules table: installs without Rust keep
+   working and the selector fails with the existing "helper missing" message.
+   This needs an explicit decision, and it changes the main-checkout workflow
+   described in CLAUDE.md.
+
+3. **The border union multiplies geometry by an order of magnitude.** The
+   union feeds every fill triangle and every stroke triangle to the sweep as
+   its own contour, so a vertex appears wherever a fill diagonal crosses a
+   stroke strip. Measured on the 101-glyph TeX paragraph with a border of 2%
+   of glyph extent:
+
+   | 101 TeX glyphs | Vertices | Triangles |
+   |---|---:|---:|
+   | Fill only | 8,368 | 8,216 |
+   | Fill plus border union | 72,158 | 134,166 |
+
+   That is the source of the 3 MB retained per paragraph and of serialization
+   rising from about 3 ms to about 11 ms. A stencil-masked border avoids the
+   CPU union: draw the fill writing a stencil reference, then draw the border
+   with the existing stroke shader under a not-equal stencil test. Coverage
+   stays single-owner, no geometry is generated, and the stroke shader's AA
+   fringe returns, which is closer to the current border than a binary union.
+   Section 5.2 of the plan allows another shared-backend coverage technique.
+
+4. **Unchanged meshes are rehashed every frame.** `serialize_generated_frame`
+   runs blake2b over every draw's bytes on every frame, cache hit or not.
+   Cache entries are frozen and immutable, so a digest computed once at
+   generation, plus a composite for coalesced runs, removes most of the
+   remaining per-frame CPU cost.
+
+5. **The format bump rejects every existing export.** `player.js` refuses
+   anything but version 2 while winding payloads are unchanged and
+   `geometry_recording.js` handles version 1 frames. Accept both versions.
+
+6. **The Write change is sound.** Exact endpoints, revision-keyed skipping
+   only when no updaters are present, and tests for reverse rate functions,
+   Unwrite, restarts, and raw endpoint writes. Style matching moved from the
+   whole family at begin to each submobject on first interpolation, which is
+   equivalent because alpha zero reaches every family member.
+
+### Smaller items from the browser-side pass
+
+- `stroke.wgsl` already premultiplies in border mode, so forwarding
+  `border_mode` on the generated path would premultiply twice. Unreachable
+  today, unguarded.
+- A throw mid-pass leaves that frame's buffers alive until the next
+  successful frame. Not a wedge; the render queue recovers.
+- The player has no error surface for a corrupt recording; a missing hash
+  throws past the error display.
+- The texture cache never evicts. This predates the change, but the
+  "current-frame retention" claim does not extend to textures.
+- Nothing runs player, recording, and driver together end to end; the two
+  halves are tested separately.
+
+### What checked out
+
+- The default winding path is unchanged: blend state, pass structure, clear
+  color, uniform layout size, and the renamed pad field, which no winding code
+  ever set.
+- Generated buffers and bind groups retire only after submit and only when
+  absent from the frame. Uniform keys include the packed bits, so one mesh
+  with two uniform sets is two bindings.
+- Depth is disabled for 2D draws and inherited for depth pipelines. Draw order
+  is the authored order; coalescing only merges consecutive compatible runs.
+- Reverse seeks rebuild frames from CPU bytes without historical GPU buffers.
+- The wheel check loads the helper from an extracted wheel in an isolated
+  interpreter. The Rust union rejects nonuniform attributes and keeps every
+  bound.
+
+### On process
+
+A1 started while the A0 text gates were still open, and the record says so.
+That is acceptable for an opt-in path. Findings 1 and 2 are the two places
+where opt-in is not yet opt-in: a default install now needs Rust, and the
+opt-in renders worse than the benchmark reports.
