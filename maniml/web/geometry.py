@@ -361,8 +361,10 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None) -> bytes:
                 tri_bytes = tri_data.tobytes()
                 index_bytes = np.ascontiguousarray(tri_indices).tobytes()
 
+            # Connectivity can change without moving any vertices. Both
+            # renderer caches use this hash for the complete mesh payload.
             content_hash = hashlib.blake2b(
-                raw + tri_bytes, digest_size=8).hexdigest()
+                raw + tri_bytes + index_bytes, digest_size=8).hexdigest()
             batch = {
                 "kind": record["kind"],
                 "hash": content_hash,
