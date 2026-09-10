@@ -286,10 +286,10 @@ class ViewerTests(unittest.TestCase):
         browser without WebGPU gets the notice on the stage instead."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn("new ManimlRendererSelection(canvas,", viewer)
-        self.assertIn("void startRenderer();", viewer)
+        self.assertIn("void startRenderer(data.renderer, false);", viewer)
         self.assertIn('id="gpu-unsupported"', viewer)
         self.assertIn('document.body.classList.add("nogpu");', viewer)
-        self.assertIn('renderer: rendererSession.mode', viewer)
+        self.assertIn("if (!rendererNegotiated) return;", viewer)
         for gone in ('data-renderer="pixel"', 'id="split"', 'id="gpuview"',
                      "renderer_fallback", "createImageBitmap",
                      'getContext("2d")', "pixels:"):

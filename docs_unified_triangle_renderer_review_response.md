@@ -325,3 +325,18 @@ Mutable/coalesced geometry still hashes its bytes, and directly translating
 one source mesh resends that mesh. The 18-test generated-wire module passes,
 including explicit endian descriptors, big-endian conversion, noncontiguous
 arrays and writable index updates. This does not yet fix border zoom uploads.
+
+### 3. Renderer negotiation
+
+A new or reconnected tab waits for authoritative server state before starting
+its renderer. Readiness and playback resumption no longer select a renderer.
+Explicit choices carry request IDs: the latest acknowledgment can restore the
+server's final choice after a concurrent remote choice, while stale own
+acknowledgments cannot undo a later selection. Same-mode choices are also
+acknowledged. Obsolete socket, initialization and blob completions are ignored.
+
+The scripted browser handlers cover reload, reconnect, delayed initialization,
+rapid choices and the two-origin race found during implementation review.
+35 focused CPU tests and two real WebSocket E2E tests pass, including a new tab
+joining Original 2D while geometry is off and switching without changing the
+source hashes or current checkpoint.

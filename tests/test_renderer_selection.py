@@ -82,9 +82,38 @@ class RendererSelectionProtocol(unittest.TestCase):
         self.assertEqual(viewer._renderer_mode, "winding")
         self.assertFalse(viewer._geometry_mode)
 
+    def test_explicit_same_mode_request_is_acknowledged_but_readiness_is_not(self):
+        viewer = self.viewer()
+        viewer._handle_event({"type": "mode", "geometry": False, "renderer": "triangles",
+                              "renderer_origin": "first-tab", "renderer_request": 17})
+        viewer.server.broadcast_json.assert_called_once_with({
+            "type": "renderer", "renderer": "triangles", "origin": "first-tab", "request": 17})
+        viewer.server.broadcast_json.reset_mock()
+        viewer._handle_event({"type": "mode", "geometry": True})
+        viewer.server.broadcast_json.assert_not_called()
+        viewer._handle_event({"type": "mode", "geometry": False, "renderer": "winding",
+                              "renderer_origin": "second-tab", "renderer_request": 18})
+        viewer.server.broadcast_json.assert_called_once_with({
+            "type": "renderer", "renderer": "winding", "origin": "second-tab", "request": 18})
+
+    def test_invalid_renderer_request_id_does_not_change_selection(self):
+        for request_id in (True, 0, -1, 1.5, "1", 2**53):
+            with self.subTest(request_id=request_id):
+                viewer = self.viewer()
+                viewer._handle_event({"type": "mode", "geometry": True, "renderer": "winding",
+                                      "renderer_request": request_id})
+                self.assertEqual(viewer._renderer_mode, "triangles")
+                self.assertEqual(viewer._geometry_cache.sent, {"old-delta"})
+                viewer.server.broadcast_json.assert_not_called()
+
 
 @unittest.skipIf(shutil.which("node") is None, "node not available")
 class RendererSelectionLifecycle(unittest.TestCase):
+    def test_viewer_negotiates_reload_reconnect_and_multitab_selection_from_server_state(self):
+        result = subprocess.run(["node", str(Path(__file__).with_name("renderer_negotiation.cjs"))],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_inflight_draw_switch_back_stale_payloads_and_failed_init(self):
         result = subprocess.run(["node", str(Path(__file__).with_name("renderer_selection.cjs"))],
                                 capture_output=True, text=True, timeout=30)

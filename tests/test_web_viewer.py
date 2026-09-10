@@ -1160,6 +1160,66 @@ class RendererDemo(Scene):
 """
     SCENE = "RendererDemo"
 
+    def test_rejoining_tab_adopts_server_selection_even_with_geometry_off(self):
+        from maniml.web.geometry import parse_geometry_message
+
+        def receive(ws, predicate):
+            deadline = time.monotonic() + MESSAGE_TIMEOUT
+            while time.monotonic() < deadline:
+                try:
+                    message = ws.recv(timeout=max(.01, deadline - time.monotonic()))
+                except TimeoutError:
+                    break
+                if isinstance(message, bytes):
+                    value, _ = parse_geometry_message(message)
+                    value = {**value, "type": "geometry"}
+                else:
+                    value = json.loads(message)
+                if predicate(value):
+                    return value
+            self.fail("no matching renderer handshake message")
+
+        def state(ws, mode):
+            result = receive(ws, lambda message: message.get("type") == "state"
+                             and message.get("renderer") == mode)
+            self.assertEqual(result["current"], 0)
+            self.assertEqual(result["scene"], "RendererDemo")
+            return result
+
+        def ready_frame(ws, mode):
+            # This is readiness, not a renderer selection. A reloaded page
+            # must receive authoritative state before sending it.
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            frame = receive(ws, lambda message: message.get("type") == "geometry"
+                            and message.get("renderer") == mode)
+            self.assertTrue(frame["batches"])
+            self.assertFalse(any(batch.get("cached") for batch in frame["batches"]))
+            return [batch["hash"] for batch in frame["batches"]]
+
+        with self._connect() as first:
+            first.send(json.dumps({"type": "mode", "geometry": False, "renderer": "winding",
+                                   "renderer_origin": "first-tab", "renderer_request": 1}))
+            receive(first, lambda message: message.get("type") == "renderer"
+                    and message.get("origin") == "first-tab" and message.get("request") == 1)
+            state(first, "winding")
+            with self._connect() as reloaded:
+                # The server emits state without waiting for geometry=True.
+                state(reloaded, "winding")
+                before = ready_frame(reloaded, "winding")
+                state(first, "winding")
+                first.send(json.dumps({"type": "mode", "geometry": True, "renderer": "winding",
+                                       "renderer_origin": "first-tab", "renderer_request": 2}))
+                same_mode = receive(first, lambda message: message.get("type") == "renderer"
+                                    and message.get("request") == 2)
+                self.assertEqual(same_mode["renderer"], "winding")
+            with self._connect() as reconnected:
+                state(reconnected, "winding")
+                self.assertEqual(ready_frame(reconnected, "winding"), before)
+                first.send(json.dumps({"type": "mode", "geometry": False, "renderer": "triangles"}))
+                state(first, "triangles")
+                state(reconnected, "triangles")
+                ready_frame(reconnected, "triangles")
+
     def test_renderer_switch_returns_full_geometry_at_the_same_checkpoint(self):
         from maniml.web.geometry import parse_geometry_message
 

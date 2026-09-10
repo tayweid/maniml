@@ -458,7 +458,7 @@
     </span>
 
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
-      <select id="renderer-select" aria-label="Scene renderer">
+      <select id="renderer-select" aria-label="Scene renderer" disabled>
         <option value="triangles" selected>Phase A</option>
         <option value="winding">Original 2D</option>
       </select>
@@ -548,6 +548,10 @@ const scenePrefix = sceneParam
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
 let ws = null;
+let rendererConnection = 0;
+let rendererNegotiated = false;
+let rendererRequest = 0;
+let pendingRendererRequest = null;
 let reconnectCount = 0;
 let connectedBoot = null;   // engine boot id first seen by this page
 let reconnectTimer = null;
@@ -591,6 +595,10 @@ function scheduleReconnect() {
 }
 
 function connect(manualRetry = false) {
+  const connection = ++rendererConnection;
+  rendererNegotiated = false;
+  pendingRendererRequest = null;
+  document.getElementById("renderer-select").disabled = true;
   clearTimeout(reconnectTimer);
   if (manualRetry) {
     reconnectCount = 0;
@@ -604,15 +612,21 @@ function connect(manualRetry = false) {
     scheduleReconnect();
     return;
   }
+  const socket = ws;
   ws.binaryType = "blob";
   // A closed socket means the scene process is gone or still starting; it is
   // never a credential to discard, so reconnecting is always the right move.
   ws.onclose = () => {
+    if (connection !== rendererConnection) return;
+    rendererConnection += 1;
+    rendererNegotiated = false;
+    rendererSelect.disabled = true;
     document.body.classList.add("disconnected");
     scheduleReconnect();
   };
   ws.onerror = () => {};
   ws.onmessage = (e) => {
+    if (connection !== rendererConnection || socket !== ws) return;
     if (typeof e.data === "string") {
       const data = JSON.parse(e.data);
       if (data.type === "ready") {
@@ -637,9 +651,11 @@ function connect(manualRetry = false) {
         hideConnectionIssue();
         applyCapabilities(data.capabilities || []);
         canvas.focus();
-        // The browser is the renderer. Bring WebGPU up once the engine is
-        // connected, then tell it there is someone to draw for.
-        void startRenderer();
+        // The following state carries the engine's current renderer, even
+        // with geometry streaming off. A rejoining tab must adopt it before
+        // announcing readiness, rather than selecting its own page default.
+        rendererSelect.disabled = true;
+        geometryQueue = [];
       } else if (data.type === "log") {
         appendLog(data.lines || [], !!data.replace);
       } else {
@@ -719,11 +735,14 @@ function present() {
 }
 
 async function handleFrame(blob) {
+  if (!rendererNegotiated) return;
+  const connection = rendererConnection;
   const generation = rendererSession.generation;
   const head = new Uint8Array(await blob.slice(0, 1).arrayBuffer())[0];
   if (head !== 3) return;
   const buffer = await blob.arrayBuffer();
-  if (generation !== rendererSession.generation) return;
+  if (!rendererNegotiated || connection !== rendererConnection
+      || generation !== rendererSession.generation) return;
   geometryQueue.push(buffer);
   schedulePresent();
 }
@@ -742,16 +761,22 @@ for (const driver of Object.values(rendererSession.drivers)) {
 }
 
 function sendRendererMode() {
-  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback",
-         renderer: rendererSession.mode, renderer_origin: rendererOrigin });
+  if (!rendererNegotiated) return;
+  // Readiness and playback resumption never select a renderer. Only an
+  // explicit dropdown change may change the engine's shared selection.
+  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback" });
   if (rendererSession.ready && stageSource !== "playback") send({ type: "geometry_request" });
 }
 
 async function startRenderer(mode = rendererSession.mode, announce = true) {
+  if (!rendererNegotiated) return false;
+  const connection = rendererConnection;
   const changed = mode !== rendererSession.mode;
-  if (changed) {
-    geometryQueue = [];
-    if (announce) send({ type: "mode", geometry: false, renderer: mode, renderer_origin: rendererOrigin });
+  if (changed) geometryQueue = [];
+  if (announce) {
+    pendingRendererRequest = ++rendererRequest;
+    send({ type: "mode", geometry: false, renderer: mode,
+           renderer_origin: rendererOrigin, renderer_request: pendingRendererRequest });
   }
   rendererSelect.value = mode;
   const starting = rendererSession.select(mode);
@@ -759,7 +784,8 @@ async function startRenderer(mode = rendererSession.mode, announce = true) {
   try {
     if (!await starting) return false;
   } catch (err) {
-    if (generation !== rendererSession.generation) return false;
+    if (!rendererNegotiated || connection !== rendererConnection
+        || generation !== rendererSession.generation) return false;
     document.body.classList.add("nogpu");
     document.getElementById("gpu-unsupported-detail").textContent =
       "WebGPU error: " + err.message;
@@ -768,6 +794,8 @@ async function startRenderer(mode = rendererSession.mode, announce = true) {
     sendRendererMode();
     return false;
   }
+  if (!rendererNegotiated || connection !== rendererConnection
+      || generation !== rendererSession.generation) return false;
   document.body.classList.remove("nogpu");
   glWarn.textContent = "";
   glWarn.classList.remove("on");
@@ -807,14 +835,24 @@ function handleMessage(data) {
     setRenderError(data.error);
   }
   else if (data.type === "renderer") {
-    // Local selection already took effect; delayed acknowledgments must
-    // not undo a second quick selection in this tab.
-    if (data.origin !== rendererOrigin &&
-        (data.renderer === "triangles" || data.renderer === "winding")) {
+    if (data.renderer === "triangles" || data.renderer === "winding") {
+      // A remote selection may have changed our optimistic local choice.
+      // Adopt the latest own acknowledgment too, but never an older request
+      // superseded by another local selection or a new connection handshake.
+      if (data.origin === rendererOrigin) {
+        if (pendingRendererRequest === null || data.request !== pendingRendererRequest) return;
+        pendingRendererRequest = null;
+      }
       void startRenderer(data.renderer, false);
     }
   }
   else if (data.type === "state") {
+    if (!rendererNegotiated
+        && (data.renderer === "triangles" || data.renderer === "winding")) {
+      rendererNegotiated = true;
+      rendererSelect.disabled = false;
+      void startRenderer(data.renderer, false);
+    }
     lastLiveState = data;
     if (data.render_error) setRenderError(data.render_error);
     // During playback the recording owns the presenter; the engine's

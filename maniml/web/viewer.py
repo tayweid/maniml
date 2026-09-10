@@ -646,12 +646,26 @@ class WebViewer:
             requested = event.get("renderer", self._renderer_mode)
             if requested not in ("triangles", "winding"):
                 return
-            if requested != self._renderer_mode:
+            request_id = event.get("renderer_request")
+            if request_id is not None and (
+                isinstance(request_id, bool) or not isinstance(request_id, int)
+                or not 1 <= request_id <= 2**53 - 1
+            ):
+                return
+            changed = requested != self._renderer_mode
+            if changed:
                 self._renderer_mode = requested
                 self._geometry_cache.reset()
                 self._last_state = None
-                self.server.broadcast_json({"type": "renderer", "renderer": requested,
-                                            "origin": event.get("renderer_origin")})
+            # Explicit selections need an acknowledgment even when another
+            # tab has already selected the same mode. Readiness carries no
+            # renderer/request and must not create an acknowledgment loop.
+            if changed or ("renderer" in event and request_id is not None):
+                message = {"type": "renderer", "renderer": requested,
+                           "origin": event.get("renderer_origin")}
+                if request_id is not None:
+                    message["request"] = request_id
+                self.server.broadcast_json(message)
             self._geometry_mode = bool(event.get("geometry"))
             if self._geometry_mode:
                 self._geometry_cache.reset()
