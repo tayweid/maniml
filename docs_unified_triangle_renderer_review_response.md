@@ -315,3 +315,13 @@ allocates an independent context on capture. A copied camera keeps identical
 pixels after the original is released. This caught and fixed a wrong-context
 cleanup bug; resource retirement now activates the owning context and attempts
 every cleanup. Headless import and the 281-name CE baseline also pass.
+
+### 2. Indexed digest normalization
+
+The serializer now retains an already contiguous, equivalent little-endian
+uint32 index array. Actual nine-fill Lyon preparation/serialization makes
+zero second-frame hashes when the draws remain separate and immutable.
+Mutable/coalesced geometry still hashes its bytes, and directly translating
+one source mesh resends that mesh. The 18-test generated-wire module passes,
+including explicit endian descriptors, big-endian conversion, noncontiguous
+arrays and writable index updates. This does not yet fix border zoom uploads.

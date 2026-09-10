@@ -2,6 +2,7 @@
 
 import base64
 from dataclasses import replace
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -117,17 +118,95 @@ class GeneratedGeometryWire(unittest.TestCase):
 
     def test_immutable_mesh_digest_is_reused_and_absent_entries_retire(self):
         from maniml.web.triangle_scene import _readonly
-        draw, cache = quad(), GeometryCache()
-        draw = replace(draw, vertices=_readonly(draw.vertices), indices=_readonly(draw.indices))
-        first = encode([draw], cache)
-        with patch("maniml.web.generated_geometry.hashlib.blake2b", side_effect=AssertionError("rehashed frozen mesh")):
-            header, raw = parse_geometry_message(encode([draw], cache))
-        self.assertTrue(header["batches"][0]["cached"])
-        self.assertEqual(raw, b"")
-        self.assertEqual(len(cache.generated_payloads), 1)
-        encode([], cache)
-        self.assertEqual(cache.generated_payloads, {})
-        self.assertEqual(encode([draw], cache), first)
+        for dtype in (np.dtype("u4"), np.dtype("u4").newbyteorder("<")):
+            with self.subTest(byteorder=dtype.byteorder):
+                draw, cache = quad(), GeometryCache()
+                draw = replace(draw, vertices=_readonly(draw.vertices),
+                               indices=_readonly(draw.indices.astype(dtype)))
+                first = encode([draw], cache)
+                with patch("maniml.web.generated_geometry.hashlib.blake2b",
+                           side_effect=AssertionError("rehashed frozen mesh")):
+                    header, raw = parse_geometry_message(encode([draw], cache))
+                self.assertTrue(header["batches"][0]["cached"])
+                self.assertEqual(raw, b"")
+                self.assertEqual(len(cache.generated_payloads), 1)
+                encode([], cache)
+                self.assertEqual(cache.generated_payloads, {})
+                self.assertEqual(encode([draw], cache), first)
+
+    def test_nine_production_fills_reuse_digests_only_for_immutable_draws(self):
+        from maniml.mobject.geometry import Square
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
+        from tests.renderer_fixtures import build_scene
+
+        tessellator = LyonFillTessellator()
+        for coalesce in (False, True):
+            with self.subTest(coalesce=coalesce):
+                shapes = [Square(side_length=.4, fill_opacity=1, stroke_width=0,
+                                 fill_border_width=0).shift([i % 3 - 1, i // 3 - 1, 0])
+                          for i in range(9)]
+                scene, meshes, cache = build_scene(*shapes), TriangleMeshCache(), GeometryCache()
+                source_bytes = [shape.get_points().tobytes() for shape in shapes]
+
+                def prepare():
+                    return prepare_triangle_frame(scene, tessellator, mesh_cache=meshes,
+                                                  fill_borders=True, coalesce=coalesce)
+
+                first = prepare()
+                self.assertEqual(len(first.draws), 1 if coalesce else 9)
+                serialize_generated_frame(first, scene.camera.uniforms, cache)
+                second = prepare()
+                if not coalesce:
+                    for before, after in zip(first.draws, second.draws):
+                        self.assertIs(before.vertices, after.vertices)
+                        self.assertIs(before.indices, after.indices)
+                with patch("maniml.web.generated_geometry.hashlib.blake2b",
+                           wraps=hashlib.blake2b) as digest:
+                    header, raw = parse_geometry_message(serialize_generated_frame(
+                        second, scene.camera.uniforms, cache))
+                self.assertEqual(digest.call_count, 1 if coalesce else 0)
+                self.assertTrue(all(batch.get("cached") for batch in header["batches"]))
+                self.assertEqual(raw, b"")
+                self.assertEqual(len(cache.generated_payloads), 0 if coalesce else 9)
+                self.assertEqual([shape.get_points().tobytes() for shape in shapes], source_bytes)
+
+                # A direct public-array edit must still replace the affected
+                # mesh, even when no mobject revision was explicitly bumped.
+                shapes[0].get_points()[:, 0] += .125
+                changed = prepare()
+                header, raw = parse_geometry_message(serialize_generated_frame(
+                    changed, scene.camera.uniforms, cache))
+                self.assertEqual(sum(not batch.get("cached") for batch in header["batches"]), 1)
+                self.assertTrue(raw)
+
+    def test_mutable_and_converted_indices_hash_actual_content(self):
+        from maniml.web.triangle_scene import _readonly
+        values = [0, 1, 2, 0, 2, 3]
+        for layout, indices in (
+            ("native", np.array(values, dtype="u4")),
+            ("explicit_little", np.array(values, dtype=np.dtype("u4").newbyteorder("<"))),
+            ("big_endian", np.array(values, dtype=">u4")),
+            ("noncontiguous", np.repeat(np.array(values, dtype="u4"), 2)[::2]),
+            ("wide_integer", np.array(values, dtype="i8")),
+        ):
+            with self.subTest(layout=layout):
+                draw, cache = quad(), GeometryCache()
+                draw = replace(draw, vertices=_readonly(draw.vertices), indices=indices)
+                first, payload = parse_geometry_message(encode([draw], cache))
+                batch = first["batches"][0]
+                self.assertEqual(payload[batch["index_offset"]:], np.array(values, dtype="<u4").tobytes())
+                with patch("maniml.web.generated_geometry.hashlib.blake2b",
+                           wraps=hashlib.blake2b) as digest:
+                    same, raw = parse_geometry_message(encode([draw], cache))
+                self.assertEqual(digest.call_count, 1)
+                self.assertTrue(same["batches"][0]["cached"])
+                self.assertEqual(raw, b"")
+                self.assertEqual(cache.generated_payloads, {})
+                indices[:] = [0, 1, 3, 1, 2, 3]
+                changed, raw = parse_geometry_message(encode([draw], cache))
+                self.assertNotEqual(changed["batches"][0]["hash"], batch["hash"])
+                self.assertTrue(raw)
 
     def test_readonly_owned_arrays_cannot_be_trusted_as_immutable(self):
         draw, cache = quad(), GeometryCache()

@@ -61,7 +61,11 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                     or np.any(indices < 0) or np.any(indices >= len(vertices))
                     or draw.count > len(indices) or draw.count % 3):
                 raise ValueError("invalid generated triangle indices or draw count")
-            indices = np.ascontiguousarray(indices, dtype="<u4")
+            # An equivalent explicit-endian dtype can produce a fresh view
+            # when NumPy normalizes it to native byte order. Preserve the
+            # original immutable array so its retained digest remains usable.
+            if indices.dtype != np.dtype("<u4") or not indices.flags.c_contiguous:
+                indices = np.ascontiguousarray(indices, dtype="<u4")
         elif base in ("surface", "paint", "image", "texsurface"):
             if draw.count > len(vertices) or draw.count % 3:
                 raise ValueError("invalid generated triangle draw count")
