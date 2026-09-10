@@ -57,7 +57,8 @@ signal. What it has surfaced so far, and what is ready regardless:
    thaws the whole checkpoint, 20–50 ms; the ledger trick reversed
    makes it cost what changed) and the optional live-array freeze
    (plan, Phase 4). **Do not** build copy-on-write checkpoints beyond
-   that: the instruction-stream architecture makes checkpoints free.
+   that: the instruction-stream architecture replaces large array copies
+   with retained source handles and replay recipes under a memory budget.
 
 2. **Skip the per-frame walk of unchanged batches.** The serializer
    walks, packs, and hashes every batch every frame even when nothing
@@ -80,6 +81,26 @@ Profile anything that lags with `MANIML_PERF_PATH` before choosing:
 the two engine costs show up in different stages (`checkpoint.*`
 versus `geometry.*`).
 
+**Selected renderer follow-up (2026-09-09): one triangle backend for 2D
+and 3D.** Taylor selected replacing winding fills with generated fill meshes,
+using painter order with depth testing/writes disabled for 2D. First preserve
+the supported vector appearance with CPU-generated fills, shared output
+passes, and resource reuse; then move supported point updates and correct
+triangle generation onto the GPU. The existing 3D implementation needs work
+on borders, gradients, general paths, and coverage before it can replace 2D.
+The architecture, compatibility specification, research, and staged plan are in
+[the unified renderer plan](docs_unified_triangle_renderer_plan.md).
+It supersedes the earlier atlas proposal; those experiments remain evidence,
+not measurements of this new renderer. A0 is underway: the opt-in prototype,
+native goldens, camera/source cache checks, generator comparison, and measured
+B0/text experiments are recorded in [the A0 results](docs_unified_triangle_renderer_a0_results.md).
+B0 improves substantially, but text borders and text-frame CPU costs remain
+open. The [code-review response](docs_unified_triangle_renderer_review_response.md#third-round-code-review-disposition)
+records the Earcut/projection fixes, uniform paint reuse, 4× zoom stress and
+remaining timing/quality limitations. These changes are still on the working branch;
+the A0 acceptance gates remain open. The default renderer has not switched. Detailed GPU work is
+in [the separate Phase B specification](docs_gpu_geometry_generation_plan.md).
+
 ## Held: native GL removal (beeline step 4)
 
 Move `--render` onto wgpu-py, fold 2x supersampling into that render,
@@ -94,13 +115,17 @@ it. Windows/Linux CI and packaging return after it.
 
 ## After: the instruction stream
 
-`../simlab/ARCHITECTURE.md`: points live on the GPU permanently, every
-operation is an instruction (map / reduce over immutable row buffers,
-a scalar table, a clock, a draw list), Python sends instructions at
-play boundaries and is idle between them. Checkpoints and true reverse
-playback fall out of immutable buffers plus a clock. Phased in
-`../simlab/INSTRUCTION_STREAM_PLAN.md`: engine core in shadow, flip the
-truth, updaters, the clock owns playback, stateful ops.
+[GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
+source points and supported operations live on the GPU. Map/reduce operations
+feed a variable-count geometry-generation stage; coherent vertices and indices
+feed the shared renderer. Python sends instructions at play boundaries and is
+idle between them for supported work. Source handles and replay recipes reduce
+checkpoint copying; a clock permits reverse evaluation of stateless operations.
+[The sequence](/Users/taylorjweidman/Projects/ManimLive/simlab/INSTRUCTION_STREAM_PLAN.md)
+now includes GPU geometry feasibility and generation before flipping ownership,
+then updaters, playback, and stateful operations. Fixed connectivity during
+arbitrary morphs is no longer an accepted compromise. The unified renderer
+plan supplies the generated-resource and recovery contracts.
 
 It supersedes three things that used to be planned here and are now
 removed: the `PERFORMANCE.md` delivery order (revision store, delta
