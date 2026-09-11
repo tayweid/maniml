@@ -156,7 +156,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self.frame.make_orientation_default()
 
         self.file_writer = SceneFileWriter(self, **self.file_writer_config)
-        self.mobjects: list[Mobject] = [self.camera.frame]
+        # CE keeps the camera out of the mobject list; ManimGL seeded the
+        # frame here so its updaters ran and frame.animate plays could add
+        # it. Both are handled explicitly below (update_mobjects,
+        # begin_animations), so a scene's list is only what it drew and a
+        # thaw cannot leave a frozen copy of the frame beside the real one.
+        self.mobjects: list[Mobject] = []
         self.render_groups: list[Mobject] = []
         self._mobject_list_mutation_depth = 0
         self._mobject_list_mutation_dirty = False
@@ -499,11 +504,12 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     # Related to updating
 
     def update_mobjects(self, dt: float) -> None:
+        self.camera.frame.update(dt)
         for mobject in self.mobjects:
             mobject.update(dt)
 
     def should_update_mobjects(self) -> bool:
-        return self.always_update_mobjects or any(
+        return self.always_update_mobjects or self.camera.frame.has_updaters() or any(
             mob.has_updaters() for mob in self.mobjects
         )
 
@@ -837,6 +843,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
                     # animated mobjects that are in the family of
                     # those on screen, this can result in a restructuring
                     # of the scene.mobjects list, which is usually desired.
+                    if isinstance(animation.mobject, CameraFrame):
+                        continue  # the camera is animated, never drawn
                     if animation.mobject not in all_mobjects:
                         self.add(animation.mobject)
                         all_mobjects = all_mobjects.union(

@@ -334,8 +334,7 @@ class WebViewer:
         state_changed = self._current_state() != self._last_state
         # Updater-driven mobjects animate in the idle loop, outside
         # play()/wait(); stream while any are live
-        animating = self._animating or any(
-            m.has_updaters() for m in self.scene.mobjects)
+        animating = self._animating or self.scene.should_update_mobjects()
         send = False
         if self._needs_refresh or state_changed:
             send = True
