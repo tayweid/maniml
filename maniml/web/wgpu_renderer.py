@@ -180,6 +180,9 @@ MODULE_SOURCES = {
     "patch_fill": ("common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"),
     "net_compute": ("common.wgsl", "net_compute.wgsl"),
     "row_blend": ("row_blend.wgsl",),
+    "row_affine": ("row_affine.wgsl",),
+    "row_paint": ("row_paint.wgsl",),
+    "row_partial": ("row_partial.wgsl",),
     "row_finalize": ("row_finalize.wgsl",),
 }
 
@@ -448,19 +451,41 @@ class WgpuRenderer:
             outputs[id(batch)] = outputs_by_state[(key, state)] = output
             if output["state"] == state:
                 continue
-            blend = self._program_pipeline("row_blend")
-            params = self.device.create_buffer_with_data(
-                data=struct.pack("<IfII", rows * channels, scalars[0], 0, 0), usage=wgpu.BufferUsage.UNIFORM)
-            temporary.append(params)
             compute = encoder.begin_compute_pass()
-            compute.set_pipeline(blend)
-            compute.set_bind_group(0, self.device.create_bind_group(layout=blend.get_bind_group_layout(0), entries=[
-                {"binding": 0, "resource": {"buffer": params, "size": 16}}]))
-            compute.set_bind_group(1, self.device.create_bind_group(layout=blend.get_bind_group_layout(1), entries=[
-                {"binding": 0, "resource": {"buffer": buffers[0], "size": row_bytes}},
-                {"binding": 1, "resource": {"buffer": buffers[1], "size": row_bytes}},
-                {"binding": 2, "resource": {"buffer": output["rows"], "size": row_bytes}}]))
-            compute.dispatch_workgroups((rows * channels + 255) // 256)
+            if kind == "blend":
+                # One float per invocation, over two sources.
+                pipeline = self._program_pipeline("row_blend")
+                params = self.device.create_buffer_with_data(
+                    data=struct.pack("<IfII", rows * channels, scalars[0], 0, 0), usage=wgpu.BufferUsage.UNIFORM)
+                temporary.append(params)
+                compute.set_pipeline(pipeline)
+                compute.set_bind_group(0, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": params, "size": 16}}]))
+                compute.set_bind_group(1, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": buffers[0], "size": row_bytes}},
+                    {"binding": 1, "resource": {"buffer": buffers[1], "size": row_bytes}},
+                    {"binding": 2, "resource": {"buffer": output["rows"], "size": row_bytes}}]))
+                compute.dispatch_workgroups((rows * channels + 255) // 256)
+            else:
+                # One row per invocation, over one source.
+                pipeline = self._program_pipeline("row_" + kind)
+                if kind == "affine":
+                    packed = struct.pack("<IIII16f", rows, channels, 0, 0, *scalars)
+                elif kind == "paint":
+                    packed = struct.pack("<IffI", rows, scalars[0], scalars[1], 0)
+                else:
+                    lower, lower_residue, upper, upper_residue, full = scalars
+                    packed = struct.pack("<IIIIffII", rows, rows // 2, int(lower), int(upper),
+                                         lower_residue, upper_residue, int(full), 0)
+                params = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
+                temporary.append(params)
+                compute.set_pipeline(pipeline)
+                compute.set_bind_group(0, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": params, "size": len(packed)}}]))
+                compute.set_bind_group(1, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": buffers[0], "size": row_bytes}},
+                    {"binding": 1, "resource": {"buffer": output["rows"], "size": row_bytes}}]))
+                compute.dispatch_workgroups((rows + 63) // 64)
             if finalize and curves:
                 pipeline = self._program_pipeline("row_finalize")
                 params = self.device.create_buffer_with_data(

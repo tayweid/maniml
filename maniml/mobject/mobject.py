@@ -287,6 +287,17 @@ class Mobject(object):
         return _FunctionalUpdaterBuilder(self)
 
     def note_changed_data(self, recurse_up: bool = True) -> Self:
+        # A CPU mutation of the rows supersedes a pending program: the
+        # rows, which the read behind the mutation materialized first, are
+        # what is drawn from here on (docs/phase_b3_plan.md, composition).
+        if "_program" in self.__dict__:
+            self._drop_program()
+        return self._bump_revision(recurse_up)
+
+    def _bump_revision(self, recurse_up: bool = True) -> Self:
+        """``note_changed_data`` without superseding a pending program:
+        what recording a program calls, and what a child's change calls
+        on its parents (a parent's own rows are untouched by it)."""
         self._data_has_changed = True
         self.revision += 1
         # Clear triangulation cache if it exists
@@ -294,7 +305,7 @@ class Mobject(object):
             delattr(self, '_triangulation_cache')
         if recurse_up:
             for mob in self.parents:
-                mob.note_changed_data()
+                mob._bump_revision()
         return self
 
     def note_changed_state(self) -> Self:
@@ -784,10 +795,11 @@ class Mobject(object):
     _copy_by_reference: tuple[str, ...] = ()
 
     # A pending GPU program (docs/phase_b3_plan.md), set by a supported
-    # animation under MANIML_PROGRAMS: {kind, sources, scalars, keys,
+    # animation under MANIML_PROGRAMS: {kind, sources, scalars, evaluate,
     # materialized}. The renderer draws it; the rows are written only
-    # when something reads them (the ``data`` property) or when the play
-    # ends (``finish_program``). Class-level None keeps a read one test.
+    # when something reads them (the ``data`` property, which calls
+    # ``evaluate``, the CPU path's own arithmetic) or when the play ends
+    # (``finish_program``). Class-level None keeps a read one test.
     _program: dict | None = None
 
     @property
@@ -2037,28 +2049,46 @@ class Mobject(object):
             else:
                 data[key] = (1 - alpha) * md1 + alpha * md2
 
-    def blend_program(self, mobject1, mobject2, alpha: float, *, defer: bool) -> bool:
+    def record_program(self, kind: str, sources, scalars, evaluate, *, defer: bool) -> Self:
+        """Record a pending program (docs/phase_b3_plan.md): ``kind`` and
+        ``scalars`` go on the wire, ``sources`` are the endpoint mobjects
+        whose rows are sent once, and ``evaluate`` writes this mobject's
+        rows on the CPU with the CPU path's own arithmetic. With ``defer``
+        the rows are left for the GPU (and for the first read); without it
+        they are written now as well (shadow mode). Bumps the revision,
+        as the CPU path does, without superseding the program."""
+        self._program = {"kind": kind, "sources": tuple(sources), "scalars": [float(v) for v in scalars],
+                         "evaluate": evaluate, "materialized": not defer}
+        self._bump_revision()
+        if not defer:
+            if performance.enabled:
+                performance.note_read("raw")
+            evaluate()
+        return self
+
+    def blend_program(self, mobject1, mobject2, alpha: float, *, defer: bool,
+                      path_func=straight_path) -> bool:
         """Record the straight-path blend of two row-aligned endpoints as
-        this mobject's pending program (docs/phase_b3_plan.md) and lerp
-        the uniforms and the bounding box as ``interpolate`` does. With
-        ``defer`` the rows are left for the GPU (and for the first read);
-        without it they are written now as well (shadow mode). Returns
-        False, touching nothing, when the endpoints do not align with
-        this mobject's rows, so the caller interpolates on the CPU."""
+        this mobject's pending program and lerp the uniforms and the
+        bounding box as ``interpolate`` does. ``path_func`` is what the
+        CPU evaluation uses; the GPU blends straight, so it must be the
+        straight path or one equal to it. Returns False, touching nothing,
+        when the endpoints do not align with this mobject's rows, so the
+        caller interpolates on the CPU."""
         data, d1, d2 = self._data, mobject1._data, mobject2._data
         if (data.dtype != d1.dtype or data.dtype != d2.dtype
                 or len(data) != len(d1) or len(data) != len(d2)):
             return False
         keys = [k for k in data.dtype.names if k not in self.locked_data_keys]
-        self._program = {"kind": "blend", "sources": (mobject1, mobject2),
-                         "scalars": [float(alpha)], "keys": keys, "materialized": not defer}
+
+        def evaluate():
+            if keys:
+                self._interpolate_data(mobject1, mobject2, alpha, path_func, keys)
         if keys:
-            self.note_changed_data()
-            if not defer:
-                if performance.enabled:
-                    performance.note_read("raw")   # both endpoints' arrays
-                self._interpolate_data(mobject1, mobject2, alpha, straight_path, keys)
-        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, straight_path)
+            self.record_program("blend", (mobject1, mobject2), [alpha], evaluate, defer=defer)
+        elif "_program" in self.__dict__:
+            del self._program  # every column locked: the rows are the blend already
+        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func)
         return True
 
     def _materialize_program(self) -> None:
@@ -2070,17 +2100,18 @@ class Mobject(object):
         if performance.enabled:
             performance.increment("program.materialize")
             performance.note_read("raw")
-        if program["keys"]:
-            mobject1, mobject2 = program["sources"]
-            self._interpolate_data(mobject1, mobject2, program["scalars"][0], straight_path, program["keys"])
+        program["evaluate"]()
+
+    def _drop_program(self) -> None:
+        if not self._program["materialized"]:
+            self._materialize_program()
+        del self._program
 
     def finish_program(self) -> Self:
         """Write the pending program's rows and drop it: the state after
         a play is the rows, whichever mode drew the frames."""
         if "_program" in self.__dict__:
-            if not self._program["materialized"]:
-                self._materialize_program()
-            del self._program
+            self._drop_program()
         return self
 
     def _interpolate_uniforms_and_box(self, mobject1, mobject2, alpha, path_func) -> None:

@@ -860,3 +860,22 @@ cell-mean grid to 0.03 of 255. Measured: per-frame Python during a
 `Transform` 23.6 → 2.4 ms on 86 glyphs and 257 → 50 ms on 1,000 squares,
 play-phase raw reads 181 → 9 and 2009 → 9. Behind its switch, default
 `off`.
+
+## Phase B3b: the rest of the library (2026-09-11)
+
+Taylor's direction, quoted: "ok lets move on to B3b". `Rotate` is an
+`affine` program, `VFadeIn`/`VFadeOut` a `paint`, `ShowCreation`,
+`Uncreate`, `ShowPassingFlash` and `Write`'s border phase a `partial`,
+each with the CPU path's arithmetic as its materialization and one rule
+for composition: a CPU write supersedes a pending program (DECISIONS.md).
+The gate found two things in the fill itself, both fixed at the root: the
+fan closed an open subpath through the object's centroid rather than the
+chord, and `Write`'s outline was drawn edge-on, on `main` too, because a
+partial path did not carry its source's normal. Verified as B3a was: every
+case pixel-identical to the CPU path at eight alphas in the native driver
+(`Write` within the gate), byte-identical state after every play, the Node
+harness on every row kernel (`programKindsWire`), and four frames in the
+preview browser matching the native renders exactly on a 32×18 cell-mean
+grid. Measured: `Write` on 86 glyphs 8.3 → 3.7 ms per frame, `VFadeIn`
+23.1 → 2.3 ms, `Rotate` of 1,000 squares 265 → 65 ms. Behind its switch,
+default `off`.

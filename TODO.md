@@ -157,9 +157,14 @@ same day. B3a made a straight-path `Transform` a GPU blend of its endpoints'
 rows behind `MANIML_PROGRAMS` (shadow, then the flip with `Mobject.data`
 materializing a pending program on read; both drivers, measured in
 [the B3 plan](docs/phase_b3_plan.md): per-frame Python 23.6 → 2.4 ms on
-text, play-phase raw reads down to the camera's). Next: B3b (`affine`,
-`paint`, `partial`), then B3c. Open: the recording player for `patch`, `net`
-and program batches, and the default flips, which are Taylor's. The paragraphs below are the
+text, play-phase raw reads down to the camera's). B3b added `affine`
+(Rotate), `paint` (VFadeIn/Out) and `partial` (ShowCreation, Write's border
+phase) the same day, with the composition rule that a CPU write supersedes
+a program, and fixed two things its gate found: the fan closes an open
+subpath through its start, and Write's outline is no longer drawn edge-on
+(DECISIONS.md). Next: B3c. Open: `MoveAlongPath` and the per-point
+functions stay on the CPU; the recording player for `patch`, `net` and
+program batches; the default flips, which are Taylor's. The paragraphs below are the
 earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):

@@ -22,7 +22,8 @@ from maniml.web.gpu_border_geometry import (
 ROW_FLOATS = 17  # a VMobject's data row
 RECORD_FLOATS = 44
 STROKE_FLOATS = 51
-PROGRAM_KINDS = {"blend": 2}  # kind -> number of sources
+# kind -> (number of sources, number of scalars on the wire)
+PROGRAM_KINDS = {"blend": (2, 1), "affine": (1, 16), "paint": (1, 2), "partial": (1, 5)}
 SOURCE_HASH_PREFIX = b"maniml.rows.f32.v1\0"
 _HASH = re.compile(r"[0-9a-f]{32}")
 
@@ -60,15 +61,40 @@ def validate_program(program, stride=None):
     kind, sources, scalars = program.get("kind"), program.get("sources"), program.get("scalars")
     rows, channels = program.get("rows"), program.get("channels")
     if (kind not in PROGRAM_KINDS or not isinstance(sources, (list, tuple))
-            or len(sources) != PROGRAM_KINDS[kind]
+            or len(sources) != PROGRAM_KINDS[kind][0]
             or any(not isinstance(s, str) or _HASH.fullmatch(s) is None for s in sources)
-            or not isinstance(scalars, (list, tuple)) or len(scalars) != 1
+            or not isinstance(scalars, (list, tuple)) or len(scalars) != PROGRAM_KINDS[kind][1]
             or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not np.isfinite(v) for v in scalars)
             or isinstance(rows, bool) or not isinstance(rows, int) or rows < 1
             or isinstance(channels, bool) or not isinstance(channels, int) or channels < 1
-            or (stride is not None and channels * 4 != stride)):
+            or (stride is not None and channels * 4 != stride)
+            or (kind != "blend" and channels != ROW_FLOATS)):
         raise ValueError("invalid program descriptor")
-    return kind, list(sources), [float(v) for v in scalars], rows, channels
+    scalars = [float(v) for v in scalars]
+    if kind == "partial":
+        lower, lower_residue, upper, upper_residue, full = scalars
+        curves = rows // 2
+        if (any(v != int(v) for v in (lower, upper, full)) or full not in (0, 1)
+                or not 0 <= lower < max(1, curves) or not 0 <= upper < max(1, curves)
+                or not 0 <= lower_residue <= 1 or not 0 <= upper_residue <= 1):
+            raise ValueError("invalid partial program scalars")
+    return kind, list(sources), scalars, rows, channels
+
+
+def wire_scalars(kind, scalars, rows):
+    """The scalars a program sends, from what the animation recorded: a
+    ``partial`` records its proportions (a, b) and sends the curve indices
+    and residues the CPU derives from them (``integer_interpolate``, in
+    float64), so the kernel's only arithmetic is the Bézier evaluation."""
+    if kind != "partial":
+        return [float(v) for v in scalars]
+    from maniml.utils.bezier import integer_interpolate
+    a, b = scalars
+    curves = int(rows) // 2
+    lower, lower_residue = integer_interpolate(0, curves, a)
+    upper, upper_residue = integer_interpolate(0, curves, b)
+    return [float(lower), float(lower_residue), float(upper), float(upper_residue),
+            1.0 if a <= 0 and b >= 1 else 0.0]
 
 
 def curve_count(rows):

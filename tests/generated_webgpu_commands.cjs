@@ -174,12 +174,25 @@ async function driver(options = {}) {
                   // A program kernel: params alone in group 0, 16 bytes.
                   const words = new Uint32Array(group0[0].resource.buffer.bytes);
                   const buffers = draw.bindings.get(1).entries.map(entry => entry.resource);
-                  assert.equal(group0[0].resource.size, 16);
-                  if (draw.pipeline.descriptor.compute.module.code.includes("BlendParams")) {
+                  const code = draw.pipeline.descriptor.compute.module.code;
+                  if (code.includes("BlendParams")) {
+                    assert.equal(group0[0].resource.size, 16);
                     assert.equal(buffers.length, 3);
                     assert.ok(buffers.every(buffer => words[0] * 4 <= buffer.size), "blend within its rows");
                     assert.equal(draw.count, Math.ceil(words[0] / 256));
+                  } else if (code.includes("AffineParams") || code.includes("PaintParams") || code.includes("PartialParams")) {
+                    // A row kernel: rows first, one source and one output of 17 floats per row.
+                    assert.equal(group0[0].resource.size, code.includes("AffineParams") ? 80 : code.includes("PaintParams") ? 16 : 32);
+                    assert.equal(buffers.length, 2);
+                    assert.ok(buffers.every(buffer => words[0] * 17 * 4 <= buffer.size), "row kernel within its rows");
+                    assert.equal(draw.count, Math.ceil(words[0] / 64));
+                    if (code.includes("PartialParams")) {
+                      const [rows, curves, lower, upper] = words;
+                      assert.equal(curves, Math.floor(rows / 2));
+                      assert.ok(lower < curves && upper < curves);
+                    }
                   } else {
+                    assert.equal(group0[0].resource.size, 16);
                     const [curves, channels] = words, [rows, records, strokes] = buffers;
                     assert.equal(channels, 17);
                     assert.ok((2 * curves + 1) * channels * 4 <= rows.size, "finalize within its rows");
@@ -999,6 +1012,36 @@ const cases = {
     await d.render([], {format_version: 7});
     assert.ok(resident() < before - 6, "sources, outputs, records and strokes retire");
     assert.ok([rows, records, strokes, netRows, ...sources].every(buffer => buffer.destroyed));
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // One frame with every row program (docs/phase_b3_plan.md, B3b): a
+  // rotation, a fade and a partial path, each finalized and drawn.
+  async programKindsWire() {
+    const d = await driver();
+    const file = fs.readFileSync(process.argv[3]);
+    const passes = await d.renderBytes(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
+    const compute = passes.filter(pass => pass.compute);
+    const code = pass => pass.pipeline.descriptor.compute.module.code;
+    const programs = compute.filter(pass => code(pass).includes("FinalizeParams"));
+    assert.equal(programs.length, 3, "three programs, each ending in the finalize kernel");
+    const kinds = programs.map(pass => {
+      const first = pass.draws[0].pipeline.descriptor.compute.module.code;
+      return first.includes("AffineParams") ? "affine" : first.includes("PaintParams") ? "paint" : first.includes("PartialParams") ? "partial" : "?";
+    });
+    assert.deepEqual(kinds.sort(), ["affine", "paint", "partial"]);
+    for (const pass of programs) {
+      assert.equal(pass.draws.length, 2, "the row kernel, then finalize");
+      const rows = pass.draws[0].bindings.get(1).entries[1].resource.buffer;
+      assert.equal(pass.draws[1].bindings.get(1).entries[0].resource.buffer, rows, "finalize reads the kernel's rows");
+    }
+    const affine = programs[kinds.indexOf("affine")] ?? programs.find(pass => pass.draws[0].pipeline.descriptor.compute.module.code.includes("AffineParams"));
+    const matrix = new Float32Array(affine.draws[0].bindings.get(0).entries[0].resource.buffer.bytes, 16, 16);
+    assert.ok(Math.abs(matrix[15] - 1) < 1e-6 && Math.abs(matrix[0] * matrix[0] + matrix[1] * matrix[1] - 1) < 1e-5, "a rotation with a unit first column");
+    const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const strokes = scene.draws.filter(draw => draw.pipeline.descriptor.vertex.buffers.length && draw.pipeline.descriptor.vertex.buffers[0].arrayStride === 204);
+    const finalized = new Set(programs.map(pass => pass.draws[1].bindings.get(1).entries[2].resource.buffer));
+    assert.ok(strokes.length >= 3 && strokes.every(draw => finalized.has(draw.vertices[0])), "every stroke draws finalized instances");
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },

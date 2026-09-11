@@ -86,6 +86,7 @@ jobs:
           tests.test_bezier_net
           tests.test_surface_net
           tests.test_program_blend
+          tests.test_program_library
           tests.test_render_cache_revision
           tests.test_fill_bounds
           tests.test_geometry_cache

@@ -5,6 +5,44 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The fan closes an open subpath through its own start (2026-09-11)
+
+B1's patch fill drew every curve's fan triangle from one base point per
+object, the anchors' centroid, on the argument that any fixed point gives
+the same winding count. That holds for closed subpaths only: the fan sums
+to the winding of the polygon closed through the base, so an open subpath
+was closed through the centroid, and a partial path under `ShowCreation`
+was closed through a point that moved with it. Phase A's fill (Lyon, and
+the earclip before it) closes an open subpath with the chord from its end
+to its start. So the fan now takes each curve's base from its own record,
+the base point rows the mobject carries (its path's first point): closed
+subpaths count as before, an open one closes through its start, the
+chord. The object table keeps its base words for the format; nothing
+reads them. Found by B3b's gate on `ShowCreation`.
+
+Beside it, a CPU fix that the same gate found and that is on `main`: a
+partial path now carries its source's unit normal as it already carried
+its joint angles (`pointwise_become_partial`). `DrawBorderThenFill` sets
+the outline's data at its first frame, which dirties the normal flag; the
+renderer then computed the normal from that frame's points, all one
+point, and cached DOWN for the whole border phase, so the outline of every
+`Write` was drawn edge-on. The source's normal is the path's.
+
+## A CPU mutation supersedes a pending program (2026-09-11)
+
+B3b's programs compose with the CPU path by one rule: every legitimate
+mutation of a mobject's rows calls `note_changed_data`, and that drops a
+pending program after the read behind the mutation materialized it. So a
+`VFadeIn` on top of a `Transform` in one play, an updater's write, or a
+scene's `set_fill` mid-play leave the rows what the CPU path would have
+made them, and the renderer draws the rows. Recording a program bumps the
+revision without dropping it (`_bump_revision`), and a child's change
+bumps its parents the same way, since a parent's own rows are untouched.
+The alternative, chaining programs (a paint over a blend), is a program
+composition the plan does not need yet: "last program wins" is what the
+CPU path does for full-row animations, and the CPU fallback covers the
+rest exactly.
+
 ## A pending program materializes on read (2026-09-11)
 
 B3a's flip stops writing a mobject's rows during a supported `Transform`:

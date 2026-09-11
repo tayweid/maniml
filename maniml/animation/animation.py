@@ -83,6 +83,10 @@ class Animation(object):
 
     def finish(self) -> None:
         self.interpolate(self.final_alpha_value)
+        # A program drew the frames; the rows are written here, so the
+        # state after the play is the same in every MANIML_PROGRAMS mode.
+        for submob in self.mobject.get_family():
+            submob.finish_program()
         self.mobject.set_animating_status(False)
         if self.suspend_mobject_updating and self.mobject_was_updating:
             self.mobject.resume_updating()

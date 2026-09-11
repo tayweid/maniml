@@ -119,6 +119,12 @@ stencil-rejected before shading.
   paragraph made every fan triangle span it, and doubled the frame). The
   normal and colour come from the curve records. Uploaded once per source
   revision as a hashed blob beside `border_data`, cached the same way.
+  *2026-09-11, B3b:* the fan's base is now each curve's own record base
+  point (its path's first point), not the table's centroid: "any fixed
+  point" holds for closed subpaths only, and an open subpath must close
+  through its start, the chord, as Phase A's fill closes it
+  (DECISIONS.md, "The fan closes an open subpath through its own start").
+  The table keeps its base words; nothing reads them.
 - **Plane.** `planar_coordinates` still runs per source revision, for the
   normal and to refuse nonplanar closed contours exactly as today.
 - **Wire.** Format 7: a batch with pipeline `patch` or `patch_depth`,

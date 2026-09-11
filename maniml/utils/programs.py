@@ -22,3 +22,17 @@ def mode() -> str:
     if value not in MODES:
         raise ValueError("MANIML_PROGRAMS must be 'off', 'shadow' or 'gpu'")
     return value
+
+
+def freshen(mobject) -> None:
+    """Compute a program source's derived columns (joint angles, unit
+    normal) once, at an animation's begin: the renderer refreshes them on
+    the animated rows when it reads them, and a program's rows are never
+    read, so the sources carry them instead."""
+    from maniml.mobject.types.vectorized_mobject import VMobject
+    for member in mobject.get_family():
+        if isinstance(member, VMobject) and member.get_num_points() >= 3:
+            member.get_joint_angles()
+            member.get_unit_normal()
+            # The base point rows, as get_shader_data sets them on a read.
+            member.data["base_normal"][0::2] = member.data["point"][0]

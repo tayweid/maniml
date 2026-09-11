@@ -17,7 +17,7 @@ from maniml.mobject.geometry import Circle, Square
 from maniml.mobject.mobject import Mobject, copy_mode
 from maniml.mobject.svg.text_mobject import Text
 from maniml.mobject.three_dimensions import Sphere, Torus
-from maniml.scene.checkpoints import ledger_stale_attribute
+from maniml.scene.checkpoints import DERIVED_DATA_KEYS, ledger_stale_attribute
 from maniml.utils import programs
 from maniml.web import gpu_program_geometry as programs_geometry
 from maniml.web.generated_geometry import serialize_generated_frame
@@ -49,7 +49,11 @@ def _aligned():
 
 
 def _state(mobject):
-    return [(sm._data.tobytes(), sorted((k, np.asarray(v).tobytes()) for k, v in sm.uniforms.items()),
+    """What the ledger compares: every column but the derived ones (a
+    program's sources carry fresh derived columns; the CPU path's rows
+    hold whatever the last read left), the uniforms, the box."""
+    return [([sm._data[k].tobytes() for k in sm._data.dtype.names if k not in DERIVED_DATA_KEYS],
+             sorted((k, np.asarray(v).tobytes()) for k, v in sm.uniforms.items()),
              sm.bounding_box.tobytes()) for sm in mobject.get_family()]
 
 
@@ -198,8 +202,9 @@ class ProgramTransform(unittest.TestCase):
             for alpha in (0.0, .5, 1.0):
                 for anim in anims:
                     anim.interpolate(alpha)
+                # A member with every column locked (the text's pointless parent) records nothing.
                 frames.append([("_program" in sm.__dict__, sm._program is not None and not sm._program["materialized"])
-                               for sm in mob.get_family() + text.get_family()])
+                               for sm in mob.get_family() + text.get_family() if sm.has_points()])
             for anim in anims:
                 anim.finish()
             self.assertFalse(any("_program" in sm.__dict__ for sm in mob.get_family() + text.get_family()))

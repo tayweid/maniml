@@ -66,6 +66,9 @@ class Transform(Animation):
             self.target_copy = self.target_mobject.copy()
         self.mobject.align_data_and_family(self.target_copy)
         super().begin()
+        if programs.mode() != "off":
+            programs.freshen(self.starting_mobject)
+            programs.freshen(self.target_copy)
         if not self.mobject.has_updaters():
             self.mobject.lock_matching_data(
                 self.starting_mobject,
@@ -74,10 +77,6 @@ class Transform(Animation):
 
     def finish(self) -> None:
         super().finish()
-        # A program drew the frames; the rows are written here, so the
-        # state after the play is the same in every MANIML_PROGRAMS mode.
-        for submob in self.mobject.get_family():
-            submob.finish_program()
         self.mobject.unlock_data()
         # align_data_and_family in begin() pads self.mobject with subdivided
         # points and duplicated submobjects. Left in place, every subsequent

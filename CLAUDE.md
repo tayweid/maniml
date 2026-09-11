@@ -256,20 +256,26 @@ facets. Both drivers evaluate nets; the default stays `grids`. Recordings
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
-`MANIML_PROGRAMS=shadow|gpu` (Phase B3a, `docs/phase_b3_plan.md`; needs
-`MANIML_FILL=patches`) sends a supported animation as a GPU program: a
-straight-path `Transform` (so `.animate`, `MoveToTarget`,
-`ReplacementTransform`) records a blend of its two endpoints' rows on each submobject, the rows
-travel once per play by content hash, and the scalar per frame; each
-driver blends and finalizes the rows on the GPU (`row_blend.wgsl`,
-`row_finalize.wgsl`) and the patch, stroke and net stages draw from them.
-In `shadow` the CPU still writes the rows; in `gpu` it lerps only the
-uniforms and the bounding box, and `Mobject.data` materializes a pending
-program on read (every accessor and direct `data[...]` read goes through
-the property; counts do not), so a reader mid-play sees what is drawn.
-`Transform.finish` writes the final rows, so the state after a play is the
-same in every mode. Pixels match the CPU path at every alpha in both
-drivers; the default stays `off`.
+`MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
+`MANIML_FILL=patches`) sends a supported animation as a GPU program over a
+mobject's rows: a straight-path `Transform` (so `.animate`, `MoveToTarget`,
+`ReplacementTransform`, `FadeIn`/`FadeOut`) is a `blend` of its two
+endpoints, `Rotate`/`Rotating` an `affine` map of the start, `VFadeIn`/
+`VFadeOut` a `paint` of the start's opacities, `ShowCreation`/`Uncreate`/
+`ShowPassingFlash` and the border phase of `Write` a `partial` of the
+start. The endpoint rows travel once per play by content hash and the
+program's scalars per frame; each driver evaluates the rows on the GPU
+(`row_*.wgsl`), finalizes VMobject rows into curve records and stroke
+instances (`row_finalize.wgsl`), and the patch, stroke and net stages draw
+from them. In `shadow` the CPU still writes the rows; in `gpu` it does
+not, and `Mobject.data` materializes a pending program on read with the
+CPU path's own arithmetic (every accessor and direct `data[...]` read
+goes through the property; counts do not), so a reader mid-play sees
+what is drawn; a CPU mutation supersedes the program (`note_changed_data`),
+so animations that write rows compose as before. `Animation.finish`
+writes the final rows, so the state after a play is byte-identical in
+every mode. Pixels match the CPU path at every alpha in both drivers; the
+default stays `off`.
 
 ## Delivery: one artifact, local only
 

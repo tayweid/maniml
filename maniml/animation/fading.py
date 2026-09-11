@@ -7,6 +7,7 @@ from maniml.animation.transform import Transform
 from maniml.constants import ORIGIN
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.mobject import Group
+from maniml.utils import programs
 from maniml.utils.bezier import interpolate
 from maniml.utils.rate_functions import linear
 from maniml.utils.rate_functions import there_and_back
@@ -162,18 +163,39 @@ class VFadeIn(Animation):
             **kwargs
         )
 
+    def begin(self) -> None:
+        super().begin()
+        if programs.mode() != "off":
+            programs.freshen(self.starting_mobject)
+
     def interpolate_submobject(
         self,
         submob: VMobject,
         start: VMobject,
         alpha: float
     ) -> None:
-        submob.set_stroke(
-            opacity=interpolate(0, start.get_stroke_opacity(), alpha)
-        )
-        submob.set_fill(
-            opacity=interpolate(0, start.get_fill_opacity(), alpha)
-        )
+        stroke = interpolate(0, start.get_stroke_opacity(), alpha)
+        fill = interpolate(0, start.get_fill_opacity(), alpha)
+        # A paint program stands for this frame when nothing else writes
+        # the rows: no updater (they run during a VFade), and no other
+        # animation's program pending on the member, which the CPU path
+        # below composes with by materializing it first.
+        mode = programs.mode()
+        pending = submob._program
+        if mode != "off" and not self.mobject.has_updaters() and hasattr(submob, "paint_program"):
+            if not submob.has_points():
+                # What set_stroke/set_fill write for a member without
+                # points, without recursing: the members with points are
+                # each their own program, and a family-wide bump would
+                # supersede the ones already recorded this frame.
+                submob._data_defaults["stroke_rgba"][:, 3] = stroke
+                submob._data_defaults["fill_rgba"][:, 3] = fill
+                return
+            if ((pending is None or (pending["kind"] == "paint" and pending["sources"] == (start,)))
+                    and submob.paint_program(start, stroke, fill, defer=mode == "gpu")):
+                return
+        submob.set_stroke(opacity=stroke)
+        submob.set_fill(opacity=fill)
 
 
 class VFadeOut(VFadeIn):

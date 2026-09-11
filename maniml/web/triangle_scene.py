@@ -1030,7 +1030,8 @@ def _program_draws(frame, sm, pending, uniforms, depth_suffix, cache):
         return False
     if not recipe.uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
         return False  # a paint field over blended rows is B3b's work
-    program = {"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}
+    program = {"kind": pending["kind"], "sources": sources,
+               "scalars": gpu_program_geometry.wire_scalars(pending["kind"], pending["scalars"], rows)}
     frame_scale = uniforms["frame_scale"]
     fill = stroke = None
     if recipe.has_fill:
@@ -1157,8 +1158,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             pipeline = ("dot" if isinstance(sm, DotCloud) else
                         "image" if isinstance(sm, ImageMobject) else
                         "texsurface" if isinstance(sm, TexturedSurface) else "surface")
-            if (pending is not None and net_cache is not None and pipeline in ("surface", "texsurface")
-                    and getattr(sm, "net", False) and sm.has_points()):
+            if (pending is not None and pending["kind"] == "blend" and net_cache is not None
+                    and pipeline in ("surface", "texsurface") and getattr(sm, "net", False) and sm.has_points()):
                 sources = [_program_rows(program_cache, endpoint) for endpoint in pending["sources"]]
                 entry = net_cache.program_entry(sm, sources,
                                                 pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),

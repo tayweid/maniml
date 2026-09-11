@@ -121,6 +121,9 @@ const ManimlWGPU = (() => {
     patch_fill: ["common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"],
     net_compute: ["common.wgsl", "net_compute.wgsl"],
     row_blend: ["row_blend.wgsl"],
+    row_affine: ["row_affine.wgsl"],
+    row_paint: ["row_paint.wgsl"],
+    row_partial: ["row_partial.wgsl"],
     row_finalize: ["row_finalize.wgsl"],
   };
 
@@ -142,7 +145,8 @@ const ManimlWGPU = (() => {
   // outputs (rows, and for VMobject rows the finalized curve records and
   // stroke instances) by (batch, program, occurrence), and the kernels.
   const programSources = new Map(), programOutputs = new Map(), programPipelines = new Map();
-  const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: 2};
+  // kind -> [sources, scalars on the wire]
+  const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
   // Patch fills: object tables by hash, group-0 bindings by uniforms, and
   // the explicit layouts every patch pipeline shares. Surface nets: sources
   // by hash, evaluated outputs by occurrence.
@@ -699,11 +703,20 @@ const ManimlWGPU = (() => {
         throw new Error("invalid program descriptor");
       }
       const {kind, sources, scalars, rows, channels} = program;
-      if (!(kind in PROGRAM_KINDS) || !Array.isArray(sources) || sources.length !== PROGRAM_KINDS[kind]
-          || !sources.every(validHash) || !Array.isArray(scalars) || scalars.length !== 1
+      if (!(kind in PROGRAM_KINDS) || !Array.isArray(sources) || sources.length !== PROGRAM_KINDS[kind][0]
+          || !sources.every(validHash) || !Array.isArray(scalars) || scalars.length !== PROGRAM_KINDS[kind][1]
           || scalars.some(value => typeof value !== "number" || !Number.isFinite(value))
-          || !Number.isSafeInteger(rows) || rows < 1 || !Number.isSafeInteger(channels) || channels < 1) {
+          || !Number.isSafeInteger(rows) || rows < 1 || !Number.isSafeInteger(channels) || channels < 1
+          || (kind !== "blend" && channels !== ROW_FLOATS)) {
         throw new Error("invalid program descriptor");
+      }
+      if (kind === "partial") {
+        const [lower, lowerResidue, upper, upperResidue, full] = scalars, curves = Math.floor(rows / 2);
+        if (![lower, upper, full].every(Number.isInteger) || (full !== 0 && full !== 1)
+            || lower < 0 || lower >= Math.max(1, curves) || upper < 0 || upper >= Math.max(1, curves)
+            || lowerResidue < 0 || lowerResidue > 1 || upperResidue < 0 || upperResidue > 1) {
+          throw new Error("invalid partial program scalars");
+        }
       }
       const rowBytes = rows * channels * 4;
       if (rowBytes > maxStorage) throw new Error("program rows exceed the device's storage binding limit");
@@ -756,19 +769,51 @@ const ManimlWGPU = (() => {
       output.statePending = output.state;
       if (output.state === state) continue;
       output.statePending = state;
-      const blend = programPipeline("row_blend");
-      const params = new ArrayBuffer(16), view = new DataView(params);
-      view.setUint32(0, rows * channels, true); view.setFloat32(4, scalars[0], true);
-      const paramsBuffer = makeBuffer(params, GPUBufferUsage.UNIFORM); temporary.push(paramsBuffer);
       const compute = encoder.beginComputePass();
-      compute.setPipeline(blend);
-      compute.setBindGroup(0, device.createBindGroup({layout: blend.getBindGroupLayout(0), entries: [
-        {binding: 0, resource: {buffer: paramsBuffer, size: 16}}]}));
-      compute.setBindGroup(1, device.createBindGroup({layout: blend.getBindGroupLayout(1), entries: [
-        {binding: 0, resource: {buffer: buffers[0], size: rowBytes}},
-        {binding: 1, resource: {buffer: buffers[1], size: rowBytes}},
-        {binding: 2, resource: {buffer: output.rows, size: rowBytes}}]}));
-      compute.dispatchWorkgroups(Math.ceil(rows * channels / 256));
+      if (kind === "blend") {
+        // One float per invocation, over two sources.
+        const blend = programPipeline("row_blend");
+        const params = new ArrayBuffer(16), view = new DataView(params);
+        view.setUint32(0, rows * channels, true); view.setFloat32(4, scalars[0], true);
+        const paramsBuffer = makeBuffer(params, GPUBufferUsage.UNIFORM); temporary.push(paramsBuffer);
+        compute.setPipeline(blend);
+        compute.setBindGroup(0, device.createBindGroup({layout: blend.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: paramsBuffer, size: 16}}]}));
+        compute.setBindGroup(1, device.createBindGroup({layout: blend.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: buffers[0], size: rowBytes}},
+          {binding: 1, resource: {buffer: buffers[1], size: rowBytes}},
+          {binding: 2, resource: {buffer: output.rows, size: rowBytes}}]}));
+        compute.dispatchWorkgroups(Math.ceil(rows * channels / 256));
+      } else {
+        // One row per invocation, over one source.
+        const pipeline = programPipeline("row_" + kind);
+        let params;
+        if (kind === "affine") {
+          params = new ArrayBuffer(80);
+          const view = new DataView(params);
+          view.setUint32(0, rows, true); view.setUint32(4, channels, true);
+          scalars.forEach((value, i) => view.setFloat32(16 + 4 * i, value, true));
+        } else if (kind === "paint") {
+          params = new ArrayBuffer(16);
+          const view = new DataView(params);
+          view.setUint32(0, rows, true); view.setFloat32(4, scalars[0], true); view.setFloat32(8, scalars[1], true);
+        } else {
+          params = new ArrayBuffer(32);
+          const view = new DataView(params);
+          const [lower, lowerResidue, upper, upperResidue, full] = scalars;
+          [rows, Math.floor(rows / 2), lower, upper].forEach((value, i) => view.setUint32(4 * i, value, true));
+          view.setFloat32(16, lowerResidue, true); view.setFloat32(20, upperResidue, true);
+          view.setUint32(24, full, true);
+        }
+        const paramsBuffer = makeBuffer(params, GPUBufferUsage.UNIFORM); temporary.push(paramsBuffer);
+        compute.setPipeline(pipeline);
+        compute.setBindGroup(0, device.createBindGroup({layout: pipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: paramsBuffer, size: params.byteLength}}]}));
+        compute.setBindGroup(1, device.createBindGroup({layout: pipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: buffers[0], size: rowBytes}},
+          {binding: 1, resource: {buffer: output.rows, size: rowBytes}}]}));
+        compute.dispatchWorkgroups(Math.ceil(rows / 64));
+      }
       if (finalize && curves) {
         const pipeline = programPipeline("row_finalize");
         const finalizeParams = new ArrayBuffer(16), finalizeView = new DataView(finalizeParams);

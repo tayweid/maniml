@@ -175,6 +175,33 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
             for anim in anims:
                 anim.finish()
 
+    def test_program_kinds_wire_runs_every_row_kernel(self):
+        import os
+        from unittest.mock import patch
+        from maniml.animation.creation import ShowCreation
+        from maniml.animation.fading import VFadeIn
+        from maniml.animation.rotation import Rotate
+        from maniml.constants import BLUE, GREEN, RED
+        from maniml.mobject.geometry import Circle, Square
+        from maniml.web.geometry import GeometryCache, serialize_scene
+        from tests.renderer_fixtures import build_scene
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_PROGRAMS="gpu"):
+            shapes = [Circle(radius=1, fill_color=BLUE, fill_opacity=.6, stroke_color=RED, stroke_width=6).shift([-3, 0, 0]),
+                      Square(side_length=2, fill_color=GREEN, fill_opacity=.9, stroke_width=4),
+                      Circle(radius=1, fill_color=RED, fill_opacity=.5, stroke_width=5).shift([3, 0, 0])]
+            scene, wire = build_scene(*shapes, resolution=(480, 270), samples=4), GeometryCache()
+            anims = [Rotate(shapes[0], angle=1.0), VFadeIn(shapes[1]), ShowCreation(shapes[2])]
+            for anim in anims:
+                anim.begin()
+            for anim in anims:
+                anim.interpolate(.4)
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "kinds.bin"
+                path.write_bytes(serialize_scene(scene, wire, renderer="triangles"))
+                self.run_case("programKindsWire", path)
+            for anim in anims:
+                anim.finish()
+
     def test_surface_net_wire_evaluates_and_regrows_across_a_zoom(self):
         from maniml.web.geometry import GeometryCache
         from maniml.web.triangle_scene import TriangleMeshCache

@@ -66,7 +66,10 @@ fn object_vec3(index: u32) -> vec3f {
 }
 
 // Corner 0..2 is the fan triangle (base, p0, p2); 3..5 the patch triangle
-// (p0, p1, p2) with the curve's own coordinates.
+// (p0, p1, p2) with the curve's own coordinates. The base is the curve's
+// own record's base point (its path's first point, as the rows carry it):
+// a closed subpath counts the same from any base, and an open one then
+// closes through its start, the chord Phase A's fill closes it with.
 fn curve_vertex(object: u32, curve: u32, corner: u32) -> CurveVertex {
     var out: CurveVertex;
     out.valid = false;
@@ -86,7 +89,7 @@ fn curve_vertex(object: u32, curve: u32, corner: u32) -> CurveVertex {
     out.normal = source_vec3(source + 21u);  // the unit normal: record 1, as border_compute reads it
     out.rgba = vec4f(patch_source[source + 40u], patch_source[source + 41u],
                      patch_source[source + 42u], patch_source[source + 43u]);
-    out.point = object_vec3(record);
+    out.point = source_vec3(source + 9u);
     out.uv = vec2f(0.0, 1.0);
     if (corner == 1u) { out.point = p0; }
     else if (corner == 2u) { out.point = p2; }
