@@ -5,6 +5,28 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Everything is Bézier control points (2026-09-11)
+
+Decided by Taylor in the Phase B planning conversation, quoted: "use the
+path way of describing a surface (broadly defined) to define a Surface
+(technical meaning), with control points instead of grid / mesh points" and,
+on the alternative of exact GPU programs with Bézier as the fallback for
+what cannot be expressed, "more important than perfect is simplicity and i
+want there to be only one approach, not one with a fallback. so i think
+that means besier."
+
+So paths stay quadratic curves and surfaces become nets of control points
+evaluated the same way in two parameters; the GPU evaluates control points
+at screen density every frame and stores nothing that depends on zoom. The
+tracer that would compile user Python into GPU programs is withdrawn, and
+so are exact closed-form surface programs; rational weights are the
+refinement if exact arcs or spheres are ever wanted, inside the same kernel.
+Construction stays on the CPU (`ax.plot` samples a function into curves,
+`Surface` samples one into a net), and arbitrary Python keeps running in
+Python to produce control points. Accepted costs: a patch sphere is off by
+hundredths of a percent, as the sixteen-curve circle is; a surface's
+`points` are its net. The plan and increments are `docs/phase_b_plan.md`.
+
 ## A zoom step rebuilds nothing the camera did not change (2026-09-10)
 
 Taylor's direction, quoted: "ok do the leftover fix". After the border

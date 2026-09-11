@@ -142,6 +142,15 @@ Windows/Linux packaging remains separate follow-up work.
 
 ## After: the instruction stream
 
+Decided 2026-09-11 (DECISIONS.md, "Everything is Bézier control points"):
+one representation for paths and surfaces, evaluated on the GPU at screen
+density, no tracer and no fallback representation. The increments, in
+order, are in [the Phase B plan](docs/phase_b_plan.md): B1 fills that never
+depend on zoom (a prototype week decides winding-on-stencil against
+interior-mesh), B2 surfaces as control nets, B3 animations as GPU programs.
+The paragraphs below are the earlier framing and remain the contracts for
+resources, counts and recovery.
+
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
 source points and supported operations live on the GPU. Map/reduce operations
 feed a variable-count geometry-generation stage; coherent vertices and indices

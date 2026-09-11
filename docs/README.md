@@ -12,7 +12,8 @@ source of current numbers or current direction.
 | Document | What it is |
 | --- | --- |
 | [unified_triangle_renderer_phase_a.md](unified_triangle_renderer_phase_a.md) | The Phase A contract: shared native and browser output, AA, stencil ownership, resource retention, limits and validation. |
-| [text_parity_plan.md](text_parity_plan.md) | The plan for closing the zoom-step gap between Phase A and Original 2D on text, with the measured breakdown. For discussion; not started. |
+| [phase_b_plan.md](phase_b_plan.md) | Phase B as decided on 2026-09-11: everything is Bézier control points, evaluated on the GPU at screen density; increments B1 fills, B2 surfaces as nets, B3 animations as programs. Proposed; not started. |
+| [text_parity_plan.md](text_parity_plan.md) | The plan for closing the zoom-step gap between Phase A and Original 2D on text, with the measured breakdown. Executed 2026-09-10 (DECISIONS.md, "A zoom step rebuilds nothing the camera did not change"); kept for the breakdown. |
 | [gpu_geometry_generation_plan.md](gpu_geometry_generation_plan.md) | The Phase B specification: GPU source evaluation and correct geometry generation. Not started. |
 | [unified_triangle_renderer_review_response.md](unified_triangle_renderer_review_response.md) | The implementer's dispositions of every review round, with measurements. Append here; do not edit the reviewer's files. |
 | [unified_triangle_renderer_code_review.md](unified_triangle_renderer_code_review.md) | The reviewer's rounds. Reviewer-owned: implementers respond in the response document. |
