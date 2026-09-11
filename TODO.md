@@ -153,8 +153,13 @@ is built behind `MANIML_FILL=patches` in the native mirror and measured in
 faster. B2 made every `Surface` a control net (its reference-renderer grid
 unchanged) with the GPU evaluation behind `MANIML_SURFACE=nets`, measured
 in [the B2 plan](docs/phase_b2_plan.md); both browser mirrors landed the
-same day. Open: the recording player for `patch` and `net` batches, and the
-default flips, which are Taylor's. The paragraphs below are the
+same day. B3a made a straight-path `Transform` a GPU blend of its endpoints'
+rows behind `MANIML_PROGRAMS` (shadow, then the flip with `Mobject.data`
+materializing a pending program on read; both drivers, measured in
+[the B3 plan](docs/phase_b3_plan.md): per-frame Python 23.6 → 2.4 ms on
+text, play-phase raw reads down to the camera's). Next: B3b (`affine`,
+`paint`, `partial`), then B3c. Open: the recording player for `patch`, `net`
+and program batches, and the default flips, which are Taylor's. The paragraphs below are the
 earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):

@@ -262,7 +262,8 @@ class PatchFillCommands(unittest.TestCase):
         for name in ("_generated_geometry", "_generated_uniforms", "_generated_textures",
                      "_generated_paints", "_generated_paint_bindings", "_border_sources",
                      "_border_outputs", "_object_tables", "_patch_uniforms", "_net_sources",
-                     "_net_outputs", "texture_cache"):
+                     "_net_outputs", "_program_sources", "_program_outputs", "_program_pipelines",
+                     "texture_cache"):
             setattr(self.renderer, name, {})
         self.renderer._patch_layouts = None
         self.renderer._net_compute_pipeline = None

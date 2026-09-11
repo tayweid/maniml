@@ -256,6 +256,21 @@ facets. Both drivers evaluate nets; the default stays `grids`. Recordings
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
+`MANIML_PROGRAMS=shadow|gpu` (Phase B3a, `docs/phase_b3_plan.md`; needs
+`MANIML_FILL=patches`) sends a supported animation as a GPU program: a
+straight-path `Transform` (so `.animate`, `MoveToTarget`,
+`ReplacementTransform`) records a blend of its two endpoints' rows on each submobject, the rows
+travel once per play by content hash, and the scalar per frame; each
+driver blends and finalizes the rows on the GPU (`row_blend.wgsl`,
+`row_finalize.wgsl`) and the patch, stroke and net stages draw from them.
+In `shadow` the CPU still writes the rows; in `gpu` it lerps only the
+uniforms and the bounding box, and `Mobject.data` materializes a pending
+program on read (every accessor and direct `data[...]` read goes through
+the property; counts do not), so a reader mid-play sees what is drawn.
+`Transform.finish` writes the final rows, so the state after a play is the
+same in every mode. Pixels match the CPU path at every alpha in both
+drivers; the default stays `off`.
+
 ## Delivery: one artifact, local only
 
 The interface is served by the engine that runs the scenes. `maniml app` (and

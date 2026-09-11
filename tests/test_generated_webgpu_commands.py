@@ -144,6 +144,37 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
             wire.write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
             self.run_case("patchWire", wire)
 
+    def test_program_wire_blends_finalizes_and_reuses_sources(self):
+        import os
+        from unittest.mock import patch
+        from maniml.animation.transform import Transform
+        from maniml.constants import BLUE, GREEN, RED
+        from maniml.mobject.geometry import Circle, Square
+        from maniml.mobject.three_dimensions import Sphere, Torus
+        from maniml.web.geometry import GeometryCache, serialize_scene
+        from tests.renderer_fixtures import build_scene
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets",
+                        MANIML_PROGRAMS="gpu"):
+            circle = Circle(radius=1.2, fill_color=BLUE, fill_opacity=.6, stroke_color=RED, stroke_width=6,
+                            fill_border_width=3)
+            square = Square(side_length=2.5, fill_color=GREEN, fill_opacity=.9, stroke_color=BLUE, stroke_width=10,
+                            fill_border_width=3)
+            sphere, torus = Sphere(resolution=(9, 5)), Torus(resolution=(9, 5))
+            scene, wire = build_scene(circle, sphere, resolution=(480, 270), samples=4), GeometryCache()
+            anims = [Transform(circle, square), Transform(sphere, torus)]
+            for anim in anims:
+                anim.begin()
+            with tempfile.TemporaryDirectory() as directory:
+                files = []
+                for index, alpha in enumerate((.3, .6, .6)):
+                    for anim in anims:
+                        anim.interpolate(alpha)
+                    files.append(Path(directory) / f"programs_{index}.bin")
+                    files[-1].write_bytes(serialize_scene(scene, wire, renderer="triangles"))
+                self.run_case("programWire", *files)
+            for anim in anims:
+                anim.finish()
+
     def test_surface_net_wire_evaluates_and_regrows_across_a_zoom(self):
         from maniml.web.geometry import GeometryCache
         from maniml.web.triangle_scene import TriangleMeshCache

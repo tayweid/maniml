@@ -29,6 +29,7 @@ from maniml.web.gpu_border_geometry import (
     patch_draw_count,
 )
 from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
+from maniml.web import gpu_program_geometry
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -97,6 +98,10 @@ class TriangleDraw:
     net_shape: tuple | None = None
     net_capacity: int = 2
     net_density: float = 0.0
+    # A program (docs/phase_b3_plan.md): {"kind", "sources": [rows...],
+    # "scalars": [...]}; the draw's records, strokes or net come from the
+    # driver's evaluation of it.
+    program: dict | None = None
 
 
 def coalesce_draws(draws, *, border_cache=None):
@@ -110,6 +115,8 @@ def coalesce_draws(draws, *, border_cache=None):
     frame-owned arrays; a single draw retains its original array identities.
     """
     def kind(draw):
+        if draw.program is not None:
+            return None  # one evaluated program per draw
         if draw.net is not None:
             return None  # one evaluated net per draw
         if draw.fill_objects is not None:
@@ -134,6 +141,8 @@ def coalesce_draws(draws, *, border_cache=None):
         return None
 
     def combine(run, run_kind):
+        if run[0].program is not None:
+            return run[0]  # evaluated by the driver; nothing to assemble
         if run[0].fill_objects is not None:
             curves, capacity, layout, objects = border_cache.assemble_patches(
                 [(draw.border_sources, draw.border_capacity, draw.fill_objects,
@@ -529,6 +538,7 @@ class TriangleMeshCache:
         self._projections = {}
         self._classes = {}
         self.gpu_net_cache = NetRecipeCache()
+        self.program_sources = {}
         self.gpu_border_cache = BorderRecipeCache(max_bytes=self.max_bytes if self.max_entries else 0)
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
@@ -984,6 +994,61 @@ def _generate_mesh(source, tessellator, uniforms, resolution, pixel_tolerance,
                          float(mesh.tolerance), residual, error_hull, error_basis)
 
 
+def _program_rows(cache, mobject):
+    """A program endpoint's rows, packed once per (mobject, revision)."""
+    key = id(mobject)
+    held = cache.get(key)
+    if held is not None and held[0]() is mobject and held[1] == mobject.revision:
+        return held[2]
+    rows = gpu_program_geometry.pack_rows(mobject)
+    cache[key] = (weakref.ref(mobject), mobject.revision, rows)
+    return rows
+
+
+def _program_recipe(cache, sm, sources):
+    """The recipe of a program over ``sm``'s rows, summarized once per
+    set of source arrays (which are held per endpoint revision)."""
+    key = ("recipe", id(sm))
+    held = cache.get(key)
+    if held is not None and held[0]() is sm and len(held[1].sources) == len(sources) and all(
+            a is b for a, b in zip(held[1].sources, sources)):
+        return held[1]
+    recipe = gpu_program_geometry.ProgramRecipe(sources)
+    cache[key] = (weakref.ref(sm), recipe)
+    return recipe
+
+
+def _program_draws(frame, sm, pending, uniforms, depth_suffix, cache):
+    """Append the fill and stroke draws of a VMobject under a program, or
+    return False when the program does not apply (rows not aligned, or the
+    path needs what a program cannot supply), so the caller draws its rows."""
+    sources = [_program_rows(cache, endpoint) for endpoint in pending["sources"]]
+    # Counts and dtypes only: reading the rows would materialize the program.
+    rows, dtype = sm.get_num_points(), sm._data.dtype
+    recipe = _program_recipe(cache, sm, sources)
+    if dtype.itemsize // 4 != gpu_program_geometry.ROW_FLOATS or recipe.rows != rows or not recipe.aligned:
+        return False
+    if not recipe.uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
+        return False  # a paint field over blended rows is B3b's work
+    program = {"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}
+    frame_scale = uniforms["frame_scale"]
+    fill = stroke = None
+    if recipe.has_fill:
+        capacity = recipe.border_capacity(frame_scale)
+        layout = ((recipe.curves, recipe.bordered, 0),)
+        fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None,
+                            patch_draw_count(layout, capacity), border_capacity=capacity,
+                            fill_objects=recipe.fill_record, patch_layout=layout, program=program)
+    if recipe.has_stroke:
+        stroke = TriangleDraw("stroke" + depth_suffix, np.zeros(0, dtype=dtype), uniforms,
+                              count=recipe.stroke_vertices(frame_scale), instances=recipe.curves,
+                              program=program)
+    ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
+    frame.draws.extend(draw for draw in ordered if draw is not None)
+    frame.source_bytes += sum(s.nbytes for s in sources)
+    return True
+
+
 def _note_paint_cost(frame, paint):
     """A non-affine paint field is supported with a known interpolation and
     cost limit; it is recorded on the frame, not rejected."""
@@ -998,7 +1063,7 @@ def _note_paint_cost(frame, paint):
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
                            coalesce=True, fill_borders=False, gpu_borders=False,
-                           patch_fills=False, net_surfaces=False):
+                           patch_fills=False, net_surfaces=False, programs=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -1014,7 +1079,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
     ``net_surfaces=True`` sends each surface's control net instead of its
     evaluated grid; the driver evaluates it at screen density
-    (docs/phase_b2_plan.md).
+    (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
+    a pending program (``mobject._program``, set by a supported animation)
+    as that program over its endpoints' rows rather than as its own rows;
+    it needs patch fills for filled paths and nets for surfaces.
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -1035,6 +1103,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
     if patch_fills and not gpu_borders:
         raise ValueError("patch fills require gpu_borders=True")
+    if programs and not patch_fills:
+        raise ValueError("programs require patch_fills=True")
+    program_cache = mesh_cache.program_sources if mesh_cache is not None else {}
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),
                           4 if camera.samples else 1, pixel_tolerance=pixel_tolerance)
@@ -1081,10 +1152,27 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                if fill_borders and fill_builder is None and not gpu_borders else {})
     for sm, uniforms in records:
         depth_suffix = "_depth" if sm.depth_test else ""
+        pending = getattr(sm, "_program", None) if programs else None
         if isinstance(sm, (DotCloud, Surface, ImageMobject)):
             pipeline = ("dot" if isinstance(sm, DotCloud) else
                         "image" if isinstance(sm, ImageMobject) else
                         "texsurface" if isinstance(sm, TexturedSurface) else "surface")
+            if (pending is not None and net_cache is not None and pipeline in ("surface", "texsurface")
+                    and getattr(sm, "net", False) and sm.has_points()):
+                sources = [_program_rows(program_cache, endpoint) for endpoint in pending["sources"]]
+                entry = net_cache.program_entry(sm, sources,
+                                                pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
+                                                frame_scale=uniforms["frame_scale"])
+                if entry is not None:
+                    patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+                    frame.draws.append(TriangleDraw(
+                        pipeline + depth_suffix, np.zeros(0, dtype=sm._data.dtype), uniforms,
+                        count=patches * indices_per_patch(entry.capacity), instances=1,
+                        textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
+                        net_shape=(entry.nu, entry.nv, entry.channels),
+                        net_capacity=entry.capacity, net_density=entry.density,
+                        program={"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}))
+                    continue
             if (net_cache is not None and pipeline in ("surface", "texsurface")
                     and getattr(sm, "net", False) and sm.has_points()):
                 entry = net_cache.source(sm, revision=sm.revision,
@@ -1111,6 +1199,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             continue
         if not isinstance(sm, VMobject):
             raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
+        if pending is not None and _program_draws(frame, sm, pending, uniforms, depth_suffix, program_cache):
+            continue
         frame.source_bytes += sm.data.nbytes
         fill = None
         border_curves = None

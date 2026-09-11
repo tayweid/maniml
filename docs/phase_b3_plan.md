@@ -4,9 +4,11 @@ Written 2026-09-11 at the start of B3, from `phase_b_plan.md`, the
 instruction-stream contract (`../simlab/INSTRUCTION_STREAM_PLAN.md`, Phases
 1 and 2, and `../simlab/ARCHITECTURE.md`), the read tables
 (`read_instrumentation_2026-09-11.md`) and a survey of the play loop.
-Status: proposed. Taylor's direction: "ok lets move on to B3". Phase A
-stays the default renderer; programs feed the Phase B patch and net
-stages, so they land behind their own switch and only with those on.
+Status: B3a (the blend) built 2026-09-11 in both drivers, behind
+`MANIML_PROGRAMS`; results at the end. Taylor's direction: "ok lets move on
+to B3", then "go ahead and start B3a". Phase A stays the default renderer;
+programs feed the Phase B patch and net stages, so they land behind their
+own switch and only with those on.
 
 ## What a play costs today, and what a program removes
 
@@ -178,3 +180,87 @@ two engine sites; the full suite green under `MANIML_VERIFY_LEDGER=1`.
   materialize guarantee; the ledger's verify mode names such writes today,
   and the same audit lists the read sites (nine files, per the matrix
   research) to route through the accessor.
+
+## B3a results (2026-09-11)
+
+Built as sequenced: the two kernels, the shadow, the flip, both mirrors.
+
+**What landed.** `row_blend.wgsl` (mix over every float of two row-aligned
+sources) and `row_finalize.wgsl` (44-word curve records and 51-float
+stroke instances from evaluated VMobject rows, the density per curve
+computed as the CPU computes it). `MANIML_PROGRAMS=off|shadow|gpu`
+(`maniml/utils/programs.py`), which needs `MANIML_FILL=patches`.
+`Transform.interpolate_submobject` records a blend program on each
+submobject for the straight path when the endpoints' rows align
+(`Mobject.blend_program`); an arc, or any endpoint pair that does not
+align, interpolates on the CPU as before. In `gpu` mode the rows are not
+written: the uniforms and the bounding box are lerped as today, the
+revision is bumped so the ledger and the renderer see a change, and the
+program is drawn. `Transform.finish` writes the final rows
+(`finish_program`), so the state after a play is the rows in every mode.
+
+**Materialize on read.** `Mobject.data` is a property: a read while a
+program is pending evaluates it on the CPU first (the same expression
+`interpolate` uses, so the rows match what the GPU draws to float32) and
+counts `program.materialize`. That covers every accessor and every direct
+`data[...]` read, not only `get_points`, so the audit of read sites the
+plan anticipated was not needed. Counts read no rows (`get_num_points`,
+`has_points`, `family_members_with_points` use the array behind the
+property), copies and checkpoints materialize first and carry rows only,
+and assigning `data` supersedes the program. The renderer's program path
+reads counts, dtypes and the endpoints' rows, never the animated rows: a
+test renders a whole play with materialization forbidden.
+
+**Wire and drivers.** A program batch (`patch`, `stroke`, or a net
+pipeline) carries `program: {kind, sources, scalars, rows, channels}`;
+`program_data` spans send a mobject's rows once per play by content hash.
+After the first frame nothing but the scalar travels. Each driver
+evaluates changed programs before any other stage; outputs are keyed by
+(program, occurrence of its scalars in the frame), so an object's fill and
+stroke batches share one evaluation and an output stays in place as its
+alpha moves; the border stage binds the finalized records where retained
+ones went, the net stage the blended net, the stroke pipeline the
+finalized instances. A program's draw needs are summarized once per source
+set (`ProgramRecipe`: curve count, which stages apply, the larger
+endpoint's density, the object record); per frame only the zoom-dependent
+counts are evaluated, and the border reservation is kept across frames.
+A program net's reservation follows the larger endpoint's density, so its
+step count can differ from the CPU path's for the same net; the pixel gate
+is the arbiter there, as for every zoom.
+
+**Parity.** Circle→Square (fill, border, stroke) and text→text: every
+mode draws the same pixels at six alphas (maximum difference 1 of 255 in
+the native driver), and the state after the play is byte-identical
+across modes. Sphere→Torus nets hold the pixel gate at every alpha (the
+reservation differs, above). The browser mirror: the Node harness checks
+the command sequence on real frames (blend and finalize share a pass, the
+border stage reads the finalized records, the stroke draws the finalized
+instances, sources and outputs are reused across alphas, nothing is
+evaluated when the scalar repeats, everything retires); live in the
+preview browser, four frames (two alphas, a repeat, a 4× zoom) matched
+the native renders on a 32×18 cell-mean grid to 0.03 of 255.
+
+**Per-frame Python during a `Transform`** (1920×1080, interpolate +
+serialize, medians over 30 frames, `MANIML_FILL=patches` in both):
+
+| Case | off | gpu | Wire per frame, off → gpu | Raw reads per frame, off → gpu |
+| --- | --- | --- | --- | --- |
+| 86-glyph text | 23.6 ms | 2.4 ms | 802 kB → 66 kB | 181 → 9 |
+| 1,000 squares | 257 ms | 50 ms | 2.7 MB → 1.3 MB | 2009 → 9 |
+
+`Transform.interpolate` itself: 1.2 → 0.3 ms (text), 10 → 4 ms (squares).
+What remains in the squares case is the serializer's per-batch cost, two
+batches per object (about 23 µs each, JSON descriptors); the wire is those
+descriptors. The play-phase raw reads fell by the two engine sites the
+read tables named; the nine that remain are the camera's. The instruction
+stream's target of under a millisecond is not met on the text case; it
+needs batching program objects, which B3's grouping note leaves for after
+the library is covered.
+
+**Open.** The paint field over blended rows (per-vertex fill colour) and
+shading fall back to the CPU path (B3b's `paint`); `path_arc` transforms
+stay on the CPU until an `arc` program exists; `FadeIn`/`FadeOut` and the
+other subclasses that override `interpolate_submobject` keep their CPU
+path for now; the recording player does not index program batches, as for
+patch and net batches; the default stays `off`, Taylor's call with the
+other Phase B switches.

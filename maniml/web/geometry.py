@@ -13,6 +13,8 @@ from collections import OrderedDict
 
 import numpy as np
 
+from maniml.utils import programs
+
 from maniml.performance import performance
 
 from typing import TYPE_CHECKING
@@ -46,6 +48,7 @@ class GeometryCache:
         self.border_generator = None
         self.fill_generator = None
         self.surface_generator = None
+        self.program_mode = None
 
     def reset(self):
         self.sent.clear()
@@ -164,12 +167,18 @@ def _serialize_triangle_scene(scene, cache):
     surface_generator = os.environ.get("MANIML_SURFACE", "grids")
     if surface_generator not in ("grids", "nets"):
         raise ValueError("MANIML_SURFACE must be 'grids' or 'nets'")
+    # Phase B3 (docs/phase_b3_plan.md): a supported animation's frames as a
+    # program the Phase B stages evaluate; it draws from the patch fill.
+    program_mode = programs.mode()
+    if program_mode != "off" and fill_generator != "patches":
+        raise ValueError("MANIML_PROGRAMS requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
-            or state.surface_generator != surface_generator):
+            or state.surface_generator != surface_generator or state.program_mode != program_mode):
         state.reset()
         state.border_generator = border_generator
         state.fill_generator = fill_generator
         state.surface_generator = surface_generator
+        state.program_mode = program_mode
         if state.triangle_meshes is not None:
             state.triangle_meshes.gpu_border_cache.clear()
     if state.triangle_tessellator is None:
@@ -180,7 +189,8 @@ def _serialize_triangle_scene(scene, cache):
                                        mesh_cache=state.triangle_meshes, fill_borders=True,
                                        gpu_borders=border_generator == "gpu",
                                        patch_fills=fill_generator == "patches",
-                                       net_surfaces=surface_generator == "nets")
+                                       net_surfaces=surface_generator == "nets",
+                                       programs=program_mode != "off")
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):

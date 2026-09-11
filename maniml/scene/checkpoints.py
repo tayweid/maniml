@@ -962,6 +962,8 @@ _LEDGER_IGNORED_ATTRS = frozenset({
     "_has_updaters_in_family", "_triangulation_cache", "needs_new_joint_angles",
     "needs_new_unit_normal", "subpath_end_indices", "outer_vert_indices",
     "_shader_wrapper_id",
+    "_data",     # compared above, column by column, as ``data``
+    "_program",  # a pending GPU program; a copy materializes it and carries none
 })
 
 

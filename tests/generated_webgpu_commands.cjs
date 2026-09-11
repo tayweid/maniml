@@ -112,7 +112,7 @@ async function driver(options = {}) {
             dispatchWorkgroups(count, rows = 1) {
               assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
               assert.equal(pass.bindings.get(1).layout.pipeline, pass.pipeline);
-              pass.draws.push({bindings: new Map(pass.bindings), count, rows});
+              pass.draws.push({bindings: new Map(pass.bindings), count, rows, pipeline: pass.pipeline});
             },
             end() { pass.ended = true; },
           };
@@ -169,7 +169,26 @@ async function driver(options = {}) {
                 for (const binding of draw.bindings.values()) {
                   for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
                 }
-                const paramsResource = draw.bindings.get(0).entries[1].resource;
+                const group0 = draw.bindings.get(0).entries;
+                if (group0.length === 1) {
+                  // A program kernel: params alone in group 0, 16 bytes.
+                  const words = new Uint32Array(group0[0].resource.buffer.bytes);
+                  const buffers = draw.bindings.get(1).entries.map(entry => entry.resource);
+                  assert.equal(group0[0].resource.size, 16);
+                  if (draw.pipeline.descriptor.compute.module.code.includes("BlendParams")) {
+                    assert.equal(buffers.length, 3);
+                    assert.ok(buffers.every(buffer => words[0] * 4 <= buffer.size), "blend within its rows");
+                    assert.equal(draw.count, Math.ceil(words[0] / 256));
+                  } else {
+                    const [curves, channels] = words, [rows, records, strokes] = buffers;
+                    assert.equal(channels, 17);
+                    assert.ok((2 * curves + 1) * channels * 4 <= rows.size, "finalize within its rows");
+                    assert.ok(curves * 176 <= records.size && curves * 204 <= strokes.size);
+                    assert.equal(draw.count, Math.ceil(curves / 64));
+                  }
+                  continue;
+                }
+                const paramsResource = group0[1].resource;
                 const params = new Uint32Array(paramsResource.buffer.bytes);
                 const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
                 if (paramsResource.size === 48) {
@@ -920,6 +939,66 @@ const cases = {
     assert.deepEqual(again.map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer), sources, "sources are reused");
     assert.ok(outputs.every(output => output.destroyed), "the old reservations retire after the frame");
     assert.ok(sphere.index.buffer.destroyed);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // Three real program frames (docs/phase_b3_plan.md): a path and a net
+  // under a blend, then the same play at another alpha with nothing but
+  // the scalar on the wire, then that frame again.
+  async programWire() {
+    const d = await driver();
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const first = await d.renderBytes(load(process.argv[3]));
+    const compute = first.filter(pass => pass.compute);
+    // The path's blend and finalize share a pass; the net's blend is one;
+    // then the border stage and the net stage read the outputs.
+    assert.deepEqual(compute.map(pass => pass.draws.length), [2, 1, 1, 1]);
+    const [pathProgram, netProgram, border, net] = compute;
+    // The fake records a pass's last pipeline: the path's pass ends in the
+    // finalize kernel, the net's is the blend alone.
+    const code = pass => pass.pipeline.descriptor.compute.module.code;
+    assert.ok(code(pathProgram).includes("FinalizeParams") && code(netProgram).includes("BlendParams"));
+    assert.ok(!code(border).includes("BlendParams") && !code(net).includes("BlendParams"));
+    const rows = pathProgram.draws[0].bindings.get(1).entries[2].resource.buffer;
+    const records = pathProgram.draws[1].bindings.get(1).entries[1].resource.buffer;
+    const strokes = pathProgram.draws[1].bindings.get(1).entries[2].resource.buffer;
+    assert.equal(pathProgram.draws[1].bindings.get(1).entries[0].resource.buffer, rows, "finalize reads the blended rows");
+    assert.equal(border.draws[0].bindings.get(1).entries[0].resource.buffer, records, "the border stage reads the finalized records");
+    const netRows = netProgram.draws[0].bindings.get(1).entries[2].resource.buffer;
+    assert.equal(net.draws[0].bindings.get(1).entries[0].resource.buffer, netRows, "the net stage reads the blended net");
+    const alpha = pass => new Float32Array(pass.draws[0].bindings.get(0).entries[0].resource.buffer.bytes)[1];
+    // The scalar is the play's eased alpha, the same for both animations.
+    const first_alpha = alpha(pathProgram);
+    assert.ok(first_alpha > 0 && first_alpha < 1 && alpha(netProgram) === first_alpha);
+    const scene = first.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const kinds = scene.draws.map(draw => draw.pipeline.descriptor.vertex.entryPoint);
+    assert.deepEqual(kinds, ["vs_fan", "vs_patch", "vs_main", "vs_cover", "vs_main", "vs_main", "vs_main"]);
+    const [fan, , stripMark, , , stroke, surface] = scene.draws;
+    assert.equal(fan.bindings.get(1).entries[0].resource.buffer, records, "the fan pulls from the finalized records");
+    assert.equal(stripMark.vertices[0], border.draws[0].bindings.get(1).entries[1].resource.buffer);
+    assert.equal(stroke.vertices[0], strokes, "the stroke draws the finalized instances");
+    assert.equal(stroke.pipeline.descriptor.vertex.buffers[0].arrayStride, 204, "three rows per instance");
+    assert.equal(stroke.args[1], records.bytes.byteLength / 176, "one instance per curve");
+    assert.equal(surface.vertices[0], net.draws[0].bindings.get(1).entries[1].resource.buffer);
+    const sources = [...pathProgram.draws[0].bindings.get(1).entries.slice(0, 2), ...netProgram.draws[0].bindings.get(1).entries.slice(0, 2)]
+      .map(entry => entry.resource.buffer);
+    // Another alpha: every stage re-evaluates from the same sources and outputs.
+    const second = await d.renderBytes(load(process.argv[4]));
+    const again = second.filter(pass => pass.compute);
+    assert.deepEqual(again.map(pass => pass.draws.length), [2, 1, 1, 1]);
+    assert.ok(alpha(again[0]) > first_alpha && alpha(again[1]) === alpha(again[0]));
+    assert.deepEqual([...again[0].draws[0].bindings.get(1).entries.slice(0, 2), ...again[1].draws[0].bindings.get(1).entries.slice(0, 2)]
+      .map(entry => entry.resource.buffer), sources, "sources are reused");
+    assert.equal(again[0].draws[0].bindings.get(1).entries[2].resource.buffer, rows, "outputs are reused");
+    assert.equal(d.cacheMisses(), 0);
+    // The same alpha again: nothing to evaluate, nothing to regenerate.
+    const third = await d.renderBytes(load(process.argv[5]));
+    assert.equal(third.filter(pass => pass.compute).length, 0);
+    const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
+    const before = resident();
+    await d.render([], {format_version: 7});
+    assert.ok(resident() < before - 6, "sources, outputs, records and strokes retire");
+    assert.ok([rows, records, strokes, netRows, ...sources].every(buffer => buffer.destroyed));
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },

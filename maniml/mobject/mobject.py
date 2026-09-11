@@ -434,7 +434,7 @@ class Mobject(object):
         return self
 
     def get_num_points(self) -> int:
-        return len(self.data)   # a count, not a read of the points
+        return len(self._data)   # a count, not a read of the points
 
     def get_all_points(self) -> Vect3Array:
         if self.submobjects:
@@ -443,7 +443,7 @@ class Mobject(object):
             return self.get_points()
 
     def has_points(self) -> bool:
-        return len(self.data) > 0
+        return len(self._data) > 0   # a count, not a read of the points
 
     def get_bounding_box(self) -> Vect3Array:
         if performance.enabled:
@@ -546,7 +546,7 @@ class Mobject(object):
         return self.family
 
     def family_members_with_points(self) -> list[Mobject]:
-        return [m for m in self.get_family() if len(m.data) > 0]
+        return [m for m in self.get_family() if len(m._data) > 0]   # a count
 
     def get_ancestors(self, extended: bool = False) -> list[Mobject]:
         """
@@ -783,13 +783,39 @@ class Mobject(object):
     # deep-copies every mobject in the namespace at every play.
     _copy_by_reference: tuple[str, ...] = ()
 
+    # A pending GPU program (docs/phase_b3_plan.md), set by a supported
+    # animation under MANIML_PROGRAMS: {kind, sources, scalars, keys,
+    # materialized}. The renderer draws it; the rows are written only
+    # when something reads them (the ``data`` property) or when the play
+    # ends (``finish_program``). Class-level None keeps a read one test.
+    _program: dict | None = None
+
+    @property
+    def data(self) -> np.ndarray:
+        program = self._program
+        if program is not None and not program["materialized"]:
+            self._materialize_program()
+        return self._data
+
+    @data.setter
+    def data(self, value: np.ndarray) -> None:
+        # Replacing the rows supersedes a pending program: what was
+        # assigned is what the mobject holds and what is drawn.
+        if "_program" in self.__dict__:
+            del self._program
+        self._data = value
+
     def __deepcopy__(self, memo):
         cls = self.__class__
         result = cls.__new__(cls)
         memo[id(self)] = result
         shared = self._copy_by_reference
         mode = _COPY_MODE.get()
+        if "_program" in self.__dict__:
+            self.data  # a copy is a read: the rows are materialized
         for key, value in self.__dict__.items():
+            if key == "_program":
+                continue  # the copy is its rows; the program stays with the original
             if key in shared:
                 result.__dict__[key] = value
             elif key == "parents" and mode is not None:
@@ -818,7 +844,10 @@ class Mobject(object):
         if deep:
             return self.deepcopy()
 
+        if "_program" in self.__dict__:
+            self.data  # a copy is a read: the rows are materialized
         result = copy.copy(self)
+        result.__dict__.pop("_program", None)
 
         result.parents = []
         result.target = None
@@ -1982,25 +2011,79 @@ class Mobject(object):
             self.note_changed_data()
             if performance.enabled:
                 performance.note_read("raw")   # both endpoints' arrays
-            # CE replaces the point array here; this writes into it, so
-            # match the endpoints' length first. The endpoints were
-            # aligned when the animation began, but an updater can rebuild
-            # self between steps with a different count (an always_redraw
-            # closure on an endpoint copy calls become() on the original).
-            n = len(mobject1.data)
-            if len(self.data) != n and len(mobject2.data) == n:
-                self.resize_points(n)
+            self._interpolate_data(mobject1, mobject2, alpha, path_func, keys)
+        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func)
+        return self
+
+    def _interpolate_data(self, mobject1, mobject2, alpha, path_func, keys) -> None:
+        """The rows of ``interpolate``: every unlocked column, on the CPU."""
+        # CE replaces the point array here; this writes into it, so
+        # match the endpoints' length first. The endpoints were
+        # aligned when the animation began, but an updater can rebuild
+        # self between steps with a different count (an always_redraw
+        # closure on an endpoint copy calls become() on the original).
+        n = len(mobject1._data)
+        if len(self._data) != n and len(mobject2._data) == n:
+            self.resize_points(n)
+        data = self._data
         for key in keys:
-            md1 = mobject1.data[key]
-            md2 = mobject2.data[key]
+            md1 = mobject1._data[key]
+            md2 = mobject2._data[key]
             if key in self.const_data_keys:
                 md1 = md1[0]
                 md2 = md2[0]
             if key in self.pointlike_data_keys:
-                self.data[key] = path_func(md1, md2, alpha)
+                data[key] = path_func(md1, md2, alpha)
             else:
-                self.data[key] = (1 - alpha) * md1 + alpha * md2
+                data[key] = (1 - alpha) * md1 + alpha * md2
 
+    def blend_program(self, mobject1, mobject2, alpha: float, *, defer: bool) -> bool:
+        """Record the straight-path blend of two row-aligned endpoints as
+        this mobject's pending program (docs/phase_b3_plan.md) and lerp
+        the uniforms and the bounding box as ``interpolate`` does. With
+        ``defer`` the rows are left for the GPU (and for the first read);
+        without it they are written now as well (shadow mode). Returns
+        False, touching nothing, when the endpoints do not align with
+        this mobject's rows, so the caller interpolates on the CPU."""
+        data, d1, d2 = self._data, mobject1._data, mobject2._data
+        if (data.dtype != d1.dtype or data.dtype != d2.dtype
+                or len(data) != len(d1) or len(data) != len(d2)):
+            return False
+        keys = [k for k in data.dtype.names if k not in self.locked_data_keys]
+        self._program = {"kind": "blend", "sources": (mobject1, mobject2),
+                         "scalars": [float(alpha)], "keys": keys, "materialized": not defer}
+        if keys:
+            self.note_changed_data()
+            if not defer:
+                if performance.enabled:
+                    performance.note_read("raw")   # both endpoints' arrays
+                self._interpolate_data(mobject1, mobject2, alpha, straight_path, keys)
+        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, straight_path)
+        return True
+
+    def _materialize_program(self) -> None:
+        """Write the rows the pending program describes: the same
+        expression the CPU path evaluates, so a reader mid-play sees
+        exactly what the GPU draws. Counted as ``program.materialize``."""
+        program = self._program
+        program["materialized"] = True
+        if performance.enabled:
+            performance.increment("program.materialize")
+            performance.note_read("raw")
+        if program["keys"]:
+            mobject1, mobject2 = program["sources"]
+            self._interpolate_data(mobject1, mobject2, program["scalars"][0], straight_path, program["keys"])
+
+    def finish_program(self) -> Self:
+        """Write the pending program's rows and drop it: the state after
+        a play is the rows, whichever mode drew the frames."""
+        if "_program" in self.__dict__:
+            if not self._program["materialized"]:
+                self._materialize_program()
+            del self._program
+        return self
+
+    def _interpolate_uniforms_and_box(self, mobject1, mobject2, alpha, path_func) -> None:
         for key in self.uniforms:
             if key in self.locked_uniform_keys:
                 continue
@@ -2016,7 +2099,6 @@ class Mobject(object):
         self.bounding_box[:] = path_func(
             mobject1.get_bounding_box(), mobject2.get_bounding_box(), alpha
         )
-        return self
 
     def pointwise_become_partial(self, mobject, a, b) -> Self:
         """

@@ -113,6 +113,9 @@ def pixels_per_unit(uniforms, resolution):
     return float(factors[1]) * float(resolution[1]) / 2.0
 
 
+_NO_NET = readonly(np.zeros((0, 0), dtype="<f4"))  # a program entry carries no net
+
+
 @dataclass
 class _NetEntry:
     owner: object
@@ -193,6 +196,37 @@ class NetRecipeCache:
         else:
             entry = previous
         entry.revision = revision
+        entry.frame = self.frame
+        entry.capacity = reserve_steps(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
+                                       steps_cap(entry.patches, entry.channels * 4))
+        self.entries.move_to_end(id(surface))
+        return entry
+
+    def program_entry(self, surface, sources, *, pixels_per_unit, frame_scale):
+        """The entry a program over the surface's net draws from: its
+        shape from the surface, its density the larger endpoint's (a
+        blend's second difference is at most the endpoints' largest),
+        and a reservation kept across frames. Reads no rows of the
+        surface itself, which would materialize the program."""
+        nu, nv = surface.resolution
+        rows, channels = surface.get_num_points(), surface._data.dtype.itemsize // 4
+        if nu * nv != rows or any(s.shape != (rows, channels) for s in sources):
+            return None
+        previous = self.entries.get(id(surface))
+        if previous is not None and previous.owner() is not surface:
+            previous = None
+        key = tuple(id(s) for s in sources)
+        if previous is None or previous.data_bytes != key:
+            density = max(float(bezier_net.second_difference(
+                np.asarray(s[:, :3], dtype=float).reshape(nu, nv, 3))) for s in sources)
+            entry = _NetEntry(weakref.ref(surface), _NO_NET, nu, nv, channels, density, None, self.frame,
+                              data_bytes=key)
+            if previous is not None:
+                self._bytes -= previous.net.nbytes
+                entry.capacity = previous.capacity
+            self.entries[id(surface)] = entry
+        else:
+            entry = previous
         entry.frame = self.frame
         entry.capacity = reserve_steps(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
                                        steps_cap(entry.patches, entry.channels * 4))

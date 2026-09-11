@@ -33,7 +33,7 @@ from maniml.web.gpu_border_geometry import (
     patch_draw_count, patch_groups, validate_capacity, validate_layout, validate_objects,
     validate_patch_layout,
 )
-from maniml.web import gpu_net_geometry
+from maniml.web import gpu_net_geometry, gpu_program_geometry
 from PIL import Image
 
 import wgpu
@@ -179,6 +179,8 @@ MODULE_SOURCES = {
     "border_compute": ("common.wgsl", "border_compute.wgsl"),
     "patch_fill": ("common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"),
     "net_compute": ("common.wgsl", "net_compute.wgsl"),
+    "row_blend": ("row_blend.wgsl",),
+    "row_finalize": ("row_finalize.wgsl",),
 }
 
 
@@ -225,6 +227,11 @@ class WgpuRenderer:
         self._net_sources = {}
         self._net_outputs = {}
         self._net_compute_pipeline = None
+        # Programs (docs/phase_b3_plan.md): row sources by hash, evaluated
+        # rows/records/strokes by occurrence.
+        self._program_sources = {}
+        self._program_outputs = {}
+        self._program_pipelines = {}
         self._stale_index_buffers = []
         self._size = None
         self._spatial_texture = None
@@ -360,8 +367,128 @@ class WgpuRenderer:
             buffers[capacity] = index_buffer
         return index_buffer
 
-    def _prepare_nets(self, header, payload, encoder, temporary):
-        """Evaluate changed surface nets before the ordered render pass."""
+    def _prepare_programs(self, header, payload, encoder, temporary):
+        """Evaluate changed programs: blend the rows, then finalize them into
+        curve records and stroke instances, before any other stage."""
+        records = header.get("program_data", {})
+        if not isinstance(records, dict):
+            raise ValueError("program sources must be an object")
+        definitions = {}
+        for key, ref in records.items():
+            if not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None:
+                raise ValueError("invalid program source hash")
+            if not isinstance(ref, dict):
+                raise ValueError("invalid program source span")
+            offset, size = ref.get("offset"), ref.get("nbytes")
+            if (type(offset) is not int or type(size) is not int or size <= 0 or size % 4
+                    or offset < 0 or offset > len(payload) or size > len(payload) - offset):
+                raise ValueError("invalid program source span")
+            data = bytes(payload[offset:offset + size])
+            if not np.isfinite(np.frombuffer(data, dtype="<f4")).all():
+                raise ValueError("program source rows must be finite")
+            previous = self._program_sources.get(key)
+            if previous is not None and previous["data"] != data:
+                raise ValueError("program source hash redefined with different rows")
+            definitions[key] = data
+        limits = getattr(self.device, "limits", {})
+        max_storage = limits.get("max-storage-buffer-binding-size", 128 * 1024 ** 2)
+        outputs, used_sources, used_outputs, completed = {}, set(), set(), []
+        occurrences, outputs_by_state = {}, {}
+        for batch in header["batches"]:
+            program = batch.get("program")
+            if program is None:
+                continue
+            if header.get("format_version", 0) < 7:
+                raise ValueError("a program requires a format 7 descriptor")
+            kind, sources, scalars, rows, channels = gpu_program_geometry.validate_program(program)
+            row_bytes = rows * channels * 4
+            if row_bytes > max_storage:
+                raise ValueError("program rows exceed the device's storage binding limit")
+            buffers = []
+            for key in sources:
+                source = self._program_sources.get(key)
+                data = definitions.get(key) if source is None else source["data"]
+                if data is None:
+                    raise KeyError(f"program source cache miss for {key}")
+                if len(data) != row_bytes:
+                    raise ValueError("program source does not match the descriptor's rows")
+                if source is None:
+                    source = {"data": data, "buffer": self.device.create_buffer_with_data(
+                        data=data, usage=wgpu.BufferUsage.STORAGE)}
+                    self._program_sources[key] = source
+                used_sources.add(key)
+                buffers.append(source["buffer"])
+            # An output is the program's rows at its scalars, so every batch
+            # of one object (its fill and its stroke) shares one evaluation;
+            # the same program at other scalars in the same frame is another
+            # occurrence, which keeps an output in place as its alpha moves.
+            key = gpu_program_geometry.program_key(kind, sources)
+            state = (kind, tuple(scalars))
+            shared = outputs_by_state.get((key, state))
+            if shared is not None:
+                if shared["row_bytes"] != row_bytes:
+                    raise ValueError("program source does not match the descriptor's rows")
+                outputs[id(batch)] = shared
+                continue
+            occurrence = occurrences.get(key, 0)
+            occurrences[key] = occurrence + 1
+            output_key = (key, occurrence)
+            used_outputs.add(output_key)
+            output = self._program_outputs.get(output_key)
+            finalize = channels == gpu_program_geometry.ROW_FLOATS
+            curves = gpu_program_geometry.curve_count(rows)
+            if output is None:
+                usage = wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.VERTEX | wgpu.BufferUsage.COPY_DST
+                output = {"rows": self.device.create_buffer(size=row_bytes, usage=usage), "state": None,
+                          "records": None, "strokes": None, "curves": curves, "row_bytes": row_bytes}
+                if finalize and curves:
+                    output["records"] = self.device.create_buffer(size=curves * 176, usage=usage)
+                    output["strokes"] = self.device.create_buffer(size=curves * 204, usage=usage)
+                self._program_outputs[output_key] = output
+            outputs[id(batch)] = outputs_by_state[(key, state)] = output
+            if output["state"] == state:
+                continue
+            blend = self._program_pipeline("row_blend")
+            params = self.device.create_buffer_with_data(
+                data=struct.pack("<IfII", rows * channels, scalars[0], 0, 0), usage=wgpu.BufferUsage.UNIFORM)
+            temporary.append(params)
+            compute = encoder.begin_compute_pass()
+            compute.set_pipeline(blend)
+            compute.set_bind_group(0, self.device.create_bind_group(layout=blend.get_bind_group_layout(0), entries=[
+                {"binding": 0, "resource": {"buffer": params, "size": 16}}]))
+            compute.set_bind_group(1, self.device.create_bind_group(layout=blend.get_bind_group_layout(1), entries=[
+                {"binding": 0, "resource": {"buffer": buffers[0], "size": row_bytes}},
+                {"binding": 1, "resource": {"buffer": buffers[1], "size": row_bytes}},
+                {"binding": 2, "resource": {"buffer": output["rows"], "size": row_bytes}}]))
+            compute.dispatch_workgroups((rows * channels + 255) // 256)
+            if finalize and curves:
+                pipeline = self._program_pipeline("row_finalize")
+                params = self.device.create_buffer_with_data(
+                    data=struct.pack("<IIII", curves, channels, 0, 0), usage=wgpu.BufferUsage.UNIFORM)
+                temporary.append(params)
+                compute.set_pipeline(pipeline)
+                compute.set_bind_group(0, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": params, "size": 16}}]))
+                compute.set_bind_group(1, self.device.create_bind_group(layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": output["rows"], "size": row_bytes}},
+                    {"binding": 1, "resource": {"buffer": output["records"], "size": curves * 176}},
+                    {"binding": 2, "resource": {"buffer": output["strokes"], "size": curves * 204}}]))
+                compute.dispatch_workgroups((curves + 63) // 64)
+            compute.end()
+            completed.append((output, state))
+        return outputs, used_sources, used_outputs, completed
+
+    def _program_pipeline(self, name):
+        pipeline = self._program_pipelines.get(name)
+        if pipeline is None:
+            pipeline = self._program_pipelines[name] = self.device.create_compute_pipeline(
+                layout="auto", compute={"module": self._modules[name], "entry_point": "cs_main"})
+        return pipeline
+
+    def _prepare_nets(self, header, payload, encoder, temporary, programs=None):
+        """Evaluate changed surface nets before the ordered render pass. A
+        batch with a program takes its net from the program's evaluated rows."""
+        programs = {} if programs is None else programs
         records = header.get("net_data", {})
         if not isinstance(records, dict):
             raise ValueError("net definitions must be an object")
@@ -415,8 +542,14 @@ class WgpuRenderer:
             size = vertex_count * batch["stride"]
             if size > max_buffer or size > max_storage:
                 raise ValueError("surface net output exceeds device buffer limits")
-            source = self._net_sources.get(key)
-            data = definitions.get(key) if source is None else source["data"]
+            program_output = programs.get(id(batch))
+            if program_output is not None:
+                if program_output["row_bytes"] != nu * nv * channels * 4:
+                    raise ValueError("a program's rows do not match its net batch")
+                source, data = {"buffer": program_output["rows"]}, b"\0" * (nu * nv * channels * 4)
+            else:
+                source = self._net_sources.get(key)
+                data = definitions.get(key) if source is None else source["data"]
             if data is None:
                 raise KeyError(f"net cache miss for {key}")
             if len(data) != nu * nv * channels * 4 or len(data) > max_storage:
@@ -431,7 +564,8 @@ class WgpuRenderer:
                 source = {"data": data, "buffer": self.device.create_buffer_with_data(
                     data=data, usage=wgpu.BufferUsage.STORAGE)}
                 self._net_sources[key] = source
-            used_sources.add(key)
+            if program_output is None:
+                used_sources.add(key)
             occurrence = occurrences.get((batch["hash"], key), 0)
             occurrences[(batch["hash"], key)] = occurrence + 1
             output_key = (batch["hash"], key, capacity, occurrence)
@@ -451,7 +585,8 @@ class WgpuRenderer:
                     {"binding": 1, "resource": {"buffer": buffer, "size": size}}])
             outputs[id(batch)] = output
             ppu = gpu_net_geometry.pixels_per_unit(values, header["resolution"])
-            state = (float(floats[23]), float(density), float(ppu))
+            state = (float(floats[23]), float(density), float(ppu),
+                     None if program_output is None else program_output["state_pending"])
             if output["state"] == state:
                 continue
             camera = uniform_buffers.get(packed)
@@ -665,8 +800,11 @@ class WgpuRenderer:
             buffers[capacity] = index_buffer
         return index_buffer
 
-    def _prepare_borders(self, header, payload, encoder, temporary):
-        """Generate changed border tails before the ordered render pass begins."""
+    def _prepare_borders(self, header, payload, encoder, temporary, programs=None):
+        """Generate changed border tails before the ordered render pass begins.
+        A batch with a program takes its curve records from the program's
+        finalized output instead of a retained source."""
+        programs = {} if programs is None else programs
         records = header.get("border_data", {})
         if not isinstance(records, dict):
             raise ValueError("border definitions must be an object")
@@ -778,8 +916,14 @@ class WgpuRenderer:
             storage_size = size - storage_offset
             if size > max_buffer or storage_size > max_storage:
                 raise ValueError("GPU border output exceeds device buffer limits")
-            source = self._border_sources.get(key)
-            data = definitions.get(key) if source is None else source["data"]
+            program_output = programs.get(id(batch))
+            if program_output is not None:
+                if not patch or program_output["records"] is None or program_output["curves"] != count:
+                    raise ValueError("a program's curve records do not match its patch batch")
+                source, data = {"buffer": program_output["records"]}, b"\0" * (count * 176)
+            else:
+                source = self._border_sources.get(key)
+                data = definitions.get(key) if source is None else source["data"]
             if data is None:
                 raise KeyError(f"border cache miss for {key}")
             if len(data) != count * 176 or len(data) > max_storage:
@@ -807,12 +951,16 @@ class WgpuRenderer:
                 raise ValueError("invalid GPU border generation uniforms")
             flat = floats[37] != 0 or floats[19] != 0
             state = floats[[23, 38, 36, 37, 19]].tobytes() + (b"" if flat else floats[20:23].tobytes())
+            if program_output is not None:
+                # The records change with the program's scalars.
+                state += repr(program_output["state_pending"]).encode()
             resources = self._generated_resources(batch, payload)
             if source is None:
                 source = {"data": data, "buffer": self.device.create_buffer_with_data(
                     data=data, usage=wgpu.BufferUsage.STORAGE)}
                 self._border_sources[key] = source
-            used_sources.add(key)
+            if program_output is None:
+                used_sources.add(key)
             if patch:
                 table = self._object_tables.get(table_key)
                 if table is None:
@@ -950,8 +1098,9 @@ class WgpuRenderer:
         return keys
 
     def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys, border_outputs,
-                          net_outputs=None):
+                          net_outputs=None, program_outputs=None):
         net_outputs = {} if net_outputs is None else net_outputs
+        program_outputs = {} if program_outputs is None else program_outputs
         """Replay all generated operations into exactly one ordered scene pass."""
         background = np.asarray(header["background"], dtype=float).copy()
         background[:3] *= background[3]
@@ -1040,6 +1189,11 @@ class WgpuRenderer:
                     render_pass.set_bind_group(1, self._generated_textures[texture_key])
                 output = border_outputs.get(id(batch))
                 net_output = net_outputs.get(id(batch))
+                program_output = program_outputs.get(id(batch))
+                if program_output is not None and module == "stroke":
+                    render_pass.set_vertex_buffer(0, program_output["strokes"])
+                    render_pass.draw(batch["count"], batch["instances"])
+                    continue
                 if net_output is not None:
                     render_pass.set_vertex_buffer(0, net_output["buffer"])
                     render_pass.set_index_buffer(self._net_index_buffer(batch, resources), "uint32")
@@ -1196,6 +1350,7 @@ class WgpuRenderer:
         previous_geometry, previous_uniforms = set(self._generated_geometry), set(self._generated_uniforms)
         previous_tables, previous_patch_uniforms = set(self._object_tables), set(self._patch_uniforms)
         previous_net_sources, previous_net_outputs = set(self._net_sources), set(self._net_outputs)
+        previous_program_sources, previous_program_outputs = set(self._program_sources), set(self._program_outputs)
         temporary = []
         try:
             paint_keys = self._prepare_paints(header, vertex_bytes)
@@ -1213,15 +1368,22 @@ class WgpuRenderer:
                     (*image.size, 1))
                 self.texture_cache[tex_hash] = texture
             encoder = device.create_command_encoder()
+            programs, used_program_sources, used_program_outputs, program_completed = self._prepare_programs(
+                header, vertex_bytes, encoder, temporary)
+            for program_output, state in program_completed:
+                program_output["state_pending"] = state
+            for program_output in programs.values():
+                program_output.setdefault("state_pending", program_output["state"])
             borders, used_sources, used_outputs, used_tables, completed = self._prepare_borders(
-                header, vertex_bytes, encoder, temporary)
+                header, vertex_bytes, encoder, temporary, programs)
             nets, used_net_sources, used_net_outputs, net_completed = self._prepare_nets(
-                header, vertex_bytes, encoder, temporary)
+                header, vertex_bytes, encoder, temporary, programs)
             used = self._encode_generated(encoder, header, vertex_bytes, samples,
-                supersample=supersample, paint_keys=paint_keys, border_outputs=borders, net_outputs=nets)
+                supersample=supersample, paint_keys=paint_keys, border_outputs=borders, net_outputs=nets,
+                program_outputs=programs)
             output = self._resolve_generated(encoder, size, supersample)
             device.queue.submit([encoder.finish()])
-            for border_output, state in completed + net_completed:
+            for border_output, state in completed + net_completed + program_completed:
                 border_output["state"] = state
         except Exception:
             # Failed decoding/encoding must preserve the last submitted frame
@@ -1240,6 +1402,10 @@ class WgpuRenderer:
                 self._net_outputs.pop(key)["buffer"].destroy()
             for key in self._net_sources.keys() - previous_net_sources:
                 self._net_sources.pop(key)["buffer"].destroy()
+            for key in self._program_outputs.keys() - previous_program_outputs:
+                self._destroy_program_output(self._program_outputs.pop(key))
+            for key in self._program_sources.keys() - previous_program_sources:
+                self._program_sources.pop(key)["buffer"].destroy()
             for key in self._patch_uniforms.keys() - previous_patch_uniforms:
                 self._patch_uniforms.pop(key)[0].destroy()
             for key in self._generated_geometry.keys() - previous_geometry:
@@ -1263,6 +1429,10 @@ class WgpuRenderer:
             self._net_outputs.pop(key)["buffer"].destroy()
         for key in self._net_sources.keys() - used_net_sources:
             self._net_sources.pop(key)["buffer"].destroy()
+        for key in self._program_outputs.keys() - used_program_outputs:
+            self._destroy_program_output(self._program_outputs.pop(key))
+        for key in self._program_sources.keys() - used_program_sources:
+            self._program_sources.pop(key)["buffer"].destroy()
         self._retire_generated(used, {
             value for batch in header["batches"]
             for value in batch.get("textures", {}).values()})
@@ -1270,6 +1440,12 @@ class WgpuRenderer:
             {"texture": output, "origin": (0, 0, 0)},
             {"offset": 0, "bytes_per_row": size[0] * 4, "rows_per_image": size[1]}, (*size, 1))
         return Image.frombytes("RGBA", size, bytes(raw))
+
+    @staticmethod
+    def _destroy_program_output(output):
+        for name in ("rows", "records", "strokes"):
+            if output.get(name) is not None:
+                output[name].destroy()
 
     def _resolve_generated(self, encoder, output_size, supersample):
         source = self.resolve_texture or self.out_texture
@@ -1322,10 +1498,14 @@ class WgpuRenderer:
         for buffer, _ in self._generated_paints.values():
             destroy(buffer)
         for cache in (self._border_outputs, self._border_sources, self._object_tables,
-                      self._net_outputs, self._net_sources):
+                      self._net_outputs, self._net_sources, self._program_sources):
             for resource in cache.values():
                 destroy(resource["buffer"])
             cache.clear()
+        for output in self._program_outputs.values():
+            self._destroy_program_output(output)
+        self._program_outputs.clear()
+        self._program_pipelines.clear()
         self._net_compute_pipeline = None
         self._patch_uniforms.clear()
         self._patch_layouts = None

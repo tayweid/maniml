@@ -839,3 +839,24 @@ live viewer in the app's browser pane with both switches on, whose canvas
 matched the native render of the same frame exactly on a 32×18 grid of
 60-pixel cell means (141 lit cells, all identical). Both stay behind their
 switches; the recording player does not index the new batches yet.
+
+## Phase B3a: the blend program (2026-09-11)
+
+Taylor's direction, quoted: "ok lets move on to B3", then "ok got it. go
+ahead and start B3a". A straight-path `Transform` now records a blend of
+its endpoints' rows on each submobject; the rows travel once per play by
+content hash and the scalar per frame; both drivers blend and finalize on
+the GPU and draw from the result (`docs/phase_b3_plan.md`, results
+section). Under `MANIML_PROGRAMS=gpu` Python writes no rows during the
+play: `Mobject.data` materializes a pending program on read (DECISIONS.md,
+"A pending program materializes on read"), and `Transform.finish` writes
+the final rows, so the checkpoint after a play is byte-identical to the
+CPU path's. Verified three ways: the native driver pixel-matches the CPU
+path at six alphas for fills, borders, strokes and text and holds the gate
+for nets; the Node harness checks the browser's command sequence on real
+frames (`programWire`); and the preview browser drew four wire frames
+(two alphas, a repeat, a 4× zoom) matching the native renders on a 32×18
+cell-mean grid to 0.03 of 255. Measured: per-frame Python during a
+`Transform` 23.6 → 2.4 ms on 86 glyphs and 257 → 50 ms on 1,000 squares,
+play-phase raw reads 181 → 9 and 2009 → 9. Behind its switch, default
+`off`.

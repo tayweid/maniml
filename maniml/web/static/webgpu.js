@@ -120,6 +120,8 @@ const ManimlWGPU = (() => {
     border_compute: ["common.wgsl", "border_compute.wgsl"],
     patch_fill: ["common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"],
     net_compute: ["common.wgsl", "net_compute.wgsl"],
+    row_blend: ["row_blend.wgsl"],
+    row_finalize: ["row_finalize.wgsl"],
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
@@ -136,6 +138,11 @@ const ManimlWGPU = (() => {
   const generatedPaintBindings = new Map();
   const borderSources = new Map(), borderOutputs = new Map();
   let borderPipeline = null;
+  // Programs (docs/phase_b3_plan.md): row sources by content hash, evaluated
+  // outputs (rows, and for VMobject rows the finalized curve records and
+  // stroke instances) by (batch, program, occurrence), and the kernels.
+  const programSources = new Map(), programOutputs = new Map(), programPipelines = new Map();
+  const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: 2};
   // Patch fills: object tables by hash, group-0 bindings by uniforms, and
   // the explicit layouts every patch pipeline shares. Surface nets: sources
   // by hash, evaluated outputs by occurrence.
@@ -639,7 +646,150 @@ const ManimlWGPU = (() => {
     return binding;
   }
 
-  function prepareBorders(header, payload, encoder, temporary) {
+  function programPipeline(name) {
+    let pipeline = programPipelines.get(name);
+    if (!pipeline) {
+      pipeline = device.createComputePipeline({layout: "auto", compute: {module: modules[name], entryPoint: "cs_main"}});
+      programPipelines.set(name, pipeline);
+    }
+    return pipeline;
+  }
+
+  function destroyProgramOutput(output) {
+    for (const buffer of [output.rows, output.records, output.strokes]) if (buffer) buffer.destroy();
+  }
+
+  // Evaluate changed programs before any other stage: blend the rows, then
+  // finalize VMobject rows into curve records and stroke instances.
+  function preparePrograms(header, payload, encoder, temporary) {
+    const records = "program_data" in header ? header.program_data : {};
+    if (records === null || typeof records !== "object" || Array.isArray(records)) {
+      throw new Error("program sources must be an object");
+    }
+    const validHash = hash => typeof hash === "string" && /^[0-9a-f]{32}$/.test(hash);
+    const definitions = new Map();
+    for (const [key, ref] of Object.entries(records)) {
+      if (!validHash(key)) throw new Error("invalid program source hash");
+      if (ref === null || typeof ref !== "object" || Array.isArray(ref)) throw new Error("invalid program source span");
+      const {offset, nbytes} = ref;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes) || nbytes <= 0 || nbytes % 4
+          || offset < 0 || offset > payload.length || nbytes > payload.length - offset) {
+        throw new Error("invalid program source span");
+      }
+      const bytes = payload.slice(offset, offset + nbytes);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let i = 0; i < nbytes; i += 4) {
+        if (!Number.isFinite(view.getFloat32(i, true))) throw new Error("program source rows must be finite");
+      }
+      const previous = programSources.get(key);
+      if (previous && (previous.bytes.length !== bytes.length || previous.bytes.some((value, i) => value !== bytes[i]))) {
+        throw new Error("program source hash redefined with different rows");
+      }
+      definitions.set(key, bytes);
+    }
+    const limits = device.limits || {};
+    const maxStorage = limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2;
+    const outputs = new Map(), usedSources = new Set(), usedOutputs = new Set(), completed = [];
+    const occurrences = new Map(), outputsByState = new Map();
+    for (const batch of header.batches) {
+      const program = batch.program;
+      if (program === undefined) continue;
+      if ((header.format_version ?? 0) < 7) throw new Error("a program requires a format 7 descriptor");
+      if (program === null || typeof program !== "object" || Array.isArray(program)) {
+        throw new Error("invalid program descriptor");
+      }
+      const {kind, sources, scalars, rows, channels} = program;
+      if (!(kind in PROGRAM_KINDS) || !Array.isArray(sources) || sources.length !== PROGRAM_KINDS[kind]
+          || !sources.every(validHash) || !Array.isArray(scalars) || scalars.length !== 1
+          || scalars.some(value => typeof value !== "number" || !Number.isFinite(value))
+          || !Number.isSafeInteger(rows) || rows < 1 || !Number.isSafeInteger(channels) || channels < 1) {
+        throw new Error("invalid program descriptor");
+      }
+      const rowBytes = rows * channels * 4;
+      if (rowBytes > maxStorage) throw new Error("program rows exceed the device's storage binding limit");
+      const buffers = [];
+      let missing = false;
+      for (const key of sources) {
+        let source = programSources.get(key);
+        const bytes = source ? source.bytes : definitions.get(key);
+        if (!bytes) { missing = true; break; }
+        if (bytes.length !== rowBytes) throw new Error("program source does not match the descriptor's rows");
+        if (!source) {
+          source = {bytes, buffer: makeBuffer(bytes, GPUBufferUsage.STORAGE)};
+          programSources.set(key, source);
+        }
+        usedSources.add(key);
+        buffers.push(source.buffer);
+      }
+      if (missing) { cacheMissed = true; outputs.set(batch, null); continue; }
+      // An output is the program's rows at its scalars, so every batch of
+      // one object (its fill and its stroke) shares one evaluation; the same
+      // program at other scalars in the same frame is another occurrence,
+      // which keeps an output in place as its alpha moves.
+      const key = kind + ":" + sources.join(",");
+      const state = kind + ":" + scalars.join(",");
+      const shared = outputsByState.get(key + "@" + state);
+      if (shared) {
+        if (shared.rowBytes !== rowBytes) throw new Error("program source does not match the descriptor's rows");
+        outputs.set(batch, shared);
+        continue;
+      }
+      const occurrence = occurrences.get(key) ?? 0;
+      occurrences.set(key, occurrence + 1);
+      const outputKey = JSON.stringify([key, occurrence]);
+      usedOutputs.add(outputKey);
+      let output = programOutputs.get(outputKey);
+      const finalize = channels === ROW_FLOATS;
+      const curves = Math.max(0, Math.floor((rows - 1) / 2));
+      if (!output) {
+        const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+        output = {rows: device.createBuffer({size: rowBytes, usage}), state: null, statePending: null,
+                  records: null, strokes: null, curves, rowBytes};
+        if (finalize && curves) {
+          output.records = device.createBuffer({size: curves * 176, usage});
+          output.strokes = device.createBuffer({size: curves * 204, usage});
+        }
+        programOutputs.set(outputKey, output);
+      }
+      outputs.set(batch, output);
+      outputsByState.set(key + "@" + state, output);
+      output.statePending = output.state;
+      if (output.state === state) continue;
+      output.statePending = state;
+      const blend = programPipeline("row_blend");
+      const params = new ArrayBuffer(16), view = new DataView(params);
+      view.setUint32(0, rows * channels, true); view.setFloat32(4, scalars[0], true);
+      const paramsBuffer = makeBuffer(params, GPUBufferUsage.UNIFORM); temporary.push(paramsBuffer);
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(blend);
+      compute.setBindGroup(0, device.createBindGroup({layout: blend.getBindGroupLayout(0), entries: [
+        {binding: 0, resource: {buffer: paramsBuffer, size: 16}}]}));
+      compute.setBindGroup(1, device.createBindGroup({layout: blend.getBindGroupLayout(1), entries: [
+        {binding: 0, resource: {buffer: buffers[0], size: rowBytes}},
+        {binding: 1, resource: {buffer: buffers[1], size: rowBytes}},
+        {binding: 2, resource: {buffer: output.rows, size: rowBytes}}]}));
+      compute.dispatchWorkgroups(Math.ceil(rows * channels / 256));
+      if (finalize && curves) {
+        const pipeline = programPipeline("row_finalize");
+        const finalizeParams = new ArrayBuffer(16), finalizeView = new DataView(finalizeParams);
+        finalizeView.setUint32(0, curves, true); finalizeView.setUint32(4, channels, true);
+        const finalizeBuffer = makeBuffer(finalizeParams, GPUBufferUsage.UNIFORM); temporary.push(finalizeBuffer);
+        compute.setPipeline(pipeline);
+        compute.setBindGroup(0, device.createBindGroup({layout: pipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: finalizeBuffer, size: 16}}]}));
+        compute.setBindGroup(1, device.createBindGroup({layout: pipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: output.rows, size: rowBytes}},
+          {binding: 1, resource: {buffer: output.records, size: curves * 176}},
+          {binding: 2, resource: {buffer: output.strokes, size: curves * 204}}]}));
+        compute.dispatchWorkgroups(Math.ceil(curves / 64));
+      }
+      compute.end();
+      completed.push([output, state]);
+    }
+    return {outputs, usedSources, usedOutputs, completed};
+  }
+
+  function prepareBorders(header, payload, encoder, temporary, programs = new Map()) {
     const records = "border_data" in header ? header.border_data : {};
     if (records === null || typeof records !== "object" || Array.isArray(records)) {
       throw new Error("border definitions must be an object");
@@ -761,8 +911,19 @@ const ManimlWGPU = (() => {
       if (!Number.isSafeInteger(size) || size > maxBuffer || storageSize > maxStorage) {
         throw new Error("GPU border output exceeds device buffer limits");
       }
-      let source = borderSources.get(key);
-      const bytes = source ? source.bytes : definitions.get(key);
+      const programOutput = programs.get(batch);
+      if (programOutput === null) { outputs.set(batch, null); continue; }
+      let source, bytes;
+      if (programOutput) {
+        if (!patch || !programOutput.records || programOutput.curves !== count) {
+          throw new Error("a program's curve records do not match its patch batch");
+        }
+        source = {bytes: null, buffer: programOutput.records};
+        bytes = {length: count * 176};
+      } else {
+        source = borderSources.get(key);
+        bytes = source ? source.bytes : definitions.get(key);
+      }
       if (!bytes) { cacheMissed = true; outputs.set(batch, null); continue; }
       if (bytes.length !== count * 176 || bytes.length > maxStorage) {
         throw new Error("border definition curve count does not match geometry");
@@ -797,14 +958,16 @@ const ManimlWGPU = (() => {
         throw new Error("invalid GPU border generation uniforms");
       }
       const flat = floats[37] !== 0 || floats[19] !== 0;
-      const state = [23, 38, 36, 37, 19, ...(flat ? [] : [20, 21, 22])].map(i => bits[i]).join(",");
+      let state = [23, 38, 36, 37, 19, ...(flat ? [] : [20, 21, 22])].map(i => bits[i]).join(",");
+      // The records change with the program's scalars.
+      if (programOutput) state += ";" + programOutput.statePending;
       const resources = generatedResources(batch, payload);
       if (!resources) { outputs.set(batch, null); continue; }
       if (!source) {
         source = {bytes, buffer: makeBuffer(bytes, GPUBufferUsage.STORAGE)};
         borderSources.set(key, source);
       }
-      usedSources.add(key);
+      if (!programOutput) usedSources.add(key);
       let table = null;
       if (patch) {
         table = objectTables.get(tableKey);
@@ -874,7 +1037,7 @@ const ManimlWGPU = (() => {
   }
 
   // Evaluate changed surface nets before the ordered render pass.
-  function prepareNets(header, payload, encoder, temporary) {
+  function prepareNets(header, payload, encoder, temporary, programs = new Map()) {
     const records = "net_data" in header ? header.net_data : {};
     if (records === null || typeof records !== "object" || Array.isArray(records)) {
       throw new Error("net definitions must be an object");
@@ -931,8 +1094,17 @@ const ManimlWGPU = (() => {
       if (!Number.isSafeInteger(size) || size > maxBuffer || size > maxStorage) {
         throw new Error("surface net output exceeds device buffer limits");
       }
-      let source = netSources.get(key);
-      const bytes = source ? source.bytes : definitions.get(key);
+      const programOutput = programs.get(batch);
+      if (programOutput === null) { outputs.set(batch, null); continue; }
+      let source, bytes;
+      if (programOutput) {
+        if (programOutput.rowBytes !== nu * nv * channels * 4) throw new Error("a program's rows do not match its net batch");
+        source = {bytes: null, buffer: programOutput.rows};
+        bytes = {length: nu * nv * channels * 4};
+      } else {
+        source = netSources.get(key);
+        bytes = source ? source.bytes : definitions.get(key);
+      }
       if (!bytes) { cacheMissed = true; outputs.set(batch, null); continue; }
       if (bytes.length !== nu * nv * channels * 4 || bytes.length > maxStorage) {
         throw new Error("net definition does not match its descriptor");
@@ -949,7 +1121,7 @@ const ManimlWGPU = (() => {
         source = {bytes, buffer: makeBuffer(bytes, GPUBufferUsage.STORAGE)};
         netSources.set(key, source);
       }
-      usedSources.add(key);
+      if (!programOutput) usedSources.add(key);
       const occurrenceKey = batch.hash + ":" + key;
       const occurrence = occurrences.get(occurrenceKey) ?? 0;
       occurrences.set(occurrenceKey, occurrence + 1);
@@ -971,7 +1143,7 @@ const ManimlWGPU = (() => {
       // Output pixels per world unit at frame scale 1: the camera's rescale
       // factor for y and the output height.
       const ppu = floats[17] * header.resolution[1] / 2;
-      const state = [floats[23], density, ppu].join(",");
+      const state = [floats[23], density, ppu, programOutput ? programOutput.statePending : ""].join(",");
       if (output.state === state) continue;
       const cameraKey = bits.join(",");
       let camera = cameras.get(cameraKey);
@@ -1183,12 +1355,12 @@ const ManimlWGPU = (() => {
     }
   }
 
-  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borderBuffers, depthOnly = false, netBuffers = new Map()) {
+  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borderBuffers, depthOnly = false, netBuffers = new Map(), programBuffers = new Map()) {
     const name = "generated_" + batch.pipeline + (depthOnly ? "_depth_only" : batch.coverage ? "_coverage" : "");
     if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
       throw new Error("unsupported generated pipeline " + batch.pipeline);
     }
-    if (borderBuffers.get(batch) === null || netBuffers.get(batch) === null) return;
+    if (borderBuffers.get(batch) === null || netBuffers.get(batch) === null || programBuffers.get(batch) === null) return;
     const painted = batch.pipeline === "paint" || batch.pipeline === "paint_depth";
     const paintKey = paintKeys.get(batch);
     if (painted && paintKey === null) return;  // Request resend; never reuse another material.
@@ -1224,6 +1396,13 @@ const ManimlWGPU = (() => {
       pass.setBindGroup(1, binding);
     }
     if (textureBinding) pass.setBindGroup(1, textureBinding);
+    const programOutput = programBuffers.get(batch);
+    if (programOutput && (batch.pipeline === "stroke" || batch.pipeline === "stroke_depth")) {
+      // The stroke instances a program finalized, three rows per curve.
+      pass.setVertexBuffer(0, programOutput.strokes);
+      pass.draw(batch.count, batch.instances);
+      return;
+    }
     const netOutput = netBuffers.get(batch);
     if (netOutput) {
       pass.setVertexBuffer(0, netOutput.buffer);
@@ -1306,8 +1485,9 @@ const ManimlWGPU = (() => {
     const previousGeometry = new Set(generatedGeometry.keys()), previousUniforms = new Set(generatedUniforms.keys());
     const previousTables = new Set(objectTables.keys()), previousPatchUniforms = new Set(patchUniforms.keys());
     const previousNetSources = new Set(netSources.keys()), previousNetOutputs = new Set(netOutputs.keys());
+    const previousProgramSources = new Set(programSources.keys()), previousProgramOutputs = new Set(programOutputs.keys());
     const temporary = [];
-    let borders, nets;
+    let borders, nets, programs;
     let submitted = false;
     try {
       const paintKeys = preparePaints(header, vertexBytes);
@@ -1333,8 +1513,9 @@ const ManimlWGPU = (() => {
       usedGeneratedPaintBindings = new Set();
       usedPatchUniforms = new Set();
       const encoder = device.createCommandEncoder();
-      borders = prepareBorders(header, vertexBytes, encoder, temporary);
-      nets = prepareNets(header, vertexBytes, encoder, temporary);
+      programs = preparePrograms(header, vertexBytes, encoder, temporary);
+      borders = prepareBorders(header, vertexBytes, encoder, temporary, programs.outputs);
+      nets = prepareNets(header, vertexBytes, encoder, temporary, programs.outputs);
       const [r, g, b, a] = header.background;
       let pass = outPass(encoder, [r * a, g * a, b * a, a]);
       let coverageRef = 0;
@@ -1354,9 +1535,9 @@ const ManimlWGPU = (() => {
           pass = outPass(encoder, null, true);
           coverageRef = 0;
         }
-        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, false, nets.outputs);
+        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, false, nets.outputs, programs.outputs);
         if (batch.coverage && batch.pipeline.endsWith("_depth")) {
-          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, true, nets.outputs);
+          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, true, nets.outputs, programs.outputs);
         }
       }
       pass.end();
@@ -1381,7 +1562,7 @@ const ManimlWGPU = (() => {
 
       device.queue.submit([encoder.finish()]);
       submitted = true;
-      for (const [output, state] of [...borders.completed, ...nets.completed]) output.state = state;
+      for (const [output, state] of [...borders.completed, ...nets.completed, ...programs.completed]) output.state = state;
     } finally {
       if (!submitted) {
         for (const key of generatedPaintBindings.keys()) {
@@ -1399,10 +1580,14 @@ const ManimlWGPU = (() => {
         for (const [key, source] of borderSources) {
           if (!previousSources.has(key)) { source.buffer.destroy(); borderSources.delete(key); }
         }
-        for (const [cache, previous] of [[objectTables, previousTables], [netSources, previousNetSources], [netOutputs, previousNetOutputs]]) {
+        for (const [cache, previous] of [[objectTables, previousTables], [netSources, previousNetSources], [netOutputs, previousNetOutputs],
+                                         [programSources, previousProgramSources]]) {
           for (const [key, resource] of cache) {
             if (!previous.has(key)) { resource.buffer.destroy(); cache.delete(key); }
           }
+        }
+        for (const [key, output] of programOutputs) {
+          if (!previousProgramOutputs.has(key)) { destroyProgramOutput(output); programOutputs.delete(key); }
         }
         for (const [cache, previous] of [[generatedGeometry, previousGeometry], [generatedUniforms, previousUniforms],
                                          [patchUniforms, previousPatchUniforms]]) {
@@ -1431,6 +1616,12 @@ const ManimlWGPU = (() => {
     for (const [key, source] of netSources) {
       if (!nets.usedSources.has(key)) { source.buffer.destroy(); netSources.delete(key); }
     }
+    for (const [key, output] of programOutputs) {
+      if (!programs.usedOutputs.has(key)) { destroyProgramOutput(output); programOutputs.delete(key); }
+    }
+    for (const [key, source] of programSources) {
+      if (!programs.usedSources.has(key)) { source.buffer.destroy(); programSources.delete(key); }
+    }
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
     retireGeneratedResources(new Set(header.batches.flatMap(
@@ -1453,10 +1644,13 @@ const ManimlWGPU = (() => {
         }
         generatedTextures.clear();
         generatedPaintBindings.clear();
-        for (const cache of [borderOutputs, borderSources, objectTables, netSources, netOutputs]) {
+        for (const cache of [borderOutputs, borderSources, objectTables, netSources, netOutputs, programSources]) {
           for (const resource of cache.values()) resource.buffer.destroy();
           cache.clear();
         }
+        for (const output of programOutputs.values()) destroyProgramOutput(output);
+        programOutputs.clear();
+        programPipelines.clear();
         for (const buffer of staleIndexBuffers) buffer.destroy();
         staleIndexBuffers = [];
         borderPipeline = netPipeline = null;

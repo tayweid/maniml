@@ -10,6 +10,7 @@ from maniml.constants import OUT
 from maniml.mobject.mobject import Group
 from maniml.mobject.mobject import Mobject
 from maniml.utils.paths import path_along_arc
+from maniml.utils import programs
 from maniml.utils.paths import straight_path
 
 from typing import TYPE_CHECKING
@@ -73,6 +74,10 @@ class Transform(Animation):
 
     def finish(self) -> None:
         super().finish()
+        # A program drew the frames; the rows are written here, so the
+        # state after the play is the same in every MANIML_PROGRAMS mode.
+        for submob in self.mobject.get_family():
+            submob.finish_program()
         self.mobject.unlock_data()
         # align_data_and_family in begin() pads self.mobject with subdivided
         # points and duplicated submobjects. Left in place, every subsequent
@@ -167,6 +172,13 @@ class Transform(Animation):
         target_copy: Mobject,
         alpha: float
     ):
+        # The blend program (docs/phase_b3_plan.md) stands for the straight
+        # path only; an arc, and any endpoint pair whose rows do not align,
+        # interpolate on the CPU as before.
+        mode = programs.mode()
+        if (mode != "off" and self.path_func is straight_path
+                and submob.blend_program(start, target_copy, alpha, defer=mode == "gpu")):
+            return self
         submob.interpolate(start, target_copy, alpha, self.path_func)
         return self
 

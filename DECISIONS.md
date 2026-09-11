@@ -5,6 +5,26 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A pending program materializes on read (2026-09-11)
+
+B3a's flip stops writing a mobject's rows during a supported `Transform`:
+the GPU blends the two endpoints, Python sends a scalar. The plan's
+guarantee was that `get_points` on such a mobject evaluates the program
+on the CPU first, and named an audit of the nine files that read
+`data[...]` directly. Built instead: `Mobject.data` is a property over
+`_data`, and the property materializes a pending program before returning
+the array. Every accessor and every direct read go through it, so the
+guarantee holds without the audit, and it is one attribute test on the
+class-level `None` when nothing is pending. The costs accepted: counts
+(`get_num_points`, `has_points`, `family_members_with_points`) read the
+array behind the property so a frame's bookkeeping materializes nothing
+(a test renders a whole play with materialization forbidden); copies and
+checkpoints materialize first and carry rows only; assigning `data`
+supersedes the program; and `finish` always writes the final rows, so the
+ledger's checkpoint after a play is byte-identical to the CPU path's. The
+alternative, materializing only in the accessors, would have left a
+direct `data["point"]` read mid-play stale; the property closes that.
+
 ## Phase A stays the renderer until the patch fill is faster (2026-09-11)
 
 Decided by Taylor on the B1 prototype's numbers (`docs/phase_b1_plan.md`,

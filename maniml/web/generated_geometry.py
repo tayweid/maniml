@@ -20,7 +20,7 @@ from maniml.web.gpu_border_geometry import (
     CURVE_WORDS, MAX_VERTICES_PER_CURVE, indices_per_curve, patch_draw_count,
     validate_capacity, validate_layout, validate_objects, validate_patch_layout,
 )
-from maniml.web import gpu_net_geometry
+from maniml.web import gpu_net_geometry, gpu_program_geometry
 
 
 PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
@@ -145,6 +145,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     retained_objects, object_tables = {}, {}
     previous_nets = getattr(cache, "generated_nets", {})
     retained_nets, nets = {}, {}
+    previous_rows = getattr(cache, "generated_rows", {})
+    retained_rows, row_sources = {}, {}
     for draw in frame.draws:
         base = draw.pipeline.removesuffix("_depth")
         if base not in PIPELINE_STRIDES:
@@ -164,15 +166,67 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         net_hash, net_descriptor = None, None
         indices = None if draw.indices is None else np.asarray(draw.indices)
         net = getattr(draw, "net", None)
+        # A program (docs/phase_b3_plan.md): row sources sent once by hash,
+        # scalars per frame; the batch's curve records, strokes or net come
+        # from the driver's evaluation, so no retained source travels.
+        program = getattr(draw, "program", None)
+        program_descriptor = None
+        if program is not None:
+            kind, source_rows, scalars = program["kind"], program["sources"], program["scalars"]
+            hashes = []
+            for source in source_rows:
+                source = np.asarray(source)
+                if source.dtype != np.dtype("<f4") or source.ndim != 2 or not source.flags.c_contiguous:
+                    raise ValueError("program sources must be contiguous float32 rows")
+                memo = previous_rows.get(id(source))
+                digest = memo[1] if memo is not None and memo[0] is source else gpu_program_geometry.rows_hash(source)
+                if _immutable(source):
+                    retained_rows[id(source)] = (source, digest)
+                row_sources[digest] = source
+                hashes.append(digest)
+            shapes = {np.asarray(s).shape for s in source_rows}
+            if len(shapes) != 1:
+                raise ValueError("program sources must be row-aligned")
+            (rows, channels), = shapes
+            program_descriptor = {"kind": kind, "sources": hashes, "scalars": [float(v) for v in scalars],
+                                  "rows": int(rows), "channels": int(channels)}
+            gpu_program_geometry.validate_program(
+                program_descriptor, PIPELINE_STRIDES[base] if base in ("surface", "texsurface") else None)
+            if base == "stroke":
+                if len(vertices) or indices is not None or border is not None:
+                    raise ValueError("a program stroke draw carries no vertices")
+                curves = gpu_program_geometry.curve_count(rows)
+                if draw.instances != curves:
+                    raise ValueError("a program stroke draw has one instance per curve")
+            elif base == "patch":
+                if border is not None or len(vertices):
+                    raise ValueError("a program patch draw carries no curve records")
+                border_hash = gpu_program_geometry.program_key(kind, hashes)
+                capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
+                layout = validate_patch_layout(getattr(draw, "patch_layout", None), gpu_program_geometry.curve_count(rows))
+                objects_hash, objects = _objects_payload(objects, layout, previous_objects, retained_objects)
+                object_tables[objects_hash] = objects
+                if draw.count != patch_draw_count(layout, capacity):
+                    raise ValueError("invalid patch fill draw count")
+                border = True  # a curve record source exists, in the driver
+            elif base in ("surface", "texsurface"):
+                if net is not None or len(vertices):
+                    raise ValueError("a program net draw carries its net in its program")
+                net = True
+            else:
+                raise ValueError("programs apply to patch, stroke and surface draws")
         if net is not None:
             # A surface net: no vertices of its own; the driver evaluates the
             # net into patches * (capacity + 1)² vertices and builds the index
             # pattern for the capacity.
             if (base not in ("surface", "texsurface") or indices is not None or draw.instances != 1
-                    or len(vertices) or border is not None or objects is not None):
+                    or len(vertices) or (border is not None and program is None) or objects is not None):
                 raise ValueError("a surface net draw carries only its net")
-            net_hash, net = _net_payload(draw, previous_nets, retained_nets)
-            nets[net_hash] = net
+            if program is not None:
+                net_hash = gpu_program_geometry.program_key(program["kind"], program_descriptor["sources"])
+            else:
+                net_hash, net = _net_payload(draw, previous_nets, retained_nets)
+                nets[net_hash] = net
             nu, nv, channels = draw.net_shape
             if channels * 4 != PIPELINE_STRIDES[base]:
                 raise ValueError("net channels do not match the pipeline's vertex layout")
@@ -185,7 +239,9 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 raise ValueError("invalid surface net draw count")
             net_descriptor = {"hash": net_hash, "nu": nu, "nv": nv, "channels": channels,
                               "capacity": net_capacity, "density": density}
-        if base == "patch":
+        if base == "patch" and program is not None:
+            pass  # validated with the program above
+        elif base == "patch":
             # A patch fill run: curve records, the object table and the
             # (curve count, bordered) layout; no vertices or indices of its own.
             if (border is None or objects is None or indices is not None or draw.instances != 1
@@ -199,7 +255,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             object_tables[objects_hash] = objects
             if draw.count != patch_draw_count(layout, capacity):
                 raise ValueError("invalid patch fill draw count")
-        elif border is not None:
+        elif border is not None and program is None:
             if base not in ("surface", "paint") or indices is None or draw.instances != 1:
                 raise ValueError("GPU border recipe requires one indexed surface operation")
             border_hash, border = _border_payload(border, previous_borders, retained_borders)
@@ -211,7 +267,12 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             layout = validate_layout(layout, len(indices), len(vertices), len(border))
         elif objects is not None:
             raise ValueError("an object table belongs to a patch fill draw")
-        output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
+        if program is not None and base == "patch":
+            output_vertices = capacity * gpu_program_geometry.curve_count(program_descriptor["rows"])
+        elif program is not None and base == "stroke":
+            output_vertices = 3 * gpu_program_geometry.curve_count(program_descriptor["rows"])
+        else:
+            output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
         if net_descriptor is not None:
             patches = ((net_descriptor["nu"] - 1) // 2) * ((net_descriptor["nv"] - 1) // 2)
             output_vertices = patches * gpu_net_geometry.vertices_per_patch(net_descriptor["capacity"])
@@ -244,11 +305,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             if draw.count != 4 or draw.instances > len(vertices):
                 raise ValueError("invalid generated dot draw count")
         elif base == "stroke":
-            if draw.count < 4 or draw.count > 64 or draw.count % 2 or draw.instances * 3 > len(vertices):
+            if draw.count < 4 or draw.count > 64 or draw.count % 2 or (
+                    program is None and draw.instances * 3 > len(vertices)):
                 raise ValueError("invalid generated stroke draw count")
         payload_key = (draw.pipeline, id(vertices), id(indices),
-                       None if border is None else (len(border), tuple(map(tuple, layout))),
-                       objects_hash, net_hash)
+                       None if border is None or border is True else (len(border), tuple(map(tuple, layout))),
+                       objects_hash, net_hash,
+                       None if program_descriptor is None else (program_descriptor["kind"], tuple(program_descriptor["sources"])))
         retained = previous_payloads.get(payload_key)
         if retained is not None and retained[0] is vertices and retained[1] is indices:
             content_hash = retained[2]
@@ -256,13 +319,19 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             identity = hashlib.blake2b(digest_size=16)
             identity.update(draw.pipeline.encode())
             identity.update(b"\0indexed\0" if indices is not None else b"\0plain\0")
-            if border is not None:
+            if border is not None and border is not True:
                 # The run layout decides where each object's strips interleave;
                 # the reserved capacity does not change what is drawn, so it
                 # stays out of the identity and a zoom that raises it resends
                 # nothing.
                 identity.update(b"\0border\0" + struct.pack("<Q", len(border)))
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
+            if program_descriptor is not None:
+                # Scalars change per frame and stay out of the identity.
+                identity.update(b"\0program\0" + program_descriptor["kind"].encode()
+                                + b"".join(h.encode() for h in program_descriptor["sources"]))
+                if layout is not None:
+                    identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
             if objects_hash is not None:
                 identity.update(b"\0objects\0" + objects_hash.encode())
             if net_hash is not None:
@@ -299,7 +368,15 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                  "count": int(draw.count), "instances": int(draw.instances),
                  "indexed": indices is not None,
                  "index_count": 0 if indices is None else len(indices)}
-        if border is not None:
+        if program_descriptor is not None:
+            batch["program"] = program_descriptor
+            if base == "stroke":
+                batch["fill_num_verts"] = 0
+        if border is True:
+            batch["fill_num_verts"] = 0
+            batch["border"] = {"hash": border_hash, "num_curves": gpu_program_geometry.curve_count(program_descriptor["rows"]),
+                               "capacity": capacity}
+        elif border is not None:
             batch["fill_num_verts"] = len(vertices)
             batch["border"] = {"hash": border_hash, "num_curves": len(border), "capacity": capacity}
         if objects_hash is not None:
@@ -352,6 +429,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             border_data[key] = {"offset": offset, "nbytes": len(raw)}
             blobs.append(raw)
             offset += len(raw)
+    program_data = {}
+    for key, source in row_sources.items():
+        if cache is None or f"rows:{key}" not in cache.sent:
+            raw = source.tobytes()
+            program_data[key] = {"offset": offset, "nbytes": len(raw)}
+            blobs.append(raw)
+            offset += len(raw)
     net_data = {}
     for key, net in nets.items():
         if cache is None or f"net:{key}" not in cache.sent:
@@ -380,7 +464,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,
               "batches": batches, "paint_data": paint_data, "border_data": border_data,
-              "object_data": object_data, "net_data": net_data, "texture_data": texture_data,
+              "object_data": object_data, "net_data": net_data, "program_data": program_data,
+              "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
     encoded = json.dumps(header).encode()
     message = b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
@@ -391,7 +476,9 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         cache.sent.update(f"border:{key}" for key in borders)
         cache.sent.update(f"objects:{key}" for key in object_tables)
         cache.sent.update(f"net:{key}" for key in nets)
+        cache.sent.update(f"rows:{key}" for key in row_sources)
         cache.generated_nets = retained_nets
+        cache.generated_rows = retained_rows
         cache.generated_payloads = retained_payloads
         cache.generated_paints = retained_paints
         cache.generated_borders = retained_borders
