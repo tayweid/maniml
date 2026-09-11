@@ -321,3 +321,48 @@ candidate, strips at the steps a run needs rather than its reservation, is
 still unmeasured and applies to both renderers. Archive:
 `benchmarks/results/patch_fill_20260911/` (`summary.json` is this build,
 `summary_first_build.json` the first).
+
+## Third candidate: measured, no gain (2026-09-11)
+
+Taylor's direction, quoted: "ok try the third one and measure again." The
+strip pattern sized to the steps the run needs (5 quads per curve instead
+of 11 at the normal view, 10 instead of 21 zoomed) was measured before
+being built, against today's pattern and against no strips at all, in
+`benchmarks/probes/patch_pass_probe.py`.
+
+The first attempt, each variant alone for forty frames, put the no-strip
+frame 1.5 ms *slower* than the full one. That is the M3's GPU clock
+following the load, not the strips: a lighter frame alone is not a faster
+frame here, and the harness's "alternation effect" of 2026-09-10 is the same
+thing seen from the other side. Every figure below is therefore from
+variants interleaved frame by frame with rotating order, medians / minima in
+ms of wall-clock around the render call.
+
+| Text frame, 1× / 2× zoom | Median | Minimum |
+| --- | ---: | ---: |
+| Pattern at the reservation (today) | 3.92 / 4.07 | 2.15 / 3.68 |
+| Pattern at the needed steps | 3.98 / 4.05 | 2.16 / 3.65 |
+| No strips at all | 3.85 / 3.97 | 2.11 / 3.60 |
+
+Nothing to gain: the degenerate tail costs nothing measurable, and even
+the whole strip pass is within 0.1 ms. Not built. Skipping each patch draw
+in turn was likewise invisible against the frame's floor when only patch
+variants were interleaved.
+
+Interleaving Phase A with the patch path in one session gives the residual
+its size and its rough attribution (minima, 1× / 2×): Phase A 2.45 / 3.57,
+the patch path 3.50 / 3.64, the patch path with only its strip draws
+2.81 / 3.81. So at the normal view the patch path costs about 1 ms more at
+the minimum, of which the second strip pass is about a third and the fan
+and patch passes the rest; zoomed, the two are level. A CPU profile of the
+cached frame agrees: command encoding differs by 0.1 ms, and the rest of
+the difference is time waiting for the GPU inside the readback.
+
+What this says about going further: the remaining gap on a still text
+frame is the two passes a count-then-cover design makes over geometry that
+Phase A's mesh draws once, and the wall clock on this machine cannot
+resolve changes smaller than a few tenths of a millisecond against its
+moving floor. The next instrument is GPU timestamp queries in the harness,
+which measure pass time rather than completion latency; until then, the
+patch fill is level with Phase A on pan and zoom and about 1 ms behind on
+a still text frame, and Phase A stays the default.
