@@ -152,8 +152,9 @@ is built behind `MANIML_FILL=patches` in the native mirror and measured in
 [the B1 plan](docs/phase_b1_plan.md); Phase A stays the default until it is
 faster. B2 made every `Surface` a control net (its reference-renderer grid
 unchanged) with the GPU evaluation behind `MANIML_SURFACE=nets`, measured
-in [the B2 plan](docs/phase_b2_plan.md); the browser mirrors of both and
-the default flips are the open steps. The paragraphs below are the
+in [the B2 plan](docs/phase_b2_plan.md); both browser mirrors landed the
+same day. Open: the recording player for `patch` and `net` batches, and the
+default flips, which are Taylor's. The paragraphs below are the
 earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):

@@ -100,3 +100,60 @@ class GeneratedWebGPUCommands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _lyon():
+    import importlib.util
+    import os
+    return bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
+
+
+@unittest.skipIf(shutil.which("node") is None, "node not available")
+@unittest.skipUnless(_lyon(), "the Lyon helper is the frame preparer's tessellator")
+class GeneratedWebGPUPhaseB(unittest.TestCase):
+    """The browser driver on real Phase B frames: patch fills and surface nets."""
+
+    def run_case(self, name, *args):
+        result = subprocess.run(["node", str(HARNESS), name, *map(str, args)],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @staticmethod
+    def _frames(scene, cache, wire, **kwargs):
+        from maniml.web.generated_geometry import serialize_generated_frame
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import prepare_triangle_frame
+        frame = prepare_triangle_frame(scene, LyonFillTessellator(), mesh_cache=cache,
+                                       fill_borders=True, gpu_borders=True, **kwargs)
+        frame.samples, frame.supersample = 4, 2
+        return serialize_generated_frame(frame, scene.camera.uniforms, wire)
+
+    def test_patch_fill_wire_draws_instanced_groups_marks_and_covers(self):
+        from maniml.constants import BLUE, RED
+        from maniml.mobject.geometry import Square
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.renderer_fixtures import build_scene
+        squares = [Square(side_length=1, fill_color=RED, fill_opacity=1, stroke_width=0,
+                          fill_border_width=4).shift([x, 0, 0]) for x in (-2, 0, 2)]
+        blue = Square(side_length=1, fill_color=BLUE, fill_opacity=1, stroke_width=0,
+                      fill_border_width=4).shift([0, 2, 0])
+        scene = build_scene(*squares, blue, resolution=(480, 270))
+        with tempfile.TemporaryDirectory() as directory:
+            wire = Path(directory) / "patches.bin"
+            wire.write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
+            self.run_case("patchWire", wire)
+
+    def test_surface_net_wire_evaluates_and_regrows_across_a_zoom(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.test_wgpu_port import build_surfaces_scene
+        scene, cache, wire = build_surfaces_scene(), TriangleMeshCache(), GeometryCache()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "nets_1.bin"
+            first.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
+            scene.camera.frame.scale(1 / 16)
+            scene.camera.refresh_uniforms()
+            second = Path(directory) / "nets_2.bin"
+            second.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
+            self.run_case("netWire", first, second)

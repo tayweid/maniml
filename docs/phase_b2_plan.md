@@ -150,8 +150,8 @@ memory per surface reported against today's grids.
 
 ## Prototype results (2026-09-11, native mirror)
 
-Steps 1 to 3 of the sequence are built and measured; the browser mirror is
-not. The GPU evaluation is behind `MANIML_SURFACE=nets`; the CPU grid stays
+Steps 1 to 3 of the sequence are built and measured, the browser mirror
+the same day. The GPU evaluation is behind `MANIML_SURFACE=nets`; the CPU grid stays
 the default. Tests: `tests/test_bezier_net.py`, `tests/test_surface_net.py`
 (the GPU cases under `MANIML_TEST_GPU=1`).
 
@@ -193,8 +193,12 @@ normal view: 0.45 MB of evaluated output plus 0.2 MB of net per sphere
 against a 1.2 MB grid; the output grows with zoom to its cap and shrinks
 back only when the object is retired, as the border reservation does.
 
-**Open.** The browser mirror (`webgpu.js`) does not evaluate nets yet, so
-`test_wgpu_port` parity and any default flip wait on it. The step rule is
+**Open.** The browser mirror evaluates nets since 2026-09-11 (`webgpu.js`,
+the same compute stage, reservation and index pattern; `netWire` in
+`tests/generated_webgpu_commands.cjs` checks two real frames across a zoom,
+and the live viewer matched the native render exactly on a 32×18 grid of
+cell means). The recording player does not index `net` batches yet, so an
+`--export` made with the switch on will not play. The step rule is
 per object, so a large surface partly in view pays for its whole extent.
 Nets are one draw per object; runs are not coalesced. Per-pixel lighting
 would let the floor of two steps go, and would change every surface's

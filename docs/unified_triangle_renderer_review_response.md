@@ -826,3 +826,16 @@ and both zooms at the minimum and 0.85 ms behind on the still frame's
 minimum. Pixels unchanged. Phase A remains the default by Taylor's
 direction (`DECISIONS.md`, "Phase A stays the renderer until the patch fill
 is faster"); the numbers are in the plan's "Second measurement".
+
+## Phase B browser mirrors (2026-09-11)
+
+Taylor's direction, quoted: "ok do the browser mirror for both, then i'll
+ask you about performance." `webgpu.js` now draws `patch` batches (B1) and
+evaluates `net` batches (B2) with the native driver's pipelines, stencil
+states, explicit layouts, instanced groups, reservations and retirement,
+and the recording of formats 5 and 6 is untouched. Verified two ways: the
+Node harness on real Python-encoded frames (`patchWire`, `netWire`), and the
+live viewer in the app's browser pane with both switches on, whose canvas
+matched the native render of the same frame exactly on a 32×18 grid of
+60-pixel cell means (141 lit cells, all identical). Both stay behind their
+switches; the recording player does not index the new batches yet.

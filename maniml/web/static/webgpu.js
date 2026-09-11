@@ -87,6 +87,26 @@ const ManimlWGPU = (() => {
       if (spec[5]) PIPELINE_SPECS[name + "_depth_only"] = spec;
     }
   }
+  // The patch fill (docs/phase_b1_plan.md): fan and patch triangles pulled
+  // from storage, counted on the stencil, then covered; explicit layouts and
+  // stencil states in patchPipeline. An object's border strips go through
+  // the surface and paint pipelines with the strip stencil states.
+  for (const depth of [false, true]) {
+    PIPELINE_SPECS["generated_patch" + (depth ? "_depth" : "")] =
+      ["patch_fill", [], "triangle-list", "out", PREMULTIPLIED_BLEND, depth];
+  }
+  for (const [name, spec] of Object.entries(PIPELINE_SPECS)) {
+    if ((spec[0] === "surface" || spec[0] === "paint") && /(surface|paint|_depth)$/.test(name)) {
+      PIPELINE_SPECS[name + "_strip_cover"] = spec;
+      if (spec[0] === "surface") PIPELINE_SPECS[name + "_strip_mark"] = spec;
+    }
+  }
+  const PATCH_STRIP_REFERENCE = 0x80, PATCH_COUNT_MASK = 0x7F, PATCH_VERTICES_PER_CURVE = 6;
+  const STENCIL_STRIP_MARK = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" };
+  const STENCIL_COVER = { compare: "not-equal", failOp: "keep", depthFailOp: "zero", passOp: "zero" };
+  // Surface nets (docs/phase_b2_plan.md): steps per patch edge between the
+  // construction's samples and the cap, output bounded per object.
+  const MIN_NET_STEPS = 2, MAX_NET_STEPS = 32;
 
   const MODULE_SOURCES = {
     stroke: ["common.wgsl", "stroke.wgsl"],
@@ -98,6 +118,8 @@ const ManimlWGPU = (() => {
     blit: ["blit.wgsl"],
     resolve2: ["resolve2.wgsl"],
     border_compute: ["common.wgsl", "border_compute.wgsl"],
+    patch_fill: ["common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"],
+    net_compute: ["common.wgsl", "net_compute.wgsl"],
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
@@ -114,6 +136,14 @@ const ManimlWGPU = (() => {
   const generatedPaintBindings = new Map();
   const borderSources = new Map(), borderOutputs = new Map();
   let borderPipeline = null;
+  // Patch fills: object tables by hash, group-0 bindings by uniforms, and
+  // the explicit layouts every patch pipeline shares. Surface nets: sources
+  // by hash, evaluated outputs by occurrence.
+  const objectTables = new Map(), patchUniforms = new Map();
+  let patchLayouts = null;
+  const netSources = new Map(), netOutputs = new Map();
+  let netPipeline = null;
+  let usedPatchUniforms = new Set();
   // Index buffers superseded by a run's new reservation; destroyed with the
   // other retired resources after the frame's commands are submitted.
   let staleIndexBuffers = [];
@@ -199,23 +229,162 @@ const ManimlWGPU = (() => {
     };
     const coverage = name.endsWith("_coverage");
     const depthOnly = name.endsWith("_depth_only");
+    const stripMark = name.endsWith("_strip_mark"), stripCover = name.endsWith("_strip_cover");
     descriptor.fragment = {
       module: modules[moduleKey], entryPoint: "fs_main",
-      targets: [{ format: "rgba8unorm", blend, writeMask: depthOnly ? 0 : 15 }] };
-    descriptor.depthStencil = {
-      format: DEPTH_FORMAT,
-      depthWriteEnabled: depthTest && !coverage,
-      depthCompare: depthTest ? "less" : "always",
-      stencilFront: { compare: coverage ? "not-equal" : "always",
-        failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
-      stencilBack: { compare: coverage ? "not-equal" : "always",
-        failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
-      stencilReadMask: 255, stencilWriteMask: coverage ? 255 : 0,
-    };
+      targets: [{ format: "rgba8unorm", blend, writeMask: depthOnly || stripMark ? 0 : 15 }] };
+    if (stripMark || stripCover) {
+      // A patch object's strips: the mark sets the border bit; the cover
+      // paints where the byte is nonzero and zeroes it (patch_fill.wgsl).
+      const face = stripMark ? STENCIL_STRIP_MARK : STENCIL_COVER;
+      descriptor.depthStencil = {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: depthTest && stripCover,
+        depthCompare: depthTest && stripCover ? "less" : "always",
+        stencilFront: face, stencilBack: face,
+        stencilReadMask: 255, stencilWriteMask: stripMark ? PATCH_STRIP_REFERENCE : 255,
+      };
+    } else {
+      descriptor.depthStencil = {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: depthTest && !coverage,
+        depthCompare: depthTest ? "less" : "always",
+        stencilFront: { compare: coverage ? "not-equal" : "always",
+          failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
+        stencilBack: { compare: coverage ? "not-equal" : "always",
+          failOp: "keep", depthFailOp: "keep", passOp: coverage ? "replace" : "keep" },
+        stencilReadMask: 255, stencilWriteMask: coverage ? 255 : 0,
+      };
+    }
     descriptor.multisample = { count: samples };
     const pipeline = device.createRenderPipeline(descriptor);
     pipelines.set(key, pipeline);
     return pipeline;
+  }
+
+  // Explicit layouts for the patch pipelines: group 0 the uniforms, group 1
+  // the curve records and object table, group 2 a paint field.
+  function patchBindLayouts() {
+    if (patchLayouts) return patchLayouts;
+    const both = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+    const group0 = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: both, buffer: { type: "uniform" } }] });
+    const group1 = device.createBindGroupLayout({ entries: [0, 1].map(binding =>
+      ({ binding, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } })) });
+    const group2 = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }] });
+    patchLayouts = { group0, group1, group2,
+      plain: device.createPipelineLayout({ bindGroupLayouts: [group0, group1] }),
+      withPaint: device.createPipelineLayout({ bindGroupLayouts: [group0, group1, group2] }) };
+    return patchLayouts;
+  }
+
+  // mark_fan and mark_patch count winding in the stencil's low seven bits
+  // (the patch draw per sample, with the curve test); cover and cover_paint
+  // paint where the byte is nonzero and zero it (patch_fill.wgsl).
+  function patchPipeline(kind, depth, samples) {
+    const key = "patch:" + kind + ":" + depth + "@" + samples;
+    if (pipelines.has(key)) return pipelines.get(key);
+    const layouts = patchBindLayouts();
+    const cover = kind.startsWith("cover");
+    const vertexEntry = { mark_fan: "vs_fan", mark_patch: "vs_patch", cover: "vs_cover", cover_paint: "vs_cover" }[kind];
+    const fragmentEntry = { mark_fan: "fs_mark_fan", mark_patch: "fs_mark_patch", cover: "fs_surface", cover_paint: "fs_paint" }[kind];
+    const stencil = cover
+      ? { front: "zero", back: "zero", compare: "not-equal", depthFail: "zero", write: 255 }
+      : { front: "increment-wrap", back: "decrement-wrap", compare: "always", depthFail: "keep", write: PATCH_COUNT_MASK };
+    const face = passOp => ({ compare: stencil.compare, failOp: "keep", depthFailOp: stencil.depthFail, passOp });
+    const pipeline = device.createRenderPipeline({
+      layout: kind === "cover_paint" ? layouts.withPaint : layouts.plain,
+      vertex: { module: modules.patch_fill, entryPoint: vertexEntry, buffers: [] },
+      primitive: { topology: "triangle-list" },
+      fragment: { module: modules.patch_fill, entryPoint: fragmentEntry,
+        targets: [{ format: "rgba8unorm", blend: PREMULTIPLIED_BLEND, writeMask: cover ? 15 : 0 }] },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: depth && cover,
+        depthCompare: depth && cover ? "less" : "always",
+        stencilFront: face(stencil.front), stencilBack: face(stencil.back),
+        stencilReadMask: 255, stencilWriteMask: stencil.write },
+      multisample: { count: samples },
+    });
+    pipelines.set(key, pipeline);
+    return pipeline;
+  }
+
+  // The patch run layout: [curve count, bordered, group] per object; and
+  // its groups of consecutive objects sharing a stencil count.
+  function validatePatchLayout(layout, curveCount) {
+    if (!Array.isArray(layout) || !layout.length) throw new Error("invalid patch run layout");
+    let curves = 0;
+    for (const part of layout) {
+      if (!Array.isArray(part) || part.length !== 3 || part.some(value => !Number.isSafeInteger(value))
+          || part[0] < 1 || (part[1] !== 0 && part[1] !== 1) || part[2] < 0) {
+        throw new Error("invalid patch run layout");
+      }
+      curves += part[0];
+    }
+    if (curves !== curveCount) throw new Error("patch run layout does not match its source array");
+  }
+
+  function patchGroups(layout) {
+    const groups = [];
+    let curveOffset = 0;
+    layout.forEach(([curves, bordered, group], index) => {
+      const last = groups[groups.length - 1];
+      if (last && last.group === group) {
+        last.count += 1; last.curves += curves; last.bordered = last.bordered || !!bordered;
+        last.most = Math.max(last.most, curves);
+      } else {
+        groups.push({ first: index, count: 1, firstCurve: curveOffset, curves, bordered: !!bordered, group, most: curves });
+      }
+      curveOffset += curves;
+    });
+    return groups;
+  }
+
+  function patchDrawCount(layout, capacity) {
+    const strip = 6 * (capacity / 2 - 1);
+    return layout.reduce((total, [curves, bordered]) => total + curves * (PATCH_VERTICES_PER_CURVE + (bordered ? strip : 0)), 0);
+  }
+
+  function validateObjects(bytes, layout) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes.byteLength !== 32 * layout.length) throw new Error("invalid patch object table");
+    let offset = 0;
+    layout.forEach(([curves, bordered], index) => {
+      const word = i => view.getFloat32(32 * index + 4 * i, true);
+      for (let i = 0; i < 8; i++) if (!Number.isFinite(word(i))) throw new Error("invalid patch object table");
+      if (word(3) !== offset || word(4) !== curves || word(5) !== bordered || ![-1, 0, 1].includes(word(6)) || word(7) !== 0) {
+        throw new Error("patch object table does not match its run layout");
+      }
+      offset += curves;
+    });
+  }
+
+  // Surface nets: the reservation's vertex and index counts per patch, and
+  // the triangle pattern both drivers build locally.
+  function validateNetCapacity(capacity) {
+    if (!Number.isSafeInteger(capacity) || capacity < MIN_NET_STEPS || capacity > MAX_NET_STEPS) {
+      throw new Error("net capacity must be a step count between 2 and 32");
+    }
+    return capacity;
+  }
+
+  function netIndices(patches, capacity) {
+    const side = capacity + 1, perPatch = 6 * capacity * capacity;
+    const out = new Uint32Array(patches * perPatch);
+    let write = 0;
+    for (let patch = 0; patch < patches; patch++) {
+      const base = patch * side * side;
+      for (let a = 0; a < capacity; a++) {
+        for (let b = 0; b < capacity; b++) {
+          const topLeft = base + a * side + b;
+          out[write++] = topLeft; out[write++] = topLeft + side; out[write++] = topLeft + 1;
+          out[write++] = topLeft + 1; out[write++] = topLeft + side; out[write++] = topLeft + side + 1;
+        }
+      }
+    }
+    return out;
   }
 
   function ensureTargets(width, height, samples, outputWidth = width, outputHeight = height) {
@@ -351,7 +520,7 @@ const ManimlWGPU = (() => {
     if (runLayout === undefined) { cacheMissed = true; return null; }
     // A run's reserved capacity changes its output size but not what was
     // uploaded, so it stays out of the retained layout identity.
-    const descriptor = JSON.stringify([batch.pipeline, batch.stride, runLayout ? null : batch.num_verts,
+    const descriptor = JSON.stringify([batch.pipeline, batch.stride, runLayout || "net" in batch ? null : batch.num_verts,
       !!batch.indexed, batch.index_count || 0, batch.fill_num_verts ?? batch.num_verts, runLayout ?? null]);
     if (res) {
       if (res.descriptor !== descriptor) throw new Error("cached generated geometry layout changed");
@@ -373,6 +542,8 @@ const ManimlWGPU = (() => {
       index = makeBuffer(vertexBytes.subarray(
         batch.index_offset, batch.index_offset + batch.index_count * 4), GPUBufferUsage.INDEX);
       buffers.push(index);
+    } else if (runLayout || "net" in batch) {
+      indexBuffers = new Map();  // the patch strip pattern or the net's triangles, per capacity
     }
     res = { vertex, index, buffers, descriptor, fillIndices, indexBuffers, runLayout: runLayout ?? null };
     generatedGeometry.set(batch.hash, res);
@@ -392,6 +563,41 @@ const ManimlWGPU = (() => {
       res.buffers = [res.vertex, buffer];
     }
     return buffer;
+  }
+
+  function retainIndexBuffer(res, capacity, build) {
+    let buffer = res.indexBuffers.get(capacity);
+    if (!buffer) {
+      buffer = makeBuffer(build().buffer, GPUBufferUsage.INDEX);
+      for (const old of res.indexBuffers.values()) staleIndexBuffers.push(old);
+      res.indexBuffers.clear();
+      res.indexBuffers.set(capacity, buffer);
+      res.buffers = [res.vertex, buffer];
+    }
+    return buffer;
+  }
+
+  function patchIndexBuffer(batch, res) {
+    const [capacity] = borderRun(batch);
+    return retainIndexBuffer(res, capacity, () => {
+      const count = batch.border.num_curves, strips = capacity / 2 - 1;
+      const out = new Uint32Array(6 * strips * count);
+      let write = 0;
+      for (let curve = 0; curve < count; curve++) {
+        for (let strip = 0; strip < strips; strip++) {
+          const v = capacity * curve + 2 * strip;
+          out[write++] = v; out[write++] = v + 1; out[write++] = v + 2;
+          out[write++] = v + 1; out[write++] = v + 2; out[write++] = v + 3;
+        }
+      }
+      return out;
+    });
+  }
+
+  function netIndexBuffer(batch, res) {
+    const net = batch.net;
+    return retainIndexBuffer(res, net.capacity,
+      () => netIndices(((net.nu - 1) / 2) * ((net.nv - 1) / 2), net.capacity));
   }
 
   function generatedUniformBinding(name, samples, pipeline, uniforms) {
@@ -468,6 +674,27 @@ const ManimlWGPU = (() => {
       }
       definitions.set(key, bytes);
     }
+    const tables = "object_data" in header ? header.object_data : {};
+    if (tables === null || typeof tables !== "object" || Array.isArray(tables)) {
+      throw new Error("object table definitions must be an object");
+    }
+    const tableDefinitions = new Map();
+    for (const [key, ref] of Object.entries(tables)) {
+      if (!validHash(key)) throw new Error("invalid object table hash");
+      if (ref === null || typeof ref !== "object" || Array.isArray(ref)) throw new Error("invalid object table span");
+      const {offset, nbytes} = ref;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes) || nbytes <= 0 || nbytes % 32
+          || offset < 0 || offset > payload.length || nbytes > payload.length - offset) {
+        throw new Error("invalid object table span");
+      }
+      const bytes = payload.slice(offset, offset + nbytes);
+      const previous = objectTables.get(key);
+      if (previous && (previous.bytes.length !== bytes.length || previous.bytes.some((value, i) => value !== bytes[i]))) {
+        throw new Error("object table hash redefined with different records");
+      }
+      tableDefinitions.set(key, bytes);
+    }
+    const usedTables = new Set();
     const limits = device.limits || {};
     const maxBuffer = limits.maxBufferSize ?? 256 * 1024 ** 2;
     const maxStorage = limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2;
@@ -485,24 +712,46 @@ const ManimlWGPU = (() => {
         throw new Error("GPU border requires a format 5 border descriptor");
       }
       const key = border.hash, count = border.num_curves, fillCount = batch.fill_num_verts;
+      const patch = batch.pipeline === "patch" || batch.pipeline === "patch_depth";
       if (!validHash(key) || !Number.isSafeInteger(count) || count < 1 || count > MAX_BORDER_CURVES
           || !Number.isSafeInteger(fillCount) || fillCount < 0
           || !Number.isSafeInteger(batch.num_verts)
-          || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)
-          || batch.stride !== 40 || batch.indexed !== true
+          || batch.stride !== 40
           || !Number.isSafeInteger(batch.index_count) || batch.index_count % 3
-          || !Number.isSafeInteger(batch.count) || batch.instances !== 1) {
+          || !Number.isSafeInteger(batch.count) || batch.instances !== 1
+          || (!patch && (batch.indexed !== true
+              || !["surface", "surface_depth", "paint", "paint_depth"].includes(batch.pipeline)))
+          || (patch && (batch.indexed !== false || fillCount || batch.index_count
+              || (header.format_version ?? 0) < 7))) {
         throw new Error("invalid GPU border geometry layout or draw count");
       }
       const [capacity, runLayout] = borderRun(batch);
       if (runLayout === undefined) { cacheMissed = true; outputs.set(batch, null); continue; }
-      if (runLayout) validateRunLayout(runLayout, batch.index_count, fillCount, count);
+      let tableKey = null, tableBytes = null;
+      if (patch) {
+        validatePatchLayout(runLayout, count);
+        const objects = batch.objects;
+        if (objects === null || typeof objects !== "object" || Array.isArray(objects)
+            || objects.count !== runLayout.length || !validHash(objects.hash)) {
+          throw new Error("invalid patch object table reference");
+        }
+        tableKey = objects.hash;
+        const table = objectTables.get(tableKey);
+        tableBytes = table ? table.bytes : tableDefinitions.get(tableKey);
+        if (!tableBytes) { cacheMissed = true; outputs.set(batch, null); continue; }
+        validateObjects(tableBytes, runLayout);
+      } else if (runLayout) {
+        validateRunLayout(runLayout, batch.index_count, fillCount, count);
+      }
       // Format 5 shipped the complete ordered index buffer; format 6 ships
-      // the fills and the driver appends each object's strip pattern.
+      // the fills and the driver appends each object's strip pattern; a
+      // patch run has no fill and draws its strips from the pattern alone.
       const addressable = runLayout ? fillCount : batch.num_verts;
-      const complete = runLayout
-        ? batch.count === batch.index_count + 6 * (capacity / 2 - 1) * count
-        : batch.index_count >= 186 * count && batch.count === batch.index_count;
+      const complete = patch
+        ? batch.count === patchDrawCount(runLayout, capacity)
+        : runLayout
+          ? batch.count === batch.index_count + 6 * (capacity / 2 - 1) * count
+          : batch.index_count >= 186 * count && batch.count === batch.index_count;
       if (!complete || batch.num_verts !== fillCount + capacity * count) {
         throw new Error("invalid GPU border geometry layout or draw count");
       }
@@ -518,7 +767,7 @@ const ManimlWGPU = (() => {
       if (bytes.length !== count * 176 || bytes.length > maxStorage) {
         throw new Error("border definition curve count does not match geometry");
       }
-      if (!batch.cached) {
+      if (!batch.cached && !patch) {
         const offset = batch.index_offset, vertexOffset = batch.offset;
         if (!Number.isSafeInteger(offset) || offset < 0 || offset > payload.length
             || batch.index_count * 4 > payload.length - offset
@@ -556,6 +805,15 @@ const ManimlWGPU = (() => {
         borderSources.set(key, source);
       }
       usedSources.add(key);
+      let table = null;
+      if (patch) {
+        table = objectTables.get(tableKey);
+        if (!table) {
+          table = {bytes: tableBytes, buffer: makeBuffer(tableBytes, GPUBufferUsage.STORAGE)};
+          objectTables.set(tableKey, table);
+        }
+        usedTables.add(tableKey);
+      }
       // Outputs belong to draw occurrences: the same geometry drawn twice
       // with different uniforms needs two. Number occurrences of the same
       // geometry rather than every batch, so inserting an unrelated object
@@ -577,8 +835,15 @@ const ManimlWGPU = (() => {
           {binding: 0, resource: {buffer: source.buffer, size: bytes.length}},
           {binding: 1, resource: {buffer, offset: storageOffset, size: storageSize}}]});
         if (fillCount) encoder.copyBufferToBuffer(resources.vertex, 0, buffer, 0, fillCount * 40);
+        if (patch) {
+          // The patch vertex stage reads the curve records and the object
+          // table; the strips draw this output as vertices.
+          output.patchBinding = device.createBindGroup({layout: patchBindLayouts().group1, entries: [
+            {binding: 0, resource: {buffer: source.buffer, size: bytes.length}},
+            {binding: 1, resource: {buffer: table.buffer, size: table.bytes.length}}]});
+        }
       }
-      outputs.set(batch, output.buffer);
+      outputs.set(batch, output);
       if (output.state === state) continue;
       const cameraKey = bits.join(",");
       let camera = cameras.get(cameraKey);
@@ -601,6 +866,132 @@ const ManimlWGPU = (() => {
           {binding: 0, resource: {buffer: camera, size: 192}},
           {binding: 1, resource: {buffer: params, size: 32}}]}));
         compute.dispatchWorkgroups(chunk);
+      }
+      compute.end();
+      completed.push([output, state]);
+    }
+    return {outputs, usedSources, usedOutputs, usedTables, completed};
+  }
+
+  // Evaluate changed surface nets before the ordered render pass.
+  function prepareNets(header, payload, encoder, temporary) {
+    const records = "net_data" in header ? header.net_data : {};
+    if (records === null || typeof records !== "object" || Array.isArray(records)) {
+      throw new Error("net definitions must be an object");
+    }
+    const validHash = hash => typeof hash === "string" && /^[0-9a-f]{32}$/.test(hash);
+    const definitions = new Map();
+    for (const [key, ref] of Object.entries(records)) {
+      if (!validHash(key)) throw new Error("invalid net hash");
+      if (ref === null || typeof ref !== "object" || Array.isArray(ref)) throw new Error("invalid net definition span");
+      const {offset, nbytes} = ref;
+      if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(nbytes) || nbytes <= 0 || nbytes % 4
+          || offset < 0 || offset > payload.length || nbytes > payload.length - offset) {
+        throw new Error("invalid net definition span");
+      }
+      const bytes = payload.slice(offset, offset + nbytes);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let i = 0; i < nbytes; i += 4) {
+        if (!Number.isFinite(view.getFloat32(i, true))) throw new Error("net control points must be finite");
+      }
+      const previous = netSources.get(key);
+      if (previous && (previous.bytes.length !== bytes.length || previous.bytes.some((value, i) => value !== bytes[i]))) {
+        throw new Error("net hash redefined with different control points");
+      }
+      definitions.set(key, bytes);
+    }
+    const limits = device.limits || {};
+    const maxBuffer = limits.maxBufferSize ?? 256 * 1024 ** 2;
+    const maxStorage = limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2;
+    const maxDispatch = limits.maxComputeWorkgroupsPerDimension ?? 65535;
+    const outputs = new Map(), usedSources = new Set(), usedOutputs = new Set(), completed = [];
+    const cameras = new Map(), occurrences = new Map();
+    for (const batch of header.batches) {
+      const net = batch.net;
+      if (net === undefined) continue;
+      if ((header.format_version ?? 0) < 7 || net === null || typeof net !== "object" || Array.isArray(net)) {
+        throw new Error("a surface net requires a format 7 net descriptor");
+      }
+      const {hash: key, nu, nv, channels, capacity, density} = net;
+      if (!validHash(key) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
+          || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0
+          || typeof density !== "number" || !Number.isFinite(density) || density < 0
+          || !["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
+          || channels * 4 !== batch.stride || batch.indexed !== false
+          || batch.fill_num_verts !== 0 || batch.index_count !== 0 || batch.instances !== 1) {
+        throw new Error("invalid surface net descriptor");
+      }
+      validateNetCapacity(capacity);
+      const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
+      const perPatch = (capacity + 1) * (capacity + 1);
+      if (batch.num_verts !== patches * perPatch || batch.count !== patches * 6 * capacity * capacity) {
+        throw new Error("invalid surface net vertex or draw count");
+      }
+      const size = batch.num_verts * batch.stride;
+      if (!Number.isSafeInteger(size) || size > maxBuffer || size > maxStorage) {
+        throw new Error("surface net output exceeds device buffer limits");
+      }
+      let source = netSources.get(key);
+      const bytes = source ? source.bytes : definitions.get(key);
+      if (!bytes) { cacheMissed = true; outputs.set(batch, null); continue; }
+      if (bytes.length !== nu * nv * channels * 4 || bytes.length > maxStorage) {
+        throw new Error("net definition does not match its descriptor");
+      }
+      const values = {...header.camera, ...batch.uniforms};
+      const packed = packUniforms(values, values.border_mode || 0);
+      const floats = new Float32Array(packed), bits = new Uint32Array(packed);
+      if (floats.some(value => !Number.isFinite(value)) || floats[23] <= 0) {
+        throw new Error("invalid surface net uniforms");
+      }
+      const resources = generatedResources(batch, payload);
+      if (!resources) { outputs.set(batch, null); continue; }
+      if (!source) {
+        source = {bytes, buffer: makeBuffer(bytes, GPUBufferUsage.STORAGE)};
+        netSources.set(key, source);
+      }
+      usedSources.add(key);
+      const occurrenceKey = batch.hash + ":" + key;
+      const occurrence = occurrences.get(occurrenceKey) ?? 0;
+      occurrences.set(occurrenceKey, occurrence + 1);
+      const outputKey = JSON.stringify([batch.hash, key, capacity, occurrence]);
+      usedOutputs.add(outputKey);
+      let output = netOutputs.get(outputKey);
+      if (!netPipeline) netPipeline = device.createComputePipeline({layout: "auto",
+        compute: {module: modules.net_compute, entryPoint: "cs_main"}});
+      if (!output) {
+        const buffer = device.createBuffer({size,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+        output = {buffer, state: null};
+        netOutputs.set(outputKey, output);
+        output.binding = device.createBindGroup({layout: netPipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: source.buffer, size: bytes.length}},
+          {binding: 1, resource: {buffer, size}}]});
+      }
+      outputs.set(batch, output);
+      // Output pixels per world unit at frame scale 1: the camera's rescale
+      // factor for y and the output height.
+      const ppu = floats[17] * header.resolution[1] / 2;
+      const state = [floats[23], density, ppu].join(",");
+      if (output.state === state) continue;
+      const cameraKey = bits.join(",");
+      let camera = cameras.get(cameraKey);
+      if (!camera) {
+        camera = makeBuffer(packed, GPUBufferUsage.UNIFORM);
+        cameras.set(cameraKey, camera); temporary.push(camera);
+      }
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(netPipeline);
+      compute.setBindGroup(1, output.binding);
+      for (let offset = 0; offset < patches; offset += maxDispatch) {
+        const chunk = Math.min(maxDispatch, patches - offset);
+        const data = new ArrayBuffer(48), view = new DataView(data);
+        [0, nu, nv, channels, capacity, offset * perPatch, offset, chunk].forEach((value, i) => view.setUint32(4 * i, value, true));
+        view.setFloat32(32, density, true); view.setFloat32(36, ppu, true);
+        const params = makeBuffer(data, GPUBufferUsage.UNIFORM); temporary.push(params);
+        compute.setBindGroup(0, device.createBindGroup({layout: netPipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: camera, size: 192}},
+          {binding: 1, resource: {buffer: params, size: 48}}]}));
+        compute.dispatchWorkgroups(chunk, Math.ceil(perPatch / 64));
       }
       compute.end();
       completed.push([output, state]);
@@ -663,7 +1054,8 @@ const ManimlWGPU = (() => {
     }
     const keys = new Map();
     for (const batch of header.batches) {
-      if (batch.pipeline !== "paint" && batch.pipeline !== "paint_depth") continue;
+      const patchPaint = (batch.pipeline === "patch" || batch.pipeline === "patch_depth") && "paint_hash" in batch;
+      if (batch.pipeline !== "paint" && batch.pipeline !== "paint_depth" && !patchPaint) continue;
       let key;
       if ("paint_hash" in batch) {
         key = paintHashKey(batch.paint_hash);
@@ -695,17 +1087,118 @@ const ManimlWGPU = (() => {
     return keys;
   }
 
-  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borderBuffers, depthOnly = false) {
+  function patchUniformBinding(samples, packed) {
+    const key = "patch@" + samples + ":" + new Uint32Array(packed).join(",");
+    usedPatchUniforms.add(key);
+    let res = patchUniforms.get(key);
+    if (!res) {
+      const buffer = makeBuffer(packed, GPUBufferUsage.UNIFORM);
+      const binding = device.createBindGroup({ layout: patchBindLayouts().group0,
+        entries: [{ binding: 0, resource: { buffer, size: 192 } }] });
+      res = { binding, buffers: [buffer] };
+      patchUniforms.set(key, res);
+    }
+    return res.binding;
+  }
+
+  // Mark, strip mark, cover and strip cover, per group of one patch run:
+  // consecutive objects sharing a stencil count draw as one instanced
+  // group, the rest one object each.
+  function encodePatch(pass, header, batch, samples, supersample, paintKeys, output, res) {
+    const [capacity, layout] = borderRun(batch);
+    const depth = batch.pipeline.endsWith("_depth");
+    const uniforms = { ...header.camera, ...batch.uniforms, premultiplied_output: 1 };
+    uniforms.pixel_size = (uniforms.pixel_size ?? 1) / supersample;
+    uniforms.anti_alias_width = (uniforms.anti_alias_width ?? 1.5) * supersample;
+    const packed = packUniforms(uniforms, uniforms.border_mode || 0);
+    const binding = patchUniformBinding(samples, packed);
+    const painted = "paint_hash" in batch;
+    let paintBinding = null, paintKey = null;
+    if (painted) {
+      paintKey = paintKeys.get(batch);
+      if (paintKey === null) return;
+      const key = "patch:" + paintKey;
+      usedGeneratedPaintBindings.add(key);
+      paintBinding = generatedPaintBindings.get(key);
+      if (!paintBinding) {
+        paintBinding = device.createBindGroup({ layout: patchBindLayouts().group2,
+          entries: [{ binding: 0, resource: { buffer: generatedPaints.get(paintKey).buffer } }] });
+        generatedPaintBindings.set(key, paintBinding);
+      }
+    }
+    const markFan = patchPipeline("mark_fan", depth, samples);
+    const markPatch = patchPipeline("mark_patch", depth, samples);
+    const cover = patchPipeline(painted ? "cover_paint" : "cover", depth, samples);
+    const suffix = depth ? "_depth" : "";
+    const strips = {};
+    if (layout.some(([, bordered]) => bordered)) {
+      for (const [role, name] of [["mark", "generated_surface" + suffix + "_strip_mark"],
+                                  ["cover", "generated_" + (painted ? "paint" : "surface") + suffix + "_strip_cover"]]) {
+        const pipeline = getPipeline(name, samples);
+        const uniformBinding = generatedUniformBinding(name, samples, pipeline, { ...header.camera, ...batch.uniforms,
+          pixel_size: uniforms.pixel_size, anti_alias_width: uniforms.anti_alias_width });
+        let stripPaint = null;
+        if (role === "cover" && painted) {
+          const key = name + "@" + samples + ":" + paintKey;
+          usedGeneratedPaintBindings.add(key);
+          stripPaint = generatedPaintBindings.get(key);
+          if (!stripPaint) {
+            stripPaint = device.createBindGroup({ layout: pipeline.getBindGroupLayout(1),
+              entries: [{ binding: 0, resource: { buffer: generatedPaints.get(paintKey).buffer } }] });
+            generatedPaintBindings.set(key, stripPaint);
+          }
+        }
+        strips[role] = { pipeline, uniformBinding, stripPaint };
+      }
+      pass.setVertexBuffer(0, output.buffer);
+      pass.setIndexBuffer(patchIndexBuffer(batch, res), "uint32");
+    }
+    const stripIndices = 6 * (capacity / 2 - 1);
+    for (const group of patchGroups(layout)) {
+      const most = group.most;
+      pass.setPipeline(markFan);
+      pass.setBindGroup(0, binding);
+      pass.setBindGroup(1, output.patchBinding);
+      pass.draw(3 * most, group.count, 0, group.first);
+      pass.setPipeline(markPatch);
+      pass.draw(3 * most, group.count, 0, group.first);
+      if (group.bordered) {
+        pass.setPipeline(strips.mark.pipeline);
+        pass.setBindGroup(0, strips.mark.uniformBinding);
+        pass.setStencilReference(PATCH_STRIP_REFERENCE);
+        pass.drawIndexed(stripIndices * group.curves, 1, stripIndices * group.firstCurve);
+      }
+      pass.setPipeline(cover);
+      pass.setBindGroup(0, binding);
+      pass.setBindGroup(1, output.patchBinding);
+      if (paintBinding) pass.setBindGroup(2, paintBinding);
+      pass.setStencilReference(0);
+      pass.draw(PATCH_VERTICES_PER_CURVE * most, group.count, 0, group.first);
+      if (group.bordered) {
+        pass.setPipeline(strips.cover.pipeline);
+        pass.setBindGroup(0, strips.cover.uniformBinding);
+        if (strips.cover.stripPaint) pass.setBindGroup(1, strips.cover.stripPaint);
+        pass.drawIndexed(stripIndices * group.curves, 1, stripIndices * group.firstCurve);
+      }
+    }
+  }
+
+  function encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borderBuffers, depthOnly = false, netBuffers = new Map()) {
     const name = "generated_" + batch.pipeline + (depthOnly ? "_depth_only" : batch.coverage ? "_coverage" : "");
     if (batch.kind !== "generated" || !(name in PIPELINE_SPECS)) {
       throw new Error("unsupported generated pipeline " + batch.pipeline);
     }
-    if (borderBuffers.get(batch) === null) return;
+    if (borderBuffers.get(batch) === null || netBuffers.get(batch) === null) return;
     const painted = batch.pipeline === "paint" || batch.pipeline === "paint_depth";
     const paintKey = paintKeys.get(batch);
     if (painted && paintKey === null) return;  // Request resend; never reuse another material.
     const res = generatedResources(batch, vertexBytes);
     if (!res) return;
+    if (batch.pipeline === "patch" || batch.pipeline === "patch_depth") {
+      if (batch.coverage) throw new Error("a patch fill owns its samples without a coverage reference");
+      encodePatch(pass, header, batch, samples, supersample, paintKeys, borderBuffers.get(batch), res);
+      return;
+    }
     const pipeline = getPipeline(name, samples);
     let textureBinding = null;
     if (batch.textures) {
@@ -731,7 +1224,15 @@ const ManimlWGPU = (() => {
       pass.setBindGroup(1, binding);
     }
     if (textureBinding) pass.setBindGroup(1, textureBinding);
-    pass.setVertexBuffer(0, borderBuffers.get(batch) || res.vertex);
+    const netOutput = netBuffers.get(batch);
+    if (netOutput) {
+      pass.setVertexBuffer(0, netOutput.buffer);
+      pass.setIndexBuffer(netIndexBuffer(batch, res), "uint32");
+      pass.drawIndexed(batch.count, batch.instances);
+      return;
+    }
+    const borderOutput = borderBuffers.get(batch);
+    pass.setVertexBuffer(0, borderOutput ? borderOutput.buffer : res.vertex);
     if (batch.indexed) {
       pass.setIndexBuffer(res.index || runIndexBuffer(batch, res), "uint32");
       pass.drawIndexed(batch.count, batch.instances);
@@ -747,6 +1248,7 @@ const ManimlWGPU = (() => {
       [generatedGeometry, usedGeneratedGeometry],
       [generatedUniforms, usedGeneratedUniforms],
       [generatedPaints, usedGeneratedPaints],
+      [patchUniforms, usedPatchUniforms],
     ]) {
       for (const [key, res] of cache) {
         if (!used.has(key)) {
@@ -802,8 +1304,10 @@ const ManimlWGPU = (() => {
     const previousPaintBindings = new Set(generatedPaintBindings.keys());
     const previousSources = new Set(borderSources.keys()), previousOutputs = new Set(borderOutputs.keys());
     const previousGeometry = new Set(generatedGeometry.keys()), previousUniforms = new Set(generatedUniforms.keys());
+    const previousTables = new Set(objectTables.keys()), previousPatchUniforms = new Set(patchUniforms.keys());
+    const previousNetSources = new Set(netSources.keys()), previousNetOutputs = new Set(netOutputs.keys());
     const temporary = [];
-    let borders;
+    let borders, nets;
     let submitted = false;
     try {
       const paintKeys = preparePaints(header, vertexBytes);
@@ -827,8 +1331,10 @@ const ManimlWGPU = (() => {
       usedGeneratedTextures = new Set();
       usedGeneratedPaints = new Set(paintKeys.values());
       usedGeneratedPaintBindings = new Set();
+      usedPatchUniforms = new Set();
       const encoder = device.createCommandEncoder();
       borders = prepareBorders(header, vertexBytes, encoder, temporary);
+      nets = prepareNets(header, vertexBytes, encoder, temporary);
       const [r, g, b, a] = header.background;
       let pass = outPass(encoder, [r * a, g * a, b * a, a]);
       let coverageRef = 0;
@@ -841,9 +1347,16 @@ const ManimlWGPU = (() => {
           }
           pass.setStencilReference(++coverageRef);
         }
-        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs);
+        if ((batch.pipeline === "patch" || batch.pipeline === "patch_depth") && coverageRef) {
+          // The count starts from zero; a coverage reference left by an
+          // earlier object would be counted. Start clean.
+          pass.end();
+          pass = outPass(encoder, null, true);
+          coverageRef = 0;
+        }
+        encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, false, nets.outputs);
         if (batch.coverage && batch.pipeline.endsWith("_depth")) {
-          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, true);
+          encodeGenerated(pass, header, batch, vertexBytes, samples, supersample, paintKeys, borders.outputs, true, nets.outputs);
         }
       }
       pass.end();
@@ -868,7 +1381,7 @@ const ManimlWGPU = (() => {
 
       device.queue.submit([encoder.finish()]);
       submitted = true;
-      for (const [output, state] of borders.completed) output.state = state;
+      for (const [output, state] of [...borders.completed, ...nets.completed]) output.state = state;
     } finally {
       if (!submitted) {
         for (const key of generatedPaintBindings.keys()) {
@@ -886,7 +1399,13 @@ const ManimlWGPU = (() => {
         for (const [key, source] of borderSources) {
           if (!previousSources.has(key)) { source.buffer.destroy(); borderSources.delete(key); }
         }
-        for (const [cache, previous] of [[generatedGeometry, previousGeometry], [generatedUniforms, previousUniforms]]) {
+        for (const [cache, previous] of [[objectTables, previousTables], [netSources, previousNetSources], [netOutputs, previousNetOutputs]]) {
+          for (const [key, resource] of cache) {
+            if (!previous.has(key)) { resource.buffer.destroy(); cache.delete(key); }
+          }
+        }
+        for (const [cache, previous] of [[generatedGeometry, previousGeometry], [generatedUniforms, previousUniforms],
+                                         [patchUniforms, previousPatchUniforms]]) {
           for (const [key, resource] of cache) {
             if (!previous.has(key)) {
               for (const buffer of resource.buffers) buffer.destroy();
@@ -902,6 +1421,15 @@ const ManimlWGPU = (() => {
     }
     for (const [key, source] of borderSources) {
       if (!borders.usedSources.has(key)) { source.buffer.destroy(); borderSources.delete(key); }
+    }
+    for (const [key, table] of objectTables) {
+      if (!borders.usedTables.has(key)) { table.buffer.destroy(); objectTables.delete(key); }
+    }
+    for (const [key, output] of netOutputs) {
+      if (!nets.usedOutputs.has(key)) { output.buffer.destroy(); netOutputs.delete(key); }
+    }
+    for (const [key, source] of netSources) {
+      if (!nets.usedSources.has(key)) { source.buffer.destroy(); netSources.delete(key); }
     }
     // The sender also retains only current-frame geometry. Do not enforce an
     // LRU bound here: even the first draw in a large frame is live until submit.
@@ -919,19 +1447,20 @@ const ManimlWGPU = (() => {
       if (!device) return;
       try { await device.queue.onSubmittedWorkDone(); }
       finally {
-        for (const cache of [generatedGeometry, generatedUniforms, generatedPaints]) {
+        for (const cache of [generatedGeometry, generatedUniforms, generatedPaints, patchUniforms]) {
           for (const res of cache.values()) for (const buffer of res.buffers) buffer.destroy();
           cache.clear();
         }
         generatedTextures.clear();
         generatedPaintBindings.clear();
-        for (const cache of [borderOutputs, borderSources]) {
+        for (const cache of [borderOutputs, borderSources, objectTables, netSources, netOutputs]) {
           for (const resource of cache.values()) resource.buffer.destroy();
           cache.clear();
         }
         for (const buffer of staleIndexBuffers) buffer.destroy();
         staleIndexBuffers = [];
-        borderPipeline = null;
+        borderPipeline = netPipeline = null;
+        patchLayouts = null;
         for (const texture of textureCache.values()) texture.destroy();
         textureCache.clear();
         for (const texture of [outTexture, resolveTexture, depthTexture]) {

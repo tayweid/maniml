@@ -287,8 +287,14 @@ paragraph).
   needs rather than its reservation (halves the strip vertices at the
   usual 2× headroom, in Phase A's path too), and a cover for opaque groups
   that skips the patch test where the mark already decided it.
-- The browser mirror does not draw `patch` batches yet; `test_wgpu_port`
-  parity gates any default flip.
+- The browser mirror draws `patch` batches since 2026-09-11 (`webgpu.js`:
+  the same explicit layouts, stencil states, instanced groups and strip
+  pipelines; `patchWire` in `tests/generated_webgpu_commands.cjs` checks the
+  command sequence on a real frame, and the live viewer's canvas matched the
+  native render exactly on a 32×18 grid of cell means over a frame of text,
+  translucent fills, a sphere and a square). The recording player does not
+  index `patch` batches yet, so an `--export` made with the switch on will
+  not play; the default flip waits on Taylor.
 - The count wraps at 128-fold winding; recorded, not defended.
 
 The verdict on B1-fan against these numbers is Taylor's.

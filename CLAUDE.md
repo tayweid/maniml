@@ -236,8 +236,10 @@ border generator) prepares no fill mesh at all: every filled path is a
 pulls from the same curve records plus an eight-word object record per path,
 counts on the stencil's low seven bits, marks the border strips with the
 high bit, and covers once per sample. Nothing about it depends on zoom, and a
-morph uploads only control points. It is measured, not the default, and the
-browser driver does not draw it yet. The default stays `meshes`.
+morph uploads only control points. Both drivers draw it (the browser mirror
+in `webgpu.js`, command-tested on real frames in
+`tests/generated_webgpu_commands.cjs` and pixel-matched live against the
+native render); it is measured, not the default, which stays `meshes`.
 
 A `Surface`'s points are a biquadratic Bézier net (Phase B2,
 `docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
@@ -249,7 +251,8 @@ two steps per patch, which is the sample grid to a float32 ulp
 instead and the native driver evaluates it at screen density
 (`net_compute.wgsl`, capacity reserved from the second difference with the
 border stage's headroom, capped per object); a zoomed sphere then shows no
-facets. Browser support is pending; the default stays `grids`.
+facets. Both drivers evaluate nets; the default stays `grids`. Recordings
+(`--export`) made with either switch on are not indexed by the player yet.
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
