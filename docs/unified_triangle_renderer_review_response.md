@@ -716,3 +716,59 @@ the same "native-GL cutover" prerequisite and now says the same thing. The
 when the revision-keyed cache landed. The documents also moved into
 `docs/` with an index that marks each as current or superseded.
 
+## The zoom-step leftover (2026-09-10)
+
+Taylor's direction, quoted: "ok do the leftover fix, then lets plan phase b",
+after the explanation that the GPU-border move left two CPU costs behind on
+every zoom step. Both are gone; the plan was `docs/text_parity_plan.md`.
+
+**Border entries survive a scale change.** A zoom only changes how many
+steps each curve gets, and the compute stage decides that itself from the
+camera uniforms. The CPU recomputed every curve's count anyway, then
+replaced the object's retained source with a fresh frozen copy, reserved
+capacity again and re-accounted bytes. Now the recipe cache keeps, per
+object, the largest finite density and whether any density overflowed; the
+reservation a zoom needs follows from those two numbers and the frame scale
+(`required_from_density`, exact against `required_capacity` because the
+step count is monotone in density). A trusted frame re-reads nothing and
+reserves in constant time per object; the reservation still grows when a
+curve outgrows it, which a test forces.
+
+**Retained meshes are bounded in one pass.** `mesh()` asked each entry
+whether its mesh still met tolerance at the current camera, one small
+projection per object. `TriangleMeshCache.bound_errors` now groups the
+retained entries by exact camera state, projects every error hull in one
+product, reduces per entry, and leaves each entry's memo set so `mesh()`
+finds it. Same arithmetic, stacked; the test compares it against the
+per-entry bound to 1e-9 on six shapes. Singular projections are left to the
+per-entry path so the same error is raised for the same object.
+
+**The harness can rotate two renderers.** `--variants` selects which
+renderers alternate per frame.
+
+### Measurements
+
+Zoom-step preparation for the 101-glyph text: 4.7 ms → 2.1 ms in the
+profile; in the harness 4.77 → 1.90 ms (5% steps) and 5.13 → 2.02 ms (4×
+cycle). Complete frames, before → after, against Original 2D:
+
+| Control | Phase A | Original 2D |
+| --- | ---: | ---: |
+| Static text | 5.26 → 5.33 | 5.57 |
+| Pan | 7.30 → 5.75 | 5.51 |
+| Repeated 5% zoom | 8.89 → 5.89 | 5.73 |
+| 1→4→1 zoom | 9.28 → 6.04 | 5.79 |
+
+That is within 5% of Original 2D on every text control and ahead on the
+still frame, so the plan's 25% gate for the repeated zoom is met. Pixels
+are exact against the CPU emitter. Full archive in
+[zoom_step_leftover](benchmarks/results/triangle_followup_20260910/zoom_step_leftover/README.md).
+
+What a zoom step still pays is real work: about five glyphs per frame
+crossing their tolerance and re-tessellating, and the coalesced run being
+re-concatenated and re-hashed when any member changes. Both exist because a
+fill mesh is a zoom-dependent approximation; they go when fills stop
+depending on zoom, which is the first Phase B question. The GPU-side
+harness column is a property of alternating renderers on this machine, not
+of Phase A; the archive README records the evidence.
+

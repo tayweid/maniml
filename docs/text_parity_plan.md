@@ -1,9 +1,13 @@
 # Text parity plan: closing the zoom-step gap to Original 2D
 
-Written 2026-09-10 after the revision-keyed cache landed. Status: a plan for
-discussion, nothing here is started. The question is what it takes for Phase
-A to match Original 2D on a moving text frame, since it already beats it on
-a still one.
+Written 2026-09-10 after the revision-keyed cache landed; options 1 to 3
+below landed the same evening (Taylor: "ok do the leftover fix"). The
+outcome is in the response document's "The zoom-step leftover" section:
+zoom-step preparation 4.7 ms to 2.1 ms, and the harness numbers there. What
+remains on a zoom step is real mesh refinement and the re-assembly of the
+coalesced run when any glyph regenerates; both go away only when fills stop
+depending on zoom, which is Phase B's question. Kept for the measurements
+and the reasoning.
 
 ## Where the gap is
 

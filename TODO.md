@@ -131,9 +131,11 @@ and compared against packaged GL, Original 2D and CPU-border Phase A.
 The seventh review's border findings landed 2026-09-10 (DECISIONS.md, "Border
 runs reserve from step counts"): capacity from step counts, the strip pattern
 built by the drivers (wire format 6), the CPU triangle budget off the GPU
-path, occurrence-keyed outputs. A2 text performance, large non-affine paint
-fragment cost and zero-border AA remain open; the text gap is now source
-validation, the revision-keying decision Taylor has not yet taken.
+path, occurrence-keyed outputs. The revision-keyed cache and the zoom-step
+leftover (both 2026-09-10) bring text within 5% of Original 2D on every
+harness control; what a zoom step still pays is mesh refinement, which
+only zoom-independent fills remove (Phase B). Large non-affine paint
+fragment cost and zero-border AA remain open.
 The [sixth-round response](docs/unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.

@@ -5,6 +5,20 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A zoom step rebuilds nothing the camera did not change (2026-09-10)
+
+Taylor's direction, quoted: "ok do the leftover fix". After the border
+expansion moved to the GPU, two CPU costs stayed on every zoom step: each
+curve's step count was recomputed and the object's border entry rebuilt
+although the compute stage decides the count itself, and each retained
+mesh's error bound was projected one object at a time. Now the border
+reservation follows from a stored density summary in constant time per
+object, and the retained meshes are bounded in one projection per camera
+state. Repeated 5% text zoom: 8.9 ms → 5.9 ms against Original 2D's 5.7
+ms; the still frame was already ahead. Same pixels. Measurements and the
+harness's alternation artifact are in the response document, "The
+zoom-step leftover".
+
 ## The renderer trusts the revision counter (2026-09-10)
 
 Taylor's direction, quoted: "yeah lets do 4", after this explanation: every
