@@ -5,6 +5,37 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The renderer trusts the revision counter (2026-09-10)
+
+Taylor's direction, quoted: "yeah lets do 4", after this explanation: every
+frame the renderer re-read every mobject's arrays byte by byte to decide
+whether anything changed; the checkpoint system already answers that with
+`Mobject.revision`, a counter every mutation bumps, and has a verify mode
+that catches a write that forgets to; the proposal was for the renderer to
+trust the same counter with the same safety net.
+
+Now a retained mesh source, GPU border source and per-object style
+classification carry the revision they were read at, and a frame that finds
+the same revision reuses them without touching the arrays
+(`MANIML_RENDER_CACHE=revision`, the default). A changed revision takes the
+old path: read, compare, regenerate only what differs, so an `always_redraw`
+that rebuilds identical points still reuses its mesh. `MANIML_RENDER_CACHE=bytes`
+is the old behavior throughout. Under `MANIML_VERIFY_LEDGER=1` every trusted
+reuse still compares the arrays and a bypassing write raises `RenderCacheStale`
+naming the attribute; the full suite runs that way, and the three course
+episodes rendered under it without a raise. Custom source getters, custom
+contour rules and dirty derived-state flags are never trusted. Uniforms are
+still compared each frame: they are small, and the counter is only
+promised for arrays.
+
+The unchanged 101-glyph text frame prepares in 1.3 ms, from 3.1 ms; the
+same objects with a moving camera prepare in about 1.4 ms against 2.9 ms.
+The wider measurement is in the seventh-round response. The previous
+implementer's reason for declining this twice, that public arrays can be
+edited in place without a bump, is now the documented risk with the verify
+mode as the detector; the tests that edit arrays in place on purpose run
+under the bytes policy and say so.
+
 ## Border runs reserve from step counts and build their own indices (2026-09-10)
 
 Taylor's direction, quoted: "go on 1 through 3", where 3 was taking the

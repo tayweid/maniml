@@ -648,3 +648,57 @@ reviewer's seventh finding is right that Taylor did not say that; the
 sentence stands as written by the previous implementer, and this section
 quotes Taylor's direction instead of paraphrasing it.
 
+## Finding 6 taken: the renderer trusts the revision counter (2026-09-10)
+
+Taylor's direction, quoted: "yeah lets do 4". The reviewer's plan called this
+WP4 and asked for a flag, the byte comparison kept as the verify mode, course
+episodes run under it, and a default of revision only when those runs were
+clean. All four are done; DECISIONS.md, "The renderer trusts the revision
+counter", records the decision.
+
+### What changed
+
+`_MeshEntry`, the GPU border `_SourceEntry` and a new per-object style
+classification each carry the `Mobject.revision` they were read at. A frame
+that finds the same revision on the same object reuses the retained snapshot
+without reading `points`, `data`, `outer_vert_indices` or the color arrays.
+A changed revision takes exactly the old path (read, compare, regenerate what
+differs), so an `always_redraw` that rebuilds identical points still reuses
+its mesh. Custom `get_points`/`get_shader_data`/contour methods and dirty
+`needs_new_*` flags are never trusted; uniforms are still compared every
+frame. Two smaller costs went with it: uniform validation once per distinct
+camera state per frame instead of once per object, and the per-class
+"standard getters" check memoized instead of six attribute chains per object.
+
+Policy: `MANIML_RENDER_CACHE=revision` (default) or `bytes` (the previous
+behavior). Verify: under `MANIML_VERIFY_LEDGER=1` every trusted reuse still
+compares the arrays and raises `RenderCacheStale` naming the attribute. The
+tests that write into public arrays in place to prove the byte comparison
+works now run under the bytes policy and say so; the revision contract has
+its own module, `tests/test_render_cache_revision.py`.
+
+### Evidence
+
+- The full suite passes under `MANIML_VERIFY_LEDGER=1` with the revision
+  default, so no renderer test path writes arrays without a bump.
+- EpisodeB0, EpisodeA2 and EpisodeA3 rendered headless under verification
+  with no raise, from copies of the course files so the course's own media
+  folder was untouched.
+- Unchanged 101-glyph frame preparation: 3.1 ms → 1.3 ms (target 1.5 ms).
+- Harness, same controls as the seventh round, archived in
+  [render_cache_revision](benchmarks/results/triangle_followup_20260910/render_cache_revision/README.md):
+  static text 6.17 → 5.26 ms (Original 2D 5.58), pan 8.36 → 7.30 (5.53),
+  repeated 5% zoom 11.33 → 8.89 (5.75), 4× cycle 11.59 → 9.28 (5.76).
+  Pixels unchanged.
+
+### What remains open
+
+The plan's second acceptance, repeated 5% zoom within 25% of Original 2D, is
+not met: 8.89 ms against 5.75 ms is 55% over, down from 96%. The remaining
+zoom-step cost is preparation that depends on the camera rather than the
+source: recomputing each object's subdivision counts at the new frame scale,
+the per-object pixel-error bound, and the per-object uniform merge and
+coalescing walk (about 1.2 ms for 101 objects on an unchanged frame). None
+of it is source validation any more. The A2 text gate therefore stays open
+on those costs.
+

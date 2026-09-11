@@ -72,12 +72,14 @@ signal. What it has surfaced so far, and what is ready regardless:
    from that report: the uneven appearance of simultaneous fade-ins
    (needs a live repro on the current build).
 
-2. **Skip the per-frame walk of unchanged batches.** The serializer
-   walks, packs, and hashes every batch every frame even when nothing
-   moved — about 9 ms at 1,000 objects. Key batches by
-   `(id, geometry_revision)` and skip the work when the revision is
-   unchanged. A day or two, no shader changes (`simlab/AGENT_SIMS.md`,
-   "What actually makes simple scenes lag").
+2. **The per-frame walk of unchanged objects.** Source reads are now
+   keyed by `Mobject.revision` (2026-09-10, DECISIONS.md "The renderer
+   trusts the revision counter"), and immutable payloads keep their
+   digests, so an unchanged 101-glyph frame prepares in about 1.3 ms.
+   What remains is the walk itself: per-object uniform conversion, dict
+   merges and coalescing, roughly a microsecond-scale cost per object
+   that still adds up at a thousand objects. Measure before touching it
+   (`simlab/AGENT_SIMS.md`, "What actually makes simple scenes lag").
 3. **Read instrumentation.** `performance` counters for raw point reads
    (`get_points`, direct `data["point"]` sites) versus reduction reads
    (bounding box, centre, endpoints, tracker values), tagged by
