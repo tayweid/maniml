@@ -143,17 +143,20 @@ document, "Phase A gates: status"):
 
 - Text performance against Original 2D: met, within 5% on every control
   against a 25% gate.
-- Zero-border zoomed-text AA: open; 0.88% of pixels over the 24/255
-  threshold against a 0.5% limit, with independent coverage evidence
-  favouring the chosen sampler. Phase B's B1 measures it again on patch
-  edges (`docs/phase_b_plan.md`).
+- Zero-border zoomed-text AA: closed by Taylor on 2026-09-11 at 0.88% of
+  pixels over the 24/255 threshold against the old 0.5% limit ("AA is
+  close enough"), on the independent coverage evidence that favours the
+  chosen sampler. No threshold was widened; the harness still reports the
+  metric. B1 measures it again on patch edges (`docs/phase_b_plan.md`).
 - Nonplanar closed contours: decided, not open. They are refused, and B1
   keeps refusing them; B2's control-net surfaces are the defined interior a
   nonplanar fill would need.
-- Large non-affine paint: open, and outside Phase B's scope. Its
-  per-fragment loop over up to 800 nodes is slow, and its interior differs
-  visibly from the historical fan interpolation. The field's intended
-  semantics need Taylor's decision before an acceleration is chosen.
+- Large non-affine paint: open, not scheduled, and not a Phase B
+  prerequisite. Its per-fragment loop over up to 800 nodes is slow, and its
+  interior differs visibly from the historical fan interpolation; the 800-node
+  case is a synthetic control, not something a course scene draws. Take it
+  when a scene with a large non-affine colour field looks wrong or slow, and
+  decide the field's semantics with Taylor first.
 The [sixth-round response](docs/unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.

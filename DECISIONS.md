@@ -1231,3 +1231,18 @@ On EpisodeA3 (8 RIGHT, 4 DOWN, 4 RIGHT through the live harness):
 saves unchanged. The plan's 2 ms exit is not met: what remains is the deep
 copy of the changed subgraph and the closure walks over ten thousand
 objects. Archive: `benchmarks/results/thaw_reuse_20260911/`.
+
+## The zero-border AA gate is accepted as it stands (2026-09-11)
+
+Taylor's direction, quoted: "ok AA is close enough. lets call that
+finished." The Phase A acceptance kept one old-sampler exception open:
+zoomed text with a zero fill border has 0.8829% of pixels over the 24/255
+RGB threshold against native GL, above the old 0.5% limit. The evidence the
+acceptance rests on is the 16× same-mesh coverage reference and the exact
+triangle-area checks, both of which favour Phase A's 4× MSAA plus 2× resolve
+over the GL image: the miss is the old reference's own edge, not a worse
+edge. No threshold was widened and the quality harness still reports the
+metric; Phase B's B1 measures it again because patch edges are new
+geometry. Large non-affine paint stays open, unscheduled, and is not a
+Phase B prerequisite: it is a paint-semantics question that no course scene
+has raised.
