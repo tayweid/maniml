@@ -1964,6 +1964,14 @@ class Mobject(object):
         keys = [k for k in self.data.dtype.names if k not in self.locked_data_keys]
         if keys:
             self.note_changed_data()
+            # CE replaces the point array here; this writes into it, so
+            # match the endpoints' length first. The endpoints were
+            # aligned when the animation began, but an updater can rebuild
+            # self between steps with a different count (an always_redraw
+            # closure on an endpoint copy calls become() on the original).
+            n = len(mobject1.data)
+            if len(self.data) != n and len(mobject2.data) == n:
+                self.resize_points(n)
         for key in keys:
             md1 = mobject1.data[key]
             md2 = mobject2.data[key]

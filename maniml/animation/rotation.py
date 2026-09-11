@@ -24,7 +24,7 @@ class Rotating(Animation):
         about_edge: np.ndarray | None = None,
         run_time: float = 5.0,
         rate_func: Callable[[float], float] = linear,
-        suspend_mobject_updating: bool = False,
+        suspend_mobject_updating: bool = True,  # CE's Rotating inherits the default
         **kwargs
     ):
         self.angle = angle

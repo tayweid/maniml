@@ -37,10 +37,15 @@ class Animation(object):
         remover: bool = False,
         # What to enter into the update function upon completion
         final_alpha_value: float = 1.0,
-        # If set to True, the mobject itself will have its internal updaters called,
-        # but the start or target mobjects would not be suspended. To completely suspend
-        # updating, call mobject.suspend_updating() before the animation
-        suspend_mobject_updating: bool = False,
+        # CE's default: the animated mobject's own updaters pause for the
+        # duration of the play and resume when it finishes. ManimGL's
+        # default (False) let an always_redraw rebuild the mobject at full
+        # opacity between interpolation steps, so a FadeIn of a live
+        # mobject snapped in instead of fading, and a rebuild that changed
+        # the point count broke the interpolation (DECISIONS.md, 2026-09-11).
+        # Pass False for animations that read the updaters' work each
+        # frame; the start and target copies are never suspended either way.
+        suspend_mobject_updating: bool = True,
     ):
         self._validate_input_type(mobject)
         self.mobject = mobject

@@ -2,7 +2,13 @@
 
 import unittest
 
-from maniml import FlickerIn, Square
+import numpy as np
+
+from maniml import (
+    DOWN, LEFT, RIGHT, UP, Animation, FadeIn, FlickerIn, Polygon, Rotating,
+    ShowIncreasingSubsets, Square, Transform, VGroup, ValueTracker,
+    always_redraw,
+)
 from maniml.animation.fading import _flicker_schedule
 
 
@@ -46,3 +52,56 @@ class FlickerInTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UpdatersDuringAnimationTests(unittest.TestCase):
+    """CE pauses the animated mobject's own updaters for the play (2026-09-11
+    field-report fix: a FadeIn of an always_redraw snapped in at full
+    opacity, and a rebuild with a different point count broke the
+    interpolation)."""
+
+    @staticmethod
+    def live_polygon():
+        sides = ValueTracker(3)
+        corners = [RIGHT, UP, LEFT, DOWN]
+        live = always_redraw(
+            lambda: Polygon(*corners[:int(sides.get_value())], fill_opacity=1))
+        return sides, live
+
+    def test_defaults_follow_ce(self):
+        self.assertTrue(Animation(Square()).suspend_mobject_updating)
+        self.assertTrue(Transform(Square(), Square()).suspend_mobject_updating)
+        self.assertTrue(Rotating(Square()).suspend_mobject_updating)
+        # CE keeps these reading their updaters each frame
+        self.assertFalse(
+            ShowIncreasingSubsets(VGroup(Square())).suspend_mobject_updating)
+
+    def test_fade_in_pauses_the_live_mobject_and_resumes_after(self):
+        _, live = self.live_polygon()
+        anim = FadeIn(live)
+        anim.begin()
+        self.assertTrue(live.updating_suspended)
+        anim.interpolate(0.5)
+        live.update(1 / 30)   # what the scene loop does after each step
+        self.assertAlmostEqual(live.get_fill_opacity(), 0.5, places=6)
+        anim.finish()
+        self.assertFalse(live.updating_suspended)
+        self.assertAlmostEqual(live.get_fill_opacity(), 1.0, places=6)
+
+    def test_interpolation_survives_an_endpoint_rebuild_with_another_point_count(self):
+        sides, live = self.live_polygon()
+        anim = FadeIn(live)
+        anim.begin()
+        n_aligned = live.get_num_points()
+        sides.set_value(4)
+        # The endpoint copies carry the always_redraw closure, which
+        # rebuilds the original as a square: more points than the aligned
+        # endpoints.
+        anim.update_mobjects(1 / 30)
+        self.assertNotEqual(live.get_num_points(), n_aligned)
+        anim.interpolate(0.5)   # raised "could not broadcast" before
+        self.assertEqual(live.get_num_points(), n_aligned)
+        self.assertAlmostEqual(live.get_fill_opacity(), 0.5, places=6)
+        np.testing.assert_allclose(
+            live.get_points(),
+            0.5 * anim.starting_mobject.get_points() + 0.5 * anim.target_copy.get_points())
