@@ -817,3 +817,12 @@ is recorded with its measurement in the plan.
 that never regenerate and a morph that uploads only control points, is the
 right trade is Taylor's verdict; the plan lists the unmeasured candidates
 for closing it.
+
+**Second build the same day** (Taylor: "ok try the first two and measure
+again"): the cover without the curve test at pixel rate, and the mark's fan
+at pixel rate with only the patches per sample. About 0.6 ms per text frame
+gained; below Original 2D on every text median; level with Phase A on pan
+and both zooms at the minimum and 0.85 ms behind on the still frame's
+minimum. Pixels unchanged. Phase A remains the default by Taylor's
+direction (`DECISIONS.md`, "Phase A stays the renderer until the patch fill
+is faster"); the numbers are in the plan's "Second measurement".

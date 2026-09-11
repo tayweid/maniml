@@ -298,9 +298,11 @@ class WgpuRenderer:
         return self._patch_layouts
 
     def _patch_pipeline(self, kind, depth, samples):
-        """``mark`` counts winding in the stencil's low seven bits; ``cover``
-        and ``cover_paint`` paint where the byte is nonzero and zero it; see
-        patch_fill.wgsl. The strips use the surface pipelines' strip states."""
+        """``mark_fan`` and ``mark_patch`` count winding in the stencil's low
+        seven bits (the patch draw per sample, with the curve test);
+        ``cover`` and ``cover_paint`` paint where the byte is nonzero and
+        zero it; see patch_fill.wgsl. The strips use the surface pipelines'
+        strip states."""
         key = (("patch", kind, depth), samples)
         pipeline = self._pipelines.get(key)
         if pipeline is not None:
@@ -308,8 +310,11 @@ class WgpuRenderer:
         _, _, _, plain, with_paint = self._patch_bind_layouts()
         module = self._modules["patch_fill"]
         cover = kind.startswith("cover")
-        entry = {"mark": "fs_mark", "cover": "fs_surface", "cover_paint": "fs_paint"}[kind]
-        if kind == "mark":
+        vertex_entry = {"mark_fan": "vs_fan", "mark_patch": "vs_patch",
+                        "cover": "vs_cover", "cover_paint": "vs_cover"}[kind]
+        entry = {"mark_fan": "fs_mark_fan", "mark_patch": "fs_mark_patch",
+                 "cover": "fs_surface", "cover_paint": "fs_paint"}[kind]
+        if kind.startswith("mark"):
             stencil = {"front": "increment-wrap", "back": "decrement-wrap", "compare": "always",
                        "depth_fail": "keep", "write": PATCH_COUNT_MASK}
         else:
@@ -319,7 +324,7 @@ class WgpuRenderer:
                            "depth_fail_op": stencil["depth_fail"], "pass_op": op}
         pipeline = self.device.create_render_pipeline(
             layout=with_paint if kind == "cover_paint" else plain,
-            vertex={"module": module, "entry_point": "vs_main", "buffers": []},
+            vertex={"module": module, "entry_point": vertex_entry, "buffers": []},
             primitive={"topology": "triangle-list"},
             fragment={"module": module, "entry_point": entry, "targets": [
                 {"format": "rgba8unorm", "blend": PREMULTIPLIED_BLEND,
@@ -933,7 +938,8 @@ class WgpuRenderer:
                 paint_group = self.device.create_bind_group(layout=group2, entries=[
                     {"binding": 0, "resource": {"buffer": buffer, "size": len(data)}}])
                 self._generated_paint_bindings[binding_key] = paint_group
-        mark = self._patch_pipeline("mark", depth_test, samples)
+        mark_fan = self._patch_pipeline("mark_fan", depth_test, samples)
+        mark_patch = self._patch_pipeline("mark_patch", depth_test, samples)
         cover = self._patch_pipeline("cover_paint" if painted else "cover", depth_test, samples)
         depth_suffix = "_depth" if depth_test else ""
         strips = {}
@@ -970,11 +976,13 @@ class WgpuRenderer:
         for first, count, first_curve, curves, bordered in patch_groups(layout):
             # Every instance draws the group's largest fan; the vertex stage
             # discards the vertices beyond its own object's curves.
-            fan = PATCH_VERTICES_PER_CURVE * max(n for n, _, _ in layout[first:first + count])
-            render_pass.set_pipeline(mark)
+            most = max(n for n, _, _ in layout[first:first + count])
+            render_pass.set_pipeline(mark_fan)
             render_pass.set_bind_group(0, binding[1])
             render_pass.set_bind_group(1, output["patch_binding"])
-            render_pass.draw(fan, count, 0, first)
+            render_pass.draw(3 * most, count, 0, first)
+            render_pass.set_pipeline(mark_patch)
+            render_pass.draw(3 * most, count, 0, first)
             if bordered:
                 pipeline, group, _ = strips["mark"]
                 render_pass.set_pipeline(pipeline)
@@ -987,7 +995,7 @@ class WgpuRenderer:
             if paint_group is not None:
                 render_pass.set_bind_group(2, paint_group)
             render_pass.set_stencil_reference(0)
-            render_pass.draw(fan, count, 0, first)
+            render_pass.draw(PATCH_VERTICES_PER_CURVE * most, count, 0, first)
             if bordered:
                 pipeline, group, strip_paint = strips["cover"]
                 render_pass.set_pipeline(pipeline)

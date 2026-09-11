@@ -130,12 +130,13 @@ def resource_summary(renderer, cache, header):
         coverage = sum(bool(batch.get("coverage")) for batch in header["batches"])
 
         def patch_draws(batch):
-            # Mark and cover per instanced group, twice more when it has strips.
+            # Fan mark, patch mark and cover per instanced group, two more
+            # draws when it has strips.
             from maniml.web.gpu_border_geometry import patch_groups
             layout = batch.get("border", {}).get("layout")
             if layout is None and renderer is not None:
                 layout = renderer._generated_geometry[batch["hash"]]["run_layout"]
-            return sum(2 + 2 * bordered for _, _, _, _, bordered in patch_groups(layout))
+            return sum(3 + 2 * bordered for _, _, _, _, bordered in patch_groups(layout))
 
         result.update(scene_draws=sum(patch_draws(batch) if batch["pipeline"].startswith("patch")
                                      else 1 + bool(batch.get("coverage") and batch["pipeline"].endswith("_depth"))

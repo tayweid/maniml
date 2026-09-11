@@ -292,3 +292,32 @@ paragraph).
 - The count wraps at 128-fold winding; recorded, not defended.
 
 The verdict on B1-fan against these numbers is Taylor's.
+
+## Second measurement (2026-09-11, after two of the candidates)
+
+Taylor's direction, quoted: "ok try the first two and measure again." The
+two: the cover no longer evaluates the curve test and runs at pixel rate,
+since the stencil count already holds the answer per sample and a patch
+fragment outside its curve lands on a zero count; and the mark draws its
+fan triangles at pixel rate, with only the patch triangles (a tenth of the
+fan's area on text) shaded per sample. Five draws per group now. Pixels are
+unchanged on the whole corpus.
+
+| Control | Patch fill | Phase A today | Original 2D |
+| --- | ---: | ---: | ---: |
+| Static 101-glyph text | 5.11 / 4.83 | 5.28 / 3.99 | 5.41 / 5.14 |
+| Text pan | 5.24 / 4.76 | 5.59 / 4.87 | 5.33 / 5.04 |
+| Repeated 5% zoom | 5.42 / 4.91 | 5.73 / 5.42 | 5.30 / 5.12 |
+| Text 1→4→1 zoom | 5.32 / 4.81 | 6.06 / 4.88 | 5.42 / 5.05 |
+| Concave quad morph + changing circle | 4.58 / 2.71 | 5.19 / 2.90 | 2.84 / 2.62 |
+
+About 0.6 ms per text frame gained: submission through readback 2.9 ms
+against 3.5 before, with Phase A at 1.7 on the still frame and 2.7 to 2.9
+on the zooms in this run. Below Original 2D on every text median now. Against
+Phase A: level on pan and both zooms at the minimum, ahead on the medians,
+and 0.85 ms behind on the still frame's minimum (4.83 against 3.99), which is
+the remaining structural cost of the second pass over the strips. The third
+candidate, strips at the steps a run needs rather than its reservation, is
+still unmeasured and applies to both renderers. Archive:
+`benchmarks/results/patch_fill_20260911/` (`summary.json` is this build,
+`summary_first_build.json` the first).

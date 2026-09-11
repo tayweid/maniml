@@ -299,7 +299,8 @@ class PatchFillCommands(unittest.TestCase):
         self.assertEqual([group for _, _, group in layout], [0, 1], "two colours: two groups")
         for index, (curves, bordered, _) in enumerate(layout):
             fan = PATCH_VERTICES_PER_CURVE * curves
-            expected += [("set_pipeline", ("patch", "mark", False)), ("draw", fan, 1, 0, index),
+            expected += [("set_pipeline", ("patch", "mark_fan", False)), ("draw", fan // 2, 1, 0, index),
+                         ("set_pipeline", ("patch", "mark_patch", False)), ("draw", fan // 2, 1, 0, index),
                          ("set_pipeline", "generated_surface_strip_mark"), ("set_stencil_reference", 0x80),
                          ("draw_indexed", strip * curves, 1, strip * offset),
                          ("set_pipeline", ("patch", "cover", False)), ("set_stencil_reference", 0),
