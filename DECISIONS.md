@@ -1170,3 +1170,11 @@ name what dominates. Nothing is paid unless profiling is on; `has_points`
 and `get_num_points` read the array length, not the points, and no longer go
 through `get_points`. `benchmarks/read_report.py` tabulates profiles; the
 course episodes' tables are in `docs/read_instrumentation_2026-09-11.md`.
+
+What the tables say: scene code reads points only through reductions and
+the coordinate system, never as a raw array; the raw reads inside a play are
+the engine's own (interpolation, alignment, the renderer), which Phase 1's
+programs replace; the graph sampler's per-sample read of both axes'
+endpoints is deliberate (a callback may write into the axis arrays
+mid-sample, which bypasses the revision counter) and is a call count, not a
+byte cost.

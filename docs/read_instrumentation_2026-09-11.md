@@ -222,14 +222,18 @@ bounding-box reductions from `move_to`/`shift` inside updaters.
    renderer's source read are exactly what the instruction stream replaces.
    They should not be counted as evidence that Python needs points during a
    play.
-3. **The graph sampler's per-sample axis read is the one engine-side raw read
-   inside updaters that user code triggers, and it is avoidable now.** The
-   snapshot exists so a callback that moves the axes mid-sample stays
-   correct; checking `axis.revision` per sample and re-reading only when it
-   changed removes two array reads per sample without changing that
-   guarantee. It is the remaining cost of the 5 ms PPF rebuild
-   (`DECISIONS.md`, "Curve redraw batches array work"). Measure before
-   touching it, as `TODO.md` item 2 says of the per-frame walk.
+3. **The graph sampler's per-sample axis read is deliberate, and a call
+   count overstates it.** The batched sampler snapshots both axes' endpoints
+   at every sample so a callback that moves the axes mid-sample is honoured,
+   including one that writes straight into the axis point array
+   (`tests/test_coordinate_systems.py`,
+   `test_callback_can_write_axis_points_between_samples`). An in-place write
+   bypasses the revision counter, so a revision check cannot replace the
+   read. What the read costs is a method call per sample, not an array copy;
+   the 5 ms PPF rebuild (`DECISIONS.md`, "Curve redraw batches array work")
+   is the reference number, and the counters here count calls, not bytes.
+   For the GPU design the point stands: this is engine code reading
+   two endpoints, a reduction in all but name.
 4. **Idle-loop reads while parked are the live viewer's, not the render's.**
    A parked scene with an `always_redraw` repeats the updater column at the
    idle frame rate. Before Phase 2, profile one parked episode in the live
