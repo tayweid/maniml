@@ -152,6 +152,24 @@ class AppShellE2E(unittest.TestCase):
                     continue
                 got_frame = isinstance(message, bytes)
             self.assertTrue(got_frame, "no frame relayed from opened scene")
+            # The scene's console rides the same relayed socket: in app mode
+            # the child's stdout is a pipe into the app, so this is the only
+            # place its output can be seen at all.
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+            deadline = time.time() + 20
+            logged = []
+            while time.time() < deadline and not logged:
+                try:
+                    message = ws.recv(timeout=1)
+                except TimeoutError:
+                    continue
+                if isinstance(message, bytes):
+                    continue
+                data = json.loads(message)
+                if data.get("type") == "log":
+                    logged.extend(line["text"] for line in data.get("lines", []))
+            self.assertTrue(any("animation" in line.lower() for line in logged),
+                            f"no console output relayed after RIGHT: {logged}")
 
     def test_relay_refuses_a_scene_it_is_not_running(self):
         with ws_connect(

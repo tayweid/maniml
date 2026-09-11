@@ -198,3 +198,82 @@ class AgentPlistTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AgentCommandTests(unittest.TestCase):
+    """status, restart, uninstall and serve against a mocked launchctl."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        root = Path(self.tmpdir.name)
+        self.plist = root / "agent.plist"
+        self.calls = []
+        self.results = {}
+        for target in (patch.object(agent, "PLIST", self.plist),
+                       patch.object(agent, "LOG", root / "agent.log"),
+                       patch.object(security, "CONFIG_DIR", root / ".maniml")):
+            target.start()
+            self.addCleanup(target.stop)
+
+        def fake_launchctl(*args):
+            self.calls.append(args)
+            returncode, stdout, stderr = self.results.get(args[0], (0, "", ""))
+            return type("R", (), {"returncode": returncode, "stdout": stdout, "stderr": stderr})()
+
+        patcher = patch.object(agent, "_launchctl", fake_launchctl)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.printed = []
+        printer = patch("builtins.print", lambda *parts, **_: self.printed.append(" ".join(map(str, parts))))
+        printer.start()
+        self.addCleanup(printer.stop)
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_status_reports_not_installed_and_the_running_state(self):
+        self.results["print"] = (113, "", "Could not find service")
+        self.assertEqual(agent.status(), 1)
+        self.assertTrue(any("not installed" in line for line in self.printed))
+        self.results["print"] = (0, "\tstate = running\n\tpid = 42\n", "")
+        self.assertEqual(agent.status(), 0)
+        self.assertTrue(any("installed, state = running" in line for line in self.printed))
+        self.assertEqual([call[0] for call in self.calls], ["print", "print"])
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_restart_kickstarts_with_kill_and_reports_a_refusal(self):
+        self.assertEqual(agent.restart(), 0)
+        self.assertEqual(self.calls[-1][:2], ("kickstart", "-k"))
+        self.assertTrue(any("Restarted" in line for line in self.printed))
+        self.results["kickstart"] = (1, "", "Boot-out failed")
+        self.assertEqual(agent.restart(), 1)
+        self.assertTrue(any("Could not restart" in line and "Boot-out failed" in line for line in self.printed))
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "launchd is macOS-only")
+    def test_uninstall_boots_out_and_removes_the_plist_whether_or_not_it_existed(self):
+        self.plist.write_bytes(b"<plist/>")
+        self.assertEqual(agent.uninstall(), 0)
+        self.assertFalse(self.plist.exists())
+        self.assertEqual(self.calls[-1][0], "bootout")
+        self.assertTrue(any(line.startswith("Removed") for line in self.printed))
+        self.assertEqual(agent.uninstall(quiet=True), 0)
+        self.assertFalse(any("was not installed" in line for line in self.printed), "quiet prints nothing")
+        self.assertEqual(agent.uninstall(), 0)
+        self.assertTrue(any("was not installed" in line for line in self.printed))
+
+    def test_serve_runs_the_app_in_the_foreground_with_the_tool_path(self):
+        from maniml.web import cli
+        seen = {}
+
+        def fake_run_app(**kwargs):
+            seen.update(kwargs)
+            seen["path"] = os.environ["PATH"]
+            return 0
+
+        with patch.object(cli, "run_app", fake_run_app), \
+                patch.dict(os.environ, {"PATH": "/only/this"}), \
+                patch.object(agent, "TOOL_DIRS", (self.tmpdir.name,)):
+            agent.serve(self.tmpdir.name, port=8686)
+        self.assertEqual(seen["root"], self.tmpdir.name)
+        self.assertEqual(seen["port"], 8686)
+        self.assertFalse(seen["open_browser"])
+        self.assertEqual(seen["path"].split(os.pathsep), ["/only/this", self.tmpdir.name])
