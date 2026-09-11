@@ -20,6 +20,7 @@ from maniml.constants import MED_SMALL_BUFF
 from maniml.constants import TAU
 from maniml.constants import DEFAULT_MOBJECT_COLOR
 from maniml.event_handler import EVENT_DISPATCHER
+from maniml.performance import performance
 from maniml.event_handler.event_listner import EventListener
 from maniml.event_handler.event_type import EventType
 from maniml.utils.color import color_gradient
@@ -424,6 +425,8 @@ class Mobject(object):
     # Others related to points
 
     def get_points(self) -> Vect3Array:
+        if performance.enabled:
+            performance.note_read("raw")
         return self.data["point"]
 
     def clear_points(self) -> Self:
@@ -431,7 +434,7 @@ class Mobject(object):
         return self
 
     def get_num_points(self) -> int:
-        return len(self.get_points())
+        return len(self.data)   # a count, not a read of the points
 
     def get_all_points(self) -> Vect3Array:
         if self.submobjects:
@@ -440,9 +443,11 @@ class Mobject(object):
             return self.get_points()
 
     def has_points(self) -> bool:
-        return len(self.get_points()) > 0
+        return len(self.data) > 0
 
     def get_bounding_box(self) -> Vect3Array:
+        if performance.enabled:
+            performance.note_read("reduce")
         if self._needs_new_bounding_box:
             self.bounding_box[:] = self.compute_bounding_box()
             self._needs_new_bounding_box = False
@@ -450,7 +455,7 @@ class Mobject(object):
 
     def compute_bounding_box(self) -> Vect3Array:
         all_points = np.vstack([
-            self.get_points(),
+            self.data["point"],   # the reduction itself, counted by its caller
             *(
                 mob.get_bounding_box()
                 for mob in self.get_family()[1:]
@@ -977,6 +982,14 @@ class Mobject(object):
         if recurse:
             for submob in self.submobjects:
                 submob.update(dt, recurse)
+        if performance.enabled:
+            with performance.read_phase_scope("updater"):
+                self._run_updaters(dt)
+        else:
+            self._run_updaters(dt)
+        return self
+
+    def _run_updaters(self, dt: float) -> None:
         for updater in self.updaters:
             # This is hacky, but if an updater takes dt as an arg,
             # it will be passed the change in time from here
@@ -984,7 +997,6 @@ class Mobject(object):
                 updater(self, dt=dt)
             else:
                 updater(self)
-        return self
 
     def get_updaters(self) -> list[Updater]:
         return self.updaters
@@ -1751,11 +1763,15 @@ class Mobject(object):
 
     def get_start(self) -> Vect3:
         self.throw_error_if_no_points()
-        return self.get_points()[0].copy()
+        if performance.enabled:
+            performance.note_read("reduce")
+        return self.data["point"][0].copy()
 
     def get_end(self) -> Vect3:
         self.throw_error_if_no_points()
-        return self.get_points()[-1].copy()
+        if performance.enabled:
+            performance.note_read("reduce")
+        return self.data["point"][-1].copy()
 
     def get_start_and_end(self) -> tuple[Vect3, Vect3]:
         self.throw_error_if_no_points()
@@ -1964,6 +1980,8 @@ class Mobject(object):
         keys = [k for k in self.data.dtype.names if k not in self.locked_data_keys]
         if keys:
             self.note_changed_data()
+            if performance.enabled:
+                performance.note_read("raw")   # both endpoints' arrays
             # CE replaces the point array here; this writes into it, so
             # match the endpoints' length first. The endpoints were
             # aligned when the animation began, but an updater can rebuild

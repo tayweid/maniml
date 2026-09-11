@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from maniml.mobject.mobject import Mobject
+from maniml.performance import performance
 from maniml.utils.iterables import listify
 
 from typing import TYPE_CHECKING
@@ -35,6 +36,8 @@ class ValueTracker(Mobject):
         )
 
     def get_value(self) -> float | complex | np.ndarray:
+        if performance.enabled:
+            performance.note_read("reduce")
         result = self.uniforms["value"]
         if len(result) == 1:
             return result[0]

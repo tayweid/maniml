@@ -799,6 +799,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         return self.get_time_progression(duration, **kw)
 
     def pre_play(self):
+        performance.read_phase = "play"
         if (self.presenter_mode and self.num_plays == 0
                 and not getattr(self, '_replay_hidden', False)):
             self.hold_loop()
@@ -816,6 +817,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self._web_viewer.begin_animation()
 
     def post_play(self):
+        performance.read_phase = "idle"
         if getattr(self, '_replay_hidden', False):
             self._is_playing = False
             self.num_plays += 1

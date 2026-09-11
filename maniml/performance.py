@@ -20,6 +20,7 @@ from pathlib import Path
 import platform
 import resource
 import subprocess
+import sys
 import threading
 import time
 
@@ -50,6 +51,12 @@ class PerformanceRecorder:
         self._metadata: dict[str, object] = {}
         self._process_samples: deque[dict] = deque(
             maxlen=PROCESS_SAMPLE_LIMIT)
+        # Point-read instrumentation (TODO.md "Now", item 3): which phase
+        # of the scene loop a read of source points happens in. The scene
+        # sets "play" between pre_play and post_play; Mobject.update sets
+        # "updater" around each updater call; everything else is "idle",
+        # the exec of a unit between plays included.
+        self.read_phase = "idle"
 
     @classmethod
     def from_environment(cls) -> PerformanceRecorder:
@@ -82,6 +89,29 @@ class PerformanceRecorder:
             return
         with self._lock:
             self._counters[name] += amount
+
+    def note_read(self, kind: str, depth: int = 2) -> None:
+        """Count one read of source points: ``kind`` is ``raw`` (the
+        array itself) or ``reduce`` (a bounding box, centre, endpoint or
+        tracker value). Tagged by the current phase, and by the calling
+        site ``depth`` frames up, so the report can name what dominates."""
+        if not self.enabled:
+            return
+        phase = self.read_phase
+        code = sys._getframe(depth).f_code
+        site = f"{os.path.basename(code.co_filename)}:{code.co_name}"
+        with self._lock:
+            self._counters[f"reads.{kind}.{phase}"] += 1
+            self._counters[f"reads.site.{kind}.{phase}.{site}"] += 1
+
+    @contextmanager
+    def read_phase_scope(self, phase: str):
+        previous = self.read_phase
+        self.read_phase = phase
+        try:
+            yield
+        finally:
+            self.read_phase = previous
 
     def gauge(self, name: str, value) -> None:
         if not self.enabled:
