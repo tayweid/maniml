@@ -167,3 +167,68 @@ B1, then B2, then B3. B1 first because text is the course, and because its
 prototype week answers the only open design question. The one decision
 Taylor makes along the way is the B1-fan verdict after that week, on
 measured pixels, passes and completion time.
+
+## Decided before the start (2026-09-11)
+
+Taylor accepted these defaults ("ok those are all fine"):
+
+1. **B1 lands behind a switch.** Phase A's CPU fills stay the default while
+   the patch fill exists as `MANIML_FILL=patches`; the default flips only
+   after the prototype gate passes on the fixture corpus and one course
+   episode. Same pattern as `MANIML_BORDER_GENERATOR`.
+2. **The pixel gate is the existing one.** At most 0.5% of pixels over 24 of
+   255 against CPU-border Phase A and Original 2D, with the zero-border AA
+   number re-measured because patch edges are new geometry. Nothing is
+   widened to pass.
+3. **Native mirror first.** The prototype week runs in `wgpu_renderer.py`,
+   where pixels and passes are testable; the browser follows once the design
+   is chosen, and `test_wgpu_port` parity gates the flip.
+4. **Circle density stays at sixteen curves.** Raising `Arc`'s constant is a
+   later one-line change; doing it now would move every pixel baseline.
+
+Engineering, not decisions: the density rule for patches and nets is the
+quarter-pixel target the fills use today; the wire format becomes 7 with
+formats 5 and 6 still playable.
+
+## Starting B1: where things are
+
+Work in the `maniml-perf` worktree on branch `work`; integrate to `main`
+by fast-forward; never push. Another session works in `maniml-engine` on
+scene/mobject/animation files; B1 lives in the renderer files, so the two
+do not meet until B2 touches `Surface`.
+
+- **Curve sources on the GPU already:** `maniml/web/gpu_border_geometry.py`
+  packs 44 words per active curve (three control points, density, flags,
+  RGBA); `maniml/web/static/wgsl/border_compute.wgsl` reads them. A patch
+  needs the same three control points, so the fill can bind the same
+  source buffer; format 6's run layout is in `generated_geometry.py`.
+- **Fill preparation:** `maniml/web/triangle_scene.py` (`prepare_triangle_frame`,
+  `TriangleMeshCache`, `_generate_mesh`); the Lyon call it replaces is
+  `_generate_mesh` and `triangle_geometry.py`.
+- **Stencil ownership and passes:** `maniml/web/wgpu_renderer.py`
+  (`_encode_generated`, references 1–255 with the rollover pass,
+  `_out_pass`), mirrored in `maniml/web/static/webgpu.js`
+  (`encodeGenerated`); shared shaders under `maniml/web/static/wgsl/`.
+- **Fixtures:** `tests/renderer_fixtures.py` (`quad_convex`,
+  `quad_before_flip`, `quad_after_flip`, `quad_concave`, the compound and
+  crossing contours) and `tests/renderer_quality_fixtures.py` (the
+  101-glyph TeX control). Pixel comparisons: `tests/test_wgpu_port.py`,
+  `tests/test_gpu_border_quality.py`, `tests/test_renderer_motion.py`.
+- **Measurement:** `python -m benchmarks.gpu_borders --samples 12 --warmups 3
+  --cases tex_static tex_pan tex_zoom5 tex_zoom4_cycle --output <dir>`,
+  with `--variants gpu_border original_2d` for the two-renderer comparison
+  and never inside a `MANIML_VERIFY_LEDGER=1` shell; archive summaries
+  under `benchmarks/results/<name>_<date>/` per `benchmarks/README.md`.
+- **Validation:** the full suite with
+  `MANIML_TEST_GPU=1 MANIML_VERIFY_LEDGER=1` and, from the worktree,
+  `MANIML_LYON_LIBRARY` pointing at a built helper; the absolute interpreter
+  path `maniml/.venv/bin/python`. CI's module lists are guarded by
+  `tests/test_ci_module_lists.py`.
+- **Records to keep:** a dated section in
+  `unified_triangle_renderer_review_response.md` per increment; a
+  `DECISIONS.md` entry only for what Taylor decides, quoted; measurements
+  archived with source hashes.
+
+The prototype week's deliverable is the B1-fan verdict: pixels against the
+gate, passes per object, overdraw, and completion time against Original 2D
+on the two-variant harness, written up before any default changes.
