@@ -1,0 +1,225 @@
+{
+  "counters": {
+    "checkpoint.execution_copy.skipped": 2.0,
+    "checkpoint.ledger.copied": 20.0,
+    "checkpoint.ledger.reused": 28.0,
+    "geometry.serialize.calls": 72.0,
+    "geometry.serialized_bytes": 2848075.0,
+    "reads.raw.idle": 587.0,
+    "reads.raw.play": 1493.0,
+    "reads.reduce.idle": 105.0,
+    "reads.reduce.play": 104.0,
+    "reads.site.raw.idle.scene.py:__init__": 4.0,
+    "reads.site.raw.idle.svg_mobject.py:init_points": 13.0,
+    "reads.site.raw.idle.vectorized_mobject.py:close_path": 8.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_anchors": 14.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_last_point": 477.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_subpath_end_indices": 35.0,
+    "reads.site.raw.idle.vectorized_mobject.py:has_new_path_started": 13.0,
+    "reads.site.raw.idle.vectorized_mobject.py:is_closed": 22.0,
+    "reads.site.raw.idle.vectorized_mobject.py:set_anchors_and_handles": 1.0,
+    "reads.site.raw.play.camera_frame.py:get_center": 144.0,
+    "reads.site.raw.play.camera_frame.py:get_height": 360.0,
+    "reads.site.raw.play.camera_frame.py:get_width": 72.0,
+    "reads.site.raw.play.mobject.py:get_location": 72.0,
+    "reads.site.raw.play.transform.py:interpolate_submobject": 52.0,
+    "reads.site.raw.play.triangle_scene.py:read": 325.0,
+    "reads.site.raw.play.vectorized_mobject.py:align_points": 2.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_anchors": 1.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_joint_angles": 34.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_subpath_end_indices": 15.0,
+    "reads.site.raw.play.vectorized_mobject.py:pointwise_become_partial": 416.0,
+    "reads.site.reduce.idle.mobject.py:<genexpr>": 26.0,
+    "reads.site.reduce.idle.mobject.py:apply_points_function": 66.0,
+    "reads.site.reduce.idle.mobject.py:get_bounding_box_point": 8.0,
+    "reads.site.reduce.idle.mobject.py:get_center": 1.0,
+    "reads.site.reduce.idle.mobject.py:length_over_dim": 4.0,
+    "reads.site.reduce.play.mobject.py:interpolate": 104.0,
+    "renderer.assemble_batches.calls": 3.0,
+    "renderer.native_capture.calls": 72.0,
+    "scene.frames.positive_dt": 72.0
+  },
+  "format": 1,
+  "gauges": {
+    "checkpoint.count": 4,
+    "checkpoint.frontier": 3,
+    "checkpoint.ledger.entries": 18,
+    "checkpoint.mobjects": 16,
+    "geometry.batch_count": 2,
+    "geometry.triangle_retained_bytes": 1043109,
+    "renderer.batch_count": 3,
+    "scene.mobjects": 3
+  },
+  "metadata": {
+    "fps": 24,
+    "present_mode": false,
+    "render_mode": true,
+    "resolution": [
+      1920,
+      1080
+    ],
+    "route": "native",
+    "scene": "Demo",
+    "source": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/170105a6-ea6a-4aed-8495-b029e62121df/scratchpad/course/dogfood/scene.py"
+  },
+  "process": {
+    "cpu_ms": 1739.3419999999999,
+    "elapsed_ms": 2187.6314580003964,
+    "peak_rss_bytes": 356106240,
+    "pid": 74240,
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.9",
+    "started": "2026-09-11T01:02:12.753091+00:00"
+  },
+  "process_samples": [
+    {
+      "checkpoint": 0,
+      "elapsed_ms": 384.2955830041319,
+      "label": "checkpoint_saved",
+      "peak_rss_bytes": 142753792,
+      "rss_bytes": 141131776
+    },
+    {
+      "checkpoints": 1,
+      "elapsed_ms": 387.7072500035865,
+      "label": "scene_start",
+      "peak_rss_bytes": 142753792,
+      "rss_bytes": 141131776
+    },
+    {
+      "checkpoint": 1,
+      "checkpoint_count": 2,
+      "elapsed_ms": 1402.6335410017055,
+      "label": "checkpoint_saved",
+      "mobjects": 1,
+      "peak_rss_bytes": 355745792,
+      "rss_bytes": 355549184
+    },
+    {
+      "checkpoints": 4,
+      "elapsed_ms": 2174.88858300203,
+      "label": "scene_teardown",
+      "peak_rss_bytes": 356106240,
+      "rss_bytes": 356057088
+    }
+  ],
+  "stages": {
+    "animation.begin": {
+      "count": 3,
+      "max_ms": 1.0822920012287796,
+      "mean_ms": 0.6273890030570328,
+      "p50_ms": 0.5030830070609227,
+      "p95_ms": 1.0822920012287796,
+      "sample_count": 3,
+      "total_ms": 1.8821670091710985
+    },
+    "animation.finish": {
+      "count": 3,
+      "max_ms": 0.5552499933401123,
+      "mean_ms": 0.2879026675752054,
+      "p50_ms": 0.1900000061141327,
+      "p95_ms": 0.5552499933401123,
+      "sample_count": 3,
+      "total_ms": 0.8637080027256161
+    },
+    "animation.interpolate": {
+      "count": 72,
+      "max_ms": 0.6535830034408718,
+      "mean_ms": 0.17066141562180645,
+      "p50_ms": 0.11508299212437123,
+      "p95_ms": 0.34379099088255316,
+      "sample_count": 72,
+      "total_ms": 12.287621924770065
+    },
+    "animation.prepare": {
+      "count": 3,
+      "max_ms": 0.024084001779556274,
+      "mean_ms": 0.010083337353232006,
+      "p50_ms": 0.0032080133678391576,
+      "p95_ms": 0.024084001779556274,
+      "sample_count": 3,
+      "total_ms": 0.03025001205969602
+    },
+    "checkpoint.execution_copy": {
+      "count": 1,
+      "max_ms": 0.6227089907042682,
+      "mean_ms": 0.6227089907042682,
+      "p50_ms": 0.6227089907042682,
+      "p95_ms": 0.6227089907042682,
+      "sample_count": 1,
+      "total_ms": 0.6227089907042682
+    },
+    "checkpoint.execution_restore": {
+      "count": 1,
+      "max_ms": 0.05179100844543427,
+      "mean_ms": 0.05179100844543427,
+      "p50_ms": 0.05179100844543427,
+      "p95_ms": 0.05179100844543427,
+      "sample_count": 1,
+      "total_ms": 0.05179100844543427
+    },
+    "checkpoint.save_copy": {
+      "count": 4,
+      "max_ms": 0.9726670105010271,
+      "mean_ms": 0.7709894962317776,
+      "p50_ms": 0.804665993200615,
+      "p95_ms": 0.9726670105010271,
+      "sample_count": 4,
+      "total_ms": 3.0839579849271104
+    },
+    "geometry.triangle_encode": {
+      "count": 72,
+      "max_ms": 0.4256249958416447,
+      "mean_ms": 0.13799716685348862,
+      "p50_ms": 0.1075409963959828,
+      "p95_ms": 0.28545799432322383,
+      "sample_count": 72,
+      "total_ms": 9.935796013451181
+    },
+    "geometry.triangle_prepare": {
+      "count": 72,
+      "max_ms": 3.8474579923786223,
+      "mean_ms": 0.9812905278118301,
+      "p50_ms": 0.7113749888958409,
+      "p95_ms": 1.5887909976299852,
+      "sample_count": 72,
+      "total_ms": 70.65291800245177
+    },
+    "renderer.assemble_batches": {
+      "count": 3,
+      "max_ms": 0.2522919967304915,
+      "mean_ms": 0.14538900480450442,
+      "p50_ms": 0.18020901188720018,
+      "p95_ms": 0.2522919967304915,
+      "sample_count": 3,
+      "total_ms": 0.43616701441351324
+    },
+    "renderer.native_capture": {
+      "count": 72,
+      "max_ms": 516.8423329887446,
+      "mean_ms": 19.511848930859642,
+      "p50_ms": 11.214083002414554,
+      "p95_ms": 12.43687501118984,
+      "sample_count": 72,
+      "total_ms": 1404.8531230218941
+    },
+    "scene.update_mobjects": {
+      "count": 72,
+      "max_ms": 0.005416994099505246,
+      "mean_ms": 0.0034103468351531774,
+      "p50_ms": 0.003459004801698029,
+      "p95_ms": 0.0046670029405504465,
+      "sample_count": 72,
+      "total_ms": 0.24554497213102877
+    },
+    "source.execute": {
+      "count": 3,
+      "max_ms": 1016.6360840084963,
+      "mean_ms": 575.4330006699698,
+      "p50_ms": 355.5974589980906,
+      "p95_ms": 1016.6360840084963,
+      "sample_count": 3,
+      "total_ms": 1726.2990020099096
+    }
+  }
+}

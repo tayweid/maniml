@@ -1,0 +1,406 @@
+{
+  "counters": {
+    "checkpoint.execution_copy.skipped": 136.0,
+    "checkpoint.ledger.copied": 14886.0,
+    "checkpoint.ledger.reused": 192494.0,
+    "geometry.serialize.calls": 7920.0,
+    "geometry.serialized_bytes": 2924930272.0,
+    "reads.raw.idle": 121615.0,
+    "reads.raw.play": 986354.0,
+    "reads.raw.updater": 58462.0,
+    "reads.reduce.idle": 58380.0,
+    "reads.reduce.play": 901181.0,
+    "reads.reduce.updater": 63146.0,
+    "reads.site.raw.idle.coordinate_systems.py:_get_graph_sample_points": 998.0,
+    "reads.site.raw.idle.geometry.py:get_last_handle": 2.0,
+    "reads.site.raw.idle.geometry.py:get_tip_point": 4.0,
+    "reads.site.raw.idle.geometry.py:round_corners": 12.0,
+    "reads.site.raw.idle.mobject.py:get_start_and_end": 18.0,
+    "reads.site.raw.idle.number_line.py:number_to_point": 848.0,
+    "reads.site.raw.idle.scene.py:__init__": 159.0,
+    "reads.site.raw.idle.svg_mobject.py:init_points": 5799.0,
+    "reads.site.raw.idle.vectorized_mobject.py:add_points_as_corners": 9.0,
+    "reads.site.raw.idle.vectorized_mobject.py:add_subpath": 9.0,
+    "reads.site.raw.idle.vectorized_mobject.py:close_path": 6.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_anchors": 7092.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_bezier_tuples": 4.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_joint_angles": 9.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_last_point": 83174.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_nth_curve_points": 4.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_start_anchors": 3.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_subpath_end_indices": 8524.0,
+    "reads.site.raw.idle.vectorized_mobject.py:get_unit_normal": 198.0,
+    "reads.site.raw.idle.vectorized_mobject.py:has_new_path_started": 5799.0,
+    "reads.site.raw.idle.vectorized_mobject.py:is_closed": 8500.0,
+    "reads.site.raw.idle.vectorized_mobject.py:pointwise_become_partial": 163.0,
+    "reads.site.raw.idle.vectorized_mobject.py:set_anchors_and_handles": 281.0,
+    "reads.site.raw.play.camera_frame.py:get_center": 15840.0,
+    "reads.site.raw.play.camera_frame.py:get_height": 39600.0,
+    "reads.site.raw.play.camera_frame.py:get_width": 7920.0,
+    "reads.site.raw.play.camera_frame.py:interpolate": 310.0,
+    "reads.site.raw.play.mobject.py:get_location": 7920.0,
+    "reads.site.raw.play.numbers.py:interpolate": 54.0,
+    "reads.site.raw.play.transform.py:interpolate_submobject": 391019.0,
+    "reads.site.raw.play.triangle_scene.py:read": 365159.0,
+    "reads.site.raw.play.vectorized_mobject.py:align_points": 8442.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_anchors": 28941.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_joint_angles": 41526.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_subpath_end_indices": 31945.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_subpaths": 198.0,
+    "reads.site.raw.play.vectorized_mobject.py:get_unit_normal": 23056.0,
+    "reads.site.raw.play.vectorized_mobject.py:pointwise_become_partial": 24424.0,
+    "reads.site.raw.updater.number_line.py:number_to_point": 32832.0,
+    "reads.site.raw.updater.svg_mobject.py:init_points": 4.0,
+    "reads.site.raw.updater.vectorized_mobject.py:close_path": 4.0,
+    "reads.site.raw.updater.vectorized_mobject.py:get_anchors": 612.0,
+    "reads.site.raw.updater.vectorized_mobject.py:get_last_point": 2526.0,
+    "reads.site.raw.updater.vectorized_mobject.py:get_subpath_end_indices": 9.0,
+    "reads.site.raw.updater.vectorized_mobject.py:has_new_path_started": 4.0,
+    "reads.site.raw.updater.vectorized_mobject.py:is_closed": 5.0,
+    "reads.site.raw.updater.vectorized_mobject.py:pointwise_become_partial": 21410.0,
+    "reads.site.raw.updater.vectorized_mobject.py:set_anchors_and_handles": 1056.0,
+    "reads.site.reduce.idle.03_Code.py:selftrade_readout": 1.0,
+    "reads.site.reduce.idle.03_Code.py:selftrade_readout_a": 1.0,
+    "reads.site.reduce.idle.geometry.py:get_end": 144.0,
+    "reads.site.reduce.idle.geometry.py:get_start": 172.0,
+    "reads.site.reduce.idle.mobject.py:<genexpr>": 17454.0,
+    "reads.site.reduce.idle.mobject.py:apply_points_function": 36875.0,
+    "reads.site.reduce.idle.mobject.py:get_bounding_box_point": 2501.0,
+    "reads.site.reduce.idle.mobject.py:get_center": 352.0,
+    "reads.site.reduce.idle.mobject.py:length_over_dim": 880.0,
+    "reads.site.reduce.play.mobject.py:<genexpr>": 7974.0,
+    "reads.site.reduce.play.mobject.py:apply_points_function": 10732.0,
+    "reads.site.reduce.play.mobject.py:get_bounding_box_point": 153.0,
+    "reads.site.reduce.play.mobject.py:get_center": 22.0,
+    "reads.site.reduce.play.mobject.py:interpolate": 882300.0,
+    "reads.site.reduce.updater.03_Code.py:selftrade_readout": 304.0,
+    "reads.site.reduce.updater.03_Code.py:selftrade_readout_a": 304.0,
+    "reads.site.reduce.updater.geometry.py:get_end": 1216.0,
+    "reads.site.reduce.updater.geometry.py:get_start": 1216.0,
+    "reads.site.reduce.updater.mobject.py:<genexpr>": 3960.0,
+    "reads.site.reduce.updater.mobject.py:apply_points_function": 41972.0,
+    "reads.site.reduce.updater.mobject.py:get_bounding_box_point": 11864.0,
+    "reads.site.reduce.updater.mobject.py:get_center": 2310.0,
+    "renderer.assemble_batches.calls": 97.0,
+    "renderer.native_capture.calls": 7920.0,
+    "scene.frames.positive_dt": 7920.0
+  },
+  "format": 1,
+  "gauges": {
+    "checkpoint.count": 159,
+    "checkpoint.frontier": 158,
+    "checkpoint.ledger.entries": 5186,
+    "checkpoint.mobjects": 0,
+    "geometry.batch_count": 0,
+    "geometry.triangle_retained_bytes": 0,
+    "renderer.batch_count": 0,
+    "scene.mobjects": 0
+  },
+  "metadata": {
+    "fps": 60,
+    "present_mode": false,
+    "render_mode": true,
+    "resolution": [
+      2160,
+      1080
+    ],
+    "route": "native",
+    "scene": "EpisodeA2",
+    "source": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/170105a6-ea6a-4aed-8495-b029e62121df/scratchpad/course/Blocks/A2_Advantage/03_Code.py"
+  },
+  "process": {
+    "cpu_ms": 277222.17500000005,
+    "elapsed_ms": 324729.7862920095,
+    "peak_rss_bytes": 1384660992,
+    "pid": 74781,
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.9",
+    "started": "2026-09-11T01:04:29.712218+00:00"
+  },
+  "process_samples": [
+    {
+      "checkpoint": 0,
+      "elapsed_ms": 967.1705000073416,
+      "label": "checkpoint_saved",
+      "peak_rss_bytes": 208240640,
+      "rss_bytes": 205701120
+    },
+    {
+      "checkpoints": 1,
+      "elapsed_ms": 972.6275419961894,
+      "label": "scene_start",
+      "peak_rss_bytes": 208240640,
+      "rss_bytes": 205733888
+    },
+    {
+      "checkpoint": 1,
+      "checkpoint_count": 2,
+      "elapsed_ms": 3822.6329169992823,
+      "label": "checkpoint_saved",
+      "mobjects": 2,
+      "peak_rss_bytes": 430243840,
+      "rss_bytes": 430243840
+    },
+    {
+      "checkpoint": 10,
+      "checkpoint_count": 11,
+      "elapsed_ms": 18137.411375006195,
+      "label": "checkpoint_saved",
+      "mobjects": 2,
+      "peak_rss_bytes": 481984512,
+      "rss_bytes": 481984512
+    },
+    {
+      "checkpoint": 20,
+      "checkpoint_count": 21,
+      "elapsed_ms": 34308.61062499753,
+      "label": "checkpoint_saved",
+      "mobjects": 1,
+      "peak_rss_bytes": 554713088,
+      "rss_bytes": 548700160
+    },
+    {
+      "checkpoint": 30,
+      "checkpoint_count": 31,
+      "elapsed_ms": 51192.55754200276,
+      "label": "checkpoint_saved",
+      "mobjects": 4,
+      "peak_rss_bytes": 601161728,
+      "rss_bytes": 597950464
+    },
+    {
+      "checkpoint": 40,
+      "checkpoint_count": 41,
+      "elapsed_ms": 63134.95212500857,
+      "label": "checkpoint_saved",
+      "mobjects": 11,
+      "peak_rss_bytes": 614023168,
+      "rss_bytes": 614023168
+    },
+    {
+      "checkpoint": 50,
+      "checkpoint_count": 51,
+      "elapsed_ms": 76469.58862499741,
+      "label": "checkpoint_saved",
+      "mobjects": 17,
+      "peak_rss_bytes": 624934912,
+      "rss_bytes": 624525312
+    },
+    {
+      "checkpoint": 60,
+      "checkpoint_count": 61,
+      "elapsed_ms": 94081.48866699776,
+      "label": "checkpoint_saved",
+      "mobjects": 3,
+      "peak_rss_bytes": 828473344,
+      "rss_bytes": 814563328
+    },
+    {
+      "checkpoint": 70,
+      "checkpoint_count": 71,
+      "elapsed_ms": 103870.92650000704,
+      "label": "checkpoint_saved",
+      "mobjects": 3,
+      "peak_rss_bytes": 828473344,
+      "rss_bytes": 814186496
+    },
+    {
+      "checkpoint": 80,
+      "checkpoint_count": 81,
+      "elapsed_ms": 119317.12720800715,
+      "label": "checkpoint_saved",
+      "mobjects": 1,
+      "peak_rss_bytes": 831127552,
+      "rss_bytes": 823820288
+    },
+    {
+      "checkpoint": 90,
+      "checkpoint_count": 91,
+      "elapsed_ms": 135353.13141701045,
+      "label": "checkpoint_saved",
+      "mobjects": 8,
+      "peak_rss_bytes": 839696384,
+      "rss_bytes": 833536000
+    },
+    {
+      "checkpoint": 100,
+      "checkpoint_count": 101,
+      "elapsed_ms": 186611.06516700238,
+      "label": "checkpoint_saved",
+      "mobjects": 21,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1239449600
+    },
+    {
+      "checkpoint": 110,
+      "checkpoint_count": 111,
+      "elapsed_ms": 206824.0499579988,
+      "label": "checkpoint_saved",
+      "mobjects": 23,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1170505728
+    },
+    {
+      "checkpoint": 120,
+      "checkpoint_count": 121,
+      "elapsed_ms": 239283.64704200067,
+      "label": "checkpoint_saved",
+      "mobjects": 4,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1316339712
+    },
+    {
+      "checkpoint": 130,
+      "checkpoint_count": 131,
+      "elapsed_ms": 252099.07974999805,
+      "label": "checkpoint_saved",
+      "mobjects": 11,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1316831232
+    },
+    {
+      "checkpoint": 140,
+      "checkpoint_count": 141,
+      "elapsed_ms": 272552.494167001,
+      "label": "checkpoint_saved",
+      "mobjects": 12,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1319469056
+    },
+    {
+      "checkpoint": 150,
+      "checkpoint_count": 151,
+      "elapsed_ms": 295018.78850000503,
+      "label": "checkpoint_saved",
+      "mobjects": 17,
+      "peak_rss_bytes": 1340637184,
+      "rss_bytes": 1239515136
+    },
+    {
+      "checkpoints": 159,
+      "elapsed_ms": 324679.70195799717,
+      "label": "scene_teardown",
+      "peak_rss_bytes": 1384660992,
+      "rss_bytes": 1372356608
+    }
+  ],
+  "stages": {
+    "animation.begin": {
+      "count": 112,
+      "max_ms": 69.58100000338163,
+      "mean_ms": 10.427040553492718,
+      "p50_ms": 3.295499991509132,
+      "p95_ms": 44.56462500093039,
+      "sample_count": 112,
+      "total_ms": 1167.8285419911845
+    },
+    "animation.finish": {
+      "count": 112,
+      "max_ms": 10.498957999516279,
+      "mean_ms": 1.5526309376322647,
+      "p50_ms": 0.7970830047270283,
+      "p95_ms": 6.248165998840705,
+      "sample_count": 112,
+      "total_ms": 173.89466501481365
+    },
+    "animation.interpolate": {
+      "count": 7728,
+      "max_ms": 8.481999990181066,
+      "mean_ms": 0.7634141373039958,
+      "p50_ms": 0.23658298596274108,
+      "p95_ms": 3.858625001157634,
+      "sample_count": 7728,
+      "total_ms": 5899.664453085279
+    },
+    "animation.prepare": {
+      "count": 112,
+      "max_ms": 0.42149999353569,
+      "mean_ms": 0.022640249491295044,
+      "p50_ms": 0.0030410010367631912,
+      "p95_ms": 0.1880000054370612,
+      "sample_count": 112,
+      "total_ms": 2.535707943025045
+    },
+    "checkpoint.execution_copy": {
+      "count": 1,
+      "max_ms": 0.7331249944400042,
+      "mean_ms": 0.7331249944400042,
+      "p50_ms": 0.7331249944400042,
+      "p95_ms": 0.7331249944400042,
+      "sample_count": 1,
+      "total_ms": 0.7331249944400042
+    },
+    "checkpoint.execution_restore": {
+      "count": 1,
+      "max_ms": 0.06237499474082142,
+      "mean_ms": 0.06237499474082142,
+      "p50_ms": 0.06237499474082142,
+      "p95_ms": 0.06237499474082142,
+      "sample_count": 1,
+      "total_ms": 0.06237499474082142
+    },
+    "checkpoint.save_copy": {
+      "count": 159,
+      "max_ms": 56.95591699623037,
+      "mean_ms": 8.194376088337645,
+      "p50_ms": 6.341208005324006,
+      "p95_ms": 22.149125012219884,
+      "sample_count": 159,
+      "total_ms": 1302.9057980456855
+    },
+    "geometry.triangle_encode": {
+      "count": 7920,
+      "max_ms": 165.48250000050757,
+      "mean_ms": 1.9950474360034651,
+      "p50_ms": 0.6857500120531768,
+      "p95_ms": 8.285500007332303,
+      "sample_count": 7920,
+      "total_ms": 15800.775693147443
+    },
+    "geometry.triangle_prepare": {
+      "count": 7920,
+      "max_ms": 198.34316699416377,
+      "mean_ms": 10.326555448920422,
+      "p50_ms": 6.1688339919783175,
+      "p95_ms": 42.49945799529087,
+      "sample_count": 7920,
+      "total_ms": 81786.31915544975
+    },
+    "renderer.assemble_batches": {
+      "count": 97,
+      "max_ms": 1.7688750085653737,
+      "mean_ms": 0.4777491231300129,
+      "p50_ms": 0.3778750105993822,
+      "p95_ms": 1.0446249943925068,
+      "sample_count": 97,
+      "total_ms": 46.34166494361125
+    },
+    "renderer.native_capture": {
+      "count": 7920,
+      "max_ms": 776.9515830004821,
+      "mean_ms": 34.15939813722166,
+      "p50_ms": 20.921832998283207,
+      "p95_ms": 113.96612499083858,
+      "sample_count": 7920,
+      "total_ms": 270542.43324679555
+    },
+    "scene.update_mobjects": {
+      "count": 7920,
+      "max_ms": 12.433875002898276,
+      "mean_ms": 0.295235881608875,
+      "p50_ms": 0.0069160014390945435,
+      "p95_ms": 3.2378750038333237,
+      "sample_count": 7920,
+      "total_ms": 2338.26818234229
+    },
+    "source.execute": {
+      "count": 137,
+      "max_ms": 22725.919791002525,
+      "mean_ms": 2361.928395109602,
+      "p50_ms": 1331.9466249959078,
+      "p95_ms": 8164.139291009633,
+      "sample_count": 137,
+      "total_ms": 323584.1901300155
+    }
+  }
+}

@@ -234,18 +234,24 @@ bounding-box reductions from `move_to`/`shift` inside updaters.
    is the reference number, and the counters here count calls, not bytes.
    For the GPU design the point stands: this is engine code reading
    two endpoints, a reduction in all but name.
-4. **Idle-loop reads while parked are the live viewer's, not the render's.**
-   A parked scene with an `always_redraw` repeats the updater column at the
-   idle frame rate. Before Phase 2, profile one parked episode in the live
-   viewer with `MANIML_PERF_PATH` to size that column; the counters are the
-   same.
+4. **Parked, the live viewer repeats the updater column at 30 frames per
+   second, and nothing else.** Measured through `benchmarks/live_profile.py`
+   on EpisodeB0 held on B02b (the live PPF `always_redraw`), as the
+   difference between a 3 s and a 13 s hold after each of three arrow
+   presses, so 30 s of parked time: 900 frames, 901,485 raw reads (all
+   `_get_graph_sample_points`) and 299,299 reductions (all the scene's
+   `Bowed_PPF` reading its tracker), no play or idle reads at all, and 4.7 s
+   of CPU, about 16 percent of one core. A probe scene confirmed the idle
+   loop is paced at the camera's frame rate by `update_frame`'s sleep. So a
+   parked scene costs one rebuild per frame of every live updater and no
+   engine reads of its own; the archive is
+   `benchmarks/results/read_instrumentation_20260911/`.
 
 ## Open
 
 - Bytes are not counted, only calls; a raw read of a 5-point frame and of a
   2,001-point curve count the same. Add a byte counter if the policy needs
   it.
-- The live viewer's parked idle loop (above).
 - Writes are not counted. A GPU-resident point store also needs to know which
   Python writes bypass the operation stream (`data["point"][:] = ...` sites);
   the ledger's `MANIML_VERIFY_LEDGER` already names those that forget the
