@@ -4,6 +4,7 @@
 AddTextLetterByLetter
 AddTextWordByWord
 Angle
+AnimatedBoundary
 Animation
 AnimationGroup
 AnnularSector
@@ -160,6 +161,7 @@ ThreeDScene
 TipableVMobject
 Title
 Torus
+TracedPath
 Transform
 TransformFromCopy
 TransformMatchingShapes

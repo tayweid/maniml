@@ -80,6 +80,7 @@ from .animation.indication import (
     ApplyWave, WiggleOutThenIn, TurnInsideOut, FlashyFadeIn
 )
 from .animation.rotation import Rotating, Rotate
+from .animation.changing import AnimatedBoundary, TracedPath
 from .animation.update import UpdateFromFunc, UpdateFromAlphaFunc, MaintainPositionRelativeTo
 
 # Import CE compatibility layer
@@ -273,6 +274,7 @@ __all__ = [
     'Animation', 'ShowCreation', 'Uncreate', 'DrawBorderThenFill', 'Write', 'Unwrite',
     'ShowIncreasingSubsets', 'ShowSubmobjectsOneByOne', 'AddTextWordByWord',
     'AddTextLetterByLetter',
+    'AnimatedBoundary', 'TracedPath',
     # Transform Animations
     'Transform', 'ReplacementTransform', 'TransformFromCopy',
     'MoveToTarget', 'ApplyMethod', 'ApplyPointwiseFunction', 'ApplyPointwiseFunctionToCenter',
