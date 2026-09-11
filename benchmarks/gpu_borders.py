@@ -196,28 +196,35 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     return row, image, header
 
 
-def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=None):
+def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=None,
+             variants=VARIANTS):
+    """``variants`` selects which renderers alternate per frame. Rotating all
+    four puts each renderer's readbacks after three others' work; two alone
+    is the comparison to trust when one renderer's completion looks slow."""
     from maniml.camera.native_gl_camera import NativeGLCamera
     from maniml.web.wgpu_renderer import WgpuRenderer
     from tests.winding_reference_renderer import WgpuRenderer as WindingRenderer
 
-    built = {variant: build_case(name) for variant in VARIANTS}
+    variants = tuple(variants)
+    built = {variant: build_case(name) for variant in variants}
     scenes = {variant: item[0] for variant, item in built.items()}
-    metadata = built[VARIANTS[0]][1]
+    metadata = built[variants[0]][1]
     initial = {variant: source_contract(scene) for variant, scene in scenes.items()}
     if len({contract[0] for contract in initial.values()}) != 1:
         raise RuntimeError("variant source bytes differ")
     base_points = {variant: [mob.get_points().copy() for mob in scene.mobjects]
                    for variant, scene in scenes.items()}
     renderers, queues, caches, native = {}, {}, {}, None
-    for variant in VARIANTS[:-1]:
+    for variant in variants:
+        if variant == "native_gl":
+            continue
         caches[variant] = GeometryCache()
         if not cpu_only:
             renderers[variant] = WindingRenderer() if variant == "original_2d" else WgpuRenderer()
             queues[variant] = QueueObserver(renderers[variant])
-    rows, cold, comparisons = {variant: [] for variant in VARIANTS}, {}, []
+    rows, cold, comparisons = {variant: [] for variant in variants}, {}, []
     adapters = {variant: dict(renderer.device.adapter_info) for variant, renderer in renderers.items()}
-    if not cpu_only:
+    if not cpu_only and "native_gl" in variants:
         native = NativeGLCamera(resolution=scenes["native_gl"].camera.draw_fbo.size, samples=0)
         source_camera = scenes["native_gl"].camera
         native.background_rgba = list(source_camera.background_rgba)
@@ -236,16 +243,16 @@ def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=
                 start = perf_counter()
                 pose[variant] = evaluate(scene, name, index, count, base_points[variant])
                 evaluated[variant] = 1000 * (perf_counter() - start)
-            if any(value != pose[VARIANTS[0]] for value in pose.values()):
+            if any(value != pose[variants[0]] for value in pose.values()):
                 raise RuntimeError("variant cameras differ")
             expected = {variant: source_contract(scene) for variant, scene in scenes.items()}
             if len({contract[0] for contract in expected.values()}) != 1:
                 raise RuntimeError("source evaluation differs across variants")
-            if name != "changing_paths" and any(expected[v] != initial[v] for v in VARIANTS):
+            if name != "changing_paths" and any(expected[v] != initial[v] for v in variants):
                 raise RuntimeError("camera sequence changed authored source")
-            offset = iteration % len(VARIANTS)
-            order = VARIANTS[offset:] + VARIANTS[:offset]
-            if iteration // len(VARIANTS) % 2:
+            offset = iteration % len(variants)
+            order = variants[offset:] + variants[:offset]
+            if iteration // len(variants) % 2:
                 order = order[::-1]
             pictures, headers = {}, {}
             for variant in order:
@@ -282,11 +289,13 @@ def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=
                     cold[variant] = row
                 if iteration >= warmups:
                     rows[variant].append(row)
-            if pictures and iteration >= warmups:
-                comparisons.append({"frame": index,
-                    "gpu_vs_cpu": difference(pictures["cpu_border"], pictures["gpu_border"]),
-                    "gpu_vs_original": difference(pictures["original_2d"], pictures["gpu_border"]),
-                    "gpu_vs_native_gl": difference(pictures["native_gl"], pictures["gpu_border"])})
+            if pictures and iteration >= warmups and "gpu_border" in pictures:
+                comparison = {"frame": index}
+                for label, other in (("gpu_vs_cpu", "cpu_border"), ("gpu_vs_original", "original_2d"),
+                                     ("gpu_vs_native_gl", "native_gl")):
+                    if other in pictures:
+                        comparison[label] = difference(pictures[other], pictures["gpu_border"])
+                comparisons.append(comparison)
                 if index in (0, (count - 1) // 2, count - 1):
                     for variant, image in pictures.items():
                         filename = f"{name}_{index:02}_{variant}"
@@ -294,9 +303,10 @@ def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=
                         crop = (image.width // 4, image.height // 4, image.width * 3 // 4, image.height * 3 // 4)
                         image.crop(crop).save(output / f"{filename}_center_crop.png")
         result = {"source": metadata, "source_contract_preserved": True, "adapters": adapters,
+                  "variants_in_rotation": list(variants),
                   "first_cold_frames_excluded_from_warmed_statistics": cold,
                   "per_frame_image_diagnostics": comparisons, "variants": {}}
-        for variant in VARIANTS:
+        for variant in variants:
             result["variants"][variant] = {"samples": rows[variant], "timing_ms": {
                 key: stats([row[key] for row in rows[variant]]) for key in rows[variant][0] if key.endswith("_ms")}}
             key = ("capture_return_through_full_readback_ms" if variant == "native_gl"
@@ -324,6 +334,8 @@ def main():
     parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
     parser.add_argument("--cpu-only", action="store_true")
     parser.add_argument("--transport", action="store_true")
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS),
+                        help="renderers to alternate per frame; two alone isolates one renderer's completion time")
     args = parser.parse_args()
     if args.samples < 3 or args.warmups < 1:
         parser.error("samples must be >=3 and warmups >=1")
@@ -360,7 +372,8 @@ def main():
             transport = stack.enter_context(LoopbackTransport())
         for name in args.cases:
             report["cases"][name] = run_case(name, args.samples, args.warmups, stages, args.output,
-                                            cpu_only=args.cpu_only, transport=transport)
+                                            cpu_only=args.cpu_only, transport=transport,
+                                            variants=args.variants)
             report["source_files_unchanged_during_run"] = all(sha256(Path(path).read_bytes()).hexdigest() == value for path, value in hashes.items())
             (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
             print(name, "complete", flush=True)

@@ -564,6 +564,37 @@ class TriangleMeshCache:
         entry = self._entries.get(id(mobject))
         return entry is not None and entry.owner() is mobject and entry.uniform_vertex_color
 
+    def bound_errors(self, records, resolution):
+        """Bound this frame's projection error for every retained mesh at once.
+
+        ``mesh()`` asks each entry whether its mesh still meets tolerance at
+        the current camera; done per object that is a hundred small numpy
+        calls per frame on a text slide. Group the retained entries by exact
+        camera state, project every error hull in one product, reduce per
+        entry, and leave each entry's memo set so ``mesh()`` finds it. The
+        arithmetic is the per-entry bound's, only stacked. Entries whose
+        projection is singular are left unset so ``mesh()`` reports them.
+        """
+        groups = {}
+        for mobject, uniforms in records:
+            entry = self._entries.get(id(mobject))
+            if entry is None or entry.owner() is not mobject:
+                continue
+            geometry = entry.geometry
+            if geometry.error_hull is None or not geometry.local_tolerance:
+                continue
+            try:
+                key, projection = _projection_state(uniforms, resolution, self._projections)
+            except UnsupportedPrototype:
+                continue
+            if entry.projection_key == key:
+                continue
+            groups.setdefault(key, (projection, []))[1].append(entry)
+        for key, (projection, entries) in groups.items():
+            for entry, error in zip(entries, _batched_projection_errors(entries, projection, resolution)):
+                if np.isfinite(error):
+                    entry.projection_key, entry.projected_error = key, float(error)
+
     def trusts(self, mobject):
         """Whether this mobject's retained source was read at its current
         revision, so the revision policy may reuse it without reading bytes."""
@@ -786,6 +817,32 @@ def projection_scale_bound(points, basis, uniforms, resolution, *, _projection=N
     return float(pixels_per_unit) if pixels_per_unit.ndim == 0 else pixels_per_unit
 
 
+def _batched_projection_errors(entries, projection, resolution):
+    """``_MeshGeometry.pixel_error`` for many entries with retained error hulls,
+    in one pass: the same bound as ``projection_scale_bound``, stacked."""
+    matrix, shift = projection
+    hulls = [entry.geometry.error_hull for entry in entries]
+    lengths = np.array([len(hull) for hull in hulls])
+    starts = np.cumsum(np.r_[0, lengths[:-1]])
+    projected = np.concatenate(hulls) @ matrix.T + shift
+    w = 1 - projected[:, 2]
+    min_w = np.minimum.reduceat(w, starts)
+    max_xy = np.maximum.reduceat(np.abs(projected[:, :2]), starts, axis=0)
+    bases = np.stack([entry.geometry.error_basis for entry in entries])  # (N, 2, 3, 3)
+    derivatives = matrix @ bases.swapaxes(-1, -2)
+    norms = np.linalg.norm(derivatives, axis=-1)  # (N, 2, 3)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        row_bounds = (norms[..., :2] / min_w[:, None, None]
+                      + max_xy[:, None, :] * norms[..., 2, None] / min_w[:, None, None] ** 2)
+        scales = np.linalg.norm(row_bounds * np.asarray(resolution) / 2, axis=-1)  # (N, 2)
+    tolerances = np.array([entry.geometry.local_tolerance for entry in entries])
+    residuals = np.array([entry.geometry.fit_residual for entry in entries])
+    errors = tolerances * scales[:, 0] + residuals * scales[:, 1]
+    # A singular or near-plane projection is the per-entry path's error to raise.
+    errors[min_w <= 1e-5] = np.nan
+    return errors
+
+
 def plane_tolerance(points, basis, uniforms, resolution, pixel_tolerance):
     """Convert a remaining pixel budget into local-plane flattening tolerance.
 
@@ -962,6 +1019,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                for family in families
                for sm in sorted(family, key=lambda obj: obj.z_index)
                if not isinstance(sm, CameraFrame)]
+    if mesh_cache is not None:
+        mesh_cache.bound_errors(records, frame.resolution)
     borders = (_prepare_border_geometry(records, mesh_cache)
                if fill_borders and fill_builder is None and not gpu_borders else {})
     for sm, uniforms in records:

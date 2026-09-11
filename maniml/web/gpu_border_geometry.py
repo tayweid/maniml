@@ -11,7 +11,9 @@ import weakref
 
 import numpy as np
 
-from maniml.web.border_geometry import BorderSource, _BORDER_DTYPE, render_cache_policy
+from maniml.web.border_geometry import (
+    BorderSource, _BORDER_DTYPE, render_cache_policy, verify_render_cache,
+)
 
 
 CURVE_WORDS = 44
@@ -109,6 +111,31 @@ def required_capacity(source):
     if not len(counts):
         return MIN_VERTICES_PER_CURVE
     return max(MIN_VERTICES_PER_CURVE, int(2 * counts.max()))
+
+
+def density_summary(source):
+    """What a later zoom needs to know about a source: its largest finite
+    density and whether any active curve's density overflowed to +inf."""
+    density = source.density[source.active]
+    if not len(density):
+        return 0.0, False
+    capped = bool(np.isposinf(density).any())
+    finite = density[np.isfinite(density)]
+    return (float(finite.max()) if len(finite) else 0.0), capped
+
+
+def required_from_density(max_density, capped, frame_scale):
+    """``required_capacity`` from the summary alone. Step counts are
+    ``min(2 + rint(density / frame_scale), 32)`` per curve and monotone in
+    density, so the largest density decides the largest count, and an
+    overflowed density always takes the 32-step cap (the emitter's policy)."""
+    if capped:
+        return MAX_VERTICES_PER_CURVE
+    scale = np.float32(frame_scale)
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("frame_scale must be a finite positive float32 value")
+    steps = int(min(2 + np.rint(max_density / scale), 32))
+    return max(MIN_VERTICES_PER_CURVE, 2 * steps)
 
 
 def reserve_capacity(needed, previous=None):
@@ -246,7 +273,7 @@ class BorderRecipeCache:
         for key, entry in list(self.sources.items()):
             if entry.frame != self.frame or entry.owner() is None:
                 self._remove_source(key)
-        for key, (owner, _, frame) in list(self.capacities.items()):
+        for key, (owner, _, frame, _, _) in list(self.capacities.items()):
             if frame != self.frame or owner() is None:
                 del self.capacities[key]
         for key, value in list(self.runs.items()):
@@ -264,6 +291,16 @@ class BorderRecipeCache:
             previous = None
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
+        if trusted and not verify_render_cache() and id(mobject) in self.capacities:
+            # Nothing in the packed curves depends on the camera; a zoom only
+            # changes how many steps each curve gets, which the compute stage
+            # decides for itself. All the CPU must know is whether the
+            # reservation still fits, and the stored density summary answers
+            # that without re-reading a single array.
+            self._reserve(mobject, None, frame_scale=uniforms["frame_scale"])
+            previous.frame = self.frame
+            self.sources.move_to_end(id(mobject))
+            return previous.curves
         # The CPU triangle budget bounds the CPU emitter's output arrays. GPU
         # output is fixed capacity, already sized and checked against the
         # device's buffer limits by the drivers, so the budget would only
@@ -271,7 +308,7 @@ class BorderRecipeCache:
         source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted,
                                    previous=None if previous is None else previous.source)
         rgba = np.asarray(mobject.data["fill_rgba"][0], dtype="<f4")
-        self._reserve(mobject, source)
+        self._reserve(mobject, source, frame_scale=uniforms["frame_scale"])
         # A fill color change bumps the revision, so a trusted read keeps its paint.
         same_rgba = trusted or (previous is not None and np.array_equal(rgba, previous.rgba))
         if previous is not None and source is previous.source and same_rgba:
@@ -293,11 +330,19 @@ class BorderRecipeCache:
         self._bound()
         return curves
 
-    def _reserve(self, mobject, source):
+    def _reserve(self, mobject, source, *, frame_scale):
+        """Reserve for ``source`` at this zoom, or for the retained density
+        summary when ``source`` is None (a trusted frame)."""
         previous = self.capacities.get(id(mobject))
-        held = previous[1] if previous is not None and previous[0]() is mobject else None
-        capacity = reserve_capacity(required_capacity(source), held)
-        self.capacities[id(mobject)] = (weakref.ref(mobject), capacity, self.frame)
+        if previous is not None and previous[0]() is not mobject:
+            previous = None
+        held = None if previous is None else previous[1]
+        if source is None:
+            max_density, capped = previous[3], previous[4]
+        else:
+            max_density, capped = density_summary(source)
+        capacity = reserve_capacity(required_from_density(max_density, capped, frame_scale), held)
+        self.capacities[id(mobject)] = (weakref.ref(mobject), capacity, self.frame, max_density, capped)
         return capacity
 
     def capacity(self, mobject):

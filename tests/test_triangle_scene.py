@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
+from maniml.web import triangle_scene
 from benchmarks.triangle_scene import (
     TriangleDraw,
     TriangleMeshCache,
@@ -536,10 +537,14 @@ class TriangleSceneMeshCache(unittest.TestCase):
                 # array/list edits that do not bump a broad camera revision.
                 self.scene.camera.refresh_uniforms = lambda: None
                 change(self.scene, self.path)
+                # The bound is recomputed either per entry or, when the cache
+                # batches its retained meshes, once for the frame.
                 with patch("benchmarks.triangle_scene.projection_scale_bound",
-                           wraps=projection_scale_bound) as bound:
+                           wraps=projection_scale_bound) as bound, \
+                        patch("benchmarks.triangle_scene._batched_projection_errors",
+                              wraps=triangle_scene._batched_projection_errors) as batched:
                     self.prepare()
-                    self.assertGreater(bound.call_count, 0)
+                    self.assertGreater(bound.call_count + batched.call_count, 0)
 
     def test_failed_projection_keys_never_turn_into_successful_cache_hits(self):
         for field in ("view", "frame_rescale_factors", "is_fixed_in_frame", "resolution"):
