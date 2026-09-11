@@ -25,6 +25,12 @@ from maniml.web.triangle_geometry import LyonFillTessellator
 from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 from tests.renderer_fixtures import build_scene
 
+# These tests write into public arrays directly, on purpose, to prove the
+# byte comparison sees the edit. That comparison is the MANIML_RENDER_CACHE=bytes
+# policy, and the verify mode of the default revision policy; the revision
+# contract itself is covered by tests/test_render_cache_revision.py.
+bytes_policy = patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"})
+
 
 def fill_part(color=(1, 0, 0, 1), x=0):
     vertices = np.zeros(4, dtype=SURFACE_DTYPE)
@@ -361,6 +367,8 @@ class GpuBorderPreparation(unittest.TestCase):
             self.assertEqual(current.mesh_cache_stats["gpu_border_source_updates"], 2)
             self.assertEqual(current.mesh_cache_stats["gpu_border_assemblies"], 1)
         self.assertEqual(self.authored_bytes(scene), source_bytes)
+
+    @bytes_policy
 
     def test_in_place_source_edits_and_material_changes_refresh_recipe(self):
         scene, meshes, wire = self.scene(opacity=.5), TriangleMeshCache(), GeometryCache()

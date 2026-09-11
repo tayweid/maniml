@@ -33,6 +33,12 @@ from tests.renderer_fixtures import (
     build_scene, closed_contours, concave_quad, get_fixture, renderer_cases,
 )
 
+# These tests write into public arrays directly, on purpose, to prove the
+# byte comparison sees the edit. That comparison is the MANIML_RENDER_CACHE=bytes
+# policy, and the verify mode of the default revision policy; the revision
+# contract itself is covered by tests/test_render_cache_revision.py.
+bytes_policy = patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"})
+
 
 def _camera_pixels(points, camera):
     """Project using camera pose, physical frame dimensions, and focal length."""
@@ -453,6 +459,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
                 self.assertEqual(len(frame.draws), 1)
                 self.assertTrue(frame.draws[0].coverage)
 
+    @bytes_policy
+
     def test_fill_only_runs_skip_stroke_expansion_share_camera_and_preserve_exact_edits(self):
         other = self.path.copy().shift([1.5, 0, 0])
         self.scene = build_scene(self.path, other)
@@ -579,6 +587,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertIs(returned.draws[0].vertices, refined.draws[0].vertices)
         self.assertEqual(self.cache.stats["entries"], 1)
 
+    @bytes_policy
+
     def test_uniform_opacity_updates_preserve_mesh_and_old_frames(self):
         first = self.prepare()
         vertices = first.draws[0].vertices.copy()
@@ -605,6 +615,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertEqual(updated.mesh_cache_stats["retained_bytes"], first.mesh_cache_stats["retained_bytes"])
         with self.assertRaises(ValueError):
             draw.vertices.flags.writeable = True
+
+    @bytes_policy
 
     def test_float64_paint_overflow_rejects_cache_refresh_like_fresh_generation(self):
         first = self.prepare()
@@ -668,6 +680,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertEqual(relaxed.mesh_cache_stats["hits"], 1)
         self.assertIs(relaxed.draws[0].vertices, fine.draws[0].vertices)
 
+    @bytes_policy
+
     def test_in_place_source_paint_normal_and_generator_changes_invalidate(self):
         first = self.prepare()
         self.path.data["point"][:, 0] *= 0.7
@@ -690,6 +704,8 @@ class TriangleSceneMeshCache(unittest.TestCase):
         self.assertEqual(self.prepare().mesh_cache_stats["regenerations"], 1)
         self.tessellator.cache_key = "different-settings"
         self.assertEqual(self.prepare().mesh_cache_stats["regenerations"], 1)
+
+    @bytes_policy
 
     def test_only_changed_subobjects_regenerate_and_contour_changes_keep_holes(self):
         other = get_fixture("annulus_hole").build().mobjects[0]

@@ -15,10 +15,14 @@ from maniml.camera.camera_frame import CameraFrame
 from maniml.mobject.types.dot_cloud import DotCloud
 from maniml.mobject.types.image_mobject import ImageMobject
 from maniml.mobject.types.surface import Surface, TexturedSurface
+from maniml.mobject.mobject import Mobject
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _texture_refs
 from maniml.web.triangle_geometry import TessellationError
-from maniml.web.border_geometry import BorderSource, MAX_BORDER_TRIANGLES, emit_border_triangles
+from maniml.web.border_geometry import (
+    BorderSource, MAX_BORDER_TRIANGLES, RenderCacheStale, emit_border_triangles,
+    render_cache_policy, verify_render_cache,
+)
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 from maniml.web.gpu_border_geometry import (
     BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
@@ -26,6 +30,33 @@ from maniml.web.gpu_border_geometry import (
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
+_STANDARD_MESH_GETTERS = (("get_points", Mobject.get_points),
+                          ("get_unit_normal", VMobject.get_unit_normal),
+                          ("get_subpath_end_indices_from_points", _DEFAULT_CONTOUR_METHOD))
+
+
+_STANDARD_MESH_NAMES = frozenset(name for name, _ in _STANDARD_MESH_GETTERS)
+_STANDARD_MESH_CLASSES = {}
+
+
+def _standard_mesh_getters(mobject):
+    cls = type(mobject)
+    standard = _STANDARD_MESH_CLASSES.get(cls)
+    if standard is None:
+        standard = _STANDARD_MESH_CLASSES[cls] = all(
+            getattr(cls, name, None) is method for name, method in _STANDARD_MESH_GETTERS)
+    return standard and not (_STANDARD_MESH_NAMES & mobject.__dict__.keys())
+
+
+def classify_source(mobject):
+    """The per-object style facts frame preparation branches on, read from the
+    public arrays: (has fill, uniform fill color, has fill border, opaque fill
+    alpha, has visible stroke)."""
+    data = mobject.data
+    fill = data["fill_rgba"]
+    return (bool(np.any(fill[:, 3])), bool(np.all(fill == fill[0])),
+            bool(np.any(data["fill_border_width"])), bool(fill[0, 3] == 1) if len(fill) else False,
+            bool(np.any(data["stroke_width"]) and np.any(data["stroke_rgba"][:, 3])))
 
 
 class UnsupportedPrototype(TessellationError):
@@ -178,7 +209,27 @@ class _MeshSource:
     contour_rule: object = None
 
     @classmethod
-    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None):
+    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None, trusted=False):
+        """Snapshot the fill's source. ``trusted`` says the caller saw the
+        same ``Mobject.revision`` as when ``previous`` was read: the snapshot
+        is reused without reading the arrays, unless a custom getter or
+        contour rule could depend on other state. Under MANIML_VERIFY_LEDGER=1
+        the arrays are read anyway and a stale reuse raises."""
+        if (trusted and previous is not None and previous.contour_rule is _DEFAULT_CONTOUR_METHOD
+                and _standard_mesh_getters(mobject)):
+            if verify_render_cache():
+                fresh = cls.read(mobject, border_settings, previous=previous)
+                for name, kept, live in (("points", previous.points, fresh.points),
+                                         ("fill_rgba", previous.rgba, fresh.rgba),
+                                         ("unit_normal", previous.normal, fresh.normal)):
+                    if not np.array_equal(kept, live):
+                        raise RenderCacheStale(
+                            f"{type(mobject).__name__} changed in '{name}' since its last "
+                            f"frame without a revision bump")
+                return fresh
+            if previous.border_settings == border_settings:
+                return previous
+            return replace(previous, border_settings=border_settings)
         points = np.asarray(mobject.get_points(), dtype=float)
         contour_method = mobject.get_subpath_end_indices_from_points
         contour_rule = getattr(contour_method, "__func__", contour_method)
@@ -310,7 +361,8 @@ def _prepare_border_geometry(records, mesh_cache):
         entry = None if mesh_cache is None else mesh_cache._entries.get(id(mobject))
         previous = None if entry is None else entry.coverage_geometry
         source = BorderSource.read(mobject, uniforms,
-                                   previous=None if previous is None else previous.source)
+                                   previous=None if previous is None else previous.source,
+                                   trusted=previous is not None and mesh_cache.trusts(mobject))
         if previous is not None and previous.source == source:
             count = previous.border_vertex_count
             border = previous.vertices[-count:] if count else previous.vertices[:0]
@@ -361,6 +413,12 @@ class _MeshEntry:
     projected_error: float | None = None
     paint_field: object = None
     coverage_geometry: _CoverageGeometry | None = None
+    # Mobject.revision when the source snapshot was read; the revision policy
+    # reuses the snapshot while it still matches.
+    revision: int | None = None
+    # Whether every fill vertex carries the source's first color (set at
+    # generation and after a paint refresh), for the opaque-painter test.
+    uniform_vertex_color: bool = False
 
     @property
     def nbytes(self):
@@ -437,9 +495,11 @@ class TriangleMeshCache:
         self._generator = None
         self._generator_key = None
         self._projections = {}
+        self._classes = {}
         self.gpu_border_cache = BorderRecipeCache(max_bytes=self.max_bytes if self.max_entries else 0)
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
+        self.policy = render_cache_policy()
 
     @property
     def stats(self):
@@ -458,6 +518,7 @@ class TriangleMeshCache:
         self._generator = None
         self._generator_key = None
         self._projections.clear()
+        self._classes.clear()
         self.gpu_border_cache.clear()
 
     def begin_frame(self, tessellator):
@@ -474,15 +535,49 @@ class TriangleMeshCache:
             self._generator_key = key
         self._frame += 1
         self._projections.clear()
+        self.policy = render_cache_policy()
         for owner_id, entry in list(self._entries.items()):
             if entry.owner() is None:
                 self._remove(owner_id)
         return before
 
+    def classify(self, mobject):
+        """``classify_source`` memoized by revision under the revision policy;
+        verification recomputes and raises on a bypassing style write."""
+        owner_id = id(mobject)
+        held = self._classes.get(owner_id)
+        if (held is not None and self.policy == "revision" and held[0]() is mobject
+                and held[1] == mobject.revision):
+            if verify_render_cache():
+                fresh = classify_source(mobject)
+                if fresh != held[2]:
+                    raise RenderCacheStale(
+                        f"{type(mobject).__name__} changed in 'fill_rgba', 'fill_border_width', "
+                        f"'stroke_width' or 'stroke_rgba' since its last frame without a revision bump")
+            self._classes[owner_id] = (held[0], held[1], held[2], self._frame)
+            return held[2]
+        classes = classify_source(mobject)
+        self._classes[owner_id] = (weakref.ref(mobject), mobject.revision, classes, self._frame)
+        return classes
+
+    def uniform_vertex_color(self, mobject):
+        entry = self._entries.get(id(mobject))
+        return entry is not None and entry.owner() is mobject and entry.uniform_vertex_color
+
+    def trusts(self, mobject):
+        """Whether this mobject's retained source was read at its current
+        revision, so the revision policy may reuse it without reading bytes."""
+        entry = self._entries.get(id(mobject))
+        return (self.policy == "revision" and entry is not None and entry.owner() is mobject
+                and entry.revision == mobject.revision)
+
     def finish_frame(self, before):
         for owner_id, entry in list(self._entries.items()):
             if entry.last_frame != self._frame:
                 self._remove(owner_id)
+        for owner_id, (_, _, _, frame) in list(self._classes.items()):
+            if frame != self._frame:
+                del self._classes[owner_id]
         now = self.stats
         # Camera matrix sharing is preparation scratch, not retained mesh data.
         self._projections.clear()
@@ -492,11 +587,13 @@ class TriangleMeshCache:
              *, border_settings=(0.0, "bevel")):
         owner_id = id(mobject)
         entry = self._entries.get(owner_id)
+        held = entry is not None and entry.owner() is mobject
         source = _MeshSource.read(mobject, border_settings,
-                                  previous=entry.source if entry is not None
-                                  and entry.owner() is mobject else None)
+                                  previous=entry.source if held else None,
+                                  trusted=held and self.trusts(mobject)
+                                  and not mobject.needs_new_unit_normal)
         if entry is not None:
-            same_paint = np.array_equal(entry.source.rgba, source.rgba)
+            same_paint = entry.source.rgba is source.rgba or np.array_equal(entry.source.rgba, source.rgba)
             paint_refresh = same_paint or (len(source.rgba) > 0 and np.isfinite(source.rgba).all()
                 # The mesh stores this uniform attribute as float32, matching
                 # native generation's input validation. Finite float64 source
@@ -515,10 +612,12 @@ class TriangleMeshCache:
                     entry.geometry = replace(entry.geometry, vertices=_readonly(vertices))
                     entry.source = replace(entry.source, rgba=_readonly(source.rgba))
                     entry.paint_field = None
+                    entry.uniform_vertex_color = True
                     self._bytes += entry.nbytes - old_bytes
                     self._totals["paint_updates"] += 1
                 self._totals["hits"] += 1
                 entry.last_frame = self._frame
+                entry.revision = mobject.revision
                 self._entries.move_to_end(owner_id)
                 # A changed paint-array dtype/shape must not escape retention
                 # limits. Returned immutable frame data may outlive the cache.
@@ -536,7 +635,9 @@ class TriangleMeshCache:
                    or self._bytes + nbytes > self.max_bytes):
                 self._remove(next(iter(self._entries)))
             entry = _MeshEntry(weakref.ref(mobject), source.frozen(),
-                               geometry.frozen(), self._frame)
+                               geometry.frozen(), self._frame, revision=mobject.revision,
+                               uniform_vertex_color=bool(len(source.rgba)) and bool(
+                                   np.all(geometry.vertices["rgba"] == source.rgba[0])))
             self._entries[owner_id] = entry
             self._bytes += entry.nbytes
             geometry = entry.geometry
@@ -885,17 +986,18 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         fill = None
         border_curves = None
         border_source, border_vertices = borders.get(id(sm), (None, None))
-        if np.any(sm.data["fill_rgba"][:, 3]):
-            material = (not np.all(sm.data["fill_rgba"] == sm.data["fill_rgba"][0])
-                        or np.any(uniforms.get("shading", (0, 0, 0))))
+        has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
+            mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
+        if has_fill:
+            material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
             if material and fill_builder is not None:
                 limitation("per-point fill paint uses endpoint interpolation; interior parity unproved")
-            if np.any(sm.data["fill_border_width"]):
+            if has_border:
                 if not fill_borders:
                     limitation("fill-border coverage is disabled for this triangle frame")
                 else:
                     if gpu_borders:
-                        border_curves = border_cache.source(sm, uniforms)
+                        border_curves = border_cache.source(sm, uniforms, revision=sm.revision)
                     else:
                         border_source = borders[id(sm)][0] if id(sm) in borders else BorderSource.read(sm, uniforms)
             if fill_builder is not None:
@@ -912,9 +1014,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                 # this source RGBA to every border vertex. Source order remains
                 # unchanged when these operations coalesce, even if different
                 # objects have different colors or overlap one another.
-                opaque_painter = (not material and not sm.depth_test
-                                  and sm.data["fill_rgba"][0, 3] == 1
-                                  and np.all(vertices["rgba"] == sm.data["fill_rgba"][0]))
+                opaque_painter = (not material and not sm.depth_test and opaque_alpha
+                                  and (mesh_cache.uniform_vertex_color(sm) if mesh_cache is not None
+                                       else bool(np.all(vertices["rgba"] == sm.data["fill_rgba"][0]))))
                 coverage = False
                 if gpu_borders:
                     if mesh_cache is not None:
@@ -948,7 +1050,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                                                          if gpu_borders and coverage
                                                          else MAX_VERTICES_PER_CURVE))
         stroke = None
-        if np.any(sm.data["stroke_width"]) and np.any(sm.data["stroke_rgba"][:, 3]):
+        if has_stroke:
             data = np.ascontiguousarray(sm.get_shader_data()).copy()
             stroke = TriangleDraw("stroke" + depth_suffix, data, uniforms,
                                   count=_stroke_verts(data, uniforms["frame_scale"]),

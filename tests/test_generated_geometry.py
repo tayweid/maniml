@@ -18,6 +18,10 @@ from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 from maniml.web.geometry import GeometryCache, SURFACE_DTYPE, parse_geometry_message, serialize_scene
 from maniml.web.triangle_scene import TriangleDraw, TriangleFrame
 
+# Writes into public arrays directly to prove the byte comparison sees it:
+# the MANIML_RENDER_CACHE=bytes policy (see tests/test_render_cache_revision.py).
+bytes_policy = patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"})
+
 
 def quad():
     vertices = np.zeros(4, dtype=SURFACE_DTYPE)
@@ -144,6 +148,8 @@ class GeneratedGeometryWire(unittest.TestCase):
                 encode([], cache)
                 self.assertEqual(cache.generated_payloads, {})
                 self.assertEqual(encode([draw], cache), first)
+
+    @bytes_policy
 
     def test_nine_production_fills_reuse_digests_only_for_immutable_draws(self):
         from maniml.mobject.geometry import Square

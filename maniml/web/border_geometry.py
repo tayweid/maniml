@@ -9,6 +9,7 @@ each translucent object paints a sample once. They are world-space drawing data 
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -18,6 +19,28 @@ from maniml.web.triangle_geometry import TessellationError, TessellationLimitErr
 
 
 MAX_BORDER_TRIANGLES = 262_144 // 3
+RENDER_CACHE_ENV = "MANIML_RENDER_CACHE"
+VERIFY_ENV = "MANIML_VERIFY_LEDGER"
+
+
+class RenderCacheStale(RuntimeError):
+    """A revision-keyed reuse would have drawn stale source arrays."""
+
+
+def render_cache_policy():
+    """``revision`` trusts ``Mobject.revision`` the way the checkpoint ledger
+    does; ``bytes`` compares every source array every frame."""
+    policy = os.environ.get(RENDER_CACHE_ENV, "revision")
+    if policy not in ("revision", "bytes"):
+        raise ValueError("MANIML_RENDER_CACHE must be 'revision' or 'bytes'")
+    return policy
+
+
+def verify_render_cache():
+    """With MANIML_VERIFY_LEDGER=1 every revision-keyed reuse is checked
+    against the live arrays and a miss raises naming the attribute, the same
+    switch the checkpoint ledger uses."""
+    return os.environ.get(VERIFY_ENV) == "1"
 _REQUIRED = {"point", "fill_rgba", "fill_border_width", "joint_angle", "base_normal"}
 _BORDER_DTYPE = np.dtype([("point", "f4", 3), ("fill_rgba", "f4", 4),
                          ("fill_border_width", "f4", 1), ("joint_angle", "f4", 1),
@@ -25,6 +48,19 @@ _BORDER_DTYPE = np.dtype([("point", "f4", 3), ("fill_rgba", "f4", 4),
 _STANDARD_SOURCE_METHODS = tuple((name, getattr(VMobject, name)) for name in (
     "get_shader_data", "get_shader_vert_indices", "get_outer_vert_indices",
     "get_num_curves", "get_num_points", "get_joint_angles", "get_unit_normal"))
+_STANDARD_SOURCE_NAMES = frozenset(name for name, _ in _STANDARD_SOURCE_METHODS)
+_STANDARD_SOURCE_CLASSES = {}
+
+
+def standard_source_methods(mobject):
+    """Whether every source getter is VMobject's own: a class-level answer,
+    memoized per class, plus a check that no instance overrides one."""
+    cls = type(mobject)
+    standard = _STANDARD_SOURCE_CLASSES.get(cls)
+    if standard is None:
+        standard = _STANDARD_SOURCE_CLASSES[cls] = all(
+            getattr(cls, name, None) is method for name, method in _STANDARD_SOURCE_METHODS)
+    return standard and not (_STANDARD_SOURCE_NAMES & mobject.__dict__.keys())
 
 
 def _same_bytes(left, right):
@@ -61,24 +97,37 @@ class BorderSource:
     frame_scale: float
 
     @classmethod
-    def read(cls, mobject, uniforms, *, previous=None, budget=True):
-        """Reuse expanded curves only after exact canonical-data comparison.
+    def read(cls, mobject, uniforms, *, previous=None, budget=True, trusted=False):
+        """Reuse expanded curves after exact canonical-data comparison, or on
+        the caller's word that the source revision is unchanged.
 
-        No revision counter substitutes for reading public arrays. Custom
-        source getters may depend on arbitrary state, so their output is read
-        every time. Standard getters also honor dirty normals/joints and direct
+        ``trusted`` says the caller saw the same ``Mobject.revision`` as when
+        ``previous`` was read; the checkpoint ledger relies on that counter
+        for correctness, and under MANIML_VERIFY_LEDGER=1 the bytes are still
+        compared and a stale reuse raises naming the attribute. Custom source
+        getters may depend on arbitrary state, so their output is read every
+        time. Standard getters also honor dirty normals/joints and direct
         edits of the derived expansion indices before taking a fresh snapshot.
 
         ``budget`` enforces the CPU emitter's triangle bound; the GPU recipe
         path sizes its own fixed-capacity output and passes False.
         """
-        cacheable = (mobject.data.flags.c_contiguous
-                     and all(getattr(getattr(mobject, name), "__func__", None) is method
-                             for name, method in _STANDARD_SOURCE_METHODS))
-        reuse = (cacheable and previous is not None and previous.cacheable
-                 and not mobject.needs_new_joint_angles and not mobject.needs_new_unit_normal
-                 and _same_bytes(mobject.data, previous.raw_data)
-                 and _same_bytes(mobject.outer_vert_indices, previous.raw_indices))
+        cacheable = mobject.data.flags.c_contiguous and standard_source_methods(mobject)
+        current = (cacheable and previous is not None and previous.cacheable
+                   and not mobject.needs_new_joint_angles and not mobject.needs_new_unit_normal)
+        if current and trusted:
+            reuse = True
+            if verify_render_cache():
+                for name, live, kept in (("data", mobject.data, previous.raw_data),
+                                         ("outer_vert_indices", mobject.outer_vert_indices,
+                                          previous.raw_indices)):
+                    if not _same_bytes(live, kept):
+                        raise RenderCacheStale(
+                            f"{type(mobject).__name__} changed in '{name}' since its last "
+                            f"frame without a revision bump")
+        else:
+            reuse = (current and _same_bytes(mobject.data, previous.raw_data)
+                     and _same_bytes(mobject.outer_vert_indices, previous.raw_indices))
         if reuse:
             data, density, active = previous.data, previous.density, previous.active
             raw_data, raw_indices = previous.raw_data, previous.raw_indices

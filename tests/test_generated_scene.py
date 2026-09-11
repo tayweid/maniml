@@ -25,6 +25,12 @@ from maniml.web.triangle_scene import (
 )
 from tests.renderer_fixtures import build_scene, closed_contours
 
+# These tests write into public arrays directly, on purpose, to prove the
+# byte comparison sees the edit. That comparison is the MANIML_RENDER_CACHE=bytes
+# policy, and the verify mode of the default revision policy; the revision
+# contract itself is covered by tests/test_render_cache_revision.py.
+bytes_policy = patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"})
+
 
 def draw_area(draw):
     points = draw.vertices["point"][draw.indices.reshape(-1, 3)].astype(float)
@@ -51,6 +57,8 @@ class GeneratedSceneGeometry(unittest.TestCase):
         return prepare_triangle_frame(self.scene, self.tessellator,
             mesh_cache=self.cache, fill_borders=True, coalesce=False)
 
+    @bytes_policy
+
     def test_border_width_join_and_zero_toggle_invalidate_actual_geometry(self):
         original = self.path.get_points().copy()
         first = self.prepare()
@@ -76,6 +84,8 @@ class GeneratedSceneGeometry(unittest.TestCase):
         self.assertAlmostEqual(draw_area(plain.draws[0]), 4, places=5)
         np.testing.assert_array_equal(self.path.get_points(), original)
         np.testing.assert_allclose(draw_bounds(first.draws[0]), [[-1.05, -1.05], [1.05, 1.05]])
+
+    @bytes_policy
 
     def test_uniform_border_paint_refresh_preserves_geometry_and_old_frames(self):
         before = self.prepare().draws[0]
@@ -203,6 +213,8 @@ class GeneratedSceneGeometry(unittest.TestCase):
         self.assertEqual(zoom_out.mesh_cache_stats["border_regenerations"], 1)
         self.assertLess(zoom_out.draws[0].count, first.draws[0].count)
 
+    @bytes_policy
+
     def test_combined_border_cache_obeys_retention_limit(self):
         first = self.prepare()
         retained = first.mesh_cache_stats["retained_bytes"]
@@ -213,6 +225,8 @@ class GeneratedSceneGeometry(unittest.TestCase):
         self.assertTrue(uncached.draws[0].coverage)
         self.assertEqual(uncached.mesh_cache_stats["retained_bytes"], 0)
         self.assertEqual(uncached.mesh_cache_stats["entries"], 0)
+
+    @bytes_policy
 
     def test_border_canonical_snapshot_is_retained_after_stroke_only_edit(self):
         first = self.prepare().draws[0]

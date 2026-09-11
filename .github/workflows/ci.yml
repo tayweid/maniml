@@ -56,6 +56,7 @@ jobs:
           uv run --locked python -m unittest
           tests.test_ce_extractor
           tests.test_web_security
+          tests.test_web_server_events
           tests.test_static_assets
           tests.test_webgpu_commands
           tests.test_generated_webgpu_commands
@@ -69,6 +70,7 @@ jobs:
           tests.test_gpu_border_audit
           tests.test_border_compute
           tests.test_gpu_border_quality
+          tests.test_render_cache_revision
           tests.test_fill_bounds
           tests.test_geometry_cache
           tests.test_earclip_triangulation

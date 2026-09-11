@@ -10,6 +10,10 @@ from scipy.interpolate import RBFInterpolator
 from maniml.web.fill_paint import build_paint, evaluate_paint, PAINT_EPSILON
 from maniml.web.triangle_geometry import TessellationError, TessellationLimitError, _packaged_library
 
+# Writes into public arrays directly to prove the byte comparison sees it:
+# the MANIML_RENDER_CACHE=bytes policy (see tests/test_render_cache_revision.py).
+bytes_policy = patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"})
+
 
 class FillPaint(unittest.TestCase):
     def setUp(self):
@@ -92,6 +96,7 @@ class FillPaint(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(), "Lyon helper unavailable")
 class FillPaintScene(unittest.TestCase):
+    @bytes_policy
     def test_paint_refresh_reuses_connectivity_and_refinement_preserves_field(self):
         from maniml.mobject.geometry import Circle
         from maniml.web.triangle_geometry import LyonFillTessellator
@@ -132,6 +137,8 @@ class FillPaintScene(unittest.TestCase):
         self.assertEqual(second.uniforms["shading"], [.2, .3, .4])
         self.assertIs(first.indices, second.indices)
         self.assertEqual(len(second.paint), 24)
+
+    @bytes_policy
 
     def test_large_nonaffine_paint_reuses_coefficients_and_small_binary_references(self):
         from maniml.constants import RED, GREEN, BLUE

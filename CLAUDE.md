@@ -209,7 +209,12 @@ remove this comparison option without Taylor's direction.
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
 Default AA is 4× MSAA plus 2× spatial resolve independently of Camera.samples.
-Retained meshes inspect exact public array contents; source paint and border
+Retained meshes and border sources are keyed by `Mobject.revision`, the same
+counter the checkpoint ledger trusts: a snapshot read at the object's current
+revision is reused without reading its arrays (`MANIML_RENDER_CACHE=revision`,
+the default; `bytes` compares every array every frame as before, and under
+`MANIML_VERIFY_LEDGER=1` every trusted reuse is still compared and a bypassing
+write raises `RenderCacheStale` naming the attribute). Source paint and border
 inputs cache separately, and immutable derived payloads reuse digests. Python
 still updates source points and Lyon generates general fills. The shared
 `border_compute.wgsl` expands fill borders from retained curve records before

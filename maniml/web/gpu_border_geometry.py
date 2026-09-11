@@ -11,7 +11,7 @@ import weakref
 
 import numpy as np
 
-from maniml.web.border_geometry import BorderSource, _BORDER_DTYPE
+from maniml.web.border_geometry import BorderSource, _BORDER_DTYPE, render_cache_policy
 
 
 CURVE_WORDS = 44
@@ -177,6 +177,7 @@ class _SourceEntry:
     rgba: np.ndarray
     curves: np.ndarray
     frame: int
+    revision: int | None = None
 
     @property
     def nbytes(self):
@@ -198,6 +199,8 @@ class BorderRecipeCache:
         self._bytes = 0
         self.source_updates = 0
         self.assemblies = 0
+        self.policy = render_cache_policy()
+        self._validated = set()
 
     @property
     def nbytes(self):
@@ -205,6 +208,17 @@ class BorderRecipeCache:
 
     def begin_frame(self):
         self.frame += 1
+        self.policy = render_cache_policy()
+        self._validated = set()
+
+    def _validate(self, uniforms):
+        # Objects share the camera's values; validate each distinct state once per frame.
+        key = (uniforms["frame_scale"], uniforms.get("scale_stroke_with_zoom", 1),
+               uniforms.get("is_fixed_in_frame", 0), uniforms.get("joint_type", 1),
+               tuple(uniforms["camera_position"]))
+        if key not in self._validated:
+            validate_uniforms(uniforms)
+            self._validated.add(key)
 
     def clear(self):
         self.sources.clear()
@@ -240,30 +254,37 @@ class BorderRecipeCache:
                 self._remove_run(key)
         self._bound()
 
-    def source(self, mobject, uniforms):
-        validate_uniforms(uniforms)
+    def source(self, mobject, uniforms, *, revision=None):
+        """Packed curve records for ``mobject``. With ``revision`` (the
+        mobject's current ``Mobject.revision``) and the revision policy, an
+        entry read at the same revision is reused without comparing bytes."""
+        self._validate(uniforms)
         previous = self.sources.get(id(mobject))
         if previous is not None and previous.owner() is not mobject:
             previous = None
+        trusted = (self.policy == "revision" and revision is not None
+                   and previous is not None and previous.revision == revision)
         # The CPU triangle budget bounds the CPU emitter's output arrays. GPU
         # output is fixed capacity, already sized and checked against the
         # device's buffer limits by the drivers, so the budget would only
         # turn a deep zoom into a render error.
-        source = BorderSource.read(mobject, uniforms, budget=False,
+        source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted,
                                    previous=None if previous is None else previous.source)
         rgba = np.asarray(mobject.data["fill_rgba"][0], dtype="<f4")
         self._reserve(mobject, source)
-        if previous is not None and source is previous.source and np.array_equal(rgba, previous.rgba):
+        # A fill color change bumps the revision, so a trusted read keeps its paint.
+        same_rgba = trusted or (previous is not None and np.array_equal(rgba, previous.rgba))
+        if previous is not None and source is previous.source and same_rgba:
             previous.frame = self.frame
             self.sources.move_to_end(id(mobject))
             return previous.curves
-        if (previous is not None and source.data is previous.source.data
-                and np.array_equal(rgba, previous.rgba)):
+        if previous is not None and source.data is previous.source.data and same_rgba:
             curves = previous.curves
         else:
             curves = pack_source(source, rgba)
             self.source_updates += 1
-        entry = _SourceEntry(weakref.ref(mobject), source.frozen(), readonly(rgba), curves, self.frame)
+        entry = _SourceEntry(weakref.ref(mobject), source.frozen(), readonly(rgba), curves,
+                             self.frame, revision)
         if id(mobject) in self.sources:
             self._remove_source(id(mobject))
         self.sources[id(mobject)] = entry
