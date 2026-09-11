@@ -14,6 +14,7 @@ integration suites.
 import inspect
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -93,6 +94,11 @@ class _ViewerHarness:
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
                  "PYTHONUNBUFFERED": "1"},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            # Its own process group: an export the viewer spawned mid-test
+            # would otherwise outlive the scene as an orphan rendering to
+            # a temp folder nobody reads, competing with the rest of the
+            # suite for the CPU.
+            start_new_session=True,
         )
         cls.stdout_lines = []
         cls._reader = threading.Thread(target=cls._read_stdout, daemon=True)
@@ -120,6 +126,11 @@ class _ViewerHarness:
         except subprocess.TimeoutExpired:
             cls.proc.kill()
             cls.proc.wait(timeout=5)
+        # Whatever the scene spawned (an export in flight) goes with it.
+        try:
+            os.killpg(cls.proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, AttributeError):
+            pass
         cls._reader.join(timeout=5)
         cls.proc.stdout.close()
         cls.tmpdir.cleanup()
