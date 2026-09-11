@@ -228,7 +228,16 @@ resent when it does. Only fill indices travel on the wire (format 6): each
 driver expands the per-object strip pattern from the run layout itself.
 Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
-formats 1–5 remain readable. These resources never enter checkpoints.
+formats 1–6 remain readable. These resources never enter checkpoints.
+
+`MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
+border generator) prepares no fill mesh at all: every filled path is a
+`patch` batch (format 7) whose fan and patch triangles the native driver
+pulls from the same curve records plus an eight-word object record per path,
+counts on the stencil's low seven bits, marks the border strips with the
+high bit, and covers once per sample. Nothing about it depends on zoom, and a
+morph uploads only control points. It is measured, not the default, and the
+browser driver does not draw it yet. The default stays `meshes`.
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 

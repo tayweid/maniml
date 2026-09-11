@@ -25,6 +25,12 @@ CURVE_BYTES = CURVE_WORDS * 4
 # CPU emitter for a paragraph of text (seventh review, 2026-09-10).
 MAX_VERTICES_PER_CURVE = 64
 MIN_VERTICES_PER_CURVE = 4
+# The patch fill (docs/phase_b1_plan.md) draws six vertices per curve, a fan
+# triangle and a patch triangle, pulled from the same curve records; its
+# object table carries eight words per object.
+PATCH_VERTICES_PER_CURVE = 6
+OBJECT_WORDS = 8
+OBJECT_BYTES = OBJECT_WORDS * 4
 # The format 5 layout: every curve reserved the maximum, and its 186-index
 # strip pattern travelled on the wire. Recordings in that format still load.
 VERTICES_PER_CURVE = MAX_VERTICES_PER_CURVE
@@ -61,8 +67,12 @@ def validate_uniforms(uniforms):
         raise ValueError("border width scale must be finite and nonnegative")
 
 
-def pack_source(source, rgba):
-    """44 little-endian float32 words per active quadratic, with authored paint."""
+def pack_source(source, rgba, *, every_curve=False):
+    """44 little-endian float32 words per active quadratic, with authored paint.
+
+    ``every_curve`` packs every quadratic, not only the border-active ones,
+    with word 37 saying which are active: the patch fill needs a curve with
+    no border to bound the interior all the same."""
     data = source.data
     if (data.ndim != 1 or data.dtype != _BORDER_DTYPE or len(data) % 3
             or source.density.shape != (len(data) // 3,)
@@ -78,18 +88,190 @@ def pack_source(source, rgba):
     rgba = np.asarray(rgba, dtype="<f4")
     if rgba.shape != (4,) or not np.isfinite(rgba).all():
         raise ValueError("border paint must be four finite float32 values")
-    packed = np.zeros((int(source.active.sum()), CURVE_WORDS), dtype="<f4")
-    packed[:, :36] = data.view("f4").reshape(-1, 36)[source.active]
-    density = source.density[source.active]
+    rows = np.ones(len(source.active), dtype=bool) if every_curve else source.active
+    packed = np.zeros((int(rows.sum()), CURVE_WORDS), dtype="<f4")
+    packed[:, :36] = data.view("f4").reshape(-1, 36)[rows]
+    density = source.density[rows]
     capped = np.isposinf(density)
     packed[:, 36] = np.where(capped, 0, density)
-    packed[:, 37] = 1
+    packed[:, 37] = source.active[rows]
     # The historical float32 density can overflow on very large finite
     # curves. Its CPU subdivision policy then always caps at 32. Preserve
     # that behavior without sending nonfinite values to a storage buffer.
     packed[:, 38] = capped
     packed[:, 40:44] = rgba
     return readonly(packed)
+
+
+def fill_record(curves):
+    """The object words the patch fill needs from its packed curves: a base
+    point for the fan, then the slots the run assembly fills in (curve
+    offset, curve count, bordered). Any fixed point per object gives the
+    same winding count; the anchors' centroid keeps the fan's slivers small."""
+    curves = np.asarray(curves)
+    if curves.ndim != 2 or curves.shape[1] != CURVE_WORDS or not len(curves):
+        raise ValueError("a fill record needs at least one packed curve")
+    record = np.zeros((1, OBJECT_WORDS), dtype="<f4")
+    record[0, :3] = curves[:, 0:3].astype(float).mean(axis=0)
+    record[0, 6] = winding_sign(curves)
+    return readonly(record)
+
+
+# Beyond this many curves the sign test is skipped and the object draws on
+# its own; the test is quadratic in a contour's samples.
+MAX_SIGN_TEST_CURVES = 4096
+
+
+def canonical_normal(normal):
+    """The object's plane normal with a fixed sign: an object's own unit
+    normal follows its winding, so the winding sign is taken in this frame,
+    which every object of one plane shares."""
+    normal = np.asarray(normal, dtype=float)
+    if not np.isfinite(normal).all() or not np.linalg.norm(normal) > 0:
+        normal = np.array([0.0, 0.0, 1.0])
+    normal = normal / np.linalg.norm(normal)
+    for component in normal[::-1]:
+        if component:
+            return normal if component > 0 else -normal
+    return normal
+
+
+def _contour_polygons(curves):
+    """The sampled polygon of each subpath: anchor and midpoint per curve, in
+    the plane of the object's canonical normal. A subpath ends, as
+    ``VMobject.get_subpath_end_indices_from_points`` says, at a curve whose
+    handle sits on its anchor and whose next anchor is elsewhere (the
+    kernel draws nothing for it). Returns None when a subpath is not closed,
+    since its winding is then undefined."""
+    p0 = curves[:, 0:3].astype(float)
+    p1 = curves[:, 12:15].astype(float)
+    p2 = curves[:, 24:27].astype(float)
+    normal = canonical_normal(curves[0, 21:24])  # record 1's normal; record 0 holds the base point
+    helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(normal, helper)
+    u /= np.linalg.norm(u)
+    v = np.cross(normal, u)
+    ends = np.all(p0 == p1, axis=1) & np.any(np.abs(p1 - p2) > 1e-4, axis=1)
+    polygons, start = [], 0
+    scale = max(float(np.abs(p0).max()), 1.0)
+    for end in [*np.flatnonzero(ends), len(curves)]:
+        if end > start:
+            a0, h, a1 = p0[start:end], p1[start:end], p2[start:end]
+            if np.linalg.norm(a1[-1] - a0[0]) > 1e-6 * scale:
+                return None
+            mid = 0.25 * a0 + 0.5 * h + 0.25 * a1
+            points = np.empty((2 * (end - start), 3))
+            points[0::2], points[1::2] = a0, mid
+            polygons.append(np.column_stack((points @ u, points @ v)))
+        start = end + 1
+    return polygons
+
+
+def _winding_numbers(points, polygon):
+    """Winding number of each point with respect to one closed polygon."""
+    a = polygon
+    b = np.roll(polygon, -1, axis=0)
+    px, py = points[:, 0][:, None], points[:, 1][:, None]
+    ay, by = a[:, 1][None, :], b[:, 1][None, :]
+    cross = (b[:, 0] - a[:, 0])[None, :] * (py - ay) - (b[:, 1] - a[:, 1])[None, :] * (px - a[:, 0][None, :])
+    upward = (ay <= py) & (py < by) & (cross > 0)
+    downward = (by <= py) & (py < ay) & (cross < 0)
+    return upward.sum(axis=1) - downward.sum(axis=1)
+
+
+def winding_sign(curves):
+    """+1 when the object's winding count is nonnegative everywhere, -1 when
+    it is nonpositive everywhere, 0 when it changes sign or cannot be told.
+
+    Objects whose counts share a sign can share a stencil count: the sum is
+    nonzero exactly on their union, so an opaque same-colour run of them
+    draws as one instanced group. A count that changes sign (a hole outside
+    its outer contour, a lone clockwise contour beside a counterclockwise
+    one) could cancel another object's, so such an object draws alone.
+    Checked on the sampled polygons: at every sample of every contour, the
+    other contours' winding must keep both sides of that contour on the
+    sign's side.
+    """
+    curves = np.asarray(curves)
+    if len(curves) > MAX_SIGN_TEST_CURVES:
+        return 0
+    polygons = _contour_polygons(curves)
+    if polygons is None:
+        return 0
+    areas = [0.5 * float(np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1]))
+             for p in polygons]
+    for sign in (1, -1):
+        ok = True
+        for index, (polygon, area) in enumerate(zip(polygons, areas)):
+            if area == 0:
+                continue
+            others = sum((_winding_numbers(polygon, other) for other_index, other in enumerate(polygons)
+                          if other_index != index), np.zeros(len(polygon), dtype=int))
+            # A contour oriented with the sign needs the outside to stay on
+            # the sign's side; one against it needs the inside to.
+            needed = 0 if sign * area > 0 else 1
+            if np.any(sign * others < needed):
+                ok = False
+                break
+        if ok:
+            return sign
+    return 0
+
+
+def validate_patch_layout(layout, curve_count):
+    """The patch run layout: (curve count, bordered, group) per object in
+    draw order; consecutive objects with the same group draw as one
+    instanced group. Returns it as a list of lists."""
+    if not isinstance(layout, (list, tuple)) or not layout:
+        raise ValueError("invalid patch run layout")
+    parts = []
+    for item in layout:
+        if (not isinstance(item, (list, tuple)) or len(item) != 3
+                or any(isinstance(v, bool) or not isinstance(v, (int, np.integer)) for v in item)
+                or item[0] < 1 or item[1] not in (0, 1) or item[2] < 0):
+            raise ValueError("invalid patch run layout")
+        parts.append([int(v) for v in item])
+    if sum(curves for curves, _, _ in parts) != curve_count:
+        raise ValueError("patch run layout does not match its source array")
+    return parts
+
+
+def patch_groups(layout):
+    """(first object, object count, first curve, curve count, bordered) per
+    run of consecutive objects sharing a group id."""
+    groups, curve_offset = [], 0
+    for index, (curves, bordered, group) in enumerate(layout):
+        if groups and groups[-1][5] == group:
+            first, count, first_curve, total, any_border, _ = groups[-1]
+            groups[-1] = (first, count + 1, first_curve, total + curves, any_border or bool(bordered), group)
+        else:
+            groups.append((index, 1, curve_offset, curves, bool(bordered), group))
+        curve_offset += curves
+    return [group[:5] for group in groups]
+
+
+def patch_draw_count(layout, capacity):
+    """Vertices the cover draws for a run: six per curve, plus each bordered
+    object's strip pattern at the run's capacity."""
+    strip = indices_per_curve(capacity)
+    return sum(curves * (PATCH_VERTICES_PER_CURVE + (strip if bordered else 0))
+               for curves, bordered, *_ in layout)
+
+
+def validate_objects(objects, layout):
+    """The object table on the wire against its layout: base points finite,
+    the run slots exactly what the layout says."""
+    objects = np.asarray(objects)
+    if (objects.ndim != 2 or objects.shape[1] != OBJECT_WORDS or objects.dtype != np.dtype("<f4")
+            or len(objects) != len(layout) or not np.isfinite(objects).all()):
+        raise ValueError("invalid patch object table")
+    offset = 0
+    for record, (curves, bordered, _) in zip(objects, layout):
+        if (record[3] != offset or record[4] != curves or record[5] != bordered
+                or record[6] not in (-1, 0, 1) or record[7] != 0):
+            raise ValueError("patch object table does not match its run layout")
+        offset += curves
+    return objects
 
 
 def validate_capacity(capacity):
@@ -205,6 +387,12 @@ class _SourceEntry:
     curves: np.ndarray
     frame: int
     revision: int | None = None
+    every_curve: bool = False
+    # The patch fill's per-object words, its paint field, and whether the
+    # source has passed the planar check since it was packed.
+    record: np.ndarray | None = None
+    paint: np.ndarray | None = None
+    checked: bool = False
 
     @property
     def nbytes(self):
@@ -258,7 +446,9 @@ class BorderRecipeCache:
 
     def _remove_run(self, key):
         value = self.runs.pop(key)
-        self._bytes -= sum(a.nbytes for a in (*value[0], *value[1][:3]))
+        result = value[1]
+        retained = (result[0], result[2]) if key[0] == "patch" else result[:3]
+        self._bytes -= sum(a.nbytes for a in (*value[0], *retained))
 
     def _bound(self):
         while self.nbytes > self.max_bytes:
@@ -281,13 +471,15 @@ class BorderRecipeCache:
                 self._remove_run(key)
         self._bound()
 
-    def source(self, mobject, uniforms, *, revision=None):
+    def source(self, mobject, uniforms, *, revision=None, every_curve=False):
         """Packed curve records for ``mobject``. With ``revision`` (the
         mobject's current ``Mobject.revision``) and the revision policy, an
-        entry read at the same revision is reused without comparing bytes."""
+        entry read at the same revision is reused without comparing bytes.
+        ``every_curve`` is the patch fill's packing (see ``pack_source``)."""
         self._validate(uniforms)
         previous = self.sources.get(id(mobject))
-        if previous is not None and previous.owner() is not mobject:
+        if previous is not None and (previous.owner() is not mobject
+                                     or previous.every_curve != every_curve):
             previous = None
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
@@ -316,12 +508,14 @@ class BorderRecipeCache:
             self.sources.move_to_end(id(mobject))
             return previous.curves
         if previous is not None and source.data is previous.source.data and same_rgba:
-            curves = previous.curves
+            curves, record, paint, checked = previous.curves, previous.record, previous.paint, previous.checked
         else:
-            curves = pack_source(source, rgba)
+            curves = pack_source(source, rgba, every_curve=every_curve)
+            record = fill_record(curves) if every_curve and len(curves) else None
+            paint, checked = None, False
             self.source_updates += 1
         entry = _SourceEntry(weakref.ref(mobject), source.frozen(), readonly(rgba), curves,
-                             self.frame, revision)
+                             self.frame, revision, every_curve, record, paint, checked)
         if id(mobject) in self.sources:
             self._remove_source(id(mobject))
         self.sources[id(mobject)] = entry
@@ -345,12 +539,92 @@ class BorderRecipeCache:
         self.capacities[id(mobject)] = (weakref.ref(mobject), capacity, self.frame, max_density, capped)
         return capacity
 
+    def _entry(self, mobject):
+        entry = self.sources.get(id(mobject))
+        if entry is None or entry.owner() is not mobject or not entry.every_curve:
+            raise KeyError("no patch fill source for this mobject")
+        return entry
+
+    def fill_record(self, mobject, check=None):
+        """The patch fill's object words for ``mobject``'s current source.
+        ``check`` runs once per packing, before the record is first handed
+        out: the caller's planar refusal."""
+        entry = self._entry(mobject)
+        if entry.record is None:
+            raise KeyError("no patch fill source for this mobject")
+        if not entry.checked:
+            if check is not None:
+                check()
+            entry.checked = True
+        return entry.record
+
+    def paint(self, mobject, build):
+        """The patch fill's paint field for ``mobject``'s current source,
+        built once per packing by ``build()`` (a fill colour change bumps
+        the revision, so a trusted read keeps its field)."""
+        entry = self._entry(mobject)
+        if entry.paint is None:
+            entry.paint = build()
+        return entry.paint
+
     def capacity(self, mobject):
         """Vertices per curve reserved for this mobject's current source."""
         entry = self.capacities.get(id(mobject))
         if entry is None or entry[0]() is not mobject:
             raise KeyError("no border reservation for this mobject")
         return entry[1]
+
+    def assemble_patches(self, parts):
+        """One patch run: (curves, capacity, record, bordered, shareable) per
+        object; ``shareable`` says the object may share a stencil count (an
+        opaque, uniform, unshaded painter object; the record's winding sign
+        and its colour decide with whom).
+
+        Returns (curves, run capacity, layout, objects): the curves
+        concatenated in draw order, the largest reservation, the layout of
+        (curve count, bordered, group) per object, and the object table with
+        each record's run slots filled in. Nothing here depends on the
+        camera.
+        """
+        arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
+        capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
+        flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
+        key = ("patch", *(id(a) for a in arrays), *flags)
+        cacheable = all(immutable(a) for a in arrays)
+        previous = self.runs.get(key)
+        if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):
+            self.runs[key] = (arrays, previous[1], self.frame)
+            self.runs.move_to_end(key)
+            curves, layout, objects = previous[1]
+            return curves, max(capacities), layout, objects
+        curves = readonly(np.concatenate([c for c, _, _, _, _ in parts]))
+        objects = np.zeros((len(parts), OBJECT_WORDS), dtype="<f4")
+        layout, offset, group, previous = [], 0, -1, None
+        for index, ((source, _, record, _, _), (bordered, shareable)) in enumerate(zip(parts, flags)):
+            objects[index] = record[0]
+            objects[index, 3:6] = (offset, len(source), int(bordered))
+            # Consecutive shareable objects of one winding sign and one
+            # colour share a group; anything else is a group of its own.
+            sign = int(record[0, 6])
+            # The normal is compared to three decimals: coplanar objects'
+            # normals differ in the last bits (a -0.0 differs from 0.0 in
+            # bytes, hence the + 0.0).
+            identity = ((sign, source[0, 40:44].tobytes(),
+                         (np.round(canonical_normal(source[0, 21:24]), 3) + 0.0).tobytes())
+                        if shareable and sign else None)
+            if identity is None or identity != previous:
+                group += 1
+            previous = identity
+            layout.append((len(source), int(bordered), group))
+            offset += len(source)
+        objects = readonly(objects)
+        result = (curves, tuple(layout), objects)
+        self.assemblies += 1
+        if cacheable:
+            self.runs[key] = (arrays, result, self.frame)
+            self._bytes += sum(a.nbytes for a in (*arrays, curves, objects))
+            self._bound()
+        return curves, max(capacities), tuple(layout), objects
 
     def assemble(self, parts):
         """Fill storage first, then border storage, for one run of objects.

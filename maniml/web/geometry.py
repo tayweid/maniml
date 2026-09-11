@@ -24,7 +24,7 @@ GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
 # compatible. Baked exports copy this into scene.json so the standalone
 # player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 6
+GEOMETRY_FORMAT_VERSION = 7
 
 
 class GeometryCache:
@@ -41,7 +41,9 @@ class GeometryCache:
         self.generated_payloads = {}
         self.generated_paints = {}
         self.generated_borders = {}
+        self.generated_objects = {}
         self.border_generator = None
+        self.fill_generator = None
 
     def reset(self):
         self.sent.clear()
@@ -147,9 +149,18 @@ def _serialize_triangle_scene(scene, cache):
     border_generator = os.environ.get("MANIML_BORDER_GENERATOR", "gpu")
     if border_generator not in ("cpu", "gpu"):
         raise ValueError("MANIML_BORDER_GENERATOR must be 'cpu' or 'gpu'")
-    if state.border_generator != border_generator:
+    # Phase A's CPU fill meshes stay the default while the patch fill
+    # (docs/phase_b1_plan.md) is measured; it draws from the GPU border
+    # stage's curve records, so it needs the GPU border generator.
+    fill_generator = os.environ.get("MANIML_FILL", "meshes")
+    if fill_generator not in ("meshes", "patches"):
+        raise ValueError("MANIML_FILL must be 'meshes' or 'patches'")
+    if fill_generator == "patches" and border_generator != "gpu":
+        raise ValueError("MANIML_FILL=patches requires MANIML_BORDER_GENERATOR=gpu")
+    if state.border_generator != border_generator or state.fill_generator != fill_generator:
         state.reset()
         state.border_generator = border_generator
+        state.fill_generator = fill_generator
         if state.triangle_meshes is not None:
             state.triangle_meshes.gpu_border_cache.clear()
     if state.triangle_tessellator is None:
@@ -158,7 +169,8 @@ def _serialize_triangle_scene(scene, cache):
     with performance.stage("geometry.triangle_prepare"):
         frame = prepare_triangle_frame(scene, state.triangle_tessellator,
                                        mesh_cache=state.triangle_meshes, fill_borders=True,
-                                       gpu_borders=border_generator == "gpu")
+                                       gpu_borders=border_generator == "gpu",
+                                       patch_fills=fill_generator == "patches")
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):

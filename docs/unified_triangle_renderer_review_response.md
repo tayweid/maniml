@@ -772,3 +772,48 @@ depending on zoom, which is the first Phase B question. The GPU-side
 harness column is a property of alternating renderers on this machine, not
 of Phase A; the archive README records the evidence.
 
+
+## Phase B1: the patch fill prototype (2026-09-11)
+
+Taylor's direction, quoted: "Start Phase B increment B1 from
+docs/phase_b_plan.md" and, on the two candidates, "got it. then fan it is"
+(`DECISIONS.md`, "Fills are a fan and a count, not a mesh"). The design, the
+mechanism probe, what the prototype week changed and the measurements are in
+`docs/phase_b1_plan.md`; this section is the disposition.
+
+**Built, behind `MANIML_FILL=patches`, native mirror only.** Every filled
+path is a `patch` batch on wire format 7: its fan and patch triangles are
+pulled from the curve records the border stage already retains plus an
+eight-word object record, counted on the stencil's low seven bits, the
+border strips marked with the high bit through the surface pipeline, and
+the whole covered once per sample. No mesh, no Lyon, nothing that depends
+on zoom; a morph uploads control points. Objects that can share a count
+(opaque, one colour, one plane, one winding sign, decided per source
+revision by `winding_sign`) draw as one instanced group: the 101-glyph
+paragraph is four draws. Formats 5 and 6 still play; the browser driver
+does not draw `patch` batches yet, and the default stays `meshes`.
+
+**Pixels.** Within the gate against CPU-border Phase A on the whole fixture
+corpus and every quality fixture, worst 0.046% of pixels over 24 (the
+zero-border zoomed text); against Original 2D exactly Phase A's own
+fractions. `tests/test_patch_fill.py` covers preparation, the wire, the
+driver's commands on the fake device, rejection of malformed batches, and
+the pixel gates under `MANIML_TEST_GPU=1`; the touched modules and
+`test_wgpu_port` pass.
+
+**Time.** Against the plan's gate, Original 2D: at or below on the still
+frame, within 2% on pan and both zooms. Against today's Phase A: about
+1.5 ms behind per text frame at the minimum (3.9 against 5.4), all of it
+GPU completion, since preparation is already cheap for retained meshes;
+level on the morph. Archive:
+`benchmarks/results/patch_fill_20260911/`.
+
+**What the week corrected in the design.** Strips off the sample-rate pull
+stage (3 ms), instanced groups instead of per-object draws (1 ms of
+encoding), per-object base points (a shared base doubled the frame). Each
+is recorded with its measurement in the plan.
+
+**Not decided here.** Whether 1.5 ms of GPU time per text frame, for fills
+that never regenerate and a morph that uploads only control points, is the
+right trade is Taylor's verdict; the plan lists the unmeasured candidates
+for closing it.

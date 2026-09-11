@@ -146,10 +146,12 @@ Decided 2026-09-11 (DECISIONS.md, "Everything is Bézier control points"):
 one representation for paths and surfaces, evaluated on the GPU at screen
 density, no tracer and no fallback representation. The increments, in
 order, are in [the Phase B plan](docs/phase_b_plan.md): B1 fills that never
-depend on zoom (a prototype week decides winding-on-stencil against
-interior-mesh), B2 surfaces as control nets, B3 animations as GPU programs.
-The paragraphs below are the earlier framing and remain the contracts for
-resources, counts and recovery.
+depend on zoom, B2 surfaces as control nets, B3 animations as GPU programs.
+B1 is a fan and a count, not a mesh (DECISIONS.md, same day); its prototype
+is built behind `MANIML_FILL=patches` in the native mirror and measured in
+[the B1 plan](docs/phase_b1_plan.md), where the verdict, the browser mirror
+and the default flip are the open steps. The paragraphs below are the
+earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
 source points and supported operations live on the GPU. Map/reduce operations

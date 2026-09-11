@@ -26,6 +26,7 @@ from maniml.web.border_geometry import (
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 from maniml.web.gpu_border_geometry import (
     BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
+    patch_draw_count,
 )
 
 
@@ -83,6 +84,11 @@ class TriangleDraw:
     # expand into the interleaved fill/border index buffer locally.
     border_capacity: int = MAX_VERTICES_PER_CURVE
     border_layout: tuple | None = None
+    # Patch fill runs (docs/phase_b1_plan.md): the object table, eight words
+    # per object, and the (curve count, bordered) layout the drivers draw
+    # per object. Such a draw has no vertices or indices of its own.
+    fill_objects: np.ndarray | None = None
+    patch_layout: tuple | None = None
 
 
 def coalesce_draws(draws, *, border_cache=None):
@@ -96,6 +102,10 @@ def coalesce_draws(draws, *, border_cache=None):
     frame-owned arrays; a single draw retains its original array identities.
     """
     def kind(draw):
+        if draw.fill_objects is not None:
+            # A material run binds one paint field, so a painted patch
+            # draw stays a run of its own.
+            return "patch" if draw.paint is None else None
         if draw.border_sources is not None:
             return None if draw.coverage else "border"
         if draw.coverage:
@@ -114,6 +124,14 @@ def coalesce_draws(draws, *, border_cache=None):
         return None
 
     def combine(run, run_kind):
+        if run[0].fill_objects is not None:
+            curves, capacity, layout, objects = border_cache.assemble_patches(
+                [(draw.border_sources, draw.border_capacity, draw.fill_objects,
+                  draw.patch_layout[0][1], draw.patch_layout[0][2])
+                 for draw in run])
+            return replace(run[0], border_sources=curves, border_capacity=capacity,
+                           patch_layout=layout, fill_objects=objects,
+                           count=patch_draw_count(layout, capacity))
         if run[0].border_sources is not None:
             vertices, indices, curves, capacity, layout = border_cache.assemble(
                 [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
@@ -153,7 +171,7 @@ def coalesce_draws(draws, *, border_cache=None):
                       and draw.vertices.dtype == run[0].vertices.dtype
                       and draw.uniforms == run[0].uniforms
                       and draw.textures == run[0].textures
-                      and (draw_kind != "border" or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind not in ("border", "patch") or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
@@ -197,6 +215,10 @@ def _readonly(array):
     """Own immutable backing bytes: callers cannot re-enable array writes."""
     array = np.ascontiguousarray(array)
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
+
+
+# A patch fill draw owns no vertices; every one shares this empty array.
+_NO_VERTICES = _readonly(np.zeros(0, dtype=SURFACE_DTYPE))
 
 
 @dataclass
@@ -951,9 +973,21 @@ def _generate_mesh(source, tessellator, uniforms, resolution, pixel_tolerance,
                          float(mesh.tolerance), residual, error_hull, error_basis)
 
 
+def _note_paint_cost(frame, paint):
+    """A non-affine paint field is supported with a known interpolation and
+    cost limit; it is recorded on the frame, not rejected."""
+    if paint is not None and paint[11] == 1:
+        message = ("non-affine fill paint uses inverse-distance interpolation "
+                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
+                   "fragment cost grows with node_count")
+        if message not in frame.limitations:
+            frame.limitations.append(message)
+
+
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
-                           coalesce=True, fill_borders=False, gpu_borders=False):
+                           coalesce=True, fill_borders=False, gpu_borders=False,
+                           patch_fills=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -964,6 +998,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``gpu_borders=True`` retains curve sources and ordered index recipes;
     the driver expands their vertices on the GPU. The default CPU mode remains
     an explicit diagnostic reference, independent of that compute shader.
+    ``patch_fills=True`` (with GPU borders) prepares no fill mesh at all: each
+    filled path becomes a patch draw the driver builds from its curve records
+    on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -982,6 +1019,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         raise ValueError("fill_builder and mesh_cache are mutually exclusive")
     if gpu_borders and (not fill_borders or fill_builder is not None):
         raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
+    if patch_fills and not gpu_borders:
+        raise ValueError("patch fills require gpu_borders=True")
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),
                           4 if camera.samples else 1, pixel_tolerance=pixel_tolerance)
@@ -1047,7 +1086,26 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         border_source, border_vertices = borders.get(id(sm), (None, None))
         has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
             mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
-        if has_fill:
+        if has_fill and patch_fills:
+            material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+            curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
+            if len(curves):
+                record = border_cache.fill_record(sm, lambda: planar_coordinates(sm.get_points()))
+                paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                         if material else None)
+                _note_paint_cost(frame, paint)
+                bordered = bool(has_border and np.any(curves[:, 37]))
+                capacity = border_cache.capacity(sm)
+                # Before assembly the layout's third field says whether the
+                # object may share a stencil count with its neighbours: an
+                # opaque, uniformly coloured, unshaded painter object whose
+                # count never changes sign (the record's winding sign).
+                shareable = int(not material and opaque_alpha and not sm.depth_test)
+                layout = ((len(curves), int(bordered), shareable),)
+                fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
+                                    paint=paint, border_sources=curves, border_capacity=capacity,
+                                    fill_objects=record, patch_layout=layout)
+        elif has_fill:
             material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
             if material and fill_builder is not None:
                 limitation("per-point fill paint uses endpoint interpolation; interior parity unproved")
@@ -1093,14 +1151,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                     paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
                               build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
                              if material else None)
-                    if paint is not None and paint[11] == 1:
-                        message = ("non-affine fill paint uses inverse-distance interpolation "
-                                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
-                                   "fragment cost grows with node_count")
-                        if message not in frame.limitations:
-                            # This supported field has a known interpolation
-                            # and cost limit; it does not reject the frame.
-                            frame.limitations.append(message)
+                    _note_paint_cost(frame, paint)
                     fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
                                         vertices, uniforms, indices, len(indices), paint=paint,
                                         coverage=coverage and not opaque_painter,

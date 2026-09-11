@@ -31,7 +31,7 @@ from tests.renderer_fixtures import build_scene, concave_quad
 from tests.renderer_quality_fixtures import _configure_camera, build_quality_frame
 
 
-VARIANTS = ("gpu_border", "cpu_border", "original_2d", "native_gl")
+VARIANTS = ("gpu_border", "cpu_border", "original_2d", "native_gl", "patch_fill")
 CASES = ("b0_static", "tex_static", "tex_pan", "tex_zoom5", "tex_zoom4_cycle",
          "tex_tilt", "tex_resize", "changing_paths")
 MOTIONS = {
@@ -128,8 +128,19 @@ def resource_summary(renderer, cache, header):
             retained_cpu_border_recipe_bytes=meshes.gpu_border_cache.nbytes)
     if header.get("renderer") == "triangles":
         coverage = sum(bool(batch.get("coverage")) for batch in header["batches"])
-        result.update(scene_draws=sum(1 + bool(batch.get("coverage") and batch["pipeline"].endswith("_depth"))
+
+        def patch_draws(batch):
+            # Mark and cover per instanced group, twice more when it has strips.
+            from maniml.web.gpu_border_geometry import patch_groups
+            layout = batch.get("border", {}).get("layout")
+            if layout is None and renderer is not None:
+                layout = renderer._generated_geometry[batch["hash"]]["run_layout"]
+            return sum(2 + 2 * bordered for _, _, _, _, bordered in patch_groups(layout))
+
+        result.update(scene_draws=sum(patch_draws(batch) if batch["pipeline"].startswith("patch")
+                                     else 1 + bool(batch.get("coverage") and batch["pipeline"].endswith("_depth"))
                                      for batch in header["batches"]),
+            patch_objects=sum(batch.get("objects", {}).get("count", 0) for batch in header["batches"]),
             scene_render_passes=1 + max(0, coverage - 1) // 255,
             resolve_draws=int(header.get("supersample", 1) > 1),
             source_curves=sum(batch.get("border", {}).get("num_curves", 0) for batch in header["batches"]),
@@ -144,6 +155,7 @@ def resource_summary(renderer, cache, header):
         + sum(buffer.size for item in generated.values() for buffer in item.get("index_buffers", {}).values()),
         retained_gpu_border_source_bytes=sum(item["buffer"].size for item in getattr(renderer, "_border_sources", {}).values()),
         retained_gpu_border_output_bytes=sum(item["buffer"].size for item in getattr(renderer, "_border_outputs", {}).values()),
+        retained_gpu_object_table_bytes=sum(item["buffer"].size for item in getattr(renderer, "_object_tables", {}).values()),
         retained_gpu_uniform_bytes=sum(item[0].size for item in getattr(renderer, "_generated_uniforms", {}).values()),
         retained_winding_target_bytes=sum(8 * item["size"][0] * item["size"][1]
                                          for item in getattr(renderer, "_fill_targets", {}).values()),
@@ -157,7 +169,8 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     if queue is not None:
         queue.reset()
     route = "winding" if name == "original_2d" else "triangles"
-    with patch.dict("os.environ", MANIML_BORDER_GENERATOR="gpu" if name == "gpu_border" else "cpu"):
+    with patch.dict("os.environ", MANIML_BORDER_GENERATOR="gpu" if name in ("gpu_border", "patch_fill") else "cpu",
+                    MANIML_FILL="patches" if name == "patch_fill" else "meshes"):
         started = perf_counter()
         message = serialize_scene(scene, cache, renderer=route)
         serialized = perf_counter()
@@ -289,12 +302,16 @@ def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=
                     cold[variant] = row
                 if iteration >= warmups:
                     rows[variant].append(row)
-            if pictures and iteration >= warmups and "gpu_border" in pictures:
+            if pictures and iteration >= warmups and ("gpu_border" in pictures or "patch_fill" in pictures):
                 comparison = {"frame": index}
                 for label, other in (("gpu_vs_cpu", "cpu_border"), ("gpu_vs_original", "original_2d"),
                                      ("gpu_vs_native_gl", "native_gl")):
-                    if other in pictures:
+                    if other in pictures and "gpu_border" in pictures:
                         comparison[label] = difference(pictures[other], pictures["gpu_border"])
+                for label, other in (("patch_vs_gpu_border", "gpu_border"), ("patch_vs_cpu", "cpu_border"),
+                                     ("patch_vs_original", "original_2d")):
+                    if other in pictures and "patch_fill" in pictures:
+                        comparison[label] = difference(pictures[other], pictures["patch_fill"])
                 comparisons.append(comparison)
                 if index in (0, (count - 1) // 2, count - 1):
                     for variant, image in pictures.items():

@@ -91,7 +91,7 @@ const ManimlWGPU = (() => {
   const MODULE_SOURCES = {
     stroke: ["common.wgsl", "stroke.wgsl"],
     surface: ["common.wgsl", "surface.wgsl"],
-    paint: ["common.wgsl", "paint.wgsl"],
+    paint: ["common.wgsl", "paint_field.wgsl", "paint.wgsl"],
     dot: ["common.wgsl", "dot.wgsl"],
     image: ["common.wgsl", "image.wgsl"],
     texsurface: ["common.wgsl", "texsurface.wgsl"],

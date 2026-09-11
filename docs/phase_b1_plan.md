@@ -1,10 +1,13 @@
 # Phase B1 plan: fills as fan and patch geometry on the stencil
 
 Written 2026-09-11 at the start of B1, from `phase_b_plan.md` and a
-mechanism probe on this machine (`benchmarks/probes/fan_stencil_probe.py`).
-Status: design proposed, prototype week not started. Nothing here changes
-a default; the patch fill lands behind `MANIML_FILL=patches` and the
-verdict on it is Taylor's, on the measurements the week produces.
+mechanism probe on this machine (`benchmarks/probes/fan_stencil_probe.py`);
+the mechanism section was revised the same day as the prototype was built
+and measured (the "Prototype results" section at the end). Taylor chose the
+fan over a CPU mesh on 2026-09-11 (`DECISIONS.md`, "Fills are a fan and a
+count, not a mesh"). Nothing here changes a default; the patch fill is
+behind `MANIML_FILL=patches` and the verdict on it is Taylor's, on the
+measurements below.
 
 ## What the probe showed (2026-09-11, Apple M3, wgpu 0.32, Metal)
 
@@ -31,26 +34,30 @@ samples per output pixel, the same quantization the mesh edges get today.
 
 ## The mechanism
 
-Every closed path is drawn in one ordered pass, in draw order, with two or
-three draws per object and no geometry that depends on zoom:
+Every closed path is drawn in one ordered pass, in draw order, with four
+draws per **group** (an object, or a run of objects allowed to share a
+count, below) and no geometry that depends on zoom:
 
 1. **Mark.** For each curve `(p0, p1, p2)` of the object, the fan triangle
    `(base, p0, p2)` and the patch triangle `(p0, p1, p2)`, pulled by
-   `vertex_index` from the curve records already on the GPU. No colour
-   writes. Stencil: `increment-wrap` for front faces, `decrement-wrap` for
-   back faces, write mask `0x7F`. The rasterizer's facing supplies the sign
-   that `fill.wgsl` computes from a determinant, and the patch's fragment
-   shader discards where `y − x² < 0` in the triangle's own coordinates,
-   evaluated per sample. Sentinel curves (`p0 == p1`) emit nothing, as in
-   `fill.wgsl`; a straight curve's patch has zero area. The clip-plane
-   discard applies here too, so a clipped region counts as outside.
+   `vertex_index` from the curve records already on the GPU, one instance
+   per object. No colour writes. Stencil: `increment-wrap` for front faces,
+   `decrement-wrap` for back faces, write mask `0x7F`. The rasterizer's
+   facing supplies the sign that `fill.wgsl` computes from a determinant,
+   and the patch's fragment shader discards where `y − x² < 0` in the
+   triangle's own coordinates, evaluated per sample. Sentinel curves
+   (`p0 == p1`) emit nothing, as in `fill.wgsl`; a straight curve's patch
+   has zero area. The clip-plane discard applies here too, so a clipped
+   region counts as outside.
 2. **Mark strips** (bordered objects only). The border strips the compute
-   stage already writes, drawn as today but with `replace` of reference
-   `0x80` under write mask `0x80`. Strips overlap at joints and on tight
-   curves with arbitrary facing, so they cannot take part in the count; a
-   bit of their own makes them order-independent instead.
-3. **Cover.** The same geometry again, fan, patches and strips, with the
-   colour fragment (`surface` or `paint`, lit by the object's plane normal).
+   stage already writes, drawn through the ordinary `surface` pipeline
+   from the format 6 index pattern, with `replace` of reference `0x80`
+   under write mask `0x80` and no colour. Strips overlap at joints and on
+   tight curves with arbitrary facing, so they cannot take part in the
+   count; a bit of their own makes them order-independent instead.
+3. **Cover.** The fan and patch triangles again with the colour fragment
+   (`surface` or `paint`, lit by the object's plane normal), then the
+   strips again through the ordinary `surface` or `paint` pipeline.
    Stencil compare `not-equal 0` against reference 0, `pass_op: zero`,
    `depth_fail_op: zero`, write mask `0xFF`. The first fragment at a sample
    paints and zeroes; every later one is rejected, so a translucent object
@@ -65,6 +72,29 @@ references (1–255, rollover pass) stay in the code for the CPU-mesh path;
 an object on the patch path never sets one, so a frame drawn entirely with
 patches never rolls over.
 
+**Why the strips stay on the ordinary pipelines.** The first build pulled
+the strips through the patch vertex stage too, and that stage runs its
+fragment shader per sample for the patch test. The strips are thousands of
+small triangles, drawn twice, and shading them per sample cost about 3 ms
+on the text control; on the surface pipeline, where nothing needs a
+per-sample decision, they cost what they cost today.
+
+**Groups: when objects share a count.** Per-object draws proved cheap on
+the GPU but not free to encode: about 1 ms of command encoding for the
+101-glyph text, and the pipeline switches between them. Objects share a
+stencil count, and so one instanced mark and one cover, when the sum of
+their counts is nonzero exactly on their union: every object's count must
+keep one sign everywhere (a glyph's hole is inside its outer contour; a
+lone clockwise contour beside a counterclockwise one is not), all objects
+in the group must share that sign in one plane, and they must be opaque,
+uniformly coloured, unshaded painter objects of one colour, so first-wins
+painting is painter order. `winding_sign` decides the sign per object per
+source revision from the sampled contour polygons in a canonical frame
+(the object's own normal follows its winding); the run assembly gives
+consecutive objects with the same (sign, colour, normal) one group id,
+which travels in the layout. A text paragraph is one group; anything the
+rule cannot vouch for draws alone, which is only slower.
+
 Why not the bounding rectangle the plan sketched for the cover: it needs a
 per-frame margin for the border width and the miter length, it paints
 off-plane border samples at the plane's depth, and a margin that falls
@@ -75,26 +105,27 @@ stencil-rejected before shading.
 ## Data
 
 - **Curve records.** The 44-word record of `gpu_border_geometry.py` keeps
-  its layout. Word 39, reserved and validated as zero today, becomes the
-  object index within the run, which the fan needs to find its base point.
-  Word 37 stays the border-active flag. The fill packs **every** curve of
-  a filled path, not only border-active ones: a zero-width or invisible
-  curve still bounds the fill. For text nothing changes in size, since
-  every glyph curve is border-active; objects with no border at all gain
-  records they do not have today, 176 bytes per curve, which is less than
-  the mesh vertices and indices they upload now.
-- **Object table.** Per object in a run: base point (3), plane normal (3),
-  fill RGBA (4), padding to 12 words. The base point is the centroid of
-  the anchors; any fixed point per object gives the same count, the
-  centroid keeps the fan's slivers small. Uploaded once per source
+  its layout unchanged; the object is the draw's instance, so no word is
+  spent on it. Word 37 stays the border-active flag. The fill packs
+  **every** curve of a filled path, not only border-active ones: a
+  zero-width or invisible curve still bounds the fill. For text nothing
+  changes in size, since every glyph curve is border-active; objects with
+  no border at all gain records they do not have today, 176 bytes per
+  curve, which is less than the mesh vertices and indices they upload now.
+- **Object table.** Eight words per object in a run: base point (3), curve
+  offset, curve count, bordered, winding sign, one reserved. The base point
+  is the centroid of the anchors; any fixed point per object gives the same
+  count, the centroid keeps the fan's slivers small (one base for a whole
+  paragraph made every fan triangle span it, and doubled the frame). The
+  normal and colour come from the curve records. Uploaded once per source
   revision as a hashed blob beside `border_data`, cached the same way.
 - **Plane.** `planar_coordinates` still runs per source revision, for the
   normal and to refuse nonplanar closed contours exactly as today.
 - **Wire.** Format 7: a batch with pipeline `patch` or `patch_depth`,
   `fill_num_verts` 0, the `border` descriptor as today with the run layout
-  carrying each object's curve count, and an `object_data` span. Formats 5
-  and 6 parse unchanged; the new pipeline name is only emitted under the
-  switch.
+  carrying each object's (curve count, bordered, group), an `objects`
+  reference and an `object_data` span. Formats 5 and 6 parse unchanged;
+  the new pipeline name is only emitted under the switch.
 
 ## What the CPU does per frame
 
@@ -167,3 +198,97 @@ episode under the switch, then the default flip. One to two weeks.
   precisely, the record stream becomes all fill curves rather than
   border-active ones, plus 48 bytes per object.
 - Draws are per object, not per run, until the draw count is measured.
+
+## Prototype results (2026-09-11, native mirror)
+
+Built and measured the same day, on the M3 over Metal, behind
+`MANIML_FILL=patches`. The archive is
+`benchmarks/results/patch_fill_20260911/` (harness reports, summary and
+source hashes); the tests are `tests/test_patch_fill.py`.
+
+**Pixels.** Every fixture of `renderer_fixtures.py` and every quality
+fixture (tex, perspective, hairlines, border; normal and zoom; default and
+zero border) renders within the gate against CPU-border Phase A. The worst
+case is the zero-border zoomed text at 0.046% of pixels over 24 of 255; the
+next are the annulus (0.043%) and the plain circle (0.031%), and the rest
+are below 0.02%, most at zero. Where pixels differ they lie on curved
+edges, where Lyon's quarter-pixel flattening sits slightly inside the true
+curve; the patch edge is exact. Against Original 2D the patch fill differs
+by exactly what Phase A differs by (worst 0.62% on one frame of the 1→4→1
+zoom, a pre-existing Phase A gap at 4×; 0.21% to 0.29% on the other three
+text controls), since the two fills agree. The zero-border AA control is
+therefore measured at 0.02% (normal) and 0.05% (zoom) of pixels; nothing
+was widened.
+
+**Complete frames**, warmed medians / minima in ms, two renderers in
+rotation per run (`--variants patch_fill original_2d`, then
+`--variants gpu_border original_2d` for today's Phase A on the same tree;
+Original 2D's column is from the patch run, and agrees with the other run
+within 0.15 ms):
+
+| Control | Patch fill | Phase A today | Original 2D |
+| --- | ---: | ---: | ---: |
+| Static 101-glyph text | 5.71 / 5.43 | 4.14 / 3.94 | 5.84 / 5.43 |
+| Text pan | 5.87 / 5.46 | 4.68 / 4.40 | 5.78 / 5.47 |
+| Repeated 5% zoom | 5.86 / 5.61 | 6.26 / 3.94 | 5.81 / 5.35 |
+| Text 1→4→1 zoom | 5.92 / 5.44 | 6.40 / 3.94 | 5.81 / 5.45 |
+| Concave quad morph + changing circle | 3.82 / 3.16 | 4.19 / 3.01 | 3.34 / 2.81 |
+
+Against the plan's gate, Original 2D: at or below it on the still frame,
+within 2% on the pan and both zooms. Against today's Phase A the picture
+is plainer and less flattering: Phase A's minimum is 3.94 ms on every text
+control, the patch fill's 5.4 to 5.6, so on a frame where nothing
+re-tessellates Phase A is about 1.5 ms faster. Phase A's zoom medians are
+above the patch fill's because some frames of a zoom step do re-tessellate
+and because of the harness's alternation effect recorded on 2026-09-10 (an
+earlier Phase A run that day, archived beside this one, showed that effect
+on the still frame too: 6.75 ms median, 4.24 minimum). On the morph the
+two are level.
+
+Where the time goes on the text (patch fill vs Phase A vs Original 2D):
+preparation 1.25 / 1.34 / 2.25 ms, and the patch fill's no longer varies
+between still, pan and zoom, since nothing is re-meshed (Phase A's rises
+to 1.8 on pan and zoom); wire encoding 0.15 / 0.12 / 0.67; command
+encoding 0.34 / 0.29 / 0.41 for four draws; submission through full
+readback 3.5 / 1.9 / 1.9. The GPU side is what the patch fill pays and the
+CPU side is what it saves, and on text the CPU saving is small because
+Phase A's retained meshes already cost little there. Memory for the text:
+3.2 MB of border output (as today), 880 KB of strip indices (as today),
+3.2 KB of object table, and no fill vertices or indices at all (Phase A
+retains 175 KB of fill vertices and 895 KB of indices for the same
+paragraph).
+
+**What the prototype week changed in the design, and why** (measured in
+`benchmarks/probes/` style isolation, single renderer, same frame):
+
+1. The strips were first pulled through the patch vertex stage, at sample
+   rate. That cost about 3 ms per text frame: thousands of small triangles
+   drawn twice and shaded per sample. Moving them to the ordinary surface
+   pipelines (the format 6 index pattern, as today) removed it. Fans and
+   patches keep sample-rate shading; their area on text equals the painted
+   area (fan area 1.01× the painted samples), so they cost little.
+2. Per-object draws cost about 1 ms of command encoding and their pipeline
+   switches for 101 glyphs. Objects that can share a count (opaque, one
+   colour, one plane, one winding sign) now draw as one instanced group:
+   the paragraph is four draws. The sign rule is `winding_sign`; the
+   probe that motivated it drew the merged paragraph pixel-identical to
+   per-object draws.
+3. One shared base point for a whole run was measured too, and doubled
+   the frame: fan triangles spanned the paragraph. The base stays per
+   object.
+
+**Open after the week.**
+
+- The GPU side: 3.5 ms submission-through-readback against 1.9 for both
+  Phase A and Original 2D on text. The patch fill draws the fan and patch
+  triangles twice (mark and cover, the second mostly stencil-rejected),
+  the strips twice by design, and the fans at sample rate. The candidates
+  are known and unmeasured: drawing the strip pattern at the steps a run
+  needs rather than its reservation (halves the strip vertices at the
+  usual 2× headroom, in Phase A's path too), and a cover for opaque groups
+  that skips the patch test where the mark already decided it.
+- The browser mirror does not draw `patch` batches yet; `test_wgpu_port`
+  parity gates any default flip.
+- The count wraps at 128-fold winding; recorded, not defended.
+
+The verdict on B1-fan against these numbers is Taylor's.
