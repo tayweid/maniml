@@ -16,6 +16,7 @@ source of current numbers or current direction.
 | [gpu_geometry_generation_plan.md](gpu_geometry_generation_plan.md) | The Phase B specification: GPU source evaluation and correct geometry generation. Not started. |
 | [unified_triangle_renderer_review_response.md](unified_triangle_renderer_review_response.md) | The implementer's dispositions of every review round, with measurements. Append here; do not edit the reviewer's files. |
 | [unified_triangle_renderer_code_review.md](unified_triangle_renderer_code_review.md) | The reviewer's rounds. Reviewer-owned: implementers respond in the response document. |
+| [read_instrumentation_2026-09-11.md](read_instrumentation_2026-09-11.md) | Point reads by kind (raw, reduce) and phase (play, updater, idle) on EpisodeB0, A2, A3: the Phase B sync-policy prerequisite, with the sites that dominate and the author's reading. |
 | [ce_compat_notes.md](ce_compat_notes.md) | Field report from the ECON 0100 episode ports: every CE divergence that bit. Open items live in `TODO.md`. |
 | [dogfood_2026-09-09.md](dogfood_2026-09-09.md) | Field report from EpisodeB0 dogfood. Its diagnoses were acted on 2026-09-10 (`DECISIONS.md`, "The 2026-09-09 dogfood report"); its numbers are historical. |
 

@@ -1090,3 +1090,69 @@ for submission through completion. This is an isolated renderer measurement,
 not full viewer timing; command preparation and remaining per-batch overhead
 are still material. Large single-batch output remains about 1.4–1.5 ms.
 The plan and experiment history are in `docs/bounded_fill_plan.md`.
+
+## The field reports, second pass: updaters, the camera frame, TracedPath (2026-09-11)
+
+Taylor's direction, quoted: "get started from the top of the list with
+things you can do. i'll start dogfooding tomorrow." The list was the
+2026-09-11 assessment: reproduce the open field-report items on the current
+build, take the CE-compat warts every episode works around, then the read
+instrumentation. Everything here was reproduced headlessly first; the live
+dogfood pass is Taylor's.
+
+**Two symptoms had one cause.** The 2026-09-09 report's "mobjects faded in
+by one play appear at different times" and the A2/A3 report's `Transform`
+crash ("could not broadcast input array from shape (31,3) into shape
+(123,3)") both came from updaters running on the mobject being animated.
+maniml inherited ManimGL's `Animation` default of
+`suspend_mobject_updating=False`; CE's default is `True`. With an
+`always_redraw` on screen, the scene loop rebuilt it at full opacity after
+every interpolation step, so a `FadeIn` snapped in (EpisodeB0 fades a still
+copy to work around exactly this), and a rebuild whose point count differed
+from the aligned endpoints broke `Mobject.interpolate`. Now the animated
+mobject's own updaters pause for the play and resume at finish, as in CE,
+`Rotating` included; the CE classes that read their updaters each frame
+(`ShowIncreasingSubsets`, `MoveAlongPath`, `PhaseFlow`, `UpdateFromFunc`)
+keep their explicit `False`. The endpoint copies still carry the
+`always_redraw` closure and rebuild the original from
+`Animation.update_mobjects`, exactly as CE does; CE survives that because its
+interpolate replaces the point array, so ours now resizes to the endpoints'
+length before writing.
+
+**The camera frame is not one of the scene's mobjects.** ManimGL seeded
+`scene.mobjects` with the frame; CE keeps the camera out of the list. Two
+costs in production: every episode's "grab the stage" helper,
+`VGroup(*scene.mobjects)`, raised on the bare `Mobject`, so A2, A3 and B0
+each carry a `drop_frame()` workaround; and a thaw left a frozen copy of the
+frame in the list beside the camera's real one, so a later `frame.animate`
+added a second identity. The list now starts empty, the scene loop updates
+the frame explicitly, `should_update_mobjects` counts its updaters (the
+viewer's idle-streaming test uses that), and `begin_animations` never adds a
+`CameraFrame`. Checkpoints already saved and restored the frame's points
+separately. The `drop_frame()` helpers are now no-ops and can go.
+
+**`TracedPath` and `AnimatedBoundary`** are ported from CE's
+`animation.changing` (report item 3); a curve is two points on the quadratic
+path, so a dissipating path trims two. Both join the conformance baseline.
+
+**Verified and not changed.** The play-path draw order (report item 1) no
+longer reproduces: a `z_index=15` dot in a `VGroup` with dashed lines draws
+last whether the group arrives by `add`, by `play(FadeIn(group))`, or by
+separate fade-ins; the 2026-09-02 family order covers it. Item 7 (`--render`
+wrote no checkpoint PNGs) is by design since the stills became their own
+`--export-checkpoints` export.
+
+## Point reads are counted by kind and phase (2026-09-11)
+
+TODO.md "Now", item 3, the instruction-stream plan's stated prerequisite:
+which Python reads of source points would need synchronization if the points
+lived on the GPU. Under `MANIML_PERF_PATH` every read is counted as `raw`
+(`get_points`, the interpolation of two endpoints: the whole array comes
+back) or `reduce` (bounding box, centre, endpoint, tracker value: a small
+value), tagged `play` (between `pre_play` and `post_play`), `updater`
+(inside `Mobject.update`) or `idle` (everything else, the exec of a unit
+between plays included), with the calling site recorded so the report can
+name what dominates. Nothing is paid unless profiling is on; `has_points`
+and `get_num_points` read the array length, not the points, and no longer go
+through `get_points`. `benchmarks/read_report.py` tabulates profiles; the
+course episodes' tables are in `docs/read_instrumentation_2026-09-11.md`.

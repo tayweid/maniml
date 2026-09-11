@@ -92,6 +92,24 @@ mixing clocks.
 For intentionally continuous updater fixtures, use `--continuous-seconds 3`
 so the harness samples a bounded active window instead of waiting for idle.
 
+## Point reads by kind and phase
+
+The instruction-stream plan's prerequisite: which Python reads of source
+points would need synchronization if the points lived on the GPU. Any run
+with `MANIML_PERF_PATH` set counts every read as `raw` (`get_points`, the
+interpolation of two endpoints) or `reduce` (bounding box, centre, endpoint,
+tracker value), tagged by phase (`play`, `updater`, `idle`) and calling site.
+`read_report.py` tabulates one or more profiles as markdown:
+
+```bash
+MANIML_PERF_PATH=/tmp/reads_B0.json python -m maniml 03_Code.py EpisodeB0 --render
+python -m benchmarks.read_report /tmp/reads_B0.json
+```
+
+Render from a scratch copy of a course episode, never beside its own media.
+The 2026-09-11 tables for EpisodeB0, A2 and A3 are in
+`docs/read_instrumentation_2026-09-11.md`.
+
 ## Curve construction and redraw
 
 `python -m benchmarks.curve_redraw --samples 20` measures the dogfood PPF's

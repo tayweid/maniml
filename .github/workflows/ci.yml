@@ -97,6 +97,9 @@ jobs:
           tests.test_remote_assets
           tests.test_scene_lifecycle
           tests.test_animations
+          tests.test_camera_frame
+          tests.test_changing
+          tests.test_read_instrumentation
           tests.test_creation
           tests.test_native_camera
           tests.test_native_gl_camera
