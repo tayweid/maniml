@@ -11,14 +11,14 @@ expands general fill borders on the GPU; CPU source evaluation and general
 fill generation remain. Small-zoom text uploads fall to about 1 KB and frames
 improve against CPU-border Phase A, while Original 2D remains faster on text.
 The fixed-capacity GPU border allocation uses more memory in that control.
-See the [measured follow-up](docs_unified_triangle_renderer_review_response.md#7-general-gpu-fill-borders)
+See the [measured follow-up](unified_triangle_renderer_review_response.md#7-general-gpu-fill-borders)
 and the
-[cutover record](docs_unified_triangle_renderer_phase_a.md) and
-[sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
-The earlier [A1 checkpoint](docs_unified_triangle_renderer_a1_integration.md)
+[cutover record](unified_triangle_renderer_phase_a.md) and
+[sixth-round response](unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
+The earlier [A1 checkpoint](unified_triangle_renderer_a1_integration.md)
 records the historical opt-in implementation, not the current default.
 
-The [A0 measurement record](docs_unified_triangle_renderer_a0_results.md) now
+The [A0 measurement record](unified_triangle_renderer_a0_results.md) now
 contains native goldens, text/border comparisons, generator coverage, camera
 and Transform/Write checks, and the original B0 performance comparison.
 B0 benefits substantially; text coverage and text-frame CPU cost remain gaps.
@@ -42,11 +42,11 @@ Author update: selected amendments from both review rounds are incorporated in
 sections 2, 4–10, and 12–13 below. The reviewer-authored block and its A0 note
 are preserved verbatim as historical review; their “not yet adopted” and
 implementation/branch-status statements describe the review's original context.
-The [response changelog](docs_unified_triangle_renderer_review_response.md)
+The [response changelog](unified_triangle_renderer_review_response.md)
 records author dispositions. Review is a second opinion, not an automatic
 expansion of scope: use the checks that improve the decision, then choose the
 simplest general, correct, fast implementation. Detailed Phase B work now has a
-[separate research specification](docs_gpu_geometry_generation_plan.md); that
+[separate research specification](gpu_geometry_generation_plan.md); that
 editorial split preserves the approved objective of moving both source updates
 and required geometry generation to the GPU.
 
@@ -168,7 +168,7 @@ only Phase B is research.
 ### Second round — reviewer reply to the author response, 2026-09-09
 
 Reviewer again. This replies to
-[the author response](/Users/taylorjweidman/Projects/ManimLive/maniml-perf/docs_unified_triangle_renderer_review_response.md)
+[the author response](/Users/taylorjweidman/Projects/ManimLive/maniml-perf/docs/unified_triangle_renderer_review_response.md)
 and the uncommitted A0 prototype. Same footing as above: recommendations
 for the author to take or leave.
 
@@ -220,7 +220,7 @@ worktree detached at main, so a branch is needed before a WIP commit.
 
 Reviewer again. The prototype review, with test results, report readings,
 and ten ranked findings, is in
-[the code review document](docs_unified_triangle_renderer_code_review.md).
+[the code review document](unified_triangle_renderer_code_review.md).
 
 ## 1. The proposal in plain language
 
@@ -752,13 +752,13 @@ explicit native GL removal authorization is withdrawn. The clarified
 direction is to retain **packaged native GL as a runnable reference** as well.
 Restore it from the test-only state introduced in `67f779dc`; do not reverse
 the Phase A default. The eventual removal instructions above are held, and
-the comparison selector stays. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
-describes current behavior; the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+the comparison selector stays. The [cutover record](unified_triangle_renderer_phase_a.md)
+describes current behavior; the [sixth-round response](unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records restoration and remaining performance/quality work.
 
 ## 8. Phase B interface: GPU evaluation and generation
 
-The [GPU geometry-generation research specification](docs_gpu_geometry_generation_plan.md)
+The [GPU geometry-generation research specification](gpu_geometry_generation_plan.md)
 owns algorithm selection, dependent compute stages, variable output counts,
 bounded allocation and recovery, checkpoint/read semantics, and research gates.
 Phase A stands on its current benefits and does not depend on completing B.
@@ -775,7 +775,7 @@ must never publish stale indices or a partial scene as a completed frame.
 The native-GL cutover and read-instrumentation prerequisites remain. Shadow
 research can proceed; this plan does not lift the user hold on runtime native
 GL retirement or authorize production GPU instruction execution ahead of its
-prerequisites. The [separate GPU specification](docs_gpu_geometry_generation_plan.md)
+prerequisites. The [separate GPU specification](gpu_geometry_generation_plan.md)
 records the amendments to engine shadowing, ownership, updaters, playback,
 retention, and fresh reads.
 
@@ -865,7 +865,7 @@ technique needs extra passes, expose and benchmark them rather than disguising
 them as “one batch.”
 
 GPU-specific acceptance and memory/recovery tests live in the
-[Phase B specification](docs_gpu_geometry_generation_plan.md#4-feasibility-and-acceptance).
+[Phase B specification](gpu_geometry_generation_plan.md#4-feasibility-and-acceptance).
 The shared fidelity and source/generated coherency requirements apply to both
 CPU and GPU generators.
 
@@ -908,7 +908,7 @@ These are provisional engineering-effort ranges, not elapsed-time commitments.
 
 These Phase A ranges are provisional and need reassessment after the expanded
 A0 comparison. GPU feasibility estimates and algorithm uncertainty are tracked
-in the [separate Phase B specification](docs_gpu_geometry_generation_plan.md#5-decision-points-and-estimates).
+in the [separate Phase B specification](gpu_geometry_generation_plan.md#5-decision-points-and-estimates).
 
 At each decision point, compare the shared-backend approach with adopting a
 complete 2D engine. The preferred direction remains one triangle backend. If
@@ -947,7 +947,7 @@ a benchmark of ManimLive or proof that a library is a drop-in replacement.
 
 GPU topology algorithms, indirect draws, Vello memory and flattening references,
 stroke-expansion research, and MathBox source-evaluation precedents are collected
-in the [Phase B research specification](docs_gpu_geometry_generation_plan.md#6-research-references).
+in the [Phase B research specification](gpu_geometry_generation_plan.md#6-research-references).
 
 ### Relationship to existing documents
 
@@ -958,7 +958,7 @@ links above are relative and portable within this checkout.
   retains the source-operation/clock idea, amended by this generated-geometry contract.
 - [Instruction-stream sequence](../simlab/INSTRUCTION_STREAM_PLAN.md)
   gains the geometry-generation and correctness milestones described above.
-- [Earlier atlas proposal](docs_ordered_fill_atlas_plan.md)
+- [Earlier atlas proposal](ordered_fill_atlas_plan.md)
   is superseded as the selected direction; its measurements remain evidence.
 
 A0 implementation now exists in opt-in benchmark modules and focused tests;

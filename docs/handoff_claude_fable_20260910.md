@@ -29,12 +29,12 @@ Read these in order:
 1. [Workspace guide](/Users/taylorjweidman/Projects/ManimLive/CLAUDE.md), then
    [repository guide](/Users/taylorjweidman/Projects/ManimLive/maniml/CLAUDE.md)
    and [TODO](/Users/taylorjweidman/Projects/ManimLive/maniml/TODO.md).
-2. [Implementation after the sixth review](/Users/taylorjweidman/Projects/ManimLive/maniml/docs_unified_triangle_renderer_review_response.md#implementation-after-the-sixth-review-2026-09-10),
+2. [Implementation after the sixth review](/Users/taylorjweidman/Projects/ManimLive/maniml/docs/unified_triangle_renderer_review_response.md#implementation-after-the-sixth-review-2026-09-10),
    especially section 7. This is the latest implementation account.
 3. [GPU border evidence](/Users/taylorjweidman/Projects/ManimLive/maniml/benchmarks/results/triangle_followup_20260910/gpu_borders/README.md)
-   and [Phase A contract](/Users/taylorjweidman/Projects/ManimLive/maniml/docs_unified_triangle_renderer_phase_a.md).
-4. [Phase B specification](/Users/taylorjweidman/Projects/ManimLive/maniml/docs_gpu_geometry_generation_plan.md),
-   then the broader [renderer plan](/Users/taylorjweidman/Projects/ManimLive/maniml/docs_unified_triangle_renderer_plan.md).
+   and [Phase A contract](/Users/taylorjweidman/Projects/ManimLive/maniml/docs/unified_triangle_renderer_phase_a.md).
+4. [Phase B specification](/Users/taylorjweidman/Projects/ManimLive/maniml/docs/gpu_geometry_generation_plan.md),
+   then the broader [renderer plan](/Users/taylorjweidman/Projects/ManimLive/maniml/docs/unified_triangle_renderer_plan.md).
    Earlier sections and measurements in these documents are historical.
 
 ## Taylor's direction and important boundaries
@@ -72,10 +72,10 @@ Read these in order:
 | Sibling `dogfood` | Scratch scenes and regenerable output. |
 
 At this handoff's baseline, the branch worktree was clean. Main had two
-unrelated untracked documents: `docs_ce_compat_notes.md` and
-`docs_dogfood_2026-09-09.md`. Preserve them. Recheck status before editing;
+unrelated untracked documents: `ce_compat_notes.md` and
+`dogfood_2026-09-09.md`. Preserve them. Recheck status before editing;
 another reviewer may be working concurrently. Do not overwrite their
-`docs_unified_triangle_renderer_code_review.md`; put implementation responses
+`unified_triangle_renderer_code_review.md`; put implementation responses
 in the separate response document. This handoff is a documentation-only
 addition after the stated code baseline.
 
@@ -444,7 +444,7 @@ contains explicit module lists; keep new tests discoverable there too.
 
 The broad renderer plan contains multiple review rounds. The A0 and A1
 documents record earlier prototypes/opt-in behavior; they do not describe the
-current default or its current timings. `PERFORMANCE.md` is an older record.
+current default or its current timings. `performance_2026-08.md` is an older record.
 Use commit/date-qualified measurements and the latest response sections.
 
 The workspace-only

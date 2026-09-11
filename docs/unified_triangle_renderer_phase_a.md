@@ -21,7 +21,7 @@ packaged as an explicit comparison path. Native GL is restored as the packaged
 Independent frozen GL and native winding WebGPU implementations remain under
 `tests/`; tests are excluded from wheels. This completes the first follow-up
 to the `67f779dc` cutover described in the
-[sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
+[sixth-round response](unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions).
 
 ## Rendering contract
 
@@ -62,7 +62,7 @@ strip pattern from the run layout, so the deterministic index pattern never
 travels. The original CPU emitter remains available explicitly with
 `MANIML_BORDER_GENERATOR=cpu`, through the same Phase A renderer. This is a
 diagnostic reference, not an automatic fallback. The
-[GPU generation specification](docs_gpu_geometry_generation_plan.md#23-generation-work-and-research-gate)
+[GPU generation specification](gpu_geometry_generation_plan.md#23-generation-work-and-research-gate)
 describes its source layout, dependencies, memory tradeoff and remaining work.
 
 A bordered object contains its fill triangles followed by border triangles.

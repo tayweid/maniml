@@ -1,5 +1,16 @@
 # Performance dogfood
 
+## Archiving a run
+
+Archives live under `results/<name>_<date>/`. Keep what a reader needs to
+check a claim and nothing that only makes a clone bigger: a `README.md`
+stating the command, machine and commit, a `summary.json` with the key
+numbers and source hashes, and at most one complete report JSON. Per-frame
+images are not archived unless the README cites a specific crop as evidence
+(the 2026-09-10 archives together carry 7 MB of PNGs that nothing cites; they
+stay because rewriting history is not worth it, and they are the reason for
+this rule).
+
 ## Shared triangle renderer: A0 experiments
 
 These opt-in programs do not select a production renderer. Build the isolated
@@ -37,7 +48,7 @@ Region crops report errors without applying the background-dominated full-frame
 threshold. Current retains historical geometry while candidate retirement is
 included in timings; that lifecycle difference also affects memory comparisons.
 
-The [A0 results](../docs_unified_triangle_renderer_a0_results.md) distinguish
+The [A0 results](../docs/unified_triangle_renderer_a0_results.md) distinguish
 measured improvements, candidate limitations, and unfinished acceptance gates.
 To run the explicit real-GPU harness checks:
 

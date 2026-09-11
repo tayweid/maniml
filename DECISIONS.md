@@ -179,7 +179,7 @@ Phase A default and the separate Original 2D browser option.
 At `67f779dc`, native GL is test-only and native movies/images/new recordings
 use Phase A. The follow-up restores `NativeGLCamera`, the real public
 `ShaderWrapper`, original GLSL assets and runtime dependencies to the package.
-Resources stay camera-owned; frozen test references stay independent. See the [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+Resources stay camera-owned; frozen test references stay independent. See the [sixth-round response](docs/unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 for the restoration scope and verified follow-up issues.
 
 Use a shared 2× spatial resolve with 4× MSAA for predictable default fill AA.
@@ -196,7 +196,7 @@ Source/editable installs need Cargo and a linker; compatible wheels need
 neither. Custom native GLSL wrappers are available through the explicit GL
 reference. Ordinary nonplanar
 filled outlines still need an explicitly defined surface rather than an
-arbitrary fan. The [cutover record](docs_unified_triangle_renderer_phase_a.md)
+arbitrary fan. The [cutover record](docs/unified_triangle_renderer_phase_a.md)
 contains the measured performance, quality exceptions and validation scope.
 
 The default cutover accepts one measured performance regression for this
@@ -901,14 +901,14 @@ cut to what is actually planned. Nothing removed was implemented —
 this entry exists so that no one reads the removal as "done":
 
 - **Superseded by the instruction stream** and removed: the
-  `PERFORMANCE.md` delivery order (revision store, copy-on-write /
+  `docs/performance_2026-08.md` delivery order (revision store, copy-on-write /
   delta checkpoints, bounded geometry chunks, transform deltas,
   keyframed exports — the engine core in the plan is all of these at
   once), the geometry-stream recorded-playback layer (the clock running
   backward over immutable buffers is the same thing), the parked-scene
   streaming rewrite and the "should idle frames be client-rendered"
   question (the GPU clock owns updaters), and the end-to-end
-  presentation clock (the plan's clock). `PERFORMANCE.md` stays as the
+  presentation clock (the plan's clock). `docs/performance_2026-08.md` stays as the
   measurement record; its "Proposed delivery order" is no longer the
   plan.
 - **Closed by deletion**: the 2026-08-18 duplicate-mobject bug entry.
@@ -949,7 +949,7 @@ it was an order of magnitude worse than the August audit had measured
 on the benchmark scene: 192 ms at the median and 2.9 s at worst for
 the save after each play on EpisodeA3, plus the same again for the
 thaw before each unit. Three measurements decided the shape of the
-fix, all recorded in `docs_checkpoint_ledger_plan.md`:
+fix, all recorded in `docs/checkpoint_ledger_plan.md`:
 
 - `copy.deepcopy` costs about 27 µs per mobject and nothing per byte
   (a 13 MB circle in 0.4 ms, a thousand squares in 27 ms). The cost is
@@ -1089,4 +1089,4 @@ The original wordmark is pixel-identical and measures 48.2→23.4 ms (2.06x)
 for submission through completion. This is an isolated renderer measurement,
 not full viewer timing; command preparation and remaining per-batch overhead
 are still material. Large single-batch output remains about 1.4–1.5 ms.
-The plan and experiment history are in `docs_bounded_fill_plan.md`.
+The plan and experiment history are in `docs/bounded_fill_plan.md`.

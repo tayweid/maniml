@@ -28,7 +28,7 @@ interfaces may still change before the first public release.
   now require Cargo and a linker for the Lyon fill helper; compatible wheels
   include it. `wgpu` is a required runtime dependency. Nonplanar ordinary
   vector fills fail explicitly; use `Surface` or `VMobject3D` for a defined
-  surface. See the [cutover record](docs_unified_triangle_renderer_phase_a.md)
+  surface. See the [cutover record](docs/unified_triangle_renderer_phase_a.md)
   for validation, measured performance and compatibility limits.
 
 ### The viewer

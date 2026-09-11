@@ -1,9 +1,9 @@
 # Unified renderer review: author decisions and changes
 
 2026-09-09. This is the changelog for the plan reviews, zoom addition, and
-the [third-round code review](docs_unified_triangle_renderer_code_review.md).
-The [shared renderer plan](docs_unified_triangle_renderer_plan.md)
-now carries the operative requirements; [Phase B research](docs_gpu_geometry_generation_plan.md)
+the [third-round code review](unified_triangle_renderer_code_review.md).
+The [shared renderer plan](unified_triangle_renderer_plan.md)
+now carries the operative requirements; [Phase B research](gpu_geometry_generation_plan.md)
 has its own specification. The original reviewer block and A0 note remain
 verbatim as historical feedback.
 
@@ -17,7 +17,7 @@ patches and avoiding Rust are candidates/tradeoffs, not mandated architecture.
 
 Checked against the latest code and archived reports, then reproduced the
 applicable findings. The review's timing table used the earlier B0 run, before
-projection-bound memoization. The [new results](docs_unified_triangle_renderer_a0_results.md#code-review-follow-up)
+projection-bound memoization. The [new results](unified_triangle_renderer_a0_results.md#code-review-follow-up)
 preserve both the gains and remaining gaps. The reviewer document is unchanged.
 
 | Finding | Decision and evidence |
@@ -76,7 +76,7 @@ styled opacity `0.5` over transparency is a separate blend-state defect.
 
 ## Fourth-round code review disposition
 
-The [A1 integration record](docs_unified_triangle_renderer_a1_integration.md#fourth-round-review-disposition)
+The [A1 integration record](unified_triangle_renderer_a1_integration.md#fourth-round-review-disposition)
 responds to the latest three findings, including the production Write fix and
 the retained exact-array renderer contract. It records shared-driver, border,
 packaging and playback changes, plus the open text AA gate. This supersedes
@@ -93,7 +93,7 @@ source invalidation, output quality, memory retention, and failure handling.
 Cache hits still scan source bytes; its retention cap is not a total transient,
 frame, or GPU-memory bound.
 
-The subsequent [A0 results](docs_unified_triangle_renderer_a0_results.md) now
+The subsequent [A0 results](unified_triangle_renderer_a0_results.md) now
 include native goldens, the stronger border/text comparisons, camera and real
 Transform/Write measurements, Earcut-versus-Lyon coverage, and the original B0
 comparison of current output, ordered output, and two flattened AA settings.
@@ -117,8 +117,8 @@ interpretation of the removal authorization.
 Historical cutover disposition. The sixth-round response below corrects its
 native GL authorization claim and qualifies the digest-reuse implementation.
 
-The [fifth code review](docs_unified_triangle_renderer_code_review.md) audited
-`a7eb644b`, before the cutover work. The [Phase A record](docs_unified_triangle_renderer_phase_a.md)
+The [fifth code review](unified_triangle_renderer_code_review.md) audited
+`a7eb644b`, before the cutover work. The [Phase A record](unified_triangle_renderer_phase_a.md)
 owns the final specification and validation. This disposition records the
 decisions separately from the reviewer's document.
 
@@ -701,4 +701,18 @@ the per-object pixel-error bound, and the per-object uniform merge and
 coalescing walk (about 1.2 ms for 101 objects on an unchanged frame). None
 of it is source validation any more. The A2 text gate therefore stays open
 on those costs.
+
+## Roadmap reconciliation (2026-09-10)
+
+The reviewer's WP6. `../simlab/INSTRUCTION_STREAM_PLAN.md` said native GL
+had to be deleted before any Phase B work and anticipated winding
+retirement; both contradicted Taylor's direction to keep the GL camera and
+Original 2D as references. Its prerequisites now name shared WebGPU output
+in both hosts (done) and read instrumentation (open), and say the
+references are not affected. `simlab` is not a git repository, so that edit
+is in place only. `docs/gpu_geometry_generation_plan.md` section 3 carried
+the same "native-GL cutover" prerequisite and now says the same thing. The
+`TODO.md` item about skipping unchanged batches by revision was rewritten
+when the revision-keyed cache landed. The documents also moved into
+`docs/` with an index that marks each as current or superseded.
 

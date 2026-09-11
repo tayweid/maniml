@@ -4,7 +4,7 @@ Phase B research specification — 2026-09-09.
 
 Status: research and feasibility plan; general GPU fill generation is not
 implemented. This document separates Phase B's algorithm, allocation, and
-playback work from the [shared renderer plan](docs_unified_triangle_renderer_plan.md).
+playback work from the [shared renderer plan](unified_triangle_renderer_plan.md).
 Phase A must justify its CPU-generated backend on present quality, performance,
 and maintenance benefits even if Phase B never ships.
 
@@ -146,7 +146,7 @@ the immutable input references pinned by an assembly as well as its arrays.
 Validation compares operation order, opacity/paint coverage, fixed-frame and
 camera-facing behavior, depth, opaque batching, upload bytes and full completion
 against CPU-border Phase A, packaged native GL and Original 2D.
-The [sixth-round response](docs_unified_triangle_renderer_review_response.md#gpu-borders-a-reusable-first-step-within-phase-b)
+The [sixth-round response](unified_triangle_renderer_review_response.md#gpu-borders-a-reusable-first-step-within-phase-b)
 records comparison fixtures, transport measurements and the need to validate
 against the CPU emitter. Border expansion alone does not solve general fill
 topology or complete Phase B.
@@ -267,9 +267,15 @@ semantics through an explicit fresh-read/evaluation path where necessary.
 ## 3. Roadmap prerequisites and migration
 
 
-The existing native-GL cutover and read-instrumentation prerequisites remain.
-Unification can be researched and implemented in shadow first. Production GPU
-instruction execution starts only after the one-WebGPU-output prerequisite.
+The prerequisites are shared WebGPU output in both hosts (done: Phase A is
+the default for the viewer and for native output, with the compute path
+available on both) and read instrumentation (still open). The retained
+native GL camera and the viewer's Original 2D path are comparison references
+that Taylor directed be kept; their removal is not a prerequisite of
+anything here, and an earlier "native-GL cutover" wording that implied it
+is withdrawn (2026-09-10). Unification can be researched and implemented in
+shadow first. Production GPU instruction execution starts only after both
+prerequisites hold.
 
 Amend the instruction-stream phases as follows:
 

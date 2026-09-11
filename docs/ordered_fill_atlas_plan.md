@@ -1,7 +1,7 @@
 # Shared fill atlas and ordered rendering
 
 **Superseded proposal — 2026-09-09.** The selected direction is now
-[one triangle renderer for 2D and 3D, followed by GPU geometry generation](/Users/taylorjweidman/Projects/ManimLive/maniml-perf/docs_unified_triangle_renderer_plan.md).
+[one triangle renderer for 2D and 3D, followed by GPU geometry generation](/Users/taylorjweidman/Projects/ManimLive/maniml-perf/docs/unified_triangle_renderer_plan.md).
 This document preserves the earlier proposal and its experimental evidence;
 its atlas-specific requirements are no longer the implementation plan.
 

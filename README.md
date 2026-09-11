@@ -30,7 +30,7 @@ Phase A is the default for the browser, movie rendering and checkpoint
 images. The viewer's **Scene renderer** menu also offers **Original 2D**, so
 you can compare the old winding renderer at the same checkpoint while
 dogfooding. This choice affects the live viewer; exports use Phase A.
-See the [renderer contract and validation](docs_unified_triangle_renderer_phase_a.md).
+See the [renderer contract and validation](docs/unified_triangle_renderer_phase_a.md).
 
 ```bash
 python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"

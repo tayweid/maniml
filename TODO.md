@@ -3,7 +3,7 @@
 The forward roadmap, pruned on 2026-09-04 to what is actually planned.
 What was decided, shipped, or dropped — and why — lives in
 `DECISIONS.md`; the architecture as it stands lives in `CLAUDE.md`;
-`PERFORMANCE.md` is the 2026-08 measurement record. The target
+`docs/performance_2026-08.md` is the 2026-08 measurement record. The target
 architecture after the beeline lives beside this repo in
 `../simlab/ARCHITECTURE.md`, sequenced in
 `../simlab/INSTRUCTION_STREAM_PLAN.md`.
@@ -17,7 +17,7 @@ viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
 2026-09-10; **Phase A** is the default. Native GL is restored to the package
 as the explicit `NativeGLCamera` reference, including its original shaders,
 public `ShaderWrapper` and runtime dependencies. See the
-[cutover record](docs_unified_triangle_renderer_phase_a.md) for validation and
+[cutover record](docs/unified_triangle_renderer_phase_a.md) for validation and
 explicit limits.
 
 ## Now: the dogfood pause
@@ -30,7 +30,7 @@ signal. What it has surfaced so far, and what is ready regardless:
    EpisodeA3 (62 plays, 112 checkpoints, `--render`): the checkpoint
    copy after every play was 192 ms at the median and 2.9 s at worst,
    and the thaw before every unit the same again. Three facts decided
-   the fix (the full record is `docs_checkpoint_ledger_plan.md`):
+   the fix (the full record is `docs/checkpoint_ledger_plan.md`):
    - **It is the copier, not the data.** `copy.deepcopy` costs about
      27 µs per mobject and nothing per byte; a 13 MB circle copies in
      0.4 ms, a thousand squares in 27 ms.
@@ -103,16 +103,16 @@ passes, and resource reuse; then move supported point updates and correct
 triangle generation onto the GPU. The existing 3D implementation needs work
 on borders, gradients, general paths, and coverage before it can replace 2D.
 The architecture, compatibility specification, research, and staged plan are in
-[the unified renderer plan](docs_unified_triangle_renderer_plan.md).
+[the unified renderer plan](docs/unified_triangle_renderer_plan.md).
 It supersedes the earlier atlas proposal; those experiments remain evidence,
-not measurements of this new renderer. The [A0 results](docs_unified_triangle_renderer_a0_results.md)
-preserve the earlier experiments. The [A1 integration checkpoint](docs_unified_triangle_renderer_a1_integration.md)
-records the former opt-in route. [Phase A](docs_unified_triangle_renderer_phase_a.md)
+not measurements of this new renderer. The [A0 results](docs/unified_triangle_renderer_a0_results.md)
+preserve the earlier experiments. The [A1 integration checkpoint](docs/unified_triangle_renderer_a1_integration.md)
+records the former opt-in route. [Phase A](docs/unified_triangle_renderer_phase_a.md)
 adds shared native output, default 2×/4× AA, stencil fill-border ownership,
 source-space fill paint and bounded generated-resource retention. The old
 browser winding implementation remains a deliberate dogfood option; do not
 remove it without Taylor's direction. Detailed GPU source/geometry work is in
-[the separate Phase B specification](docs_gpu_geometry_generation_plan.md).
+[the separate Phase B specification](docs/gpu_geometry_generation_plan.md).
 
 ## Native GL cutover (beeline step 4)
 
@@ -134,7 +134,7 @@ built by the drivers (wire format 6), the CPU triangle budget off the GPU
 path, occurrence-keyed outputs. A2 text performance, large non-affine paint
 fragment cost and zero-border AA remain open; the text gap is now source
 validation, the revision-keying decision Taylor has not yet taken.
-The [sixth-round response](docs_unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
+The [sixth-round response](docs/unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.
 
@@ -153,7 +153,7 @@ arbitrary morphs is no longer an accepted compromise. The unified renderer
 plan supplies the generated-resource and recovery contracts.
 
 It supersedes three things that used to be planned here and are now
-removed: the `PERFORMANCE.md` delivery order (revision store, delta
+removed: the `docs/performance_2026-08.md` delivery order (revision store, delta
 checkpoints, bounded geometry chunks — all of it is what the engine
 core is), the geometry-stream recorded-playback layer (reverse
 playback is the clock running backward over immutable buffers), and
@@ -170,7 +170,7 @@ Python has nothing to stream for a parked scene).
   the CPU. Phase B owns moving source evaluation and correct variable topology
   onto the GPU. Nonplanar contours still need an explicitly defined surface.
 - **`AddTextWordByWord`** groups label/isolate spans rather than words.
-  Fix if a course scene uses it; diagnosis in `PERFORMANCE.md`.
+  Fix if a course scene uses it; diagnosis in `docs/performance_2026-08.md`.
 - **Typography drift vs CE** for multi-part `MathTex` joins. Cosmetic.
 - **Test debt** (2026-08-18 review, still true): `web/cli.py`'s
   `hand_off_to_a_running_engine` restart/reuse branches; `agent`

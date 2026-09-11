@@ -229,7 +229,7 @@ driver expands the per-object strip pattern from the run layout itself.
 Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
 formats 1–5 remain readable. These resources never enter checkpoints.
-See `docs_unified_triangle_renderer_phase_a.md` for the full contract, limits
+See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
 ## Delivery: one artifact, local only

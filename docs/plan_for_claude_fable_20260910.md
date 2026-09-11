@@ -2,13 +2,13 @@
 
 Prepared 2026-09-10 by the reviewing session, for a fresh Claude Fable
 instance taking over implementation. Read it together with the coder's
-[handoff](docs_handoff_claude_fable_20260910.md). The handoff describes what
+[handoff](handoff_claude_fable_20260910.md). The handoff describes what
 exists and why. This document says what to do, in what order, with what
 acceptance criteria, and where the handoff is incomplete.
 
 Baseline: `main` in `/Users/taylorjweidman/Projects/ManimLive/maniml` at
 `8a5bb7f0`, one commit past the handoff's stated `00d8e854`. That extra commit
-is the seventh review round in `docs_unified_triangle_renderer_code_review.md`,
+is the seventh review round in `unified_triangle_renderer_code_review.md`,
 which the handoff does not yet reflect. The handoff itself is untracked in the
 `maniml-perf` worktree; commit it first.
 
@@ -34,8 +34,8 @@ These come from Taylor directly. They are not recommendations.
 - **Do not widen image thresholds** to make an unmet gate pass, and do not
   silently switch renderers for unsupported content.
 - **Reviewer documents are not yours to edit.** Put implementation responses
-  in `docs_unified_triangle_renderer_review_response.md`. The reviewer writes
-  `docs_unified_triangle_renderer_code_review.md` and the reviewer notes in
+  in `unified_triangle_renderer_review_response.md`. The reviewer writes
+  `unified_triangle_renderer_code_review.md` and the reviewer notes in
   the plan.
 - **Ask Taylor** when a change alters visible semantics for existing scenes.
   Proceed autonomously on measured engineering work inside the direction above.
@@ -45,8 +45,8 @@ These come from Taylor directly. They are not recommendations.
 Run these before any edit. Each takes under a minute except the suite.
 
 1. `git -C maniml log --oneline -3` and `git -C maniml status --short`. Expect
-   `8a5bb7f0` and two untracked field reports, `docs_ce_compat_notes.md` and
-   `docs_dogfood_2026-09-09.md`. Preserve both.
+   `8a5bb7f0` and two untracked field reports, `ce_compat_notes.md` and
+   `dogfood_2026-09-09.md`. Preserve both.
 2. `git -C maniml-perf status --short`. Expect the untracked handoff. Commit
    it on its own: "Add the Claude Fable handoff record".
 3. From `/private/tmp`, confirm the interpreter imports the canonical
@@ -54,7 +54,7 @@ Run these before any edit. Each takes under a minute except the suite.
    must print the path under `maniml/maniml/`.
 4. Confirm the packaged Lyon helper exists:
    `ls maniml/maniml/web/maniml_lyon_fill*.so`.
-5. Check for a newer reviewer round: `grep -n '^## ' maniml/docs_unified_triangle_renderer_code_review.md | tail -3`.
+5. Check for a newer reviewer round: `grep -n '^## ' maniml/docs/unified_triangle_renderer_code_review.md | tail -3`.
 6. Run the focused suites, then the full suite in the background with the
    absolute interpreter path:
 
@@ -219,7 +219,7 @@ in the response document, with the sites that dominate named.
   before any Phase B work and anticipates winding retirement. Reword the
   prerequisite to "shared WebGPU output exists in both hosts", which is now
   true, and note that GL and Original 2D are retained references.
-- `docs_gpu_geometry_generation_plan.md` has the same "native-GL cutover"
+- `gpu_geometry_generation_plan.md` has the same "native-GL cutover"
   prerequisite. Same fix.
 - `TODO.md` item 2 still proposes skipping unchanged batches by
   `(id, geometry_revision)` alone. Replace it with a pointer to the WP4
@@ -249,7 +249,7 @@ These stay open until evidence closes them. Record status, do not paper over.
 ### WP8. Phase B, Phase 0 feasibility, timeboxed
 
 Do not start before WP1 through WP5 are done and Taylor has seen their
-results. Then follow `docs_gpu_geometry_generation_plan.md` section 4 and the
+results. Then follow `gpu_geometry_generation_plan.md` section 4 and the
 instruction-stream plan's Phase 0, as a shadow implementation with the CPU
 generator as oracle.
 
@@ -287,7 +287,7 @@ them checkable.
 - One commit per work package, message describing the change and its
   reasoning, no attribution lines.
 - After each package, append a dated section to
-  `docs_unified_triangle_renderer_review_response.md` with what changed,
+  `unified_triangle_renderer_review_response.md` with what changed,
   what it measured, and what remains open. Update `DECISIONS.md` only for
   decisions Taylor made, quoting the direction.
 - Integrate validated commits from the `maniml-perf` worktree into the

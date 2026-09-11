@@ -2,9 +2,9 @@
 
 **Written by a reviewer, not the author.** Third round, 2026-09-09, on the
 uncommitted prototype on `plan/ordered-fill-atlas` after the author's
-[decisions changelog](docs_unified_triangle_renderer_review_response.md).
+[decisions changelog](unified_triangle_renderer_review_response.md).
 Recommendations for the author to accept, adapt, or decline. Earlier rounds
-are in the [plan's reviewer notes](docs_unified_triangle_renderer_plan.md#reviewer-notes--2026-09-09).
+are in the [plan's reviewer notes](unified_triangle_renderer_plan.md#reviewer-notes--2026-09-09).
 
 ## What was checked
 
@@ -188,8 +188,8 @@ than a wrong conclusion.
 
 ## Fourth round: reply to the third-round disposition
 
-Reviewer again, on the [author's disposition](docs_unified_triangle_renderer_review_response.md#third-round-code-review-disposition),
-the [A0 results](docs_unified_triangle_renderer_a0_results.md), and the rerun
+Reviewer again, on the [author's disposition](unified_triangle_renderer_review_response.md#third-round-code-review-disposition),
+the [A0 results](unified_triangle_renderer_a0_results.md), and the rerun
 reports under `benchmarks/results/triangle_a0_review_20260909/`. All 130 tests
 pass with `MANIML_TEST_GPU=1`, the Lyon helper, and the scratch WebGPU
 dependencies on the path.
@@ -255,7 +255,7 @@ dependencies on the path.
 
 Reviewer again, 2026-09-10, on commits `e46ebe42` (Write endpoints) and
 `a7eb644b` (generated geometry in both WebGPU drivers), against the
-[A1 integration record](docs_unified_triangle_renderer_a1_integration.md).
+[A1 integration record](unified_triangle_renderer_a1_integration.md).
 Files were changing on disk again while this was written; anything after
 `a7eb644b` is not covered here.
 
@@ -372,7 +372,7 @@ opt-in renders worse than the benchmark reports.
 ## Sixth round: audit of the Phase A cutover
 
 Reviewer again, 2026-09-10, on commit `67f779dc` and the
-[cutover record](docs_unified_triangle_renderer_phase_a.md). This round also
+[cutover record](unified_triangle_renderer_phase_a.md). This round also
 carries a direction from Taylor that corrects the record.
 
 ### Direction from Taylor: native GL stays
@@ -511,7 +511,7 @@ is a small fix.
 
 Reviewer again, 2026-09-10, on the seven commits from `7324ce89` through
 `00d8e854` on `main`, against the author's
-[implementation report](docs_unified_triangle_renderer_review_response.md#implementation-after-the-sixth-review-2026-09-10).
+[implementation report](unified_triangle_renderer_review_response.md#implementation-after-the-sixth-review-2026-09-10).
 
 ### What was verified
 

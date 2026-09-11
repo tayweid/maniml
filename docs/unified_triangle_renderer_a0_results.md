@@ -1,6 +1,6 @@
 # A0 renderer experiments — 2026-09-09
 
-Historical A0 checkpoint. The later [A1 integration record](docs_unified_triangle_renderer_a1_integration.md)
+Historical A0 checkpoint. The later [A1 integration record](unified_triangle_renderer_a1_integration.md)
 supersedes the implementation status below, adds border unions and packaged
 drivers, and records the remaining text-quality failure. Measurements below
 remain tied to their archived source snapshots.
@@ -19,7 +19,7 @@ native-GL retirement hold remain unchanged; nothing has been merged into main.
 
 ## Code review follow-up
 
-The [third-round response](docs_unified_triangle_renderer_review_response.md#third-round-code-review-disposition)
+The [third-round response](unified_triangle_renderer_review_response.md#third-round-code-review-disposition)
 records decisions on all ten findings. Reports below this section preserve the
 earlier checkpoint; the new runs are archived separately in
 [the review evidence directory](benchmarks/results/triangle_a0_review_20260909/validation.json).
@@ -236,7 +236,7 @@ field is desirable, but the prototype's endpoint interpolation still needs
 camera/refinement/diagonal stability checks before it becomes a compatibility
 decision. Do not repair the old seam merely to lower an image-diff number.
 
-The [shared plan](docs_unified_triangle_renderer_plan.md) carries these quality
-and performance gates. The [separate GPU-generation specification](docs_gpu_geometry_generation_plan.md)
+The [shared plan](unified_triangle_renderer_plan.md) carries these quality
+and performance gates. The [separate GPU-generation specification](gpu_geometry_generation_plan.md)
 retains the approved goal of moving source updates and required geometry
 generation together. A0 remains incomplete.
