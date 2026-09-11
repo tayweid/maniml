@@ -23,6 +23,7 @@ class VMobject3D(Surface):
     A 3D-rendered version of VMobject that uses triangulated fill
     for proper depth testing in 3D scenes.
     """
+    net = False  # an explicit triangulated mesh, not a control net
     
     def __init__(
         self,

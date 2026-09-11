@@ -64,8 +64,9 @@ class SurfaceMesh(VGroup):
         u_indices = np.linspace(0, full_nu - 1, part_nu)
         v_indices = np.linspace(0, full_nv - 1, part_nv)
 
-        points = uv_surface.get_points()
-        normals = uv_surface.get_unit_normals()
+        # The evaluated grid, not the control net: the lines lie on the surface.
+        points = uv_surface.get_grid_points()
+        normals = uv_surface.get_grid_unit_normals()
         nudge = self.normal_nudge
         nudged_points = points + nudge * normals
 
