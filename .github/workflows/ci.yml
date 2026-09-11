@@ -57,6 +57,18 @@ jobs:
           tests.test_ce_extractor
           tests.test_web_security
           tests.test_web_server_events
+          tests.test_web_cli
+          tests.test_app_relay
+          tests.test_agent
+          tests.test_analytic_geometry
+          tests.test_analytic_scene
+          tests.test_performance
+          tests.test_shader_uniforms
+          tests.test_renderer_quality_fixtures
+          tests.test_viewer_exports
+          tests.test_earcut_probe
+          tests.test_triangle_scene
+          tests.test_renderer_motion
           tests.test_static_assets
           tests.test_webgpu_commands
           tests.test_generated_webgpu_commands
@@ -153,6 +165,7 @@ jobs:
           tests.test_source_map
           tests.test_ce_conformance
           tests.test_checkpoint_reload
+          tests.test_checkpoint_ledger
           tests.test_modes
           tests.test_export
           tests.test_app
