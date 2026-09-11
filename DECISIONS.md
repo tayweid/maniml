@@ -5,6 +5,21 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase A stays the renderer until the patch fill is faster (2026-09-11)
+
+Decided by Taylor on the B1 prototype's numbers (`docs/phase_b1_plan.md`,
+"Prototype results"): the patch fill renders every fixture within the pixel
+gate and at or within 2% of Original 2D on the text controls, but about
+1.5 ms per text frame behind today's Phase A at the minimum, all of it GPU
+completion from the second pass a count-then-cover design needs. Quoted:
+"lets keep Phase A as the main renderer till we get it faster."
+
+So `MANIML_FILL=meshes` stays the default, the patch fill stays behind the
+switch in the native mirror, and the browser mirror and the default flip
+wait on the GPU-side tuning the plan lists. Phase B's direction is
+unchanged: paths (B1) and surfaces (B2) both become control points the GPU
+evaluates, and B3 animates control points whichever kind they are.
+
 ## Fills are a fan and a count, not a mesh (2026-09-11)
 
 Decided by Taylor at the start of B1, after the two candidates in
