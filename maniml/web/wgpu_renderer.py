@@ -33,6 +33,7 @@ from maniml.web.gpu_border_geometry import (
     patch_draw_count, patch_groups, validate_capacity, validate_layout, validate_objects,
     validate_patch_layout,
 )
+from maniml.web import gpu_net_geometry
 from PIL import Image
 
 import wgpu
@@ -177,6 +178,7 @@ MODULE_SOURCES = {
     "resolve2": ("resolve2.wgsl",),
     "border_compute": ("common.wgsl", "border_compute.wgsl"),
     "patch_fill": ("common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"),
+    "net_compute": ("common.wgsl", "net_compute.wgsl"),
 }
 
 
@@ -219,6 +221,10 @@ class WgpuRenderer:
         self._object_tables = {}
         self._patch_uniforms = {}
         self._patch_layouts = None
+        # Surface nets: sources by hash, evaluated outputs by occurrence.
+        self._net_sources = {}
+        self._net_outputs = {}
+        self._net_compute_pipeline = None
         self._stale_index_buffers = []
         self._size = None
         self._spatial_texture = None
@@ -339,6 +345,139 @@ class WgpuRenderer:
         self._pipelines[key] = pipeline
         return pipeline
 
+    def _net_index_buffer(self, batch, resources):
+        """The triangle pattern over every patch of a net at its capacity."""
+        net = batch["net"]
+        capacity = net["capacity"]
+        buffers = resources["index_buffers"]
+        index_buffer = buffers.get(capacity)
+        if index_buffer is None:
+            patches = ((net["nu"] - 1) // 2) * ((net["nv"] - 1) // 2)
+            index_buffer = self.device.create_buffer_with_data(
+                data=gpu_net_geometry.net_indices(patches, capacity).tobytes(), usage=wgpu.BufferUsage.INDEX)
+            self._stale_index_buffers.extend(buffers.values())
+            buffers.clear()
+            buffers[capacity] = index_buffer
+        return index_buffer
+
+    def _prepare_nets(self, header, payload, encoder, temporary):
+        """Evaluate changed surface nets before the ordered render pass."""
+        records = header.get("net_data", {})
+        if not isinstance(records, dict):
+            raise ValueError("net definitions must be an object")
+        definitions = {}
+        for key, ref in records.items():
+            if not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None:
+                raise ValueError("invalid net hash")
+            if not isinstance(ref, dict):
+                raise ValueError("invalid net definition span")
+            offset, size = ref.get("offset"), ref.get("nbytes")
+            if (type(offset) is not int or type(size) is not int or size <= 0 or size % 4
+                    or offset < 0 or offset > len(payload) or size > len(payload) - offset):
+                raise ValueError("invalid net definition span")
+            data = bytes(payload[offset:offset + size])
+            if not np.isfinite(np.frombuffer(data, dtype="<f4")).all():
+                raise ValueError("net control points must be finite")
+            previous = self._net_sources.get(key)
+            if previous is not None and previous["data"] != data:
+                raise ValueError("net hash redefined with different control points")
+            definitions[key] = data
+        limits = getattr(self.device, "limits", {})
+        max_buffer = limits.get("max-buffer-size", 256 * 1024 ** 2)
+        max_storage = limits.get("max-storage-buffer-binding-size", 128 * 1024 ** 2)
+        max_dispatch = limits.get("max-compute-workgroups-per-dimension", 65535)
+        outputs, used_sources, used_outputs, completed = {}, set(), set(), []
+        uniform_buffers, occurrences = {}, {}
+        for batch in header["batches"]:
+            net = batch.get("net")
+            if net is None:
+                continue
+            if header.get("format_version", 0) < 7 or not isinstance(net, dict):
+                raise ValueError("a surface net requires a format 7 net descriptor")
+            key, nu, nv = net.get("hash"), net.get("nu"), net.get("nv")
+            channels, capacity, density = net.get("channels"), net.get("capacity"), net.get("density")
+            if (not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None
+                    or any(type(v) is not int for v in (nu, nv, channels, capacity))
+                    or nu < 3 or nv < 3 or nu % 2 == 0 or nv % 2 == 0
+                    or not isinstance(density, (int, float)) or isinstance(density, bool)
+                    or not np.isfinite(density) or density < 0
+                    or batch.get("pipeline") not in ("surface", "surface_depth", "texsurface", "texsurface_depth")
+                    or channels * 4 != batch.get("stride") or batch.get("indexed") is not False
+                    or batch.get("fill_num_verts") != 0 or batch.get("index_count") != 0
+                    or type(batch.get("instances")) is not int or batch["instances"] != 1):
+                raise ValueError("invalid surface net descriptor")
+            capacity = gpu_net_geometry.validate_capacity(capacity)
+            patches = ((nu - 1) // 2) * ((nv - 1) // 2)
+            vertex_count = patches * gpu_net_geometry.vertices_per_patch(capacity)
+            if (batch.get("num_verts") != vertex_count
+                    or batch.get("count") != patches * gpu_net_geometry.indices_per_patch(capacity)):
+                raise ValueError("invalid surface net vertex or draw count")
+            size = vertex_count * batch["stride"]
+            if size > max_buffer or size > max_storage:
+                raise ValueError("surface net output exceeds device buffer limits")
+            source = self._net_sources.get(key)
+            data = definitions.get(key) if source is None else source["data"]
+            if data is None:
+                raise KeyError(f"net cache miss for {key}")
+            if len(data) != nu * nv * channels * 4 or len(data) > max_storage:
+                raise ValueError("net definition does not match its descriptor")
+            values = {**header["camera"], **batch.get("uniforms", {})}
+            packed = pack_uniforms(values)
+            floats = np.frombuffer(packed, dtype="<f4")
+            if not np.isfinite(floats).all() or floats[23] <= 0:
+                raise ValueError("invalid surface net uniforms")
+            resources = self._generated_resources(batch, payload)
+            if source is None:
+                source = {"data": data, "buffer": self.device.create_buffer_with_data(
+                    data=data, usage=wgpu.BufferUsage.STORAGE)}
+                self._net_sources[key] = source
+            used_sources.add(key)
+            occurrence = occurrences.get((batch["hash"], key), 0)
+            occurrences[(batch["hash"], key)] = occurrence + 1
+            output_key = (batch["hash"], key, capacity, occurrence)
+            used_outputs.add(output_key)
+            output = self._net_outputs.get(output_key)
+            if self._net_compute_pipeline is None:
+                self._net_compute_pipeline = self.device.create_compute_pipeline(layout="auto",
+                    compute={"module": self._modules["net_compute"], "entry_point": "cs_main"})
+            pipeline = self._net_compute_pipeline
+            if output is None:
+                buffer = self.device.create_buffer(size=size,
+                    usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.VERTEX | wgpu.BufferUsage.COPY_DST)
+                output = {"buffer": buffer, "state": None}
+                self._net_outputs[output_key] = output
+                output["binding"] = self.device.create_bind_group(layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": source["buffer"], "size": len(data)}},
+                    {"binding": 1, "resource": {"buffer": buffer, "size": size}}])
+            outputs[id(batch)] = output
+            ppu = gpu_net_geometry.pixels_per_unit(values, header["resolution"])
+            state = (float(floats[23]), float(density), float(ppu))
+            if output["state"] == state:
+                continue
+            camera = uniform_buffers.get(packed)
+            if camera is None:
+                camera = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
+                uniform_buffers[packed] = camera
+                temporary.append(camera)
+            compute = encoder.begin_compute_pass()
+            compute.set_pipeline(pipeline)
+            compute.set_bind_group(1, output["binding"])
+            per_patch = gpu_net_geometry.vertices_per_patch(capacity)
+            for offset in range(0, patches, max_dispatch):
+                chunk = min(max_dispatch, patches - offset)
+                params = self.device.create_buffer_with_data(data=struct.pack("<IIIIIIIIffff",
+                    0, nu, nv, channels, capacity, offset * per_patch, offset, chunk, float(density), float(ppu), 0.0, 0.0),
+                    usage=wgpu.BufferUsage.UNIFORM)
+                temporary.append(params)
+                group = self.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": camera, "size": UNIFORM_BYTES}},
+                    {"binding": 1, "resource": {"buffer": params, "size": 48}}])
+                compute.set_bind_group(0, group)
+                compute.dispatch_workgroups(chunk, (per_patch + 63) // 64)
+            compute.end()
+            completed.append((output, state))
+        return outputs, used_sources, used_outputs, completed
+
     def _patch_index_buffer(self, batch, resources):
         """The strip pattern of every curve in a patch run at its current
         capacity: the index buffer both strip draws address per object."""
@@ -452,9 +591,10 @@ class WgpuRenderer:
     def _generated_resources(self, batch, vertex_bytes):
         capacity, run_layout = self._border_run(batch)
         # A run's reserved capacity changes its output size but not what
-        # was uploaded, so it stays out of the retained layout identity.
+        # was uploaded, so it stays out of the retained layout identity; a
+        # surface net's evaluated vertex count likewise.
         layout = (batch["pipeline"], batch["stride"],
-                  None if run_layout is not None else batch["num_verts"],
+                  None if run_layout is not None or "net" in batch else batch["num_verts"],
                   bool(batch.get("indexed")), batch.get("index_count", 0),
                   batch.get("fill_num_verts", batch["num_verts"]),
                   None if run_layout is None else json.dumps(run_layout))
@@ -496,6 +636,8 @@ class WgpuRenderer:
                     batch["index_offset"], batch["index_count"] * 4, wgpu.BufferUsage.INDEX)
             elif run_layout is not None:
                 resources["run_layout"] = run_layout
+                resources["index_buffers"] = {}
+            elif "net" in batch:
                 resources["index_buffers"] = {}
         except Exception:
             resources["buffer"].destroy()
@@ -807,7 +949,9 @@ class WgpuRenderer:
                 self._generated_paints[key] = (buffer, data)
         return keys
 
-    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys, border_outputs):
+    def _encode_generated(self, encoder, header, vertex_bytes, samples, *, supersample=1, paint_keys, border_outputs,
+                          net_outputs=None):
+        net_outputs = {} if net_outputs is None else net_outputs
         """Replay all generated operations into exactly one ordered scene pass."""
         background = np.asarray(header["background"], dtype=float).copy()
         background[:3] *= background[3]
@@ -895,6 +1039,12 @@ class WgpuRenderer:
                         self._generated_textures[texture_key] = self._texture_bind_group(pipeline, batch)
                     render_pass.set_bind_group(1, self._generated_textures[texture_key])
                 output = border_outputs.get(id(batch))
+                net_output = net_outputs.get(id(batch))
+                if net_output is not None:
+                    render_pass.set_vertex_buffer(0, net_output["buffer"])
+                    render_pass.set_index_buffer(self._net_index_buffer(batch, resources), "uint32")
+                    render_pass.draw_indexed(batch["count"], batch["instances"])
+                    continue
                 render_pass.set_vertex_buffer(0, resources["buffer"] if output is None else output["buffer"])
                 if batch.get("indexed"):
                     index_buffer = (resources["index_buffer"] if "index_buffer" in resources
@@ -1045,6 +1195,7 @@ class WgpuRenderer:
         previous_sources, previous_outputs = set(self._border_sources), set(self._border_outputs)
         previous_geometry, previous_uniforms = set(self._generated_geometry), set(self._generated_uniforms)
         previous_tables, previous_patch_uniforms = set(self._object_tables), set(self._patch_uniforms)
+        previous_net_sources, previous_net_outputs = set(self._net_sources), set(self._net_outputs)
         temporary = []
         try:
             paint_keys = self._prepare_paints(header, vertex_bytes)
@@ -1064,11 +1215,13 @@ class WgpuRenderer:
             encoder = device.create_command_encoder()
             borders, used_sources, used_outputs, used_tables, completed = self._prepare_borders(
                 header, vertex_bytes, encoder, temporary)
+            nets, used_net_sources, used_net_outputs, net_completed = self._prepare_nets(
+                header, vertex_bytes, encoder, temporary)
             used = self._encode_generated(encoder, header, vertex_bytes, samples,
-                supersample=supersample, paint_keys=paint_keys, border_outputs=borders)
+                supersample=supersample, paint_keys=paint_keys, border_outputs=borders, net_outputs=nets)
             output = self._resolve_generated(encoder, size, supersample)
             device.queue.submit([encoder.finish()])
-            for border_output, state in completed:
+            for border_output, state in completed + net_completed:
                 border_output["state"] = state
         except Exception:
             # Failed decoding/encoding must preserve the last submitted frame
@@ -1083,6 +1236,10 @@ class WgpuRenderer:
                 self._border_sources.pop(key)["buffer"].destroy()
             for key in self._object_tables.keys() - previous_tables:
                 self._object_tables.pop(key)["buffer"].destroy()
+            for key in self._net_outputs.keys() - previous_net_outputs:
+                self._net_outputs.pop(key)["buffer"].destroy()
+            for key in self._net_sources.keys() - previous_net_sources:
+                self._net_sources.pop(key)["buffer"].destroy()
             for key in self._patch_uniforms.keys() - previous_patch_uniforms:
                 self._patch_uniforms.pop(key)[0].destroy()
             for key in self._generated_geometry.keys() - previous_geometry:
@@ -1102,6 +1259,10 @@ class WgpuRenderer:
             self._border_sources.pop(key)["buffer"].destroy()
         for key in self._object_tables.keys() - used_tables:
             self._object_tables.pop(key)["buffer"].destroy()
+        for key in self._net_outputs.keys() - used_net_outputs:
+            self._net_outputs.pop(key)["buffer"].destroy()
+        for key in self._net_sources.keys() - used_net_sources:
+            self._net_sources.pop(key)["buffer"].destroy()
         self._retire_generated(used, {
             value for batch in header["batches"]
             for value in batch.get("textures", {}).values()})
@@ -1160,10 +1321,12 @@ class WgpuRenderer:
             destroy(buffer)
         for buffer, _ in self._generated_paints.values():
             destroy(buffer)
-        for cache in (self._border_outputs, self._border_sources, self._object_tables):
+        for cache in (self._border_outputs, self._border_sources, self._object_tables,
+                      self._net_outputs, self._net_sources):
             for resource in cache.values():
                 destroy(resource["buffer"])
             cache.clear()
+        self._net_compute_pipeline = None
         self._patch_uniforms.clear()
         self._patch_layouts = None
         self._border_compute_pipeline = None

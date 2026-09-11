@@ -28,6 +28,7 @@ from maniml.web.gpu_border_geometry import (
     BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
     patch_draw_count,
 )
+from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -89,6 +90,13 @@ class TriangleDraw:
     # per object. Such a draw has no vertices or indices of its own.
     fill_objects: np.ndarray | None = None
     patch_layout: tuple | None = None
+    # Surface nets (docs/phase_b2_plan.md): the control net the driver
+    # evaluates at screen density, its (nu, nv, channels), the reserved
+    # steps per patch edge and the density the steps follow from.
+    net: np.ndarray | None = None
+    net_shape: tuple | None = None
+    net_capacity: int = 2
+    net_density: float = 0.0
 
 
 def coalesce_draws(draws, *, border_cache=None):
@@ -102,6 +110,8 @@ def coalesce_draws(draws, *, border_cache=None):
     frame-owned arrays; a single draw retains its original array identities.
     """
     def kind(draw):
+        if draw.net is not None:
+            return None  # one evaluated net per draw
         if draw.fill_objects is not None:
             # A material run binds one paint field, so a painted patch
             # draw stays a run of its own.
@@ -518,6 +528,7 @@ class TriangleMeshCache:
         self._generator_key = None
         self._projections = {}
         self._classes = {}
+        self.gpu_net_cache = NetRecipeCache()
         self.gpu_border_cache = BorderRecipeCache(max_bytes=self.max_bytes if self.max_entries else 0)
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
@@ -987,7 +998,7 @@ def _note_paint_cost(frame, paint):
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
                            coalesce=True, fill_borders=False, gpu_borders=False,
-                           patch_fills=False):
+                           patch_fills=False, net_surfaces=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -1001,6 +1012,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``patch_fills=True`` (with GPU borders) prepares no fill mesh at all: each
     filled path becomes a patch draw the driver builds from its curve records
     on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
+    ``net_surfaces=True`` sends each surface's control net instead of its
+    evaluated grid; the driver evaluates it at screen density
+    (docs/phase_b2_plan.md).
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -1026,6 +1040,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                           4 if camera.samples else 1, pixel_tolerance=pixel_tolerance)
     cache_before = mesh_cache.begin_frame(tessellator) if mesh_cache is not None else None
     border_cache = (mesh_cache.gpu_border_cache if mesh_cache is not None else BorderRecipeCache()) if gpu_borders else None
+    net_cache = (mesh_cache.gpu_net_cache if mesh_cache is not None else NetRecipeCache()) if net_surfaces else None
+    if net_cache is not None:
+        net_cache.begin_frame()
     if border_cache is not None:
         if mesh_cache is not None:
             border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
@@ -1065,12 +1082,26 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     for sm, uniforms in records:
         depth_suffix = "_depth" if sm.depth_test else ""
         if isinstance(sm, (DotCloud, Surface, ImageMobject)):
-            data = np.ascontiguousarray(sm.get_shader_data()).copy()
-            if not len(data):
-                continue
             pipeline = ("dot" if isinstance(sm, DotCloud) else
                         "image" if isinstance(sm, ImageMobject) else
                         "texsurface" if isinstance(sm, TexturedSurface) else "surface")
+            if (net_cache is not None and pipeline in ("surface", "texsurface")
+                    and getattr(sm, "net", False) and sm.has_points()):
+                entry = net_cache.source(sm, revision=sm.revision,
+                                         pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
+                                         frame_scale=uniforms["frame_scale"])
+                patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+                frame.draws.append(TriangleDraw(
+                    pipeline + depth_suffix, np.zeros(0, dtype=sm.data.dtype), uniforms,
+                    count=patches * indices_per_patch(entry.capacity), instances=1,
+                    textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
+                    net=entry.net, net_shape=(entry.nu, entry.nv, entry.channels),
+                    net_capacity=entry.capacity, net_density=entry.density))
+                frame.source_bytes += entry.net.nbytes
+                continue
+            data = np.ascontiguousarray(sm.get_shader_data()).copy()
+            if not len(data):
+                continue
             frame.draws.append(TriangleDraw(
                 pipeline + depth_suffix, data, uniforms,
                 count=4 if pipeline == "dot" else len(data),
@@ -1169,6 +1200,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         frame.draws.extend(draw for draw in ordered if draw is not None)
     if mesh_cache is not None:
         frame.mesh_cache_stats = mesh_cache.finish_frame(cache_before)
+    if net_cache is not None:
+        net_cache.finish_frame()
+        frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
+                                      retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
         frame.draws = coalesce_draws(frame.draws, border_cache=border_cache)
     elif gpu_borders:

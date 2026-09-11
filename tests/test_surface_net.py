@@ -113,3 +113,101 @@ class NetAlignment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "GPU image comparison not requested")
+class NetEvaluationOnTheGpu(unittest.TestCase):
+    """The driver's net stage against the CPU grid (docs/phase_b2_plan.md)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        cls.tessellator = LyonFillTessellator()
+        cls.driver = WgpuRenderer()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.driver.close()
+
+    def frame(self, scene, nets, cache=None, wire=None):
+        from maniml.web.generated_geometry import serialize_generated_frame
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
+        from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
+        frame = prepare_triangle_frame(scene, self.tessellator, mesh_cache=cache or TriangleMeshCache(),
+                                       fill_borders=True, gpu_borders=True, net_surfaces=nets)
+        frame.samples, frame.supersample = 4, 2
+        header, payload = parse_geometry_message(
+            serialize_generated_frame(frame, scene.camera.uniforms, wire or GeometryCache()))
+        return header, payload, frame
+
+    def render(self, scene, nets, **kwargs):
+        header, payload, frame = self.frame(scene, nets, **kwargs)
+        return np.asarray(self.driver.render(header, payload), dtype=int), header, payload, frame
+
+    def test_port_surfaces_scene_matches_the_cpu_grid(self):
+        from tests.test_wgpu_port import build_surfaces_scene
+        grid, _, _, _ = self.render(build_surfaces_scene(), False)
+        net, header, payload, _ = self.render(build_surfaces_scene(), True)
+        self.assertEqual([batch["pipeline"] for batch in header["batches"]], ["surface_depth", "texsurface_depth"])
+        self.assertTrue(all("net" in batch for batch in header["batches"]))
+        self.assertLess(len(payload), 500_000, "the nets and one texture, not two evaluated grids")
+        diff = np.abs(grid - net)
+        self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005)
+        self.assertLessEqual(diff.max(), 8)
+
+    def test_zoomed_sphere_has_no_facets(self):
+        """Looking at the sphere's silhouette: at 16x the default sphere's
+        grid shows its facets against a four times finer reference, the
+        net evaluated at screen density shows far fewer, and at 64x none;
+        at the normal view the net is the grid."""
+        from tests.renderer_fixtures import build_scene
+
+        def scene(resolution, zoom):
+            scene = build_scene(Sphere(radius=1.0, resolution=resolution), resolution=(960, 540), samples=4)
+            scene.camera.frame.scale(1 / zoom).move_to([1.0, 0, 0])
+            scene.camera.refresh_uniforms()
+            return scene
+
+        grid, _, _, _ = self.render(scene((101, 51), 1), False)
+        net, header, _, _ = self.render(scene((101, 51), 1), True)
+        self.assertLessEqual(np.abs(grid - net).max(), 4, "at the normal view the net is the sample grid")
+        for zoom, worst_grid, ratio in ((16, .0005, 2), (64, .001, 10)):
+            with self.subTest(zoom=zoom):
+                grid, _, _, _ = self.render(scene((101, 51), zoom), False)
+                net, header, _, _ = self.render(scene((101, 51), zoom), True)
+                fine, _, _, _ = self.render(scene((401, 201), zoom), False)
+                facets = (np.abs(grid - fine).max(axis=2) > 24).mean()
+                smooth = (np.abs(net - fine).max(axis=2) > 24).mean()
+                self.assertGreater(facets, worst_grid, "the reference must expose the grid's facets")
+                self.assertLess(smooth, facets / ratio)
+                self.assertLessEqual(smooth, .005)
+                self.assertGreater(header["batches"][0]["net"]["capacity"], 4)
+
+    def test_camera_changes_resend_nothing_and_a_zoom_grows_the_reservation(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.renderer_fixtures import build_scene
+        scene = build_scene(Sphere(radius=1.0), resolution=(480, 270), samples=4)
+        cache, wire = TriangleMeshCache(), GeometryCache()
+        first, payload, frame = self.frame(scene, True, cache=cache, wire=wire)
+        self.driver.render(first, payload)
+        self.assertTrue(first["net_data"])
+        capacity = first["batches"][0]["net"]["capacity"]
+        for step in range(4):
+            scene.camera.frame.scale(.5).shift([.01, 0, 0])
+            scene.camera.refresh_uniforms()
+            header, payload, frame = self.frame(scene, True, cache=cache, wire=wire)
+            self.driver.render(header, payload)
+            self.assertEqual(payload, b"")
+            self.assertEqual(header["net_data"], {})
+            self.assertTrue(header["batches"][0]["cached"])
+            self.assertEqual(frame.mesh_cache_stats["gpu_net_updates"], 1)
+        self.assertGreater(header["batches"][0]["net"]["capacity"], capacity)
+        self.assertGreater(header["batches"][0]["count"], first["batches"][0]["count"])
+        # A moved surface is a new net.
+        scene.mobjects[0].shift([0.2, 0, 0])
+        header, payload, frame = self.frame(scene, True, cache=cache, wire=wire)
+        self.assertTrue(payload)
+        self.assertTrue(header["net_data"])
+        self.assertEqual(frame.mesh_cache_stats["gpu_net_updates"], 2)

@@ -147,3 +147,55 @@ memory per surface reported against today's grids.
   scene and mobject files. Its current branch carries nothing on these
   two files; integrate B2 through `main` before either side reaches them
   again.
+
+## Prototype results (2026-09-11, native mirror)
+
+Steps 1 to 3 of the sequence are built and measured; the browser mirror is
+not. The GPU evaluation is behind `MANIML_SURFACE=nets`; the CPU grid stays
+the default. Tests: `tests/test_bezier_net.py`, `tests/test_surface_net.py`
+(the GPU cases under `MANIML_TEST_GPU=1`).
+
+**The data model changed nothing visible.** Every module that draws or
+transforms surfaces passes unchanged (the generated-scene, native-camera,
+port, animation and conformance tests); the reference renderers' grid is
+the construction's samples to a float32 ulp.
+
+**The GPU stage against the CPU grid.** The port's surfaces scene (a
+sphere and a textured sphere, tilted camera) renders within 1 of 255 on
+every pixel, because at that view the step rule evaluates the samples
+themselves. The wire carries the two nets and one texture, 392 KB, where
+it carried two evaluated grids, 2.28 MB.
+
+**No facets at any zoom.** Looking at the default sphere's silhouette
+against a sphere sampled four times finer, fraction of pixels over 24 of
+255 and the worst pixel:
+
+| Zoom | Grid (today) | Net on the GPU | Reservation |
+| --- | ---: | ---: | ---: |
+| 1× | 0.000%, 28 | 0.000%, 28 (the grid to within 1) | 2 steps, 0.45 MB |
+| 4× | 0.013%, 46 | 0.013%, 46 (the grid to within 1) | 2 steps, 0.45 MB |
+| 16× | 0.084%, 80 | 0.030%, 43 | 6 steps, 2.45 MB |
+| 64× | 0.181%, 85 | 0.000%, 26 | 11 steps, 7.20 MB |
+
+**Two rules the measurement forced.** The pure quarter-pixel rule gave one
+step per patch at the normal view, which is within a quarter pixel
+geometrically but shades more coarsely than today's grid, since lighting
+is per vertex; the floor is therefore two steps, the construction's own
+samples, so the net never draws coarser than the grid it replaces. And a
+dense net's reservation is capped per object at 8 MB of output (the
+default sphere's 1,250 patches reach 11 steps), since the general cap of 32
+steps would reserve 54 MB for it.
+
+**Preparation cost and memory.** A cached frame of the surfaces scene
+prepares and encodes in 0.18 ms with nets against 2.20 ms with grids,
+because no evaluated grid is copied per frame. Retained on the GPU at the
+normal view: 0.45 MB of evaluated output plus 0.2 MB of net per sphere
+against a 1.2 MB grid; the output grows with zoom to its cap and shrinks
+back only when the object is retired, as the border reservation does.
+
+**Open.** The browser mirror (`webgpu.js`) does not evaluate nets yet, so
+`test_wgpu_port` parity and any default flip wait on it. The step rule is
+per object, so a large surface partly in view pays for its whole extent.
+Nets are one draw per object; runs are not coalesced. Per-pixel lighting
+would let the floor of two steps go, and would change every surface's
+pixels, so it is a separate decision.

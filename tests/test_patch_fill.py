@@ -261,9 +261,11 @@ class PatchFillCommands(unittest.TestCase):
         self.renderer.device = Device()
         for name in ("_generated_geometry", "_generated_uniforms", "_generated_textures",
                      "_generated_paints", "_generated_paint_bindings", "_border_sources",
-                     "_border_outputs", "_object_tables", "_patch_uniforms", "texture_cache"):
+                     "_border_outputs", "_object_tables", "_patch_uniforms", "_net_sources",
+                     "_net_outputs", "texture_cache"):
             setattr(self.renderer, name, {})
         self.renderer._patch_layouts = None
+        self.renderer._net_compute_pipeline = None
         self.renderer._border_compute_pipeline = None
         self.renderer._stale_index_buffers = []
         self.renderer.sampler = object()

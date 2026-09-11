@@ -238,6 +238,18 @@ counts on the stencil's low seven bits, marks the border strips with the
 high bit, and covers once per sample. Nothing about it depends on zoom, and a
 morph uploads only control points. It is measured, not the default, and the
 browser driver does not draw it yet. The default stays `meshes`.
+
+A `Surface`'s points are a biquadratic Bézier net (Phase B2,
+`docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
+the net's size (rounded up to odd), `uv_func` is sampled once into the net
+that passes through every sample, and `Transform` aligns nets by exact
+subdivision. The reference renderers draw the net evaluated on the CPU at
+two steps per patch, which is the sample grid to a float32 ulp
+(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` sends the net
+instead and the native driver evaluates it at screen density
+(`net_compute.wgsl`, capacity reserved from the second difference with the
+border stage's headroom, capped per object); a zoomed sphere then shows no
+facets. Browser support is pending; the default stays `grids`.
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 

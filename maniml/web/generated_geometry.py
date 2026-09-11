@@ -20,6 +20,7 @@ from maniml.web.gpu_border_geometry import (
     CURVE_WORDS, MAX_VERTICES_PER_CURVE, indices_per_curve, patch_draw_count,
     validate_capacity, validate_layout, validate_objects, validate_patch_layout,
 )
+from maniml.web import gpu_net_geometry
 
 
 PIPELINE_STRIDES = {"surface": 40, "paint": 40, "stroke": 68, "dot": 32,
@@ -104,6 +105,29 @@ def _objects_payload(value, layout, previous, retained):
     return digest, objects
 
 
+def _net_payload(draw, previous, retained):
+    net = np.asarray(draw.net)
+    nu, nv, channels = draw.net_shape
+    if (net.ndim != 2 or net.shape != (nu * nv, channels) or net.dtype != np.dtype("<f4")
+            or nu < 3 or nv < 3 or nu % 2 == 0 or nv % 2 == 0):
+        raise ValueError("invalid generated net layout")
+    if not net.flags.c_contiguous:
+        net = np.ascontiguousarray(net)
+    memo = previous.get(id(net))
+    if memo is not None and memo[0] is net:
+        digest = memo[1]
+    else:
+        if not np.isfinite(net).all():
+            raise ValueError("net control points must be finite")
+        identity = hashlib.blake2b(digest_size=16)
+        identity.update(b"maniml.net.f32.v1\0" + struct.pack("<QQ", nu, nv))
+        identity.update(memoryview(net).cast("B"))
+        digest = identity.hexdigest()
+    if _immutable(net):
+        retained[id(net)] = (net, digest)
+    return digest, net
+
+
 def serialize_generated_frame(frame, camera_uniforms, cache=None):
     """Pack a prepared frame; both drivers consume exactly these operations."""
     supersample = getattr(frame, "supersample", 1)
@@ -119,6 +143,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
     retained_borders, borders = {}, {}
     previous_objects = getattr(cache, "generated_objects", {})
     retained_objects, object_tables = {}, {}
+    previous_nets = getattr(cache, "generated_nets", {})
+    retained_nets, nets = {}, {}
     for draw in frame.draws:
         base = draw.pipeline.removesuffix("_depth")
         if base not in PIPELINE_STRIDES:
@@ -135,7 +161,30 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         border = getattr(draw, "border_sources", None)
         objects = getattr(draw, "fill_objects", None)
         border_hash, capacity, layout, objects_hash = None, None, None, None
+        net_hash, net_descriptor = None, None
         indices = None if draw.indices is None else np.asarray(draw.indices)
+        net = getattr(draw, "net", None)
+        if net is not None:
+            # A surface net: no vertices of its own; the driver evaluates the
+            # net into patches * (capacity + 1)² vertices and builds the index
+            # pattern for the capacity.
+            if (base not in ("surface", "texsurface") or indices is not None or draw.instances != 1
+                    or len(vertices) or border is not None or objects is not None):
+                raise ValueError("a surface net draw carries only its net")
+            net_hash, net = _net_payload(draw, previous_nets, retained_nets)
+            nets[net_hash] = net
+            nu, nv, channels = draw.net_shape
+            if channels * 4 != PIPELINE_STRIDES[base]:
+                raise ValueError("net channels do not match the pipeline's vertex layout")
+            net_capacity = gpu_net_geometry.validate_capacity(getattr(draw, "net_capacity", 2))
+            density = float(getattr(draw, "net_density", 0.0))
+            if not np.isfinite(density) or density < 0:
+                raise ValueError("net density must be finite and nonnegative")
+            patches = ((nu - 1) // 2) * ((nv - 1) // 2)
+            if draw.count != patches * gpu_net_geometry.indices_per_patch(net_capacity):
+                raise ValueError("invalid surface net draw count")
+            net_descriptor = {"hash": net_hash, "nu": nu, "nv": nv, "channels": channels,
+                              "capacity": net_capacity, "density": density}
         if base == "patch":
             # A patch fill run: curve records, the object table and the
             # (curve count, bordered) layout; no vertices or indices of its own.
@@ -163,7 +212,12 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
         elif objects is not None:
             raise ValueError("an object table belongs to a patch fill draw")
         output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
-        if indices is not None:
+        if net_descriptor is not None:
+            patches = ((net_descriptor["nu"] - 1) // 2) * ((net_descriptor["nv"] - 1) // 2)
+            output_vertices = patches * gpu_net_geometry.vertices_per_patch(net_descriptor["capacity"])
+        if net_descriptor is not None:
+            pass  # checked above
+        elif indices is not None:
             # A border run's wire indices cover only its fills; the drivers
             # append each object's strip pattern from the layout, so the
             # draw count exceeds the index count by exactly that pattern.
@@ -194,7 +248,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 raise ValueError("invalid generated stroke draw count")
         payload_key = (draw.pipeline, id(vertices), id(indices),
                        None if border is None else (len(border), tuple(map(tuple, layout))),
-                       objects_hash)
+                       objects_hash, net_hash)
         retained = previous_payloads.get(payload_key)
         if retained is not None and retained[0] is vertices and retained[1] is indices:
             content_hash = retained[2]
@@ -211,6 +265,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
             if objects_hash is not None:
                 identity.update(b"\0objects\0" + objects_hash.encode())
+            if net_hash is not None:
+                identity.update(b"\0net\0" + net_hash.encode())
             # Frame both byte streams, and hash their views without allocating
             # another frame-sized copy. Mutable diagnostic data is always read.
             identity.update(struct.pack("<QQ", vertices.nbytes, 0 if indices is None else indices.nbytes))
@@ -248,6 +304,9 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             batch["border"] = {"hash": border_hash, "num_curves": len(border), "capacity": capacity}
         if objects_hash is not None:
             batch["objects"] = {"hash": objects_hash, "count": len(objects)}
+        if net_descriptor is not None:
+            batch["fill_num_verts"] = 0
+            batch["net"] = net_descriptor
         if getattr(draw, "coverage", False):
             if base not in ("surface", "paint"):
                 raise ValueError("coverage ownership requires triangle surface geometry")
@@ -293,6 +352,13 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             border_data[key] = {"offset": offset, "nbytes": len(raw)}
             blobs.append(raw)
             offset += len(raw)
+    net_data = {}
+    for key, net in nets.items():
+        if cache is None or f"net:{key}" not in cache.sent:
+            raw = net.tobytes()
+            net_data[key] = {"offset": offset, "nbytes": len(raw)}
+            blobs.append(raw)
+            offset += len(raw)
     object_data = {}
     for key, objects in object_tables.items():
         if cache is None or f"objects:{key}" not in cache.sent:
@@ -314,7 +380,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,
               "batches": batches, "paint_data": paint_data, "border_data": border_data,
-              "object_data": object_data, "texture_data": texture_data,
+              "object_data": object_data, "net_data": net_data, "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
     encoded = json.dumps(header).encode()
     message = b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
@@ -324,6 +390,8 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
                       | {f"paint:{key}" for key in paints})
         cache.sent.update(f"border:{key}" for key in borders)
         cache.sent.update(f"objects:{key}" for key in object_tables)
+        cache.sent.update(f"net:{key}" for key in nets)
+        cache.generated_nets = retained_nets
         cache.generated_payloads = retained_payloads
         cache.generated_paints = retained_paints
         cache.generated_borders = retained_borders
