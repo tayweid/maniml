@@ -1103,6 +1103,30 @@ class CheckpointLedger:
         # frozen copy -> (reusable, refs, nattrs), learned when it was made,
         # so a thaw can enter its live copies without rescanning each one
         self.frozen_meta: "weakref.WeakKeyDictionary[Mobject, tuple]" = weakref.WeakKeyDictionary()
+        # frozen copy -> the live mobject it currently stands for (weakly),
+        # so a thaw can hand a live object back in place of its own frozen
+        # copy when nothing about it has changed since. Last writer wins:
+        # the most recent freeze or thaw is the live graph.
+        self.live_for_frozen: "weakref.WeakKeyDictionary[Mobject, weakref.ref]" = weakref.WeakKeyDictionary()
+
+    def record(self, live: Mobject, entry: LedgerEntry) -> None:
+        self.entries[live] = entry
+        self.live_for_frozen[entry.frozen] = weakref.ref(live)
+
+    def live_for(self, frozen: Mobject):
+        """The live mobject that is still exactly `frozen`, or None: it must
+        be the object `frozen` was made from (or thawed into), shareable,
+        and unchanged since (revision and attribute count)."""
+        ref = self.live_for_frozen.get(frozen)
+        live = ref() if ref is not None else None
+        if live is None or live is frozen:
+            return None
+        entry = self.entries.get(live)
+        if entry is None or entry.frozen is not frozen or not entry.reusable:
+            return None
+        if not _entry_is_current(entry, live):
+            return None
+        return live, entry
 
 
 _STRUCTURE_ATTRS = frozenset({"submobjects", "parents", "family"})
@@ -1270,7 +1294,8 @@ def _freeze(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dic
                 if id(frozen) in reused_frozen:
                     n_reused += 1
                     continue
-                entry = ledger.entries[mob] = _new_entry(mob, frozen)
+                entry = _new_entry(mob, frozen)
+                ledger.record(mob, entry)
                 ledger.frozen_meta[frozen] = (entry.reusable, entry.refs, entry.nattrs)
                 n_copied += 1
         performance.increment("checkpoint.ledger.reused", n_reused)
@@ -1279,17 +1304,69 @@ def _freeze(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dic
     return copied, memo
 
 
+def _reusable_thaw_closure(ledger: CheckpointLedger, top: Mobject):
+    """The (frozen, live, entry) triples for everything the frozen `top`
+    reaches when every one of them still has a live object that is exactly
+    it; else None. The freeze rule in reverse: a live object standing in
+    for a frozen one keeps pointing at its live children and references,
+    so all of them must qualify too."""
+    triples = []
+    seen: set[int] = set()
+    stack = [top]
+    while stack:
+        frozen = stack.pop()
+        if id(frozen) in seen:
+            continue
+        seen.add(id(frozen))
+        found = ledger.live_for(frozen)
+        if found is None:
+            return None
+        live, entry = found
+        triples.append((frozen, live, entry))
+        stack.extend(frozen.submobjects)
+        stack.extend(_referenced(frozen, entry.refs))
+    return triples
+
+
 def _thaw(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dict]:
-    """Deep-copy checkpoint -> live. Returns (copied, memo). The new live
-    objects are entered in the ledger against the frozen ones they came
-    from, so an untouched mobject is reused at the very next save."""
+    """Deep-copy checkpoint -> live. Returns (copied, memo).
+
+    With a ledger, a live mobject that is still exactly the frozen copy
+    being thawed (it was frozen from it, or thawed into it, and nothing
+    about it changed since) is handed back in place of a copy, so a step
+    back costs what changed between here and there. Its parent links are
+    trimmed to the graph that comes out of the thaw. The fresh copies are
+    entered in the ledger against the frozen ones they came from, so an
+    untouched mobject is reused at the very next save."""
     memo: dict = {}
+    reused: list = []
+    tops = _top_level_mobjects(must_copy)
+    if ledger is not None:
+        verify = verify_ledger_enabled()
+        for top in tops:
+            triples = _reusable_thaw_closure(ledger, top)
+            if triples is None:
+                continue
+            if verify:
+                for frozen, live, entry in triples:
+                    attr = ledger_stale_attribute(live, frozen, ledger=ledger)
+                    if attr is not None:
+                        raise LedgerStale(
+                            f"{type(live).__name__} changed in '{attr}' since its "
+                            f"checkpoint without a revision bump; it cannot stand in "
+                            f"for the frozen copy on thaw")
+            for frozen, live, entry in triples:
+                if id(frozen) not in memo:
+                    memo[id(frozen)] = live
+                    reused.append((frozen, live, entry))
     with copy_mode("thaw"):
         copied = copy.deepcopy(must_copy, memo)
     if ledger is not None:
         meta_of = ledger.frozen_meta
+        reused_ids = {id(frozen) for frozen, _, _ in reused}
+        n_copied = 0
         seen: set[int] = set()
-        stack = list(_top_level_mobjects(must_copy))
+        stack = list(tops)
         while stack:
             frozen = stack.pop()
             if id(frozen) in seen:
@@ -1300,10 +1377,26 @@ def _thaw(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dict]
             if meta is None:
                 meta_of[frozen] = (entry.reusable, entry.refs, entry.nattrs)
             live = memo.get(id(frozen))
-            if live is not None and live is not frozen:
-                ledger.entries[live] = entry
+            if live is not None and live is not frozen and id(frozen) not in reused_ids:
+                ledger.record(live, entry)
+                n_copied += 1
             stack.extend(frozen.submobjects)
             stack.extend(_referenced(frozen, entry.refs))
+        if reused:
+            # A reused object keeps its live parents only where those
+            # parents are part of the thawed graph; a parent that this
+            # checkpoint replaced with a fresh copy, or that did not exist
+            # yet, must not keep receiving its revision bumps.
+            live_ids: set[int] = set()
+            for top in _top_level_mobjects(copied):
+                for mob in _closure(top, ledger):
+                    live_ids.add(id(mob))
+            for frozen, live, entry in reused:
+                ledger.live_for_frozen[frozen] = weakref.ref(live)
+                if any(id(parent) not in live_ids for parent in live.parents):
+                    live.parents = [p for p in live.parents if id(p) in live_ids]
+        performance.increment("checkpoint.thaw.reused", len(reused))
+        performance.increment("checkpoint.thaw.copied", n_copied)
     return copied, memo
 
 

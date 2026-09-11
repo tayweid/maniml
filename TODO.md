@@ -56,12 +56,14 @@ signal. What it has surfaced so far, and what is ready regardless:
      The suite runs clean under it; run the course episodes with it
      on during the pause before trusting it unattended.
 
-   Still open in this item: **reuse on thaw** (a step back still
-   thaws the whole checkpoint, 20–50 ms; the ledger trick reversed
-   makes it cost what changed) and the optional live-array freeze
-   (plan, Phase 4). **Do not** build copy-on-write checkpoints beyond
-   that: the instruction-stream architecture replaces large array copies
-   with retained source handles and replay recipes under a memory budget.
+   **Reuse on thaw landed 2026-09-11** (DECISIONS.md, "A step back
+   copies what changed"): a live mobject that is still exactly the
+   frozen copy being thawed is handed back instead of copied, so a
+   navigation costs what changed between here and there. Still open in
+   this item: the optional live-array freeze (plan, Phase 4). **Do not**
+   build copy-on-write checkpoints beyond that: the instruction-stream
+   architecture replaces large array copies with retained source handles
+   and replay recipes under a memory budget.
 
    **Field-report fixes, 2026-09-10** (DECISIONS.md, "The 2026-09-09
    dogfood report"): the edit-time ghost was a state-only thaw that left

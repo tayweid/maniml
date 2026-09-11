@@ -490,7 +490,8 @@ class FrontierSkipsTheThaw(LedgerSceneTest):
         self.assertFalse(self.scene._live_is_checkpoint(1))
         self.scene.run_next_animation()
         self.assertEqual(self.scene.current_animation_index, 2)
-        self.assertIsNot(self.scene._live_namespace['anchor'], shown)
+        # the thaw ran again, and handed the untouched anchor back (2026-09-11)
+        self.assertIs(self.scene._live_namespace['anchor'], shown)
         self.assertTrue(self.scene._live_is_checkpoint(2))
         # the frozen history is untouched by either route
         self.assertIs(self.cp(1, 'anchor'), self.cp(2, 'anchor'))
@@ -507,3 +508,122 @@ class FrontierSkipsTheThaw(LedgerSceneTest):
         self.assertFalse(self.scene._live_is_checkpoint(2))
         self.assertTrue(all(m is not live_anchor for m in self.scene.mobjects),
                         "after a failed unit the screen shows a thawed copy of the checkpoint")
+
+
+# ---------------------------------------------------------------------------
+# Reuse on thaw (2026-09-11): a step back copies what changed, not the scene.
+
+PARTIAL_SCENE = textwrap.dedent('''\
+    from maniml import *
+
+    class PartialScene(Scene):
+        def construct(self):
+            a = Square()
+            b = Circle().shift(RIGHT)
+            g = VGroup(a, b)
+            self.add(g)
+            self.play(FadeIn(Dot()), run_time=0.05)     # checkpoint 1
+            a.shift(UP)                                  # a and g change, b does not
+            self.play(FadeIn(Dot()), run_time=0.05)     # checkpoint 2
+''')
+
+
+class ThawReuse(LedgerSceneTest):
+    def test_a_step_back_keeps_the_untouched_live_objects(self):
+        self.run_to(3)
+        live = self.scene._live_namespace
+        anchor, group, dot = live['anchor'], live['group'], live['live']
+        self.scene._restore_checkpoint_for_display(2)
+        shown = self.scene._live_namespace
+        # group has not changed since unit 2: the same live object, on screen
+        self.assertIs(shown['group'], group)
+        self.assertTrue(any(m is group for m in self.scene.mobjects))
+        # anchor changed at unit 3: a fresh copy carrying checkpoint 2's state
+        self.assertIsNot(shown['anchor'], anchor)
+        self.assertEqual(shown['anchor'].z_index, 0)
+        self.assertEqual(anchor.z_index, 3, "the discarded live object is untouched")
+        # an updater keeps a mobject from ever being shared
+        self.assertIsNot(shown['live'], dot)
+        # history is untouched either way
+        self.assertIs(self.cp(2, 'group'), self.cp(3, 'group'))
+        self.assertFalse(self.cp(2, 'group').data.flags.writeable)
+
+    def test_the_next_thaw_reuses_what_the_last_one_made(self):
+        self.run_to(3)
+        self.scene._restore_checkpoint_for_display(1)
+        first = self.scene._live_namespace['group']
+        self.scene._restore_checkpoint_for_display(1)
+        self.assertIs(self.scene._live_namespace['group'], first)
+
+    def test_a_reuse_is_counted_and_a_static_step_back_copies_almost_nothing(self):
+        from maniml.performance import performance
+        self.run_to(4)
+        performance.enabled = True
+        performance._counters.clear()
+        try:
+            self.scene._restore_checkpoint_for_display(3)   # unit 4 only added a Dot
+            reused = performance._counters.get("checkpoint.thaw.reused", 0)
+            copied = performance._counters.get("checkpoint.thaw.copied", 0)
+        finally:
+            performance.enabled = False
+            performance._counters.clear()
+        self.assertGreater(reused, copied)
+        self.assertLessEqual(copied, 2, "only the dot with an updater and its like are copied")
+
+
+class ThawReusePartial(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.scene_file = os.path.join(self.tmpdir.name, 'partial_scene.py')
+        with open(self.scene_file, 'w') as f:
+            f.write(PARTIAL_SCENE)
+        module = load_scene_module(self.scene_file)
+        self.scene = module.PartialScene(window=None)
+        self.scene._scene_filepath = self.scene_file
+        self.scene.skip_animations = True
+        self.scene.setup()
+        self.scene._create_checkpoint_zero()
+        while self.scene.current_animation_index < 2:
+            before = self.scene.current_animation_index
+            self.scene.run_next_animation()
+            if self.scene.current_animation_index == before:
+                break
+
+    def tearDown(self):
+        self.scene.camera.release()
+        self.tmpdir.cleanup()
+
+    def test_an_untouched_child_is_reused_under_a_fresh_parent_with_live_parent_links_only(self):
+        live = self.scene._live_namespace
+        a, b, g = live['a'], live['b'], live['g']
+        self.assertEqual(b.parents, [g])
+        self.scene._restore_checkpoint_for_display(1)
+        shown = self.scene._live_namespace
+        self.assertIs(shown['b'], b)
+        self.assertIsNot(shown['g'], g)
+        self.assertIsNot(shown['a'], a)
+        self.assertEqual(shown['g'].submobjects[1], b)
+        self.assertIs(shown['g'].submobjects[1], b)
+        # the discarded live group no longer hangs off the reused child
+        self.assertEqual(b.parents, [shown['g']])
+        np.testing.assert_allclose(shown['a'].get_center(), [0, 0, 0], atol=1e-9)
+        np.testing.assert_allclose(a.get_center(), [0, 1, 0], atol=1e-9)
+        # a change to the reused child now reaches the fresh parent, not the old one
+        before = shown['g'].revision
+        b.shift(np.array([0, 2.0, 0]))
+        self.assertGreater(shown['g'].revision, before)
+
+    def test_a_raw_write_without_a_bump_is_named_on_thaw_under_verify(self):
+        b = self.scene._live_namespace['b']
+        b.get_points()[0] += np.array([0.5, 0, 0])   # bypasses the revision counter
+        old = os.environ.get("MANIML_VERIFY_LEDGER")
+        os.environ["MANIML_VERIFY_LEDGER"] = "1"
+        try:
+            with self.assertRaises(LedgerStale) as raised:
+                self.scene._restore_checkpoint_for_display(1)
+        finally:
+            if old is None:
+                os.environ.pop("MANIML_VERIFY_LEDGER", None)
+            else:
+                os.environ["MANIML_VERIFY_LEDGER"] = old
+        self.assertIn("'data.point'", str(raised.exception))

@@ -1200,3 +1200,34 @@ programs replace; the graph sampler's per-sample read of both axes'
 endpoints is deliberate (a callback may write into the axis arrays
 mid-sample, which bypasses the revision counter) and is a call count, not a
 byte cost.
+
+## A step back copies what changed (2026-09-11)
+
+Taylor's direction, quoted: "go ahead with reuse on thaw." The ledger
+(2026-09-05) made a save cost what moved; a navigation still deep-copied
+the whole checkpoint before showing it (`checkpoint.restore_copy`, 59 ms at
+the median and 147 ms at worst on EpisodeA3 stepping back four times), and
+the RIGHT press after a step back paid the same again before exec.
+
+Now a thaw runs the ledger's rule in reverse. The ledger keeps, for each
+frozen copy, the live mobject it currently stands for. When checkpoint *C*
+is thawed, a live mobject whose entry points at the very frozen object in
+*C*, which is shareable (no updaters) and unchanged since (revision and
+attribute count), is handed back through the deep copy's memo instead of
+being copied, and so is everything it reaches, on the same all-or-nothing
+closure rule the freeze uses. A reused object keeps its parent links only
+where the parent is part of the thawed graph: a parent that the checkpoint
+replaced with a fresh copy, or that did not exist yet, is dropped, and the
+fresh copy links itself on the way in as thaws always did. Fresh copies are
+entered in the ledger as before. Under `MANIML_VERIFY_LEDGER=1` every reuse
+compares the live object with its frozen copy and raises `LedgerStale`
+naming the attribute, so a bypassing write that would otherwise let a
+stale live object stand in for history is a loud failure on the
+navigation, not a silent one.
+
+On EpisodeA3 (8 RIGHT, 4 DOWN, 4 RIGHT through the live harness):
+`restore_copy` 58.9 to 8.5 ms at the median and 146.6 to 22.8 ms at worst;
+`execution_copy` 36.2 to 7.0 ms; 8,903 mobjects reused against 344 copied;
+saves unchanged. The plan's 2 ms exit is not met: what remains is the deep
+copy of the changed subgraph and the closure walks over ten thousand
+objects. Archive: `benchmarks/results/thaw_reuse_20260911/`.
