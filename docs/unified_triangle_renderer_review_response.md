@@ -772,3 +772,16 @@ depending on zoom, which is the first Phase B question. The GPU-side
 harness column is a property of alternating renderers on this machine, not
 of Phase A; the archive README records the evidence.
 
+## Phase A gates: status (2026-09-11)
+
+The earlier sections say "remain open" as of their dates. This is the list
+as it stands, so nothing is read as open that has since been met or
+decided. Taylor's direction, quoted: "update the docs so the open gates
+list is right."
+
+| Gate | Status | Where |
+|---|---|---|
+| Text performance against Original 2D (the plan's 25% gate on the harness controls) | **Met.** Within 5% on every control after the revision-keyed cache and the zoom-step leftover. What a zoom step still pays is real mesh refinement, which only zoom-independent fills remove. | "The zoom-step leftover" above; `DECISIONS.md`, "A zoom step rebuilds nothing the camera did not change" |
+| Zero-border zoomed-text AA (at most 0.5% of pixels over 24/255 against native GL) | **Open.** 0.8829% over. No threshold was widened. The 16× same-mesh coverage reference and the exact area checks favour the chosen sampler over GL, which is a separate statement and does not make the acceptance test pass. Phase B's B1 measures it again, since patch edges are new geometry. | `docs/unified_triangle_renderer_phase_a.md`, "Quality and behavior"; `docs/phase_b_plan.md`, B1 acceptance |
+| Nonplanar closed contours | **Decided, not open.** Refused with an explicit error, and B1 keeps refusing them exactly as today; B2's control-net surfaces are the defined interior a nonplanar fill would need. Listed as a decision for Taylor in the 2026-09-10 plan; the Phase B planning settled it. | `docs/phase_b_plan.md`, B1 and B2 |
+| Large non-affine paint | **Open, outside Phase B.** The per-fragment inverse-distance loop over up to 800 nodes is the remaining fragment-cost regression, and the interior differs visibly from the historical fan interpolation. The field's intended semantics need Taylor's decision before an acceleration is chosen. | "Implementation after the sixth review", paint retention |

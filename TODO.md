@@ -136,8 +136,24 @@ built by the drivers (wire format 6), the CPU triangle budget off the GPU
 path, occurrence-keyed outputs. The revision-keyed cache and the zoom-step
 leftover (both 2026-09-10) bring text within 5% of Original 2D on every
 harness control; what a zoom step still pays is mesh refinement, which
-only zoom-independent fills remove (Phase B). Large non-affine paint
-fragment cost and zero-border AA remain open.
+only zoom-independent fills remove (Phase B).
+
+**Phase A gates, as of 2026-09-11** (the status list is in the response
+document, "Phase A gates: status"):
+
+- Text performance against Original 2D: met, within 5% on every control
+  against a 25% gate.
+- Zero-border zoomed-text AA: open; 0.88% of pixels over the 24/255
+  threshold against a 0.5% limit, with independent coverage evidence
+  favouring the chosen sampler. Phase B's B1 measures it again on patch
+  edges (`docs/phase_b_plan.md`).
+- Nonplanar closed contours: decided, not open. They are refused, and B1
+  keeps refusing them; B2's control-net surfaces are the defined interior a
+  nonplanar fill would need.
+- Large non-affine paint: open, and outside Phase B's scope. Its
+  per-fragment loop over up to 800 nodes is slow, and its interior differs
+  visibly from the historical fan interpolation. The field's intended
+  semantics need Taylor's decision before an acceleration is chosen.
 The [sixth-round response](docs/unified_triangle_renderer_review_response.md#sixth-round-response-retain-native-gl-and-target-the-measured-regressions)
 records verified findings and validation requirements.
 Windows/Linux packaging remains separate follow-up work.
@@ -181,7 +197,8 @@ Python has nothing to stream for a parked scene).
   on its next add. Within a family it is CE's since 2026-09-02.
 - **GPU geometry generation.** General changing paths still rebuild fills on
   the CPU. Phase B owns moving source evaluation and correct variable topology
-  onto the GPU. Nonplanar contours still need an explicitly defined surface.
+  onto the GPU. Nonplanar closed contours are refused by design until B2's
+  control-net surfaces give them a defined interior (`docs/phase_b_plan.md`).
 - **`AddTextWordByWord`** groups label/isolate spans rather than words.
   Fix if a course scene uses it; diagnosis in `docs/performance_2026-08.md`.
 - **Typography drift vs CE** for multi-part `MathTex` joins. Cosmetic.
