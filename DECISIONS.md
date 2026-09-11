@@ -5,6 +5,23 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Fills are a fan and a count, not a mesh (2026-09-11)
+
+Decided by Taylor at the start of B1, after the two candidates in
+`docs/phase_b_plan.md` were laid out plainly. The mesh he had in mind, "which
+just sort of fills in the triangles between mesh points, no stick out", is a
+tiling of the interior that needs the whole outline at once to decide what
+is inside, which is Lyon on the CPU and has no GPU equivalent; the GPU works
+one curve at a time, so it draws a fan triangle per curve regardless and a
+per-sample count answers the inside question afterward. On that: "got it.
+then fan it is."
+
+So B1 is B1-fan: the CPU hands over control points, the GPU makes the
+triangles every frame, nothing is triangulated anywhere, and B1-mesh is not
+the interim. The design, the mechanism probe that preceded the decision and
+the prototype week are `docs/phase_b1_plan.md`; the verdict on the measured
+GPU cost against Original 2D remains Taylor's.
+
 ## Everything is Bézier control points (2026-09-11)
 
 Decided by Taylor in the Phase B planning conversation, quoted: "use the
