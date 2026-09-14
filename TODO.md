@@ -89,6 +89,14 @@ signal. What it has surfaced so far, and what is ready regardless:
    plays. A day; it is the plan's stated prerequisite and decides its
    sync policy.
 
+**B1 render follow-up, 2026-09-13:** the animation editor's reported
+missing-letter artifact was not reproduced in the retained movie frames;
+the earlier diagnosis is withdrawn. The [field note](docs/dogfood_2026-09-13_b1_render.md)
+records the source/build, 15 fps render recipe, checkpoint/cache comparison,
+and verification limits. A complete 60 fps run and browser parity remain
+unchecked. Require a captured failing frame before treating this as a
+confirmed renderer/cache bug.
+
 The two longstanding `AppShellE2E` failures are fixed: tests bind their own
 ephemeral app port and announce geometry mode before waiting for frames, so
 they cannot hand off to an unrelated running user engine.
@@ -194,6 +202,12 @@ Python has nothing to stream for a parked scene).
 
 ## Still open, small
 
+- **Edit button in the viewer** (Taylor, 2026-09-14). A button that opens
+  the scene's `.py` file in the system default editor (`open` on macOS,
+  `xdg-open`/`os.startfile` elsewhere), so the edit → hot-reload loop
+  starts from the viewer. The page sends an op; the engine opens only
+  the file it is serving (never a path from the page), consistent with
+  `web/security.py` and the app's recents gate.
 - **z_index across top-level groups.** CE sorts one flattened list, so
   a z_index=10 child of group A still draws under group B added after
   A; and a top-level mobject's z_index change after add() reorders only

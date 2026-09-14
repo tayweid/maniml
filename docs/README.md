@@ -20,6 +20,7 @@ source of current numbers or current direction.
 | [read_instrumentation_2026-09-11.md](read_instrumentation_2026-09-11.md) | Point reads by kind (raw, reduce) and phase (play, updater, idle) on EpisodeB0, A2, A3: the Phase B sync-policy prerequisite, with the sites that dominate and the author's reading. |
 | [ce_compat_notes.md](ce_compat_notes.md) | Field report from the ECON 0100 episode ports: every CE divergence that bit. Open items live in `TODO.md`. |
 | [dogfood_2026-09-09.md](dogfood_2026-09-09.md) | Field report from EpisodeB0 dogfood. Its diagnoses were acted on 2026-09-10 (`DECISIONS.md`, "The 2026-09-09 dogfood report"); its numbers are historical. |
+| [dogfood_2026-09-13_b1_render.md](dogfood_2026-09-13_b1_render.md) | EpisodeB1 render concern and evidence check. Missing-letter diagnosis withdrawn; records the 15 fps setup, checkpoint comparison, and remaining verification limits. |
 
 ## Superseded, kept for evidence
 
