@@ -783,12 +783,23 @@ class Mobject(object):
     # deep-copies every mobject in the namespace at every play.
     _copy_by_reference: tuple[str, ...] = ()
 
+    # True for a mobject that belongs to the scene rather than to any
+    # checkpoint: a freeze or thaw hands it back as itself instead of a
+    # copy, so a namespace variable bound to it keeps driving the live
+    # object after navigation. The camera frame is the case: its state
+    # travels in SceneState, and animating a thawed copy of it would move
+    # nothing on screen. A plain deepcopy (Mobject.copy) still copies it.
+    checkpoint_by_reference: bool = False
+
     def __deepcopy__(self, memo):
+        mode = _COPY_MODE.get()
+        if mode is not None and self.checkpoint_by_reference:
+            memo[id(self)] = self
+            return self
         cls = self.__class__
         result = cls.__new__(cls)
         memo[id(self)] = result
         shared = self._copy_by_reference
-        mode = _COPY_MODE.get()
         for key, value in self.__dict__.items():
             if key in shared:
                 result.__dict__[key] = value

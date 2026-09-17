@@ -1158,11 +1158,13 @@ class SceneState():
         for mob in self.mobjects:
             self.mobjects_to_copies[mob] = mob  # Direct reference, not a copy
 
-        # Save camera frame state (since it's mutated by animations but stored as reference)
+        # The camera frame is never in scene.mobjects and is kept by
+        # reference in checkpoints, so its state is snapshotted here:
+        # points, orientation and field of view (CameraFrame.get_checkpoint_state)
         if hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
-            self.camera_frame_points = scene.camera.frame.get_points().copy()
+            self.camera_frame_state = scene.camera.frame.get_checkpoint_state()
         else:
-            self.camera_frame_points = None
+            self.camera_frame_state = None
 
     def __eq__(self, state: SceneState):
         return all((
@@ -1202,8 +1204,8 @@ class SceneState():
         # since the snapshot (stable sort, so equal z keeps snapshot order)
         scene.mobjects.sort(key=lambda m: m.z_index)
         # Restore camera frame state
-        if self.camera_frame_points is not None and hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
-            scene.camera.frame.set_points(self.camera_frame_points)
+        if self.camera_frame_state is not None and hasattr(scene, 'camera') and hasattr(scene.camera, 'frame'):
+            scene.camera.frame.set_checkpoint_state(self.camera_frame_state)
 
 
 class EndScene(Exception):

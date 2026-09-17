@@ -592,8 +592,8 @@ class CheckpointMixin:
             state = current_checkpoint['state']
             self.time = state.time
             self.num_plays = state.num_plays
-            if state.camera_frame_points is not None and hasattr(self.camera, 'frame'):
-                self.camera.frame.set_points(state.camera_frame_points)
+            if state.camera_frame_state is not None and hasattr(self.camera, 'frame'):
+                self.camera.frame.set_checkpoint_state(state.camera_frame_state)
             self._reset_pacing_clocks()
             namespace = self._live_namespace
         else:
@@ -1197,7 +1197,8 @@ def _top_level_mobjects(must_copy: dict) -> list[Mobject]:
     tops: list[Mobject] = []
 
     def take(value):
-        if isinstance(value, Mobject) and id(value) not in seen:
+        if (isinstance(value, Mobject) and id(value) not in seen
+                and not value.checkpoint_by_reference):
             seen.add(id(value))
             tops.append(value)
 
@@ -1227,7 +1228,7 @@ def _reusable_closure(ledger: CheckpointLedger, top: Mobject):
     stack = [top]
     while stack:
         mob = stack.pop()
-        if id(mob) in seen:
+        if id(mob) in seen or mob.checkpoint_by_reference:
             continue
         seen.add(id(mob))
         entry = ledger.entries.get(mob)
@@ -1247,7 +1248,7 @@ def _closure(top: Mobject, ledger: CheckpointLedger | None):
     stack = [top]
     while stack:
         mob = stack.pop()
-        if id(mob) in seen:
+        if id(mob) in seen or mob.checkpoint_by_reference:
             continue
         seen.add(id(mob))
         yield mob
@@ -1315,7 +1316,7 @@ def _reusable_thaw_closure(ledger: CheckpointLedger, top: Mobject):
     stack = [top]
     while stack:
         frozen = stack.pop()
-        if id(frozen) in seen:
+        if id(frozen) in seen or frozen.checkpoint_by_reference:
             continue
         seen.add(id(frozen))
         found = ledger.live_for(frozen)
@@ -1369,7 +1370,7 @@ def _thaw(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dict]
         stack = list(tops)
         while stack:
             frozen = stack.pop()
-            if id(frozen) in seen:
+            if id(frozen) in seen or frozen.checkpoint_by_reference:
                 continue
             seen.add(id(frozen))
             meta = meta_of.get(frozen)

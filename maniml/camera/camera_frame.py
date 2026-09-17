@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 
 class CameraFrame(Mobject):
+    # The frame is the scene's, never a checkpoint's (see
+    # Mobject.checkpoint_by_reference); checkpoints carry its state
+    # through get_checkpoint_state instead.
+    checkpoint_by_reference = True
+
     def __init__(
         self,
         frame_shape: tuple[float, float] | None = None,   # resolved at call time: follows the pixel aspect
@@ -49,6 +54,25 @@ class CameraFrame(Mobject):
         self.set_width(frame_shape[0], stretch=True)
         self.set_height(frame_shape[1], stretch=True)
         self.move_to(center_point)
+
+    def get_checkpoint_state(self) -> dict:
+        """Everything a checkpoint needs to put the camera back: the points
+        (center and shape), the orientation quaternion and the field of
+        view. The last two live in uniforms, which the points miss, so a
+        snapshot of the points alone restored a zoom but not an orbit or a
+        focal-distance change when seeking backward."""
+        return {
+            "points": self.get_points().copy(),
+            "orientation": np.array(self.uniforms["orientation"], copy=True),
+            "fovy": float(self.uniforms["fovy"]),
+        }
+
+    def set_checkpoint_state(self, state: dict):
+        self.set_points(state["points"])
+        self.uniforms["orientation"][:] = state["orientation"]
+        self.uniforms["fovy"] = state["fovy"]
+        self.note_changed_data()
+        return self
 
     def set_orientation(self, rotation: Rotation):
         self.uniforms["orientation"][:] = rotation.as_quat()

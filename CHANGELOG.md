@@ -127,6 +127,16 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- Checkpoints now restore the camera's orientation and field of view,
+  not only its center and size. A backward seek across a beat that
+  orbited the camera (`set_theta`, `set_phi`, `set_focal_distance`)
+  used to land on the live orientation; zooms were already restored.
+- A namespace variable bound to the camera frame stays live across
+  navigation. Checkpoints deep-copied the frame like any mobject, so
+  after a backward seek `self.play(Restore(frame))` animated a detached
+  copy and the camera snapped at the end of the beat. Freeze and thaw
+  keep the frame by reference (`Mobject.checkpoint_by_reference`); its
+  state travels in the scene snapshot.
 - `z_index` now layers correctly in the browser renderers and baked
   exports. The geometry payload used to merge every same-state mobject
   into one batch regardless of the scene's z_index draw order, and a
