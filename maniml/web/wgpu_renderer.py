@@ -24,6 +24,7 @@ import json
 import re
 import struct
 from math import lcm
+from time import perf_counter
 
 import numpy as np
 
@@ -195,13 +196,170 @@ def load_wgsl(*names: str) -> str:
     return "\n".join(parts)
 
 
+QUERY_SET_LIMIT = 4096  # wgpu refuses a larger query set
+
+
+def _timestamp_period_ns(device):
+    """Nanoseconds per timestamp tick. wgpu-py 0.32 does not wrap the query,
+    but the symbol is in the native library it loads."""
+    from wgpu.backends.wgpu_native._api import libf
+    return float(libf.wgpuQueueGetTimestampPeriod(device.queue._internal))
+
+
+class _PassTimestamps:
+    """Begin and end timestamps for every pass of a frame, under
+    MANIML_GPU_TIMESTAMPS=1 (docs/phase_b1_plan.md, "Third candidate": the
+    wall clock cannot attribute the patch fill's GPU time). Metal samples at
+    pass boundaries only, so a pass is the finest grain, and it lands the
+    last pass's end sample no sooner than the command buffer completes: a
+    resolve in the frame's own command buffer reads that slot stale or
+    zero, a trailing pass does not help, and a second command buffer of the
+    same submission reads it late under load (measured 2026-09-26 on the
+    M3). So the resolve and its staging copy are submitted after the
+    frame's readback, which has waited for the frame, and the slots are
+    mapped straight from the staging buffer. That resolve is not free
+    (about 1.5 ms through the map) and the harnesses time render() to its
+    readback, so it runs on the first read of ``gpu_timings`` after the
+    frame, not inside render(). Passes do not execute in submission order
+    either: a render pass begins at its vertex stage, which on this tiling
+    GPU starts before the previous pass's fragments end, and independent
+    compute passes (one border batch each) run concurrently and finish out
+    of order, so begin-to-end durations overlap and a pass can end before
+    an earlier one. ``exclusive_ms`` is each pass's end past the latest end
+    before it (zero when it ended inside earlier work): non-negative, and
+    adding up to the frame; it attributes a contiguous run of one label,
+    not a single pass among concurrent ones."""
+
+    def __init__(self, device, period_ns, capacity=64):
+        self.device = device
+        self.period_ns = period_ns
+        self.capacity = capacity  # slots in the next query set made
+        self.sets = []  # (query set, slots); a frame fills them in order
+        self.resolve_buffer = self.staging_buffer = None
+        self.passes = []  # (label, set index, begin slot) in submission order
+        self.used = []  # slots taken per set this frame
+        self.spans = []  # byte offset of each set's resolved slots
+        self.unread = False  # a completed frame's slots await their resolve
+
+    def begin_frame(self):
+        self.passes, self.used, self.unread = [], [], False
+
+    def frame_complete(self):
+        """The frame's readback has returned, so its last end sample has
+        landed; the resolve waits for the first reader."""
+        self.unread = True
+
+    def writes(self, label):
+        """``timestamp_writes`` for the next pass: two slots, from a further
+        query set once the current one is full, so a frame of any size is
+        measured whole."""
+        index = max(0, len(self.used) - 1)
+        while True:
+            if index == len(self.sets):
+                slots = min(QUERY_SET_LIMIT, self.capacity)
+                self.sets.append((self.device.create_query_set(type="timestamp", count=slots), slots))
+                self.capacity = 2 * slots
+            if index == len(self.used):
+                self.used.append(0)
+            if self.used[index] + 2 <= self.sets[index][1]:
+                break
+            index += 1
+        slot = self.used[index]
+        self.used[index] = slot + 2
+        self.passes.append((label, index, slot))
+        return {"query_set": self.sets[index][0],
+                "beginning_of_pass_write_index": slot, "end_of_pass_write_index": slot + 1}
+
+    def _resolve(self):
+        """Resolve the frame's slots into the staging buffer: one small
+        submission behind the frame's readback."""
+        encoder = self.device.create_command_encoder()
+        self.spans, size = [], 0
+        for count in self.used:
+            self.spans.append(size)
+            size += -(-count * 8 // 256) * 256  # resolve offsets are 256-aligned
+        if self.resolve_buffer is None or self.resolve_buffer.size < size:
+            # The previous frame's readback completed before this frame began.
+            for buffer in (self.resolve_buffer, self.staging_buffer):
+                if buffer is not None:
+                    buffer.destroy()
+            self.resolve_buffer = self.device.create_buffer(
+                size=size, usage=wgpu.BufferUsage.QUERY_RESOLVE | wgpu.BufferUsage.COPY_SRC)
+            self.staging_buffer = self.device.create_buffer(
+                size=size, usage=wgpu.BufferUsage.MAP_READ | wgpu.BufferUsage.COPY_DST)
+        for (query_set, _), count, span in zip(self.sets, self.used, self.spans):
+            encoder.resolve_query_set(query_set, 0, count, self.resolve_buffer, span)
+        encoder.copy_buffer_to_buffer(self.resolve_buffer, 0, self.staging_buffer, 0, size)
+        self.device.queue.submit([encoder.finish()])
+
+    def read(self):
+        """The frame's timings, once its readback has completed. The raw
+        ticks of the frame's first begin and latest end come along so a
+        reader can tell one frame's stamps from a reused slot's stale
+        ones (each frame's begin_tick follows the previous end_tick)."""
+        self.unread = False
+        if not self.passes:
+            return {"period_ns": self.period_ns, "passes": [], "total_ms": 0.0, "sum_ms": 0.0,
+                    "readback_ms": 0.0, "begin_tick": None, "end_tick": None}
+        started = perf_counter()
+        self._resolve()
+        # wgpu-py's plain READ submits a sync copy of its own first; the
+        # copy just submitted is that sync, as in queue.read_texture.
+        self.staging_buffer.map_sync("READ_NOSYNC")
+        try:
+            ticks = np.frombuffer(self.staging_buffer.read_mapped(), dtype="<u8")
+        finally:
+            self.staging_buffer.unmap()
+        readback_ms = 1000 * (perf_counter() - started)
+        scale = self.period_ns / 1e6
+        # An output pass is "out" alone and out/0, out/1, ... when the frame
+        # reopened it (stencil clears between coverage and patch runs).
+        outs = sum(label == "out" for label, _, _ in self.passes)
+        passes, ordinal, latest_end = [], 0, None
+        for label, index, slot in self.passes:
+            first = self.spans[index] // 8 + slot
+            begin, end = int(ticks[first]), int(ticks[first + 1])
+            if label == "out" and outs > 1:
+                label, ordinal = f"out/{ordinal}", ordinal + 1
+            if latest_end is None:
+                first_begin, exclusive = begin, end - begin
+            else:
+                # A pass Metal finished inside earlier work extended nothing.
+                exclusive = max(0, end - latest_end)
+            latest_end = end if latest_end is None else max(latest_end, end)
+            passes.append({"label": label, "ms": (end - begin) * scale, "exclusive_ms": exclusive * scale})
+        # readback_ms is the instrument's own cost, paid on this read after
+        # the frame; the harnesses read after their timers stop.
+        return {"period_ns": self.period_ns, "passes": passes,
+                "total_ms": (latest_end - first_begin) * scale,
+                "sum_ms": sum(entry["ms"] for entry in passes), "readback_ms": readback_ms,
+                "begin_tick": first_begin, "end_tick": latest_end}
+
+    def close(self):
+        for query_set, _ in self.sets:
+            query_set.destroy()
+        for buffer in (self.resolve_buffer, self.staging_buffer):
+            if buffer is not None:
+                buffer.destroy()
+        self.sets, self.resolve_buffer, self.staging_buffer = [], None, None
+
+
 class WgpuRenderer:
     """Renders parsed geometry messages with WebGPU."""
 
     def __init__(self):
         adapter = wgpu.gpu.request_adapter_sync(
             power_preference="high-performance")
-        self.device = adapter.request_device_sync()
+        # Timestamps are opt-in and, when off, ask nothing of the device.
+        self._timestamps = None
+        features = []
+        if os.environ.get("MANIML_GPU_TIMESTAMPS") == "1":
+            self._gpu_timings = None
+            if wgpu.FeatureName.timestamp_query in adapter.features:
+                features = [wgpu.FeatureName.timestamp_query]
+        self.device = adapter.request_device_sync(required_features=features)
+        if features:
+            self._timestamps = _PassTimestamps(self.device, _timestamp_period_ns(self.device))
         self._modules = {
             key: self.device.create_shader_module(code=load_wgsl(*sources))
             for key, sources in MODULE_SOURCES.items()
@@ -451,7 +609,7 @@ class WgpuRenderer:
             outputs[id(batch)] = outputs_by_state[(key, state)] = output
             if output["state"] == state:
                 continue
-            compute = encoder.begin_compute_pass()
+            compute = encoder.begin_compute_pass(**self._pass_timing("programs"))
             if kind == "blend":
                 # One float per invocation, over two sources.
                 pipeline = self._program_pipeline("row_blend")
@@ -619,7 +777,7 @@ class WgpuRenderer:
                 camera = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
                 uniform_buffers[packed] = camera
                 temporary.append(camera)
-            compute = encoder.begin_compute_pass()
+            compute = encoder.begin_compute_pass(**self._pass_timing("nets"))
             compute.set_pipeline(pipeline)
             compute.set_bind_group(1, output["binding"])
             per_patch = gpu_net_geometry.vertices_per_patch(capacity)
@@ -704,7 +862,33 @@ class WgpuRenderer:
                 "depth_clear_value": 1.0,
                 "stencil_load_op": "clear" if clear_color is not None or clear_stencil else "load",
                 "stencil_store_op": "store", "stencil_clear_value": 0,
-            })
+            }, **self._pass_timing("out"))
+
+    def _pass_timing(self, label):
+        """The pass descriptor's timestamp writes when timestamps are on, and
+        nothing at all otherwise: the flag-off command stream is the pinned
+        one."""
+        timestamps = getattr(self, "_timestamps", None)
+        if timestamps is None:
+            return {}
+        return {"timestamp_writes": timestamps.writes(label)}
+
+    @property
+    def gpu_timings(self):
+        """The last frame's GPU pass timings under MANIML_GPU_TIMESTAMPS=1
+        (_PassTimestamps.read): None before the first frame, after a failed
+        one, and when the adapter offers no timestamp queries; absent
+        altogether with the flag off. The query resolve and its map run on
+        the first read after a frame, so render() still ends at the frame's
+        readback and a harness that reads this after its timer stops does
+        not time the instrument."""
+        try:
+            timings = self._gpu_timings
+        except AttributeError:
+            raise AttributeError("gpu_timings exist only under MANIML_GPU_TIMESTAMPS=1") from None
+        if timings is None and self._timestamps is not None and self._timestamps.unread:
+            timings = self._gpu_timings = self._timestamps.read()
+        return timings
 
     def _texture_bind_group(self, pipeline, batch):
         hashes = list(batch.get("textures", {}).values())
@@ -1032,7 +1216,7 @@ class WgpuRenderer:
                 camera = self.device.create_buffer_with_data(data=packed, usage=wgpu.BufferUsage.UNIFORM)
                 uniform_buffers[packed] = camera
                 temporary.append(camera)
-            compute = encoder.begin_compute_pass()
+            compute = encoder.begin_compute_pass(**self._pass_timing("borders"))
             compute.set_pipeline(pipeline)
             compute.set_bind_group(1, output["binding"])
             for offset in range(0, count, max_dispatch):
@@ -1376,6 +1560,11 @@ class WgpuRenderer:
         previous_tables, previous_patch_uniforms = set(self._object_tables), set(self._patch_uniforms)
         previous_net_sources, previous_net_outputs = set(self._net_sources), set(self._net_outputs)
         previous_program_sources, previous_program_outputs = set(self._program_sources), set(self._program_outputs)
+        timestamps = getattr(self, "_timestamps", None)
+        if timestamps is not None:
+            # A frame that fails reports no timings, not the previous frame's.
+            timestamps.begin_frame()
+            self._gpu_timings = None
         temporary = []
         try:
             paint_keys = self._prepare_paints(header, vertex_bytes)
@@ -1464,6 +1653,8 @@ class WgpuRenderer:
         raw = device.queue.read_texture(
             {"texture": output, "origin": (0, 0, 0)},
             {"offset": 0, "bytes_per_row": size[0] * 4, "rows_per_image": size[1]}, (*size, 1))
+        if timestamps is not None:
+            timestamps.frame_complete()
         return Image.frombytes("RGBA", size, bytes(raw))
 
     @staticmethod
@@ -1495,7 +1686,7 @@ class WgpuRenderer:
                 entries=[{"binding": 0, "resource": source.create_view()}])
         render_pass = encoder.begin_render_pass(color_attachments=[{
             "view": self._spatial_texture.create_view(), "load_op": "clear",
-            "store_op": "store", "clear_value": (0, 0, 0, 0)}])
+            "store_op": "store", "clear_value": (0, 0, 0, 0)}], **self._pass_timing("resolve"))
         render_pass.set_pipeline(self._spatial_pipeline)
         render_pass.set_bind_group(0, self._spatial_binding)
         render_pass.draw(3)
@@ -1547,6 +1738,8 @@ class WgpuRenderer:
         self.texture_cache.clear()
         self._pipelines.clear()
         self._spatial_binding = self._spatial_pipeline = self._spatial_texture = None
+        if getattr(self, "_timestamps", None) is not None:
+            self._timestamps.close()
         self.device.destroy()
         self._closed = True
 

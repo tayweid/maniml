@@ -92,6 +92,116 @@ mixing clocks.
 For intentionally continuous updater fixtures, use `--continuous-seconds 3`
 so the harness samples a bounded active window instead of waiting for idle.
 
+## GPU pass timestamps
+
+`python -m benchmarks.gpu_borders --gpu-timestamps ...` (or
+`MANIML_GPU_TIMESTAMPS=1` for any `WgpuRenderer`) stamps every GPU pass of a
+generated frame at its boundaries, the finest grain Metal offers, and puts the
+result beside the wall-clock columns. The labels are `programs`, `borders`,
+`nets`, `out` and `resolve`. Read two things as costs: `gpu_total_ms`, the
+frame on the GPU (first pass begin to latest pass end), and the per-label
+`gpu_exclusive_<label>_ms` sums, which add up to it. The other columns are
+diagnostics that read like costs and are not: `gpu_pass_<label>_ms` is begin
+to end, and for any pass after the first mostly waiting, because a render
+pass begins at its vertex stage, which on Apple's tiling GPU starts before
+the previous pass's fragments end (`gpu_pass_resolve_ms` is the resolve's
+wait, about equal to the out pass, while its exclusive time is ~0.1 ms);
+`gpu_sum_ms` adds the pass durations and lands on either side of the total
+for different reasons (overlap, or gaps between passes on a many-pass
+frame). Independent compute passes, one per changed border batch, run
+concurrently and finish out of order on Metal (16-51 of a 259-pass frame's
+passes end before an earlier one), so exclusive time is each pass's end past
+the latest end before it, zero for a pass that finished inside earlier work:
+it attributes a contiguous run of one label and the frame, never a single
+pass among concurrent ones. A pass the frame did not encode has no column on
+that row, and both harnesses reduce a column over the rows that carry it,
+reporting `n`.
+
+Two more facts keep the instrument out of the numbers it sits beside. The
+last pass's end sample lands only once the frame's command buffer completes,
+so the resolve and its staging copy are one small submission after the
+frame's readback, run on the first read of `renderer.gpu_timings` rather
+than inside `render()`; the harnesses read it after their timers stop, so no
+wall-clock column contains it (`gpu_readback_ms`, about 1.5 ms, is that
+cost, recorded). What the flag does perturb is the stamped passes
+themselves, roughly 30 µs of wall clock per pass on the M3: below noise on
+a 2-3 pass steady-state frame, about 1 ms on a 25-40 pass cold or navigation
+frame, 8-9 ms on the 259-pass one. Cold rows under the flag are therefore
+not the flag-off navigation cost; read per-pass compute costs on cold frames
+from flag-off wall clock, and take the gate's totals from a run without the
+flag. Timestamps also do not remove the GPU clock confound: the period is a
+fixed nanosecond clock, so pass durations stretch with the M3's clock state,
+which follows the whole machine's load (the same cached frame's
+`gpu_total_ms` ranged 0.27-0.91 ms across minutes of varying concurrent
+load; other GPU clients preempt inside a pass). Measure on a quiet machine,
+keep the frame-by-frame rotation, read minima and medians together, and
+never compare `gpu_` columns across runs taken under different load. Every
+report carries these as `gpu_timing_scope` and `gpu_clock_caveat`. Original
+2D and native GL are not instrumented and are never charged the instrument.
+`probes/patch_pass_probe.py` prints the same numbers for its skipped-draw
+variants.
+
+## Episode frames
+
+`python -m benchmarks.episode_frames --scene <file.py> <Scene> --output <dir>`
+measures the renderer variants on frames of a real course episode, the
+"one course episode" the B1 gate needs beside the fixture corpus
+(`docs/phase_b_plan.md`, "Decided before the start"). The scene is loaded as
+the CLI loads it and its checkpoints are built as present mode builds them;
+every pausepoint (or every `--every`-th checkpoint of a file without pauses,
+thinned evenly to `--max-frames` keeping the last, with no weighting by
+on-screen time or heaviness) is restored in turn and each variant renders it
+through `gpu_borders.sample`, warmups then samples in rotated order. One
+renderer, cache and queue per variant lasts the whole run, as a viewer
+session's do. The live viewer draws three kinds of frame and the harness has
+a row for each:
+
+- **Pausepoint** (always): the steady-state redraw of the restored frame,
+  sources static between rounds. That is the cost of a camera change, not
+  the live per-frame cost at a pausepoint whose mobjects have updaters: the
+  viewer ticks those every idle frame (`viewer.py`,
+  `should_update_mobjects`) and they regenerate what they drive, which is
+  exactly the CPU work where Phase A and the patch fill differ.
+  `should_update_mobjects` is recorded per frame.
+- **Pausepoint, updaters ticking** (`--tick-updaters`): on such frames every
+  round is preceded by `scene.update_mobjects(1/fps)`, as the idle loop
+  ticks them, so the rows carry that regeneration (`updaters_ticked`).
+- **Play** (`--play-frames`): the play leading into each pausepoint (the
+  last checkpoint with a `run_time` at or before it) is replayed from the
+  checkpoint before it through the scene's own retained replay at
+  `camera.fps`, and its middle frames are sampled in turn, one rotation of
+  the variants per frame with the scene mid-interpolation. The scene
+  changes between rows as it does on screen.
+
+The first row after each restore is kept per frame as `cold` and excluded;
+a seek is what cold rows feel like, and they are perturbed by the flag
+below, so they are archived, not summarised. A `ThreeDScene`'s ambient
+rotation, which turns the camera per update call and whose switch no
+checkpoint restores, is switched off before each frame's display pass.
+Pixels are compared per frame in `gpu_borders.run_case`'s pairs
+(`patch_vs_gpu_border`, `patch_vs_cpu` when `cpu_border` is in rotation,
+`patch_vs_original`, `gpu_vs_cpu`, `gpu_vs_original`; the gate reads the
+two against CPU-border Phase A and Original 2D), and the table prints them.
+`report.json` holds every row; `summary.json` the medians and minimums with
+`n`, the pixel pairs, the scene, commit, machine and the scope caveats; the
+markdown table is printed and written as `summary.md`.
+
+The GPU pass columns above appear under `--gpu-timestamps`, an attribution
+run; by default the flag is off and the totals are the gate's. The default
+rotation of three renderers serves the pixel pairs, but for the completion
+comparison run two at a time (`--variants patch_fill gpu_border`, then
+`--variants patch_fill original_2d`): with three, most generated readbacks
+follow another renderer's frame (Original 2D's 15-17 ms one at 2160x1080),
+the alternation effect `gpu_borders.run_case` records. A gate run is thus
+four commands: the two two-variant runs without the flag, one with
+`--tick-updaters --play-frames` for the live frames, and one with the flag
+for attribution; the report's `gate_scope` names what none of them measures
+(the browser driver, cold rows, unselected pausepoints). A variant that
+fails on a frame (an unsupported prototype, a singular camera) is recorded
+under that frame's `errors` and the frame keeps the rest. Pass the episode by
+absolute path (its own `../_Assets` imports resolve from it); TeX is needed;
+nothing is written beside the episode.
+
 ## Point reads by kind and phase
 
 The instruction-stream plan's prerequisite: which Python reads of source

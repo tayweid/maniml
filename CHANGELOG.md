@@ -7,6 +7,16 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The native renderer can time its GPU passes. `MANIML_GPU_TIMESTAMPS=1`
+  requests Metal/WebGPU timestamp queries when the adapter offers them and,
+  after every frame, `WgpuRenderer.gpu_timings` gives each pass's span and
+  its exclusive share of the frame (Metal starts a render pass's vertex
+  work before the previous pass's fragments finish, so spans overlap;
+  the exclusive figures add up to the frame). Off by default and inert.
+  `benchmarks/gpu_borders.py --gpu-timestamps` reports the columns; the
+  new `benchmarks/episode_frames.py` measures the renderers on frames of a
+  real course episode (`--tick-updaters`, `--play-frames`); the recipe and
+  the caveats are in `benchmarks/README.md`.
 - Phase A is the default WebGPU renderer for the live viewer, movies,
   checkpoint images and new baked exports. The viewer's renderer control
   switches to **Original 2D** for comparison at the same checkpoint.

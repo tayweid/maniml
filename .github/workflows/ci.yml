@@ -83,6 +83,7 @@ jobs:
           tests.test_border_compute
           tests.test_gpu_border_quality
           tests.test_patch_fill
+          tests.test_gpu_timestamps
           tests.test_bezier_net
           tests.test_surface_net
           tests.test_program_blend
@@ -177,5 +178,6 @@ jobs:
           tests.test_modes
           tests.test_ce_surface_spelling
           tests.test_export
+          tests.test_episode_frames
           tests.test_app
           tests.test_web_viewer
