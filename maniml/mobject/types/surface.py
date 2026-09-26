@@ -5,6 +5,7 @@ import numpy as np
 from maniml.constants import GREY
 from maniml.constants import OUT
 from maniml.mobject.mobject import Mobject
+from maniml.utils import bezier_net
 from maniml.utils.bezier import integer_interpolate
 from maniml.utils.bezier import interpolate
 from maniml.utils.bezier import inverse_interpolate
@@ -25,6 +26,15 @@ if TYPE_CHECKING:
 
 
 class Surface(Mobject):
+    """A surface is a biquadratic Bézier net (docs/phase_b2_plan.md): its
+    points are an odd-sized grid of control points, ``resolution`` names
+    the net's density, and the surface is the net evaluated in two
+    parameters. ``uv_func`` is sampled once at construction into the net
+    that passes through every sample. The reference renderers draw the net
+    evaluated on the CPU at two steps per patch, which is exactly the
+    sample grid; the GPU evaluates it at screen density. A subclass that
+    owns an explicit mesh (``VMobject3D``) sets ``net = False``."""
+    net: bool = True
     render_primitive: int = 4
     shader_folder: str = "surface"
     data_dtype: np.dtype = np.dtype([
@@ -55,7 +65,10 @@ class Surface(Mobject):
     ):
         self.u_range = u_range
         self.v_range = v_range
-        self.resolution = resolution
+        # The net's size: odd along each axis, at least three, so that a
+        # requested (2, 2) is one patch (bezier_net.net_shape).
+        self.resolution = bezier_net.net_shape(resolution) if self.net else tuple(resolution)
+        self._grid_cache = None
         self.prefered_creation_axis = prefered_creation_axis
         self.epsilon = epsilon
         self.normal_nudge = normal_nudge
@@ -97,35 +110,89 @@ class Surface(Mobject):
         ]
         crosses = cross(du_points - points, dv_points - points)
         normals = normalize_along_axis(crosses, 1)
+        nudged = points + self.normal_nudge * normals
+        if self.net and nu and nv:
+            # The net whose patches pass through every sample, for the
+            # points and for the nudged normal points alike.
+            points = bezier_net.interpolating_net(points.reshape(nu, nv, dim)).reshape(-1, dim)
+            nudged = bezier_net.interpolating_net(nudged.reshape(nu, nv, dim)).reshape(-1, dim)
 
         self.set_points(points)
-        self.data['d_normal_point'] = points + self.normal_nudge * normals
+        self.data['d_normal_point'] = nudged
+
+    # The net, evaluated
+
+    def get_net(self) -> np.ndarray:
+        """The control net as ``(nu, nv, fields)`` float64, every data field
+        flattened: points, normal points, colour or image coordinates."""
+        nu, nv = self.resolution
+        return self.data.view(np.float32).reshape(nu, nv, -1).astype(float)
+
+    def _set_net(self, net: np.ndarray) -> None:
+        """Replace the data with a net of the same fields, resizing."""
+        nu, nv, fields = net.shape
+        flat = np.ascontiguousarray(net.reshape(-1, fields).astype(np.float32))
+        self.resize_points(nu * nv)
+        self.data[:] = flat.view(self.data.dtype).reshape(-1)
+        self.resolution = (nu, nv)
+        self.compute_triangle_indices()
+        self._grid_cache = None
+
+    def get_grid_data(self) -> np.ndarray:
+        """The net evaluated at two steps per patch: a grid of the data
+        dtype with the net's own shape, whose anchors and midpoints are the
+        construction's samples. Cached per revision, since the renderers
+        ask every frame."""
+        if not self.net or not self.has_points():
+            return self.data
+        cache = self._grid_cache
+        if cache is not None and cache[0] == self.revision and cache[1] is self.data:
+            return cache[2]
+        nu, nv = self.resolution
+        grid = bezier_net.evaluate(self.get_net(), 2, 2)
+        flat = np.ascontiguousarray(grid.reshape(nu * nv, -1).astype(np.float32))
+        result = flat.view(self.data.dtype).reshape(-1)
+        result.flags.writeable = False
+        self._grid_cache = (self.revision, self.data, result)
+        return result
+
+    def get_grid_points(self) -> Vect3Array:
+        return self.get_grid_data()['point']
+
+    def get_grid_unit_normals(self) -> Vect3Array:
+        grid = self.get_grid_data()
+        return normalize_along_axis(grid['d_normal_point'] - grid['point'], 1)
 
     def uv_to_point(self, u, v):
-        nu, nv = self.resolution
-        uv_grid = np.reshape(self.get_points(), (nu, nv, self.dim))
-
         alpha1 = clip(inverse_interpolate(*self.u_range[:2], u), 0, 1)
         alpha2 = clip(inverse_interpolate(*self.v_range[:2], v), 0, 1)
-        scaled_u = alpha1 * (nu - 1)
-        scaled_v = alpha2 * (nv - 1)
-        u_int = int(scaled_u)
-        v_int = int(scaled_v)
-        u_int_plus = min(u_int + 1, nu - 1)
-        v_int_plus = min(v_int + 1, nv - 1)
+        if not self.net:
+            nu, nv = self.resolution
+            uv_grid = np.reshape(self.get_points(), (nu, nv, self.dim))
+            scaled_u, scaled_v = alpha1 * (nu - 1), alpha2 * (nv - 1)
+            u_int, v_int = int(scaled_u), int(scaled_v)
+            a = uv_grid[u_int, v_int]
+            b = uv_grid[u_int, min(v_int + 1, nv - 1)]
+            c = uv_grid[min(u_int + 1, nu - 1), v_int]
+            d = uv_grid[min(u_int + 1, nu - 1), min(v_int + 1, nv - 1)]
+            return interpolate(interpolate(a, b, scaled_v % 1), interpolate(c, d, scaled_v % 1), scaled_u % 1)
+        nu, nv = self.resolution
+        return bezier_net.evaluate_at(self.get_points().reshape(nu, nv, self.dim), alpha1, alpha2)
 
-        a = uv_grid[u_int, v_int, :]
-        b = uv_grid[u_int, v_int_plus, :]
-        c = uv_grid[u_int_plus, v_int, :]
-        d = uv_grid[u_int_plus, v_int_plus, :]
-
-        u_res = scaled_u % 1
-        v_res = scaled_v % 1
-        return interpolate(
-            interpolate(a, b, v_res),
-            interpolate(c, d, v_res),
-            u_res
-        )
+    def align_points(self, mobject: Mobject) -> Self:
+        """Two nets are aligned by exact subdivision until their patch
+        counts agree, as curves are; neither surface moves. Anything else
+        falls back to resizing by index."""
+        if (isinstance(mobject, Surface) and self.net and mobject.net
+                and self.has_points() and mobject.has_points()
+                and self.data.dtype == mobject.data.dtype):
+            if self.resolution != mobject.resolution:
+                mine, theirs = bezier_net.align(self.get_net(), mobject.get_net())
+                for mob, net in ((self, mine), (mobject, theirs)):
+                    mob._set_net(net)
+                    mob.note_changed_data()
+            return self
+        return super().align_points(mobject)
 
     def apply_points_function(self, *args, **kwargs) -> Self:
         super().apply_points_function(*args, **kwargs)
@@ -224,7 +291,7 @@ class Surface(Mobject):
     @Mobject.affects_data
     def sort_faces_back_to_front(self, vect: Vect3 = OUT) -> Self:
         tri_is = self.triangle_indices
-        points = self.get_points()
+        points = self.get_grid_points() if self.net else self.get_points()
 
         dots = (points[tri_is[::3]] * vect).sum(1)
         indices = np.argsort(dots)
@@ -241,6 +308,11 @@ class Surface(Mobject):
 
     def get_shader_vert_indices(self) -> np.ndarray:
         return self.get_triangle_indices()
+
+    def get_shader_data(self) -> np.ndarray:
+        if not self.net:
+            return super().get_shader_data()
+        return self.get_grid_data()[self.get_triangle_indices()]
 
 
 class ParametricSurface(Surface):

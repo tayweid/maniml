@@ -83,6 +83,10 @@ async function driver(options = {}) {
     createComputePipeline(descriptor) {
       return {descriptor, id: ++sequence, getBindGroupLayout(index) { return {pipeline: this, index}; }};
     },
+    // Explicit layouts, as the patch pipelines use: a bind group made from
+    // one is compatible with every pipeline whose layout lists it.
+    createBindGroupLayout: descriptor => ({explicit: true, descriptor}),
+    createPipelineLayout: descriptor => ({explicit: true, descriptor}),
     createSampler: descriptor => ({ descriptor }),
     createBindGroup: descriptor => descriptor,
     createTexture: makeTexture,
@@ -105,10 +109,10 @@ async function driver(options = {}) {
           return {
             setPipeline(pipeline) { pass.pipeline = pipeline; },
             setBindGroup(index, binding) { pass.bindings.set(index, binding); },
-            dispatchWorkgroups(count) {
+            dispatchWorkgroups(count, rows = 1) {
               assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
               assert.equal(pass.bindings.get(1).layout.pipeline, pass.pipeline);
-              pass.draws.push({bindings: new Map(pass.bindings), count});
+              pass.draws.push({bindings: new Map(pass.bindings), count, rows, pipeline: pass.pipeline});
             },
             end() { pass.ended = true; },
           };
@@ -128,8 +132,19 @@ async function driver(options = {}) {
           };
           function record(indexed, args) {
             // Automatic layouts are specific to the concrete pipeline, even
-            // when two shader entry points declare the same uniform struct.
-            assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
+            // when two shader entry points declare the same uniform struct;
+            // an explicit layout must be one the pipeline's layout lists.
+            // A group the pipeline's layout does not list is ignored, as
+            // WebGPU ignores it; one it lists must be that layout.
+            const layout = pass.pipeline.descriptor.layout;
+            for (const [index, binding] of pass.bindings) {
+              if (layout.explicit) {
+                const listed = layout.descriptor.bindGroupLayouts[index];
+                if (listed !== undefined) assert.equal(binding.layout, listed, "bind group layout is not the pipeline's at group " + index);
+              } else if (!binding.layout.explicit && index === 0) {
+                assert.equal(binding.layout.pipeline, pass.pipeline);
+              }
+            }
             pass.draws.push({ pipeline: pass.pipeline, bindings: new Map(pass.bindings),
               stencil: pass.stencil, vertices: [...pass.vertices], index: indexed ? pass.index : null, indexed, args });
           }
@@ -154,8 +169,53 @@ async function driver(options = {}) {
                 for (const binding of draw.bindings.values()) {
                   for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
                 }
-                const params = new Uint32Array(draw.bindings.get(0).entries[1].resource.buffer.bytes);
+                const group0 = draw.bindings.get(0).entries;
+                if (group0.length === 1) {
+                  // A program kernel: params alone in group 0, 16 bytes.
+                  const words = new Uint32Array(group0[0].resource.buffer.bytes);
+                  const buffers = draw.bindings.get(1).entries.map(entry => entry.resource);
+                  const code = draw.pipeline.descriptor.compute.module.code;
+                  if (code.includes("BlendParams")) {
+                    assert.equal(group0[0].resource.size, 16);
+                    assert.equal(buffers.length, 3);
+                    assert.ok(buffers.every(buffer => words[0] * 4 <= buffer.size), "blend within its rows");
+                    assert.equal(draw.count, Math.ceil(words[0] / 256));
+                  } else if (code.includes("AffineParams") || code.includes("PaintParams") || code.includes("PartialParams")) {
+                    // A row kernel: rows first, one source and one output of 17 floats per row.
+                    assert.equal(group0[0].resource.size, code.includes("AffineParams") ? 80 : code.includes("PaintParams") ? 16 : 32);
+                    assert.equal(buffers.length, 2);
+                    assert.ok(buffers.every(buffer => words[0] * 17 * 4 <= buffer.size), "row kernel within its rows");
+                    assert.equal(draw.count, Math.ceil(words[0] / 64));
+                    if (code.includes("PartialParams")) {
+                      const [rows, curves, lower, upper] = words;
+                      assert.equal(curves, Math.floor(rows / 2));
+                      assert.ok(lower < curves && upper < curves);
+                    }
+                  } else {
+                    assert.equal(group0[0].resource.size, 16);
+                    const [curves, channels] = words, [rows, records, strokes] = buffers;
+                    assert.equal(channels, 17);
+                    assert.ok((2 * curves + 1) * channels * 4 <= rows.size, "finalize within its rows");
+                    assert.ok(curves * 176 <= records.size && curves * 204 <= strokes.size);
+                    assert.equal(draw.count, Math.ceil(curves / 64));
+                  }
+                  continue;
+                }
+                const paramsResource = group0[1].resource;
+                const params = new Uint32Array(paramsResource.buffer.bytes);
                 const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
+                if (paramsResource.size === 48) {
+                  // A surface net: [_, nu, nv, channels, capacity, output base, patch offset, patch count].
+                  const [, nu, nv, channels, capacity, base, patchOffset, patchCount] = params;
+                  const side = capacity + 1;
+                  assert.ok(nu * nv * channels * 4 <= source.size);
+                  assert.ok(capacity >= 2 && capacity <= 32);
+                  assert.ok((base + patchCount * side * side) * channels * 4 <= output.size);
+                  assert.ok(patchOffset + patchCount <= ((nu - 1) / 2) * ((nv - 1) / 2));
+                  assert.equal(draw.count, patchCount);
+                  assert.equal(draw.rows, Math.ceil(side * side / 64));
+                  continue;
+                }
                 assert.ok((params[0] + params[1]) * 176 <= source.size);
                 assert.ok(params[4] % 2 === 0 && params[4] >= 4 && params[4] <= 64, "capacity is an even vertex count");
                 assert.ok((params[2] + params[1] * params[4]) * 40 <= output.size);
@@ -193,6 +253,7 @@ async function driver(options = {}) {
       getPreferredCanvasFormat: () => "bgra8unorm" } },
     GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4, STORAGE: 8, COPY_SRC: 16, COPY_DST: 32 },
     GPUTextureUsage: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_DST: 4 },
+    GPUShaderStage: { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 },
     fetch: async name => ({ ok: true, text: async () => fs.readFileSync(path.join(STATIC, name), "utf8") }),
     createImageBitmap: options.decode || (async () => ({ width: 2, height: 2, close() {} })),
     Blob, TextDecoder, ArrayBuffer, Uint8Array, Uint32Array, Float32Array, DataView,
@@ -802,6 +863,187 @@ const cases = {
       assert.deepEqual(Array.from(pass.descriptor.colorAttachments[0].view.texture.descriptor.size), resolution);
       assert.equal(pass.draws[0].pipeline.descriptor.multisample.count, i ? 4 : 1);
     }
+  },
+  // A real patch fill frame from the Python encoder (tests.test_generated_webgpu_commands):
+  // three red squares and a blue one, so one instanced group of three and one alone.
+  async patchWire() {
+    const d = await driver();
+    const file = fs.readFileSync(process.argv[3]);
+    const passes = await d.renderBytes(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
+    const compute = passes.filter(pass => pass.compute);
+    assert.equal(compute.length, 1, "the border stage runs once for the run");
+    const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const kinds = scene.draws.map(draw => draw.pipeline.descriptor.vertex.entryPoint
+      + (draw.pipeline.descriptor.vertex.buffers.length ? ":strip" : ""));
+    // Per group: fan mark, patch mark, strip mark, cover, strip cover.
+    const perGroup = ["vs_fan", "vs_patch", "vs_main:strip", "vs_cover", "vs_main:strip"];
+    assert.deepEqual(kinds, [...perGroup, ...perGroup]);
+    const [fanA, patchA, stripMarkA, coverA, stripCoverA, fanB] = scene.draws;
+    assert.deepEqual(fanA.args, [12, 3, 0, 0], "three instances of a four-curve square");
+    assert.deepEqual(patchA.args, [12, 3, 0, 0]);
+    assert.deepEqual(coverA.args, [24, 3, 0, 0]);
+    assert.deepEqual(fanB.args, [12, 1, 0, 3]);
+    assert.equal(stripMarkA.stencil, 0x80);
+    assert.equal(coverA.stencil, 0);
+    assert.equal(stripMarkA.pipeline.descriptor.fragment.targets[0].writeMask, 0);
+    assert.equal(stripMarkA.pipeline.descriptor.depthStencil.stencilWriteMask, 0x80);
+    assert.equal(stripCoverA.pipeline.descriptor.depthStencil.stencilFront.passOp, "zero");
+    assert.equal(fanA.pipeline.descriptor.depthStencil.stencilFront.passOp, "increment-wrap");
+    assert.equal(fanA.pipeline.descriptor.depthStencil.stencilBack.passOp, "decrement-wrap");
+    assert.equal(fanA.pipeline.descriptor.depthStencil.stencilWriteMask, 0x7F);
+    assert.equal(fanA.pipeline.descriptor.fragment.targets[0].writeMask, 0);
+    assert.equal(coverA.pipeline.descriptor.fragment.targets[0].writeMask, 15);
+    assert.equal(coverA.pipeline.descriptor.depthStencil.stencilFront.compare, "not-equal");
+    // The strips draw the border stage's output through the surface pipeline
+    // with the run's strip pattern; the fan draws pull from the records and
+    // the object table.
+    const output = compute[0].draws[0].bindings.get(1).entries[1].resource.buffer;
+    assert.equal(stripMarkA.vertices[0], output);
+    assert.equal(stripMarkA.args[2], 0);
+    assert.equal(stripCoverA.args[2], 0);
+    const strips = new Uint32Array(stripMarkA.index.buffer.bytes);
+    assert.equal(strips.length, stripMarkA.args[0] + fanB.args[0] / 12 * stripMarkA.args[0] / 3);
+    const objects = fanA.bindings.get(1).entries[1].resource.buffer;
+    assert.equal(objects.bytes.byteLength, 4 * 32, "eight words per object");
+    const words = new Float32Array(objects.bytes);
+    assert.deepEqual([words[3], words[4], words[5], words[11], words[12]], [0, 4, 1, 4, 4]);
+    // The same frame again reuses everything; an empty frame retires it.
+    const again = await d.renderBytes(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
+    assert.equal(again.filter(pass => pass.compute).length, 0, "the border stage's state is unchanged");
+    const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
+    const before = resident();
+    await d.render([], {format_version: 7});
+    assert.ok(resident() < before - 3, "records, table, output and index pattern retire");
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // Two real surface net frames: the port's surfaces scene, then the same
+  // scene after a zoom, whose batches are cached at a larger reservation.
+  async netWire() {
+    const d = await driver();
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const first = await d.renderBytes(load(process.argv[3]));
+    const compute = first.filter(pass => pass.compute);
+    assert.equal(compute.length, 2, "one evaluation per net");
+    const scene = first.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    assert.equal(scene.draws.length, 2);
+    const [sphere, textured] = scene.draws;
+    for (const [draw, pass] of [[sphere, compute[0]], [textured, compute[1]]]) {
+      assert.ok(draw.indexed);
+      assert.equal(draw.vertices[0], pass.draws[0].bindings.get(1).entries[1].resource.buffer, "draws the evaluated output");
+      const params = new Uint32Array(pass.draws[0].bindings.get(0).entries[1].resource.buffer.bytes);
+      const [, nu, nv, , capacity] = params;
+      const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
+      assert.equal(draw.args[0], patches * 6 * capacity * capacity);
+      const indices = new Uint32Array(draw.index.buffer.bytes);
+      assert.equal(indices.length, draw.args[0]);
+      assert.deepEqual(Array.from(indices.slice(0, 6)), [0, capacity + 1, 1, 1, capacity + 1, capacity + 2]);
+    }
+    assert.equal(sphere.pipeline.descriptor.vertex.buffers[0].arrayStride, 40);
+    assert.equal(textured.pipeline.descriptor.vertex.buffers[0].arrayStride, 36);
+    assert.ok(textured.bindings.get(1).entries.some(entry => entry.resource.texture), "the texture binds as before");
+    const outputs = compute.map(pass => pass.draws[0].bindings.get(1).entries[1].resource.buffer);
+    const sources = compute.map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer);
+    const second = await d.renderBytes(load(process.argv[4]));
+    const again = second.filter(pass => pass.compute);
+    assert.equal(again.length, 2, "a zoom re-evaluates both nets");
+    const grown = second.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment).draws;
+    assert.ok(grown[0].args[0] > sphere.args[0], "the reservation grew with the zoom");
+    assert.deepEqual(again.map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer), sources, "sources are reused");
+    assert.ok(outputs.every(output => output.destroyed), "the old reservations retire after the frame");
+    assert.ok(sphere.index.buffer.destroyed);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // Three real program frames (docs/phase_b3_plan.md): a path and a net
+  // under a blend, then the same play at another alpha with nothing but
+  // the scalar on the wire, then that frame again.
+  async programWire() {
+    const d = await driver();
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const first = await d.renderBytes(load(process.argv[3]));
+    const compute = first.filter(pass => pass.compute);
+    // The path's blend and finalize share a pass; the net's blend is one;
+    // then the border stage and the net stage read the outputs.
+    assert.deepEqual(compute.map(pass => pass.draws.length), [2, 1, 1, 1]);
+    const [pathProgram, netProgram, border, net] = compute;
+    // The fake records a pass's last pipeline: the path's pass ends in the
+    // finalize kernel, the net's is the blend alone.
+    const code = pass => pass.pipeline.descriptor.compute.module.code;
+    assert.ok(code(pathProgram).includes("FinalizeParams") && code(netProgram).includes("BlendParams"));
+    assert.ok(!code(border).includes("BlendParams") && !code(net).includes("BlendParams"));
+    const rows = pathProgram.draws[0].bindings.get(1).entries[2].resource.buffer;
+    const records = pathProgram.draws[1].bindings.get(1).entries[1].resource.buffer;
+    const strokes = pathProgram.draws[1].bindings.get(1).entries[2].resource.buffer;
+    assert.equal(pathProgram.draws[1].bindings.get(1).entries[0].resource.buffer, rows, "finalize reads the blended rows");
+    assert.equal(border.draws[0].bindings.get(1).entries[0].resource.buffer, records, "the border stage reads the finalized records");
+    const netRows = netProgram.draws[0].bindings.get(1).entries[2].resource.buffer;
+    assert.equal(net.draws[0].bindings.get(1).entries[0].resource.buffer, netRows, "the net stage reads the blended net");
+    const alpha = pass => new Float32Array(pass.draws[0].bindings.get(0).entries[0].resource.buffer.bytes)[1];
+    // The scalar is the play's eased alpha, the same for both animations.
+    const first_alpha = alpha(pathProgram);
+    assert.ok(first_alpha > 0 && first_alpha < 1 && alpha(netProgram) === first_alpha);
+    const scene = first.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const kinds = scene.draws.map(draw => draw.pipeline.descriptor.vertex.entryPoint);
+    assert.deepEqual(kinds, ["vs_fan", "vs_patch", "vs_main", "vs_cover", "vs_main", "vs_main", "vs_main"]);
+    const [fan, , stripMark, , , stroke, surface] = scene.draws;
+    assert.equal(fan.bindings.get(1).entries[0].resource.buffer, records, "the fan pulls from the finalized records");
+    assert.equal(stripMark.vertices[0], border.draws[0].bindings.get(1).entries[1].resource.buffer);
+    assert.equal(stroke.vertices[0], strokes, "the stroke draws the finalized instances");
+    assert.equal(stroke.pipeline.descriptor.vertex.buffers[0].arrayStride, 204, "three rows per instance");
+    assert.equal(stroke.args[1], records.bytes.byteLength / 176, "one instance per curve");
+    assert.equal(surface.vertices[0], net.draws[0].bindings.get(1).entries[1].resource.buffer);
+    const sources = [...pathProgram.draws[0].bindings.get(1).entries.slice(0, 2), ...netProgram.draws[0].bindings.get(1).entries.slice(0, 2)]
+      .map(entry => entry.resource.buffer);
+    // Another alpha: every stage re-evaluates from the same sources and outputs.
+    const second = await d.renderBytes(load(process.argv[4]));
+    const again = second.filter(pass => pass.compute);
+    assert.deepEqual(again.map(pass => pass.draws.length), [2, 1, 1, 1]);
+    assert.ok(alpha(again[0]) > first_alpha && alpha(again[1]) === alpha(again[0]));
+    assert.deepEqual([...again[0].draws[0].bindings.get(1).entries.slice(0, 2), ...again[1].draws[0].bindings.get(1).entries.slice(0, 2)]
+      .map(entry => entry.resource.buffer), sources, "sources are reused");
+    assert.equal(again[0].draws[0].bindings.get(1).entries[2].resource.buffer, rows, "outputs are reused");
+    assert.equal(d.cacheMisses(), 0);
+    // The same alpha again: nothing to evaluate, nothing to regenerate.
+    const third = await d.renderBytes(load(process.argv[5]));
+    assert.equal(third.filter(pass => pass.compute).length, 0);
+    const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
+    const before = resident();
+    await d.render([], {format_version: 7});
+    assert.ok(resident() < before - 6, "sources, outputs, records and strokes retire");
+    assert.ok([rows, records, strokes, netRows, ...sources].every(buffer => buffer.destroyed));
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // One frame with every row program (docs/phase_b3_plan.md, B3b): a
+  // rotation, a fade and a partial path, each finalized and drawn.
+  async programKindsWire() {
+    const d = await driver();
+    const file = fs.readFileSync(process.argv[3]);
+    const passes = await d.renderBytes(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
+    const compute = passes.filter(pass => pass.compute);
+    const code = pass => pass.pipeline.descriptor.compute.module.code;
+    const programs = compute.filter(pass => code(pass).includes("FinalizeParams"));
+    assert.equal(programs.length, 3, "three programs, each ending in the finalize kernel");
+    const kinds = programs.map(pass => {
+      const first = pass.draws[0].pipeline.descriptor.compute.module.code;
+      return first.includes("AffineParams") ? "affine" : first.includes("PaintParams") ? "paint" : first.includes("PartialParams") ? "partial" : "?";
+    });
+    assert.deepEqual(kinds.sort(), ["affine", "paint", "partial"]);
+    for (const pass of programs) {
+      assert.equal(pass.draws.length, 2, "the row kernel, then finalize");
+      const rows = pass.draws[0].bindings.get(1).entries[1].resource.buffer;
+      assert.equal(pass.draws[1].bindings.get(1).entries[0].resource.buffer, rows, "finalize reads the kernel's rows");
+    }
+    const affine = programs[kinds.indexOf("affine")] ?? programs.find(pass => pass.draws[0].pipeline.descriptor.compute.module.code.includes("AffineParams"));
+    const matrix = new Float32Array(affine.draws[0].bindings.get(0).entries[0].resource.buffer.bytes, 16, 16);
+    assert.ok(Math.abs(matrix[15] - 1) < 1e-6 && Math.abs(matrix[0] * matrix[0] + matrix[1] * matrix[1] - 1) < 1e-5, "a rotation with a unit first column");
+    const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+    const strokes = scene.draws.filter(draw => draw.pipeline.descriptor.vertex.buffers.length && draw.pipeline.descriptor.vertex.buffers[0].arrayStride === 204);
+    const finalized = new Set(programs.map(pass => pass.draws[1].bindings.get(1).entries[2].resource.buffer));
+    assert.ok(strokes.length >= 3 && strokes.every(draw => finalized.has(draw.vertices[0])), "every stroke draws finalized instances");
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
   async wire() {
     const d = await driver();

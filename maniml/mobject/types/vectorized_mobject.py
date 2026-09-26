@@ -1035,44 +1035,98 @@ class VMobject(Mobject):
         assert isinstance(vmobject, VMobject)
         vm_points = vmobject.get_points()
         self.data["joint_angle"] = vmobject.data["joint_angle"]
+        # The derived columns are the source's, the unit normal as well as
+        # the joint angles: computed from a partial path they are not the
+        # path's (a path collapsed to its start has no normal, and the
+        # renderer's refresh cached DOWN for the whole border phase of a
+        # DrawBorderThenFill, drawing its outline edge-on).
+        if len(vm_points) >= 3:
+            self.data["base_normal"][1::2] = vmobject.get_unit_normal()
+            self.needs_new_unit_normal = False
         if a <= 0 and b >= 1:
             self.set_points(vm_points, refresh=False)
             return self
-        num_curves = vmobject.get_num_curves()
-
-        # Partial curve includes three portions:
-        # - A start, which is some ending portion of an inner quadratic
-        # - A middle section, which matches the curve exactly
-        # - An end, which is the starting portion of a later inner quadratic
-
-        lower_index, lower_residue = integer_interpolate(0, num_curves, a)
-        upper_index, upper_residue = integer_interpolate(0, num_curves, b)
-        i1 = 2 * lower_index
-        i2 = 2 * lower_index + 3
-        i3 = 2 * upper_index
-        i4 = 2 * upper_index + 3
-
-        new_points = vm_points.copy()
-        if num_curves == 0:
-            new_points[:] = 0
+        new_points, i1, i4 = partial_points(vm_points, vmobject.get_num_curves(), a, b)
+        if new_points is None:
             return self
-        if lower_index == upper_index:
-            tup = partial_quadratic_bezier_points(vm_points[i1:i2], lower_residue, upper_residue)
-            new_points[:i1] = tup[0]
-            new_points[i1:i4] = tup
-            new_points[i4:] = tup[2]
-        else:
-            low_tup = partial_quadratic_bezier_points(vm_points[i1:i2], lower_residue, 1)
-            high_tup = partial_quadratic_bezier_points(vm_points[i3:i4], 0, upper_residue)
-            new_points[0:i1] = low_tup[0]
-            new_points[i1:i2] = low_tup
-            # Keep new_points i2:i3 as they are
-            new_points[i3:i4] = high_tup
-            new_points[i4:] = high_tup[2]
         self.data["joint_angle"][:i1] = 0
         self.data["joint_angle"][i4:] = 0
         self.set_points(new_points, refresh=False)
         return self
+
+    # Programs (docs/phase_b3_plan.md): each records what the GPU draws
+    # and an ``evaluate`` that writes the same rows with the CPU path's
+    # arithmetic. Each returns False, touching nothing, when the source
+    # does not align with this mobject's rows.
+
+    def _aligned_source(self, source) -> bool:
+        return (isinstance(source, VMobject) and source._data.dtype == self._data.dtype
+                and len(source._data) == len(self._data) and self.get_num_points() >= 3)
+
+    def partial_program(self, source: VMobject, a: float, b: float, *, defer: bool) -> bool:
+        """``pointwise_become_partial(source, a, b)`` as a program."""
+        if not self._aligned_source(source):
+            return False
+
+        def evaluate():
+            data, src = self._data, source._data
+            data["joint_angle"] = src["joint_angle"]
+            data["base_normal"][1::2] = src["base_normal"][1::2]   # the source's, fresh since begin
+            self.needs_new_unit_normal = False
+            points = src["point"]
+            if a <= 0 and b >= 1:
+                data["point"] = points
+                return
+            new_points, i1, i4 = partial_points(points, len(points) // 2, a, b)
+            if new_points is None:
+                return
+            data["joint_angle"][:i1] = 0
+            data["joint_angle"][i4:] = 0
+            data["point"] = new_points
+        self.record_program("partial", (source,), [a, b], evaluate, defer=defer)
+        return True
+
+    def paint_program(self, source: VMobject, stroke_opacity: float, fill_opacity: float, *, defer: bool) -> bool:
+        """The source's rows with every row's stroke and fill opacity set,
+        as ``set_stroke(opacity=)`` and ``set_fill(opacity=)`` on them."""
+        if not self._aligned_source(source):
+            return False
+
+        def evaluate():
+            data = self._data
+            data[:] = source._data
+            data["stroke_rgba"][:, 3] = stroke_opacity
+            data["fill_rgba"][:, 3] = fill_opacity
+        self.record_program("paint", (source,), [stroke_opacity, fill_opacity], evaluate, defer=defer)
+        return True
+
+    def affine_program(self, source: VMobject, rot_matrix_T, about_point, *, defer: bool) -> bool:
+        """The source's points rotated about ``about_point`` (or the
+        origin), as ``rotate`` does after ``Rotating`` copies them; the
+        unit normal rotates with them, which is what the next reader's
+        refresh computes. The matrix goes on the wire as the 4x4 affine
+        map, column-major."""
+        if not self._aligned_source(source):
+            return False
+        rot_matrix_T = np.asarray(rot_matrix_T, dtype=float)
+        rotation = rot_matrix_T.T
+        centre = np.zeros(3) if about_point is None else np.asarray(about_point, dtype=float)
+        matrix = np.eye(4)
+        matrix[:3, :3] = rotation
+        matrix[:3, 3] = centre - rotation @ centre
+
+        def evaluate():
+            data, src = self._data, source._data
+            data[:] = src
+            points = data["point"]
+            if about_point is None:
+                points[:] = np.dot(points, rot_matrix_T)
+            else:
+                points[:] = np.dot(points - centre, rot_matrix_T) + centre
+            self.needs_new_unit_normal = True
+        self.record_program("affine", (source,), matrix.T.reshape(-1), evaluate, defer=defer)
+        self.needs_new_unit_normal = True
+        return True
 
     def get_subcurve(self, a: float, b: float) -> Self:
         vmob = self.copy()
@@ -1299,6 +1353,43 @@ class VMobject(Mobject):
 
     def get_shader_vert_indices(self) -> Optional[np.ndarray]:
         return self.get_outer_vert_indices()
+
+
+def partial_points(vm_points, num_curves: int, a: float, b: float):
+    """The points of the part of a path between proportions ``a`` and
+    ``b``: what ``pointwise_become_partial`` writes, and what the
+    ``partial`` program evaluates on the CPU. Returns (points, i1, i4),
+    the rows before i1 and from i4 on being the collapsed ends whose
+    joint angles the caller zeroes; (None, 0, 0) for an empty path."""
+    # Partial curve includes three portions:
+    # - A start, which is some ending portion of an inner quadratic
+    # - A middle section, which matches the curve exactly
+    # - An end, which is the starting portion of a later inner quadratic
+    lower_index, lower_residue = integer_interpolate(0, num_curves, a)
+    upper_index, upper_residue = integer_interpolate(0, num_curves, b)
+    i1 = 2 * lower_index
+    i2 = 2 * lower_index + 3
+    i3 = 2 * upper_index
+    i4 = 2 * upper_index + 3
+
+    new_points = vm_points.copy()
+    if num_curves == 0:
+        new_points[:] = 0
+        return None, 0, 0
+    if lower_index == upper_index:
+        tup = partial_quadratic_bezier_points(vm_points[i1:i2], lower_residue, upper_residue)
+        new_points[:i1] = tup[0]
+        new_points[i1:i4] = tup
+        new_points[i4:] = tup[2]
+    else:
+        low_tup = partial_quadratic_bezier_points(vm_points[i1:i2], lower_residue, 1)
+        high_tup = partial_quadratic_bezier_points(vm_points[i3:i4], 0, upper_residue)
+        new_points[0:i1] = low_tup[0]
+        new_points[i1:i2] = low_tup
+        # Keep new_points i2:i3 as they are
+        new_points[i3:i4] = high_tup
+        new_points[i4:] = high_tup[2]
+    return new_points, i1, i4
 
 
 class VGroup(Group, VMobject, Generic[SubVmobjectType]):

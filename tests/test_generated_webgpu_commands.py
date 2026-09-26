@@ -100,3 +100,118 @@ class GeneratedWebGPUCommands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _lyon():
+    import importlib.util
+    import os
+    return bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
+
+
+@unittest.skipIf(shutil.which("node") is None, "node not available")
+@unittest.skipUnless(_lyon(), "the Lyon helper is the frame preparer's tessellator")
+class GeneratedWebGPUPhaseB(unittest.TestCase):
+    """The browser driver on real Phase B frames: patch fills and surface nets."""
+
+    def run_case(self, name, *args):
+        result = subprocess.run(["node", str(HARNESS), name, *map(str, args)],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @staticmethod
+    def _frames(scene, cache, wire, **kwargs):
+        from maniml.web.generated_geometry import serialize_generated_frame
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import prepare_triangle_frame
+        frame = prepare_triangle_frame(scene, LyonFillTessellator(), mesh_cache=cache,
+                                       fill_borders=True, gpu_borders=True, **kwargs)
+        frame.samples, frame.supersample = 4, 2
+        return serialize_generated_frame(frame, scene.camera.uniforms, wire)
+
+    def test_patch_fill_wire_draws_instanced_groups_marks_and_covers(self):
+        from maniml.constants import BLUE, RED
+        from maniml.mobject.geometry import Square
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.renderer_fixtures import build_scene
+        squares = [Square(side_length=1, fill_color=RED, fill_opacity=1, stroke_width=0,
+                          fill_border_width=4).shift([x, 0, 0]) for x in (-2, 0, 2)]
+        blue = Square(side_length=1, fill_color=BLUE, fill_opacity=1, stroke_width=0,
+                      fill_border_width=4).shift([0, 2, 0])
+        scene = build_scene(*squares, blue, resolution=(480, 270))
+        with tempfile.TemporaryDirectory() as directory:
+            wire = Path(directory) / "patches.bin"
+            wire.write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
+            self.run_case("patchWire", wire)
+
+    def test_program_wire_blends_finalizes_and_reuses_sources(self):
+        import os
+        from unittest.mock import patch
+        from maniml.animation.transform import Transform
+        from maniml.constants import BLUE, GREEN, RED
+        from maniml.mobject.geometry import Circle, Square
+        from maniml.mobject.three_dimensions import Sphere, Torus
+        from maniml.web.geometry import GeometryCache, serialize_scene
+        from tests.renderer_fixtures import build_scene
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets",
+                        MANIML_PROGRAMS="gpu"):
+            circle = Circle(radius=1.2, fill_color=BLUE, fill_opacity=.6, stroke_color=RED, stroke_width=6,
+                            fill_border_width=3)
+            square = Square(side_length=2.5, fill_color=GREEN, fill_opacity=.9, stroke_color=BLUE, stroke_width=10,
+                            fill_border_width=3)
+            sphere, torus = Sphere(resolution=(9, 5)), Torus(resolution=(9, 5))
+            scene, wire = build_scene(circle, sphere, resolution=(480, 270), samples=4), GeometryCache()
+            anims = [Transform(circle, square), Transform(sphere, torus)]
+            for anim in anims:
+                anim.begin()
+            with tempfile.TemporaryDirectory() as directory:
+                files = []
+                for index, alpha in enumerate((.3, .6, .6)):
+                    for anim in anims:
+                        anim.interpolate(alpha)
+                    files.append(Path(directory) / f"programs_{index}.bin")
+                    files[-1].write_bytes(serialize_scene(scene, wire, renderer="triangles"))
+                self.run_case("programWire", *files)
+            for anim in anims:
+                anim.finish()
+
+    def test_program_kinds_wire_runs_every_row_kernel(self):
+        import os
+        from unittest.mock import patch
+        from maniml.animation.creation import ShowCreation
+        from maniml.animation.fading import VFadeIn
+        from maniml.animation.rotation import Rotate
+        from maniml.constants import BLUE, GREEN, RED
+        from maniml.mobject.geometry import Circle, Square
+        from maniml.web.geometry import GeometryCache, serialize_scene
+        from tests.renderer_fixtures import build_scene
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_PROGRAMS="gpu"):
+            shapes = [Circle(radius=1, fill_color=BLUE, fill_opacity=.6, stroke_color=RED, stroke_width=6).shift([-3, 0, 0]),
+                      Square(side_length=2, fill_color=GREEN, fill_opacity=.9, stroke_width=4),
+                      Circle(radius=1, fill_color=RED, fill_opacity=.5, stroke_width=5).shift([3, 0, 0])]
+            scene, wire = build_scene(*shapes, resolution=(480, 270), samples=4), GeometryCache()
+            anims = [Rotate(shapes[0], angle=1.0), VFadeIn(shapes[1]), ShowCreation(shapes[2])]
+            for anim in anims:
+                anim.begin()
+            for anim in anims:
+                anim.interpolate(.4)
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "kinds.bin"
+                path.write_bytes(serialize_scene(scene, wire, renderer="triangles"))
+                self.run_case("programKindsWire", path)
+            for anim in anims:
+                anim.finish()
+
+    def test_surface_net_wire_evaluates_and_regrows_across_a_zoom(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.test_wgpu_port import build_surfaces_scene
+        scene, cache, wire = build_surfaces_scene(), TriangleMeshCache(), GeometryCache()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "nets_1.bin"
+            first.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
+            scene.camera.frame.scale(1 / 16)
+            scene.camera.refresh_uniforms()
+            second = Path(directory) / "nets_2.bin"
+            second.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
+            self.run_case("netWire", first, second)

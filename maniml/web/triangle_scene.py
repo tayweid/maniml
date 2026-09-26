@@ -26,7 +26,10 @@ from maniml.web.border_geometry import (
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 from maniml.web.gpu_border_geometry import (
     BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
+    patch_draw_count,
 )
+from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
+from maniml.web import gpu_program_geometry
 
 
 _DEFAULT_CONTOUR_METHOD = VMobject.get_subpath_end_indices_from_points
@@ -83,6 +86,22 @@ class TriangleDraw:
     # expand into the interleaved fill/border index buffer locally.
     border_capacity: int = MAX_VERTICES_PER_CURVE
     border_layout: tuple | None = None
+    # Patch fill runs (docs/phase_b1_plan.md): the object table, eight words
+    # per object, and the (curve count, bordered) layout the drivers draw
+    # per object. Such a draw has no vertices or indices of its own.
+    fill_objects: np.ndarray | None = None
+    patch_layout: tuple | None = None
+    # Surface nets (docs/phase_b2_plan.md): the control net the driver
+    # evaluates at screen density, its (nu, nv, channels), the reserved
+    # steps per patch edge and the density the steps follow from.
+    net: np.ndarray | None = None
+    net_shape: tuple | None = None
+    net_capacity: int = 2
+    net_density: float = 0.0
+    # A program (docs/phase_b3_plan.md): {"kind", "sources": [rows...],
+    # "scalars": [...]}; the draw's records, strokes or net come from the
+    # driver's evaluation of it.
+    program: dict | None = None
 
 
 def coalesce_draws(draws, *, border_cache=None):
@@ -96,6 +115,14 @@ def coalesce_draws(draws, *, border_cache=None):
     frame-owned arrays; a single draw retains its original array identities.
     """
     def kind(draw):
+        if draw.program is not None:
+            return None  # one evaluated program per draw
+        if draw.net is not None:
+            return None  # one evaluated net per draw
+        if draw.fill_objects is not None:
+            # A material run binds one paint field, so a painted patch
+            # draw stays a run of its own.
+            return "patch" if draw.paint is None else None
         if draw.border_sources is not None:
             return None if draw.coverage else "border"
         if draw.coverage:
@@ -114,6 +141,16 @@ def coalesce_draws(draws, *, border_cache=None):
         return None
 
     def combine(run, run_kind):
+        if run[0].program is not None:
+            return run[0]  # evaluated by the driver; nothing to assemble
+        if run[0].fill_objects is not None:
+            curves, capacity, layout, objects = border_cache.assemble_patches(
+                [(draw.border_sources, draw.border_capacity, draw.fill_objects,
+                  draw.patch_layout[0][1], draw.patch_layout[0][2])
+                 for draw in run])
+            return replace(run[0], border_sources=curves, border_capacity=capacity,
+                           patch_layout=layout, fill_objects=objects,
+                           count=patch_draw_count(layout, capacity))
         if run[0].border_sources is not None:
             vertices, indices, curves, capacity, layout = border_cache.assemble(
                 [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
@@ -153,7 +190,7 @@ def coalesce_draws(draws, *, border_cache=None):
                       and draw.vertices.dtype == run[0].vertices.dtype
                       and draw.uniforms == run[0].uniforms
                       and draw.textures == run[0].textures
-                      and (draw_kind != "border" or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind not in ("border", "patch") or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
@@ -197,6 +234,10 @@ def _readonly(array):
     """Own immutable backing bytes: callers cannot re-enable array writes."""
     array = np.ascontiguousarray(array)
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
+
+
+# A patch fill draw owns no vertices; every one shares this empty array.
+_NO_VERTICES = _readonly(np.zeros(0, dtype=SURFACE_DTYPE))
 
 
 @dataclass
@@ -496,6 +537,8 @@ class TriangleMeshCache:
         self._generator_key = None
         self._projections = {}
         self._classes = {}
+        self.gpu_net_cache = NetRecipeCache()
+        self.program_sources = {}
         self.gpu_border_cache = BorderRecipeCache(max_bytes=self.max_bytes if self.max_entries else 0)
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
@@ -951,9 +994,77 @@ def _generate_mesh(source, tessellator, uniforms, resolution, pixel_tolerance,
                          float(mesh.tolerance), residual, error_hull, error_basis)
 
 
+def _program_rows(cache, mobject):
+    """A program endpoint's rows, packed once per (mobject, revision)."""
+    key = id(mobject)
+    held = cache.get(key)
+    if held is not None and held[0]() is mobject and held[1] == mobject.revision:
+        return held[2]
+    rows = gpu_program_geometry.pack_rows(mobject)
+    cache[key] = (weakref.ref(mobject), mobject.revision, rows)
+    return rows
+
+
+def _program_recipe(cache, sm, sources):
+    """The recipe of a program over ``sm``'s rows, summarized once per
+    set of source arrays (which are held per endpoint revision)."""
+    key = ("recipe", id(sm))
+    held = cache.get(key)
+    if held is not None and held[0]() is sm and len(held[1].sources) == len(sources) and all(
+            a is b for a, b in zip(held[1].sources, sources)):
+        return held[1]
+    recipe = gpu_program_geometry.ProgramRecipe(sources)
+    cache[key] = (weakref.ref(sm), recipe)
+    return recipe
+
+
+def _program_draws(frame, sm, pending, uniforms, depth_suffix, cache):
+    """Append the fill and stroke draws of a VMobject under a program, or
+    return False when the program does not apply (rows not aligned, or the
+    path needs what a program cannot supply), so the caller draws its rows."""
+    sources = [_program_rows(cache, endpoint) for endpoint in pending["sources"]]
+    # Counts and dtypes only: reading the rows would materialize the program.
+    rows, dtype = sm.get_num_points(), sm._data.dtype
+    recipe = _program_recipe(cache, sm, sources)
+    if dtype.itemsize // 4 != gpu_program_geometry.ROW_FLOATS or recipe.rows != rows or not recipe.aligned:
+        return False
+    if not recipe.uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
+        return False  # a paint field over blended rows is B3b's work
+    program = {"kind": pending["kind"], "sources": sources,
+               "scalars": gpu_program_geometry.wire_scalars(pending["kind"], pending["scalars"], rows)}
+    frame_scale = uniforms["frame_scale"]
+    fill = stroke = None
+    if recipe.has_fill:
+        capacity = recipe.border_capacity(frame_scale)
+        layout = ((recipe.curves, recipe.bordered, 0),)
+        fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None,
+                            patch_draw_count(layout, capacity), border_capacity=capacity,
+                            fill_objects=recipe.fill_record, patch_layout=layout, program=program)
+    if recipe.has_stroke:
+        stroke = TriangleDraw("stroke" + depth_suffix, np.zeros(0, dtype=dtype), uniforms,
+                              count=recipe.stroke_vertices(frame_scale), instances=recipe.curves,
+                              program=program)
+    ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
+    frame.draws.extend(draw for draw in ordered if draw is not None)
+    frame.source_bytes += sum(s.nbytes for s in sources)
+    return True
+
+
+def _note_paint_cost(frame, paint):
+    """A non-affine paint field is supported with a known interpolation and
+    cost limit; it is recorded on the frame, not rejected."""
+    if paint is not None and paint[11] == 1:
+        message = ("non-affine fill paint uses inverse-distance interpolation "
+                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
+                   "fragment cost grows with node_count")
+        if message not in frame.limitations:
+            frame.limitations.append(message)
+
+
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
-                           coalesce=True, fill_borders=False, gpu_borders=False):
+                           coalesce=True, fill_borders=False, gpu_borders=False,
+                           patch_fills=False, net_surfaces=False, programs=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -964,6 +1075,15 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``gpu_borders=True`` retains curve sources and ordered index recipes;
     the driver expands their vertices on the GPU. The default CPU mode remains
     an explicit diagnostic reference, independent of that compute shader.
+    ``patch_fills=True`` (with GPU borders) prepares no fill mesh at all: each
+    filled path becomes a patch draw the driver builds from its curve records
+    on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
+    ``net_surfaces=True`` sends each surface's control net instead of its
+    evaluated grid; the driver evaluates it at screen density
+    (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
+    a pending program (``mobject._program``, set by a supported animation)
+    as that program over its endpoints' rows rather than as its own rows;
+    it needs patch fills for filled paths and nets for surfaces.
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -982,11 +1102,19 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         raise ValueError("fill_builder and mesh_cache are mutually exclusive")
     if gpu_borders and (not fill_borders or fill_builder is not None):
         raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
+    if patch_fills and not gpu_borders:
+        raise ValueError("patch fills require gpu_borders=True")
+    if programs and not patch_fills:
+        raise ValueError("programs require patch_fills=True")
+    program_cache = mesh_cache.program_sources if mesh_cache is not None else {}
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),
                           4 if camera.samples else 1, pixel_tolerance=pixel_tolerance)
     cache_before = mesh_cache.begin_frame(tessellator) if mesh_cache is not None else None
     border_cache = (mesh_cache.gpu_border_cache if mesh_cache is not None else BorderRecipeCache()) if gpu_borders else None
+    net_cache = (mesh_cache.gpu_net_cache if mesh_cache is not None else NetRecipeCache()) if net_surfaces else None
+    if net_cache is not None:
+        net_cache.begin_frame()
     if border_cache is not None:
         if mesh_cache is not None:
             border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
@@ -1025,13 +1153,44 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                if fill_borders and fill_builder is None and not gpu_borders else {})
     for sm, uniforms in records:
         depth_suffix = "_depth" if sm.depth_test else ""
+        pending = getattr(sm, "_program", None) if programs else None
         if isinstance(sm, (DotCloud, Surface, ImageMobject)):
-            data = np.ascontiguousarray(sm.get_shader_data()).copy()
-            if not len(data):
-                continue
             pipeline = ("dot" if isinstance(sm, DotCloud) else
                         "image" if isinstance(sm, ImageMobject) else
                         "texsurface" if isinstance(sm, TexturedSurface) else "surface")
+            if (pending is not None and pending["kind"] == "blend" and net_cache is not None
+                    and pipeline in ("surface", "texsurface") and getattr(sm, "net", False) and sm.has_points()):
+                sources = [_program_rows(program_cache, endpoint) for endpoint in pending["sources"]]
+                entry = net_cache.program_entry(sm, sources,
+                                                pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
+                                                frame_scale=uniforms["frame_scale"])
+                if entry is not None:
+                    patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+                    frame.draws.append(TriangleDraw(
+                        pipeline + depth_suffix, np.zeros(0, dtype=sm._data.dtype), uniforms,
+                        count=patches * indices_per_patch(entry.capacity), instances=1,
+                        textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
+                        net_shape=(entry.nu, entry.nv, entry.channels),
+                        net_capacity=entry.capacity, net_density=entry.density,
+                        program={"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}))
+                    continue
+            if (net_cache is not None and pipeline in ("surface", "texsurface")
+                    and getattr(sm, "net", False) and sm.has_points()):
+                entry = net_cache.source(sm, revision=sm.revision,
+                                         pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
+                                         frame_scale=uniforms["frame_scale"])
+                patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+                frame.draws.append(TriangleDraw(
+                    pipeline + depth_suffix, np.zeros(0, dtype=sm.data.dtype), uniforms,
+                    count=patches * indices_per_patch(entry.capacity), instances=1,
+                    textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
+                    net=entry.net, net_shape=(entry.nu, entry.nv, entry.channels),
+                    net_capacity=entry.capacity, net_density=entry.density))
+                frame.source_bytes += entry.net.nbytes
+                continue
+            data = np.ascontiguousarray(sm.get_shader_data()).copy()
+            if not len(data):
+                continue
             frame.draws.append(TriangleDraw(
                 pipeline + depth_suffix, data, uniforms,
                 count=4 if pipeline == "dot" else len(data),
@@ -1041,13 +1200,34 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             continue
         if not isinstance(sm, VMobject):
             raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
+        if pending is not None and _program_draws(frame, sm, pending, uniforms, depth_suffix, program_cache):
+            continue
         frame.source_bytes += sm.data.nbytes
         fill = None
         border_curves = None
         border_source, border_vertices = borders.get(id(sm), (None, None))
         has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
             mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
-        if has_fill:
+        if has_fill and patch_fills:
+            material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+            curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
+            if len(curves):
+                record = border_cache.fill_record(sm, lambda: planar_coordinates(sm.get_points()))
+                paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                         if material else None)
+                _note_paint_cost(frame, paint)
+                bordered = bool(has_border and np.any(curves[:, 37]))
+                capacity = border_cache.capacity(sm)
+                # Before assembly the layout's third field says whether the
+                # object may share a stencil count with its neighbours: an
+                # opaque, uniformly coloured, unshaded painter object whose
+                # count never changes sign (the record's winding sign).
+                shareable = int(not material and opaque_alpha and not sm.depth_test)
+                layout = ((len(curves), int(bordered), shareable),)
+                fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
+                                    paint=paint, border_sources=curves, border_capacity=capacity,
+                                    fill_objects=record, patch_layout=layout)
+        elif has_fill:
             material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
             if material and fill_builder is not None:
                 limitation("per-point fill paint uses endpoint interpolation; interior parity unproved")
@@ -1093,14 +1273,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                     paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
                               build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
                              if material else None)
-                    if paint is not None and paint[11] == 1:
-                        message = ("non-affine fill paint uses inverse-distance interpolation "
-                                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
-                                   "fragment cost grows with node_count")
-                        if message not in frame.limitations:
-                            # This supported field has a known interpolation
-                            # and cost limit; it does not reject the frame.
-                            frame.limitations.append(message)
+                    _note_paint_cost(frame, paint)
                     fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
                                         vertices, uniforms, indices, len(indices), paint=paint,
                                         coverage=coverage and not opaque_painter,
@@ -1118,6 +1291,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         frame.draws.extend(draw for draw in ordered if draw is not None)
     if mesh_cache is not None:
         frame.mesh_cache_stats = mesh_cache.finish_frame(cache_before)
+    if net_cache is not None:
+        net_cache.finish_frame()
+        frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
+                                      retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
         frame.draws = coalesce_draws(frame.draws, border_cache=border_cache)
     elif gpu_borders:

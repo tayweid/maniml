@@ -5,6 +5,96 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The fan closes an open subpath through its own start (2026-09-11)
+
+B1's patch fill drew every curve's fan triangle from one base point per
+object, the anchors' centroid, on the argument that any fixed point gives
+the same winding count. That holds for closed subpaths only: the fan sums
+to the winding of the polygon closed through the base, so an open subpath
+was closed through the centroid, and a partial path under `ShowCreation`
+was closed through a point that moved with it. Phase A's fill (Lyon, and
+the earclip before it) closes an open subpath with the chord from its end
+to its start. So the fan now takes each curve's base from its own record,
+the base point rows the mobject carries (its path's first point): closed
+subpaths count as before, an open one closes through its start, the
+chord. The object table keeps its base words for the format; nothing
+reads them. Found by B3b's gate on `ShowCreation`.
+
+Beside it, a CPU fix that the same gate found and that is on `main`: a
+partial path now carries its source's unit normal as it already carried
+its joint angles (`pointwise_become_partial`). `DrawBorderThenFill` sets
+the outline's data at its first frame, which dirties the normal flag; the
+renderer then computed the normal from that frame's points, all one
+point, and cached DOWN for the whole border phase, so the outline of every
+`Write` was drawn edge-on. The source's normal is the path's.
+
+## A CPU mutation supersedes a pending program (2026-09-11)
+
+B3b's programs compose with the CPU path by one rule: every legitimate
+mutation of a mobject's rows calls `note_changed_data`, and that drops a
+pending program after the read behind the mutation materialized it. So a
+`VFadeIn` on top of a `Transform` in one play, an updater's write, or a
+scene's `set_fill` mid-play leave the rows what the CPU path would have
+made them, and the renderer draws the rows. Recording a program bumps the
+revision without dropping it (`_bump_revision`), and a child's change
+bumps its parents the same way, since a parent's own rows are untouched.
+The alternative, chaining programs (a paint over a blend), is a program
+composition the plan does not need yet: "last program wins" is what the
+CPU path does for full-row animations, and the CPU fallback covers the
+rest exactly.
+
+## A pending program materializes on read (2026-09-11)
+
+B3a's flip stops writing a mobject's rows during a supported `Transform`:
+the GPU blends the two endpoints, Python sends a scalar. The plan's
+guarantee was that `get_points` on such a mobject evaluates the program
+on the CPU first, and named an audit of the nine files that read
+`data[...]` directly. Built instead: `Mobject.data` is a property over
+`_data`, and the property materializes a pending program before returning
+the array. Every accessor and every direct read go through it, so the
+guarantee holds without the audit, and it is one attribute test on the
+class-level `None` when nothing is pending. The costs accepted: counts
+(`get_num_points`, `has_points`, `family_members_with_points`) read the
+array behind the property so a frame's bookkeeping materializes nothing
+(a test renders a whole play with materialization forbidden); copies and
+checkpoints materialize first and carry rows only; assigning `data`
+supersedes the program; and `finish` always writes the final rows, so the
+ledger's checkpoint after a play is byte-identical to the CPU path's. The
+alternative, materializing only in the accessors, would have left a
+direct `data["point"]` read mid-play stale; the property closes that.
+
+## Phase A stays the renderer until the patch fill is faster (2026-09-11)
+
+Decided by Taylor on the B1 prototype's numbers (`docs/phase_b1_plan.md`,
+"Prototype results"): the patch fill renders every fixture within the pixel
+gate and at or within 2% of Original 2D on the text controls, but about
+1.5 ms per text frame behind today's Phase A at the minimum, all of it GPU
+completion from the second pass a count-then-cover design needs. Quoted:
+"lets keep Phase A as the main renderer till we get it faster."
+
+So `MANIML_FILL=meshes` stays the default, the patch fill stays behind the
+switch in the native mirror, and the browser mirror and the default flip
+wait on the GPU-side tuning the plan lists. Phase B's direction is
+unchanged: paths (B1) and surfaces (B2) both become control points the GPU
+evaluates, and B3 animates control points whichever kind they are.
+
+## Fills are a fan and a count, not a mesh (2026-09-11)
+
+Decided by Taylor at the start of B1, after the two candidates in
+`docs/phase_b_plan.md` were laid out plainly. The mesh he had in mind, "which
+just sort of fills in the triangles between mesh points, no stick out", is a
+tiling of the interior that needs the whole outline at once to decide what
+is inside, which is Lyon on the CPU and has no GPU equivalent; the GPU works
+one curve at a time, so it draws a fan triangle per curve regardless and a
+per-sample count answers the inside question afterward. On that: "got it.
+then fan it is."
+
+So B1 is B1-fan: the CPU hands over control points, the GPU makes the
+triangles every frame, nothing is triangulated anywhere, and B1-mesh is not
+the interim. The design, the mechanism probe that preceded the decision and
+the prototype week are `docs/phase_b1_plan.md`; the verdict on the measured
+GPU cost against Original 2D remains Taylor's.
+
 ## Everything is Bézier control points (2026-09-11)
 
 Decided by Taylor in the Phase B planning conversation, quoted: "use the

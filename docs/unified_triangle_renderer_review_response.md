@@ -785,3 +785,110 @@ list is right."
 | Zero-border zoomed-text AA (at most 0.5% of pixels over 24/255 against native GL) | **Closed by Taylor, 2026-09-11**, at 0.8829% over: "ok AA is close enough. lets call that finished." The 16× same-mesh coverage reference and the exact area checks favour the chosen sampler over GL, which is the evidence the acceptance rests on. No threshold was widened; `benchmarks/renderer_quality.py` still reports the metric. Phase B's B1 measures it again, since patch edges are new geometry. | `docs/unified_triangle_renderer_phase_a.md`, "Quality and behavior"; `docs/phase_b_plan.md`, B1 acceptance |
 | Nonplanar closed contours | **Decided, not open.** Refused with an explicit error, and B1 keeps refusing them exactly as today; B2's control-net surfaces are the defined interior a nonplanar fill would need. Listed as a decision for Taylor in the 2026-09-10 plan; the Phase B planning settled it. | `docs/phase_b_plan.md`, B1 and B2 |
 | Large non-affine paint | **Open, not scheduled, not a Phase B prerequisite.** The per-fragment inverse-distance loop over up to 800 nodes is the remaining fragment-cost regression, and the interior differs visibly from the historical fan interpolation. The 800-node case is a synthetic control; no course scene draws such a field. Taken when one does, with the field's semantics decided with Taylor first. | "Implementation after the sixth review", paint retention |
+
+## Phase B1: the patch fill prototype (2026-09-11)
+
+Taylor's direction, quoted: "Start Phase B increment B1 from
+docs/phase_b_plan.md" and, on the two candidates, "got it. then fan it is"
+(`DECISIONS.md`, "Fills are a fan and a count, not a mesh"). The design, the
+mechanism probe, what the prototype week changed and the measurements are in
+`docs/phase_b1_plan.md`; this section is the disposition.
+
+**Built, behind `MANIML_FILL=patches`, native mirror only.** Every filled
+path is a `patch` batch on wire format 7: its fan and patch triangles are
+pulled from the curve records the border stage already retains plus an
+eight-word object record, counted on the stencil's low seven bits, the
+border strips marked with the high bit through the surface pipeline, and
+the whole covered once per sample. No mesh, no Lyon, nothing that depends
+on zoom; a morph uploads control points. Objects that can share a count
+(opaque, one colour, one plane, one winding sign, decided per source
+revision by `winding_sign`) draw as one instanced group: the 101-glyph
+paragraph is four draws. Formats 5 and 6 still play; the browser driver
+does not draw `patch` batches yet, and the default stays `meshes`.
+
+**Pixels.** Within the gate against CPU-border Phase A on the whole fixture
+corpus and every quality fixture, worst 0.046% of pixels over 24 (the
+zero-border zoomed text); against Original 2D exactly Phase A's own
+fractions. `tests/test_patch_fill.py` covers preparation, the wire, the
+driver's commands on the fake device, rejection of malformed batches, and
+the pixel gates under `MANIML_TEST_GPU=1`; the touched modules and
+`test_wgpu_port` pass.
+
+**Time.** Against the plan's gate, Original 2D: at or below on the still
+frame, within 2% on pan and both zooms. Against today's Phase A: about
+1.5 ms behind per text frame at the minimum (3.9 against 5.4), all of it
+GPU completion, since preparation is already cheap for retained meshes;
+level on the morph. Archive:
+`benchmarks/results/patch_fill_20260911/`.
+
+**What the week corrected in the design.** Strips off the sample-rate pull
+stage (3 ms), instanced groups instead of per-object draws (1 ms of
+encoding), per-object base points (a shared base doubled the frame). Each
+is recorded with its measurement in the plan.
+
+**Not decided here.** Whether 1.5 ms of GPU time per text frame, for fills
+that never regenerate and a morph that uploads only control points, is the
+right trade is Taylor's verdict; the plan lists the unmeasured candidates
+for closing it.
+
+**Second build the same day** (Taylor: "ok try the first two and measure
+again"): the cover without the curve test at pixel rate, and the mark's fan
+at pixel rate with only the patches per sample. About 0.6 ms per text frame
+gained; below Original 2D on every text median; level with Phase A on pan
+and both zooms at the minimum and 0.85 ms behind on the still frame's
+minimum. Pixels unchanged. Phase A remains the default by Taylor's
+direction (`DECISIONS.md`, "Phase A stays the renderer until the patch fill
+is faster"); the numbers are in the plan's "Second measurement".
+
+## Phase B browser mirrors (2026-09-11)
+
+Taylor's direction, quoted: "ok do the browser mirror for both, then i'll
+ask you about performance." `webgpu.js` now draws `patch` batches (B1) and
+evaluates `net` batches (B2) with the native driver's pipelines, stencil
+states, explicit layouts, instanced groups, reservations and retirement,
+and the recording of formats 5 and 6 is untouched. Verified two ways: the
+Node harness on real Python-encoded frames (`patchWire`, `netWire`), and the
+live viewer in the app's browser pane with both switches on, whose canvas
+matched the native render of the same frame exactly on a 32×18 grid of
+60-pixel cell means (141 lit cells, all identical). Both stay behind their
+switches; the recording player does not index the new batches yet.
+
+## Phase B3a: the blend program (2026-09-11)
+
+Taylor's direction, quoted: "ok lets move on to B3", then "ok got it. go
+ahead and start B3a". A straight-path `Transform` now records a blend of
+its endpoints' rows on each submobject; the rows travel once per play by
+content hash and the scalar per frame; both drivers blend and finalize on
+the GPU and draw from the result (`docs/phase_b3_plan.md`, results
+section). Under `MANIML_PROGRAMS=gpu` Python writes no rows during the
+play: `Mobject.data` materializes a pending program on read (DECISIONS.md,
+"A pending program materializes on read"), and `Transform.finish` writes
+the final rows, so the checkpoint after a play is byte-identical to the
+CPU path's. Verified three ways: the native driver pixel-matches the CPU
+path at six alphas for fills, borders, strokes and text and holds the gate
+for nets; the Node harness checks the browser's command sequence on real
+frames (`programWire`); and the preview browser drew four wire frames
+(two alphas, a repeat, a 4× zoom) matching the native renders on a 32×18
+cell-mean grid to 0.03 of 255. Measured: per-frame Python during a
+`Transform` 23.6 → 2.4 ms on 86 glyphs and 257 → 50 ms on 1,000 squares,
+play-phase raw reads 181 → 9 and 2009 → 9. Behind its switch, default
+`off`.
+
+## Phase B3b: the rest of the library (2026-09-11)
+
+Taylor's direction, quoted: "ok lets move on to B3b". `Rotate` is an
+`affine` program, `VFadeIn`/`VFadeOut` a `paint`, `ShowCreation`,
+`Uncreate`, `ShowPassingFlash` and `Write`'s border phase a `partial`,
+each with the CPU path's arithmetic as its materialization and one rule
+for composition: a CPU write supersedes a pending program (DECISIONS.md).
+The gate found two things in the fill itself, both fixed at the root: the
+fan closed an open subpath through the object's centroid rather than the
+chord, and `Write`'s outline was drawn edge-on, on `main` too, because a
+partial path did not carry its source's normal. Verified as B3a was: every
+case pixel-identical to the CPU path at eight alphas in the native driver
+(`Write` within the gate), byte-identical state after every play, the Node
+harness on every row kernel (`programKindsWire`), and four frames in the
+preview browser matching the native renders exactly on a 32×18 cell-mean
+grid. Measured: `Write` on 86 glyphs 8.3 → 3.7 ms per frame, `VFadeIn`
+23.1 → 2.3 ms, `Rotate` of 1,000 squares 265 → 65 ms. Behind its switch,
+default `off`.

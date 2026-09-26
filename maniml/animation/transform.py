@@ -10,6 +10,7 @@ from maniml.constants import OUT
 from maniml.mobject.mobject import Group
 from maniml.mobject.mobject import Mobject
 from maniml.utils.paths import path_along_arc
+from maniml.utils import programs
 from maniml.utils.paths import straight_path
 
 from typing import TYPE_CHECKING
@@ -65,6 +66,9 @@ class Transform(Animation):
             self.target_copy = self.target_mobject.copy()
         self.mobject.align_data_and_family(self.target_copy)
         super().begin()
+        if programs.mode() != "off":
+            programs.freshen(self.starting_mobject)
+            programs.freshen(self.target_copy)
         if not self.mobject.has_updaters():
             self.mobject.lock_matching_data(
                 self.starting_mobject,
@@ -167,6 +171,13 @@ class Transform(Animation):
         target_copy: Mobject,
         alpha: float
     ):
+        # The blend program (docs/phase_b3_plan.md) stands for the straight
+        # path only; an arc, and any endpoint pair whose rows do not align,
+        # interpolate on the CPU as before.
+        mode = programs.mode()
+        if (mode != "off" and self.path_func is straight_path
+                and submob.blend_program(start, target_copy, alpha, defer=mode == "gpu")):
+            return self
         submob.interpolate(start, target_copy, alpha, self.path_func)
         return self
 

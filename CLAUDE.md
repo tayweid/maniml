@@ -228,9 +228,54 @@ resent when it does. Only fill indices travel on the wire (format 6): each
 driver expands the per-object strip pattern from the run layout itself.
 Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
-formats 1–5 remain readable. These resources never enter checkpoints.
+formats 1–6 remain readable. These resources never enter checkpoints.
+
+`MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
+border generator) prepares no fill mesh at all: every filled path is a
+`patch` batch (format 7) whose fan and patch triangles the native driver
+pulls from the same curve records plus an eight-word object record per path,
+counts on the stencil's low seven bits, marks the border strips with the
+high bit, and covers once per sample. Nothing about it depends on zoom, and a
+morph uploads only control points. Both drivers draw it (the browser mirror
+in `webgpu.js`, command-tested on real frames in
+`tests/generated_webgpu_commands.cjs` and pixel-matched live against the
+native render); it is measured, not the default, which stays `meshes`.
+
+A `Surface`'s points are a biquadratic Bézier net (Phase B2,
+`docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
+the net's size (rounded up to odd), `uv_func` is sampled once into the net
+that passes through every sample, and `Transform` aligns nets by exact
+subdivision. The reference renderers draw the net evaluated on the CPU at
+two steps per patch, which is the sample grid to a float32 ulp
+(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` sends the net
+instead and the native driver evaluates it at screen density
+(`net_compute.wgsl`, capacity reserved from the second difference with the
+border stage's headroom, capped per object); a zoomed sphere then shows no
+facets. Both drivers evaluate nets; the default stays `grids`. Recordings
+(`--export`) made with either switch on are not indexed by the player yet.
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
+
+`MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
+`MANIML_FILL=patches`) sends a supported animation as a GPU program over a
+mobject's rows: a straight-path `Transform` (so `.animate`, `MoveToTarget`,
+`ReplacementTransform`, `FadeIn`/`FadeOut`) is a `blend` of its two
+endpoints, `Rotate`/`Rotating` an `affine` map of the start, `VFadeIn`/
+`VFadeOut` a `paint` of the start's opacities, `ShowCreation`/`Uncreate`/
+`ShowPassingFlash` and the border phase of `Write` a `partial` of the
+start. The endpoint rows travel once per play by content hash and the
+program's scalars per frame; each driver evaluates the rows on the GPU
+(`row_*.wgsl`), finalizes VMobject rows into curve records and stroke
+instances (`row_finalize.wgsl`), and the patch, stroke and net stages draw
+from them. In `shadow` the CPU still writes the rows; in `gpu` it does
+not, and `Mobject.data` materializes a pending program on read with the
+CPU path's own arithmetic (every accessor and direct `data[...]` read
+goes through the property; counts do not), so a reader mid-play sees
+what is drawn; a CPU mutation supersedes the program (`note_changed_data`),
+so animations that write rows compose as before. `Animation.finish`
+writes the final rows, so the state after a play is byte-identical in
+every mode. Pixels match the CPU path at every alpha in both drivers; the
+default stays `off`.
 
 ## Delivery: one artifact, local only
 

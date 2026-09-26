@@ -7,6 +7,7 @@ import numpy as np
 from maniml.animation.animation import Animation
 from maniml.mobject.svg.string_mobject import StringMobject
 from maniml.mobject.types.vectorized_mobject import VGroup, VMobject
+from maniml.utils import programs
 from maniml.utils.bezier import integer_interpolate
 from maniml.utils.rate_functions import linear
 from maniml.utils.rate_functions import double_smooth
@@ -30,15 +31,23 @@ class ShowPartial(Animation, ABC):
         self.should_match_start = should_match_start
         super().__init__(mobject, **kwargs)
 
+    def begin(self) -> None:
+        super().begin()
+        if programs.mode() != "off":
+            programs.freshen(self.starting_mobject)
+
     def interpolate_submobject(
         self,
         submob: VMobject,
         start_submob: VMobject,
         alpha: float
     ) -> None:
-        submob.pointwise_become_partial(
-            start_submob, *self.get_bounds(alpha)
-        )
+        bounds = self.get_bounds(alpha)
+        mode = programs.mode()
+        if (mode != "off" and hasattr(submob, "partial_program")
+                and submob.partial_program(start_submob, *bounds, defer=mode == "gpu")):
+            return
+        submob.pointwise_become_partial(start_submob, *bounds)
 
     @abstractmethod
     def get_bounds(self, alpha: float) -> tuple[float, float]:
@@ -104,6 +113,9 @@ class DrawBorderThenFill(Animation):
         self.mobject.set_animating_status(True)
         self.outline = self.get_outline()
         super().begin()
+        if programs.mode() != "off":
+            programs.freshen(self.starting_mobject)
+            programs.freshen(self.outline)
 
     def finish(self) -> None:
         super().finish()
@@ -168,10 +180,18 @@ class DrawBorderThenFill(Animation):
                 submob.set_uniforms(outline.uniforms)
             self.sm_to_index[key] = index
 
+        mode = programs.mode()
         if index == 0:
-            submob.pointwise_become_partial(outline, 0, subalpha)
+            if not (mode != "off" and submob.partial_program(outline, 0, subalpha, defer=mode == "gpu")):
+                submob.pointwise_become_partial(outline, 0, subalpha)
         else:
-            submob.interpolate(outline, start, subalpha, self._interpolate_points)
+            # The border phase's rows are the outline's; the fill phase
+            # blends the outline into the start. As a program the blend
+            # is the GPU's, with the same path function on the CPU side.
+            program = mode != "off" and submob.blend_program(
+                outline, start, subalpha, defer=mode == "gpu", path_func=self._interpolate_points)
+            if not program:
+                submob.interpolate(outline, start, subalpha, self._interpolate_points)
             if (
                 not {"point", "base_normal"}.intersection(submob.locked_data_keys)
                 and not start.needs_new_unit_normal
@@ -185,7 +205,10 @@ class DrawBorderThenFill(Animation):
                 # identical endpoint normals exact too, including their dirty
                 # state: otherwise the first render recomputes a normal that
                 # subsequent interpolation replaces with the cached endpoint.
-                submob.data["base_normal"][1::2] = start.data["base_normal"][1::2]
+                # (A blend of equal normals is exact, so a program's rows
+                # already carry them.)
+                if not program:
+                    submob.data["base_normal"][1::2] = start.data["base_normal"][1::2]
                 submob.needs_new_unit_normal = False
         if cache_completion:
             self._completed_submobjects[key] = (
