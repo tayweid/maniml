@@ -154,9 +154,9 @@ class LogBuffer:
 class WebViewer:
     is_web_viewer = True
 
-    def __init__(self, open_browser: bool = True):
+    def __init__(self, open_browser: bool = True, port: int | None = None):
         self.scene: Optional[Scene] = None
-        self.server = WebServer(capabilities=("export", "restart"))
+        self.server = WebServer(port=port, capabilities=("export", "restart"))
         self.pressed_keys: set[int] = set()
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
@@ -494,6 +494,12 @@ class WebViewer:
     def _handle_event(self, event: dict):
         kind = event.get("type")
         if kind == "_connect":
+            if event.get("alone"):
+                # Whoever reported a renderer has left, and this client has
+                # not spoken yet: readiness does not outlive the clients
+                # that announced it, or a reloading page is sent a full
+                # payload before it has anything to draw it with.
+                self._geometry_mode = False
             self._needs_refresh = True
             self._last_state = None
             self._geometry_cache.reset()  # new client holds no batches
