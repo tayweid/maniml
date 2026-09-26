@@ -90,6 +90,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     pan_sensitivity: float = 0.5
     scroll_sensitivity: float = 20
     drag_to_pan: bool = True
+    # A plain drag turns the camera instead (shift-drag still pans, and
+    # alt-press grabs a mobject). On for ThreeDScene.
+    drag_to_orbit: bool = False
     max_num_saved_states: int = 50
     default_camera_config: dict = dict()
     camera_class = Camera
@@ -213,6 +216,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # Click-to-inspect / drag state
         self._grabbed_mobject = None
         self._grab_offset = None
+        self._grab_anchor = None
         self._grabbed_name = None
 
         # File watcher for auto-reload
@@ -1216,6 +1220,7 @@ class ThreeDScene(Scene):
     samples = 4
     default_frame_orientation = (-30, 70)
     always_depth_test = True
+    drag_to_orbit = True
 
     def add(self, *mobjects: Mobject, set_depth_test: bool = True, perp_stroke: bool = True):
         for mob in mobjects:

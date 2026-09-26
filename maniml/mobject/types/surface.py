@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from maniml.constants import BLUE_D
 from maniml.constants import GREY
 from maniml.constants import OUT
 from maniml.mobject.mobject import Mobject
@@ -63,6 +64,27 @@ class Surface(Mobject):
         normal_nudge: float = 1e-3,
         **kwargs
     ):
+        # CE spells this Surface(func, u_range, v_range, resolution=32,
+        # fill_color=..., fill_opacity=...): the function comes first
+        # (here it is the uv_func method, ParametricSurface takes it as
+        # an argument), a resolution is a count of pieces, and the fill
+        # keywords are VMobject's. Accept that spelling, so an unmodified
+        # CE scene builds the same surface; CE's stroke, checkerboard and
+        # piece options describe its patchwork of squares and are dropped.
+        self._ce_uv_func = None
+        if callable(color):
+            self._ce_uv_func = color
+            color = kwargs.pop("fill_color", BLUE_D)
+        else:
+            kwargs.pop("fill_color", None)
+        if "fill_opacity" in kwargs:
+            kwargs["opacity"] = kwargs.pop("fill_opacity")
+        for ce_only in ("checkerboard_colors", "stroke_color", "stroke_width",
+                        "surface_piece_config", "should_make_jagged",
+                        "pre_function_handle_to_anchor_scale_factor"):
+            kwargs.pop(ce_only, None)
+        if isinstance(resolution, int):
+            resolution = (resolution + 1, resolution + 1)
         self.u_range = u_range
         self.v_range = v_range
         # The net's size: odd along each axis, at least three, so that a
@@ -82,7 +104,9 @@ class Surface(Mobject):
         self.compute_triangle_indices()
 
     def uv_func(self, u: float, v: float) -> tuple[float, float, float]:
-        # To be implemented in subclasses
+        # To be implemented in subclasses, or passed CE-style
+        if self._ce_uv_func is not None:
+            return self._ce_uv_func(u, v)
         return (u, v, 0.0)
 
     @Mobject.affects_data

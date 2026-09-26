@@ -119,6 +119,8 @@ class Mobject(object):
         self.target = None
         self.bounding_box: Vect3Array = np.zeros((3, 3))
         self._is_animating: bool = False
+        # set_draggable(): None, or the handle's constraint and callback
+        self._draggable: dict | None = None
         self._needs_new_bounding_box: bool = True
         self._data_has_changed: bool = True
         self.shader_code_replacements: dict[str, str] = dict()
@@ -1127,6 +1129,51 @@ class Mobject(object):
 
     def is_changing(self) -> bool:
         return self._is_animating or self.has_updaters()
+
+    def set_draggable(
+        self,
+        draggable: bool = True,
+        along: Mobject | Vect3 | None = None,
+        on_drag: Callable[[Mobject], object] | None = None,
+    ) -> Self:
+        """Mark this mobject as a handle the viewer's pointer may move.
+
+        A handle is grabbed before anything else under the pointer, in a
+        presentation as well as in development (where every mobject can
+        still be grabbed), and the viewer names it on hover. ``along``
+        confines the drag: a mobject keeps the handle on itself (the
+        nearest point of a curve), a direction vector keeps it on the line
+        through where it was grabbed. ``on_drag`` is called with the
+        handle after every move — the place to set a ValueTracker the rest
+        of the scene reads through updaters.
+
+        Plain state on the mobject, so it travels with every checkpoint
+        copy; nothing is registered anywhere else."""
+        self._draggable = dict(along=along, on_drag=on_drag) if draggable else None
+        self.note_changed_state()
+        return self
+
+    def is_draggable(self) -> bool:
+        return self._draggable is not None
+
+    def drag_target(self, point: Vect3, anchor: Vect3) -> Vect3:
+        """Where a drag that asks for ``point`` may actually put this
+        handle, given ``anchor``, its centre when the grab began."""
+        along = (self._draggable or {}).get("along")
+        if along is None:
+            return point
+        if isinstance(along, Mobject):
+            samples = np.array([
+                along.point_from_proportion(a)
+                for a in np.linspace(0, 1, 257)
+            ])
+            distances = np.linalg.norm(samples - point, axis=1)
+            return samples[int(np.argmin(distances))]
+        direction = np.asarray(along, dtype=float)
+        norm_sq = float(np.dot(direction, direction))
+        if norm_sq == 0:
+            return anchor
+        return anchor + np.dot(point - anchor, direction) / norm_sq * direction
 
     def set_animating_status(self, is_animating: bool, recurse: bool = True) -> Self:
         for mob in (*self.get_family(recurse), *self.get_ancestors()):

@@ -119,7 +119,13 @@ In the browser viewer:
 - **UP / DOWN arrows** — jump between checkpoints instantly
 - **Save the scene file** — the watcher replays only the edited animations
 - **Click a mobject** — prints its variable name; drag to move it, and a
-  paste-ready `name.move_to([x, y, z])` prints on release
+  paste-ready `name.move_to([x, y, z])` prints on release. In a
+  `ThreeDScene` a plain drag orbits the camera instead (shift-drag pans,
+  alt-press grabs)
+- **`mobject.set_draggable()`** — a handle the pointer may move in a
+  presentation too, named in a chip on hover; `along=` keeps it on a
+  curve or a line, `on_drag=` reports each move (set a `ValueTracker`
+  there). Updaters that read the handle follow it. Drags are never saved
 - `--present` — pre-runs the whole scene; the rail at the bottom of the
   viewer is the clickable checkpoint timeline. Present then
   uses a fresh MP4 for smooth forward and reverse motion and restores the

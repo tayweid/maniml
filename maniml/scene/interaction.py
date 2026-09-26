@@ -2,7 +2,8 @@
 
 Arrow-key checkpoint navigation (RIGHT re-executes from source,
 UP/DOWN jump by checkpoint, LEFT jumps to the previous pausepoint), click-to-inspect
-and drag-to-move, and the viewer mouse/keyboard callbacks.
+and drag-to-move, the orbit gesture of 3D scenes, and the viewer
+mouse/keyboard callbacks.
 """
 from __future__ import annotations
 
@@ -29,6 +30,52 @@ class InteractionMixin:
         return self.point_to_mobject(
             point, self._inspectable_mobjects(), buff=SMALL_BUFF)
 
+    def _draggable_mobjects(self) -> list[Mobject]:
+        """Every handle on screen (set_draggable), wherever it sits in a
+        family, in draw order."""
+        return [
+            member
+            for mob in self._inspectable_mobjects()
+            for member in mob.get_family()
+            if member.is_draggable()
+        ]
+
+    def _scene_has_handles(self) -> bool:
+        """Whether any handle exists anywhere in this scene's history —
+        on screen now or in any checkpoint. A presentation rewinds to an
+        empty checkpoint 0, so the screen alone cannot answer."""
+        if self._draggable_mobjects():
+            return True
+        checkpoints = getattr(self, "animation_checkpoints", [])
+        key = tuple(id(c.get("state")) for c in checkpoints)
+        cached = getattr(self, "_handles_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        found = any(
+            member.is_draggable()
+            for c in checkpoints
+            if c.get("state") is not None
+            for mob in c["state"].mobjects_to_copies.values()
+            for member in mob.get_family()
+        )
+        self._handles_cache = (key, found)
+        return found
+
+    def _find_handle_at(self, point) -> Mobject | None:
+        from maniml.constants import SMALL_BUFF
+        return self.point_to_mobject(
+            point, self._draggable_mobjects(), buff=SMALL_BUFF)
+
+    def _handle_label(self, mobject: Mobject) -> str:
+        return self._name_of(mobject) or mobject.__class__.__name__
+
+    def _set_hover(self, label: str | None) -> None:
+        """Tell the viewer which handle is under the pointer, if it can
+        show that (the web viewer draws a chip and changes the cursor)."""
+        viewer = getattr(self, "_web_viewer", None)
+        if viewer is not None and hasattr(viewer, "set_hover"):
+            viewer.set_hover(label)
+
     def _name_of(self, mobject) -> str | None:
         """Variable name of a live mobject in the current animation's
         namespace — or of the container (e.g. VGroup) holding it."""
@@ -42,6 +89,16 @@ class InteractionMixin:
         for name, value in items:
             if isinstance(value, Mobject) and mobject in value.get_family():
                 return name
+        # ...or of the list / dict entry holding it: dots[2], handles['p']
+        for name, value in items:
+            if isinstance(value, (list, tuple)):
+                for i, item in enumerate(value):
+                    if item is mobject:
+                        return f"{name}[{i}]"
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    if item is mobject:
+                        return f"{name}[{key!r}]"
         return None
 
     def _begin_grab(self, mobject: Mobject, point) -> None:
@@ -49,6 +106,7 @@ class InteractionMixin:
         self._grabbed_mobject = mobject
         self._grabbed_name = name
         self._grab_offset = point - mobject.get_center()
+        self._grab_anchor = mobject.get_center().copy()
         mobject.set_animating_status(True)
         x, y, z = mobject.get_center()
         label = name or mobject.__class__.__name__
@@ -66,8 +124,22 @@ class InteractionMixin:
         self._grabbed_mobject = None
         self._grabbed_name = None
         self._grab_offset = None
+        self._grab_anchor = None
 
     # Only these methods should touch the camera
+
+    def _orbit(self, d_point) -> None:
+        """Turn the camera about its centre by a pointer displacement: the
+        world follows the hand, sideways through theta and up through phi
+        (which the frame clips at the poles).
+
+        Nothing here is kept: the frame's orientation is checkpoint state,
+        so every navigation puts the authored camera back."""
+        frame = self.camera.frame
+        ff_d_point = frame.to_fixed_frame_point(d_point, relative=True)
+        ff_d_point *= self.pan_sensitivity
+        frame.increment_theta(-ff_d_point[0])
+        frame.increment_phi(ff_d_point[1])
 
     def on_mouse_motion(
         self,
@@ -76,6 +148,8 @@ class InteractionMixin:
     ) -> None:
         assert self.window is not None
         self.mouse_point.move_to(point)
+        handle = self._find_handle_at(point)
+        self._set_hover(None if handle is None else self._handle_label(handle))
 
         event_data = {"point": point, "d_point": d_point}
         propagate_event = EVENT_DISPATCHER.dispatch(EventType.MouseMotionEvent, **event_data)
@@ -85,10 +159,7 @@ class InteractionMixin:
         frame = self.camera.frame
         # Handle perspective changes
         if self.window.is_key_pressed(ord(manim_config.key_bindings.pan_3d)):
-            ff_d_point = frame.to_fixed_frame_point(d_point, relative=True)
-            ff_d_point *= self.pan_sensitivity
-            frame.increment_theta(-ff_d_point[0])
-            frame.increment_phi(ff_d_point[1])
+            self._orbit(d_point)
         # Handle frame movements
         elif self.window.is_key_pressed(ord(manim_config.key_bindings.pan)):
             frame.shift(-d_point)
@@ -102,8 +173,18 @@ class InteractionMixin:
     ) -> None:
         self.mouse_drag_point.move_to(point)
         if self._grabbed_mobject is not None:
-            # Dragging a mobject: move it, don't pan
-            self._grabbed_mobject.move_to(point - self._grab_offset)
+            # Dragging a mobject: move it, don't pan. A handle goes where
+            # its constraint allows and then reports the move.
+            mobject = self._grabbed_mobject
+            target = point - self._grab_offset
+            if mobject.is_draggable():
+                target = mobject.drag_target(target, self._grab_anchor)
+            mobject.move_to(target)
+            on_drag = (mobject._draggable or {}).get("on_drag")
+            if on_drag is not None:
+                on_drag(mobject)
+        elif self.drag_to_orbit and not modifiers & WindowKeys.MOD_SHIFT:
+            self._orbit(d_point)
         elif self.drag_to_pan:
             self.frame.shift(-d_point)
 
@@ -124,15 +205,28 @@ class InteractionMixin:
         if propagate_event is not None and propagate_event is False:
             return
 
+        if button != MouseButtons.LEFT:
+            return
+        # A handle (set_draggable) is grabbed before anything else, in
+        # every mode: it is what the author put there to be moved
+        handle = self._find_handle_at(point)
+        if handle is not None:
+            self._begin_grab(handle, point)
+            return
         if self._present_mode:
             # A presentation is navigated from the viewer's rail, not by
             # grabbing what is on screen
             return
-        if button == MouseButtons.LEFT:
-            # Click a mobject to identify it; keep holding to drag it
-            mobject = self._find_mobject_at(point)
-            if mobject is not None:
-                self._begin_grab(mobject, point)
+        if self.drag_to_orbit and not mods & WindowKeys.MOD_ALT:
+            # Where a drag turns the camera, a plain press must not grab:
+            # the hit test is a world bounding box, and a set of 3D axes
+            # contains nearly every point the pointer can reach, so the
+            # axes would take every drag. Alt grabs.
+            return
+        # Click a mobject to identify it; keep holding to drag it
+        mobject = self._find_mobject_at(point)
+        if mobject is not None:
+            self._begin_grab(mobject, point)
 
     def on_mouse_release(
         self,

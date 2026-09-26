@@ -175,6 +175,7 @@ jobs:
           tests.test_checkpoint_reload
           tests.test_checkpoint_ledger
           tests.test_modes
+          tests.test_ce_surface_spelling
           tests.test_export
           tests.test_app
           tests.test_web_viewer

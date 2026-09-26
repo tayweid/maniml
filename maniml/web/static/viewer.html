@@ -144,6 +144,23 @@
     max-width: 100%; max-height: 100%;
     outline: none; cursor: crosshair;
   }
+  /* A handle under the pointer (a mobject the scene marked set_draggable):
+     the cursor says it can be taken, and a chip beside it says which one.
+     The chip rides the pointer on the page's own clock — the engine only
+     says what is there, once per change. */
+  #view.handle { cursor: grab; }
+  #view.handle:active { cursor: grabbing; }
+  #handle-chip {
+    position: fixed; z-index: 40; pointer-events: none;
+    transform: translate(14px, 14px);
+    padding: 3px 9px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--line-strong);
+    color: var(--text); font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .01em; white-space: nowrap;
+    box-shadow: 0 6px 22px rgba(0,0,0,.35);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  #handle-chip[hidden] { display: none; }
   /* Present-from-video: the recording replaces the live stage wholesale */
   #playback-video { display: none; max-width: 100%; max-height: 100%;
     border-radius: 5px; background: #000;
@@ -403,6 +420,7 @@
 <body class="disconnected">
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
+  <div id="handle-chip" hidden></div>
   <div id="render-error" role="alert" hidden></div>
   <div id="gpu-unsupported" role="alert">
     <h2>This viewer needs WebGPU</h2>
@@ -879,6 +897,7 @@ function handleMessage(data) {
     else presenter.moveStarted(data.from, data.to, data.back, data.unit);
   }
   else if (data.type === "export_status") handleExportStatus(data);
+  else if (data.type === "hover") setHandle(data.label);
 }
 
 // Scene picker: every Scene class the engine found in the open file, so one
@@ -1011,6 +1030,9 @@ let playbackMeta = null;
 
 async function enterPlayback({ freshExport = false } = {}) {
   if (stageSource === "playback" || playbackEntering || presentPending) return;
+  // Handles need the engine behind the stage: a recording cannot be
+  // dragged, so such a scene presents live and the rail still scrubs it.
+  if (lastLiveState && lastLiveState.draggable) return;
   playbackEntering = true;
   try {
     let meta = null;
@@ -1331,6 +1353,25 @@ document.addEventListener("keyup", (e) => {
   if (claimed.delete(e.key)) return;
   send({ type: "key", action: "up", key: e.key, ...mods(e) });
 });
+
+// -- Handles: the engine names the draggable mobject under the pointer
+//    (null when there is none); the page shows it and follows the pointer.
+const handleChip = document.getElementById("handle-chip");
+let handleLabel = null;
+function setHandle(label) {
+  handleLabel = label || null;
+  canvas.classList.toggle("handle", !!handleLabel);
+  if (handleLabel) handleChip.textContent = handleLabel;
+  handleChip.hidden = !handleLabel;
+}
+document.addEventListener("pointermove", (e) => {
+  if (handleLabel) {
+    handleChip.style.left = e.clientX + "px";
+    handleChip.style.top = e.clientY + "px";
+  }
+});
+canvas.addEventListener("pointerleave", () => { handleChip.hidden = true; });
+canvas.addEventListener("pointerenter", () => { handleChip.hidden = !handleLabel; });
 
 // -- Pointer: coordinates normalized to the frame, [0,1], y-up.
 //    Attached to every canvas — the normalization makes them

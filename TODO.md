@@ -216,6 +216,27 @@ playback is the clock running backward over immutable buffers), and
 the parked-scene streaming question (the GPU clock owns updaters, so
 Python has nothing to stream for a parked scene).
 
+## Handles: what shipped 2026-09-25, and what is left
+
+`Mobject.set_draggable(along=, on_drag=)` shipped on the `orbit` branch
+with the orbit gesture (CHANGELOG, "The viewer"; the demo is
+`econ-0100/DragDemo.py`). Left open:
+
+- **Picking in 3D.** The hit test compares world bounding boxes with a
+  point on the camera plane, which is wrong once the view turns (it is
+  why a plain press does not grab where a drag orbits; alt does). A
+  handle in a `ThreeDScene` needs the boxes projected to the screen and
+  a drag plane at the mobject's depth. A day or two, when a 3D episode
+  wants one.
+- **Exports stay still.** The mp4, the student bundle and the baked
+  player have no Python in the loop, so no updaters and no handles.
+  Interactive handles there wait for the instruction stream, where a
+  follower is an instruction the page can evaluate.
+- **A pointer round trip in `tests/test_web_viewer.py`** for the hover
+  message and a present-mode drag; today the handlers are unit-tested on
+  window=None scenes (`TestHandles` in `tests/test_modes.py`) and the
+  page was driven by hand.
+
 ## Still open, small
 
 - **Edit button in the viewer** (Taylor, 2026-09-14). A button that opens
