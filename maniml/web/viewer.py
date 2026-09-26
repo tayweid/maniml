@@ -657,8 +657,10 @@ class WebViewer:
             # playback): nothing but state and console output. Reset
             # deltas on enable so a rejoining client starts from a full
             # payload.
+            from maniml.utils import programs
+            from maniml.web import geometry
             requested = event.get("renderer", self._renderer_mode)
-            if requested not in ("triangles", "winding"):
+            if requested not in geometry.RENDERERS:
                 return
             request_id = event.get("renderer_request")
             if request_id is not None and (
@@ -671,6 +673,9 @@ class WebViewer:
                 self._renderer_mode = requested
                 self._geometry_cache.reset()
                 self._last_state = None
+                # Phase B is the whole stack: the plays that follow write
+                # GPU programs (B3) as well as drawing patches and nets
+                programs.set_override("gpu" if requested == "phase_b" else None)
             # Explicit selections need an acknowledgment even when another
             # tab has already selected the same mode. Readiness carries no
             # renderer/request and must not create an acknowledgment loop.

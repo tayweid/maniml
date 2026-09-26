@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from maniml import Scene, Square
+from maniml.web import geometry
 from maniml.web.geometry import GeometryCache
 from maniml.web.viewer import WebViewer
 
@@ -105,6 +106,42 @@ class RendererSelectionProtocol(unittest.TestCase):
                 self.assertEqual(viewer._renderer_mode, "triangles")
                 self.assertEqual(viewer._geometry_cache.sent, {"old-delta"})
                 viewer.server.broadcast_json.assert_not_called()
+
+    def test_phase_b_is_the_whole_stack_and_only_while_selected(self):
+        """The dropdown's Phase B: patches, nets and GPU programs regardless
+        of the environment, stamped as its own renderer so the client draws
+        it; Phase A's environment rules and the export path are untouched,
+        and the program override goes when the selection does."""
+        import json
+        from maniml.utils import programs
+        viewer = self.viewer()
+        scene = viewer.scene
+        try:
+            viewer._handle_event({"type": "mode", "geometry": True, "renderer": "phase_b"})
+            self.assertEqual(viewer._renderer_mode, "phase_b")
+            self.assertEqual(programs.mode(), "gpu")
+            self.assertEqual(programs.env_mode(), "off")
+            def header_of(message):
+                length = int.from_bytes(message[1:5], "little")
+                return json.loads(message[5:5 + length])
+            message = geometry.serialize_scene(scene, viewer._geometry_cache, renderer="phase_b")
+            self.assertEqual(header_of(message)["renderer"], "phase_b")
+            cache = viewer._geometry_cache
+            self.assertEqual((cache.fill_generator, cache.surface_generator, cache.program_mode),
+                             ("patches", "nets", "gpu"))
+            # An export or checkpoint still made meanwhile is Phase A under
+            # its own environment, not the on-screen selection
+            plain = geometry.GeometryCache()
+            self.assertEqual(header_of(geometry.serialize_scene(scene, plain))["renderer"],
+                             "triangles")
+            self.assertEqual((plain.fill_generator, plain.surface_generator, plain.program_mode),
+                             ("meshes", "grids", "off"))
+            viewer._handle_event({"type": "mode", "geometry": True, "renderer": "triangles"})
+            self.assertEqual(programs.mode(), "off")
+            viewer._handle_event({"type": "mode", "geometry": True, "renderer": "nonsense"})
+            self.assertEqual(viewer._renderer_mode, "triangles")
+        finally:
+            programs.set_override(None)
 
 
 @unittest.skipIf(shutil.which("node") is None, "node not available")
