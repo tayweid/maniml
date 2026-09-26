@@ -133,18 +133,28 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
     The original winding path remains selectable in the viewer for dogfooding.
     """
     selected = renderer if renderer is not None else os.environ.get("MANIML_RENDERER", "triangles")
-    if selected not in ("triangles", "winding"):
-        raise ValueError("MANIML_RENDERER must be 'triangles' or 'winding'")
+    if selected not in RENDERERS:
+        raise ValueError("MANIML_RENDERER must be one of " + ", ".join(RENDERERS))
     if cache is not None and cache.renderer != selected:
         cache.reset()
         cache.renderer = selected
     if selected == "winding":
         from maniml.web.winding_geometry import serialize_scene as serialize_winding
         return serialize_winding(scene, cache)
-    return _serialize_triangle_scene(scene, cache)
+    return _serialize_triangle_scene(scene, cache, phase_b=selected == "phase_b")
 
 
-def _serialize_triangle_scene(scene, cache):
+# The renderer names the viewer's selector and MANIML_RENDERER speak.
+# "triangles" is Phase A; "phase_b" is the same driver fed the whole
+# Phase B stack (docs/phase_b_plan.md) — patch fills, net surfaces and
+# GPU programs — regardless of the MANIML_FILL / MANIML_SURFACE /
+# MANIML_PROGRAMS environment, which keeps governing Phase A. It exists
+# so the stack can be compared on a real scene from the dropdown; the
+# default flips are decided on those numbers, not by the switch.
+RENDERERS = ("triangles", "winding", "phase_b")
+
+
+def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     """One source-to-operation path for viewer, baked export and native output."""
     from maniml.web.generated_geometry import serialize_generated_frame
     from maniml.web.triangle_geometry import LyonFillTessellator
@@ -157,19 +167,19 @@ def _serialize_triangle_scene(scene, cache):
     # Phase A's CPU fill meshes stay the default while the patch fill
     # (docs/phase_b1_plan.md) is measured; it draws from the GPU border
     # stage's curve records, so it needs the GPU border generator.
-    fill_generator = os.environ.get("MANIML_FILL", "meshes")
+    fill_generator = "patches" if phase_b else os.environ.get("MANIML_FILL", "meshes")
     if fill_generator not in ("meshes", "patches"):
         raise ValueError("MANIML_FILL must be 'meshes' or 'patches'")
     if fill_generator == "patches" and border_generator != "gpu":
         raise ValueError("MANIML_FILL=patches requires MANIML_BORDER_GENERATOR=gpu")
     # Phase B2 (docs/phase_b2_plan.md): surfaces as control nets the GPU
     # evaluates at screen density; the CPU-evaluated grid stays the default.
-    surface_generator = os.environ.get("MANIML_SURFACE", "grids")
+    surface_generator = "nets" if phase_b else os.environ.get("MANIML_SURFACE", "grids")
     if surface_generator not in ("grids", "nets"):
         raise ValueError("MANIML_SURFACE must be 'grids' or 'nets'")
     # Phase B3 (docs/phase_b3_plan.md): a supported animation's frames as a
     # program the Phase B stages evaluate; it draws from the patch fill.
-    program_mode = programs.mode()
+    program_mode = "gpu" if phase_b else programs.env_mode()
     if program_mode != "off" and fill_generator != "patches":
         raise ValueError("MANIML_PROGRAMS requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
@@ -194,7 +204,8 @@ def _serialize_triangle_scene(scene, cache):
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):
-        message = serialize_generated_frame(frame, scene.camera.uniforms, cache)
+        message = serialize_generated_frame(frame, scene.camera.uniforms, cache,
+                                            renderer="phase_b" if phase_b else "triangles")
     performance.increment("geometry.serialize.calls")
     performance.increment("geometry.serialized_bytes", len(message))
     performance.gauge("geometry.batch_count", len(frame.draws))

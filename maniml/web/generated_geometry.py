@@ -128,8 +128,11 @@ def _net_payload(draw, previous, retained):
     return digest, net
 
 
-def serialize_generated_frame(frame, camera_uniforms, cache=None):
-    """Pack a prepared frame; both drivers consume exactly these operations."""
+def serialize_generated_frame(frame, camera_uniforms, cache=None, *, renderer="triangles"):
+    """Pack a prepared frame; both drivers consume exactly these operations.
+
+    ``renderer`` is the name the client selected: it draws only frames
+    stamped with its own selection, so a Phase B frame says so."""
     supersample = getattr(frame, "supersample", 1)
     if type(supersample) is not int or supersample not in (1, 2):
         raise ValueError("supersample must be 1 or 2")
@@ -459,7 +462,7 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None):
             texture_data[key] = {"offset": offset, "nbytes": len(raw)}
             blobs.append(raw)
             offset += len(raw)
-    header = {"format_version": GEOMETRY_FORMAT_VERSION, "renderer": "triangles",
+    header = {"format_version": GEOMETRY_FORMAT_VERSION, "renderer": renderer,
               "camera": camera, "background": list(frame.background),
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,

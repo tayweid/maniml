@@ -16,12 +16,30 @@ import os
 
 MODES = ("off", "shadow", "gpu")
 
+# Set by the viewer while its Phase B renderer is selected, so the plays
+# that follow write programs; None defers to the environment. The
+# animations read mode() at their begin, the serializer reads what the
+# selected renderer asks for (env_mode() for Phase A, so an export or a
+# checkpoint still made while Phase B is on screen keeps its own rules).
+_override: str | None = None
 
-def mode() -> str:
+
+def env_mode() -> str:
     value = os.environ.get("MANIML_PROGRAMS", "off")
     if value not in MODES:
         raise ValueError("MANIML_PROGRAMS must be 'off', 'shadow' or 'gpu'")
     return value
+
+
+def mode() -> str:
+    return _override if _override is not None else env_mode()
+
+
+def set_override(value: str | None) -> None:
+    global _override
+    if value is not None and value not in MODES:
+        raise ValueError(f"program mode must be one of {MODES}")
+    _override = value
 
 
 def freshen(mobject) -> None:

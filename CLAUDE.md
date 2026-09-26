@@ -204,7 +204,15 @@ The viewer's **Scene renderer** selector retains **Original 2D** for dogfood
 comparisons. It uses `winding_geometry.py`, `static/winding_webgpu.js` and
 `static/winding_wgsl/`. Mode changes reset transport state and preserve the
 scene/checkpoint; native and baked exports explicitly choose Phase A. Do not
-remove this comparison option without Taylor's direction.
+remove this comparison option without Taylor's direction. The selector's
+**Phase B** (renderer name `phase_b`, `geometry.RENDERERS`) is the Phase A
+driver fed the whole Phase B stack: `_serialize_triangle_scene(phase_b=True)`
+forces patches + nets + GPU programs and stamps the header `phase_b`, and the
+viewer sets `programs.set_override("gpu")` while it is selected so the plays
+write programs too. The environment flags keep governing Phase A
+(`programs.env_mode()`), so an export made while Phase B is on screen is
+unaffected. The flips of the defaults are decided on measurements, not by
+this switch (TODO.md, "After").
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.

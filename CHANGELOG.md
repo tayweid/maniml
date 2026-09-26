@@ -33,6 +33,11 @@ interfaces may still change before the first public release.
 
 ### The viewer
 
+- The **Scene renderer** selector gains **Phase B**: the Phase A driver fed
+  the whole Phase B stack — patch fills, net surfaces and GPU programs —
+  regardless of the `MANIML_FILL` / `MANIML_SURFACE` / `MANIML_PROGRAMS`
+  environment, which keeps governing Phase A and every export. A comparison
+  switch for measuring the stack on real scenes; the defaults do not move.
 - In a `ThreeDScene` a plain drag now orbits the camera about its centre;
   shift-drag pans, scroll still zooms, and alt-press grabs a mobject (a plain
   press no longer does there, because a set of 3D axes contains nearly every

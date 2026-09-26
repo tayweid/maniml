@@ -478,6 +478,7 @@
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
       <select id="renderer-select" aria-label="Scene renderer" disabled>
         <option value="triangles" selected>Phase A</option>
+        <option value="phase_b">Phase B</option>
         <option value="winding">Original 2D</option>
       </select>
       <span id="glwarn"></span>
@@ -777,8 +778,11 @@ async function handleFrame(blob) {
 const glWarn = document.getElementById("glwarn");
 const rendererSelect = document.getElementById("renderer-select");
 const rendererOrigin = crypto.randomUUID();
+// Phase B is the same driver as Phase A fed the whole Phase B stack by the
+// engine (patch fills, net surfaces, GPU programs); the frames say which
+// selection produced them, so a switch drops the other's frames as usual.
 const rendererSession = new ManimlRendererSelection(canvas, {
-  triangles: ManimlWGPU, winding: ManimlWindingWGPU,
+  triangles: ManimlWGPU, phase_b: ManimlWGPU, winding: ManimlWindingWGPU,
 });
 for (const driver of Object.values(rendererSession.drivers)) {
   driver.onCacheMiss = () => send({ type: "geometry_reset" });
@@ -859,7 +863,7 @@ function handleMessage(data) {
     setRenderError(data.error);
   }
   else if (data.type === "renderer") {
-    if (data.renderer === "triangles" || data.renderer === "winding") {
+    if (Object.hasOwn(rendererSession.drivers, data.renderer)) {
       // A remote selection may have changed our optimistic local choice.
       // Adopt the latest own acknowledgment too, but never an older request
       // superseded by another local selection or a new connection handshake.
@@ -871,8 +875,7 @@ function handleMessage(data) {
     }
   }
   else if (data.type === "state") {
-    if (!rendererNegotiated
-        && (data.renderer === "triangles" || data.renderer === "winding")) {
+    if (!rendererNegotiated && Object.hasOwn(rendererSession.drivers, data.renderer)) {
       rendererNegotiated = true;
       rendererSelect.disabled = false;
       void startRenderer(data.renderer, false);

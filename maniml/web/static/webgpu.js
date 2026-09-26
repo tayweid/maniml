@@ -1510,7 +1510,9 @@ const ManimlWGPU = (() => {
     const vertexBytes = bytes.subarray(5 + headerLen);
 
     const [width, height] = header.resolution;
-    if (header.renderer !== "triangles") {
+    // "triangles" is Phase A; "phase_b" is the same format from the Phase B
+    // stack (patch fills, net surfaces, programs), which this driver draws.
+    if (header.renderer !== "triangles" && header.renderer !== "phase_b") {
       throw new Error("browser renderer requires generated triangle geometry");
     }
     const samples = header.samples;
