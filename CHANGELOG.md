@@ -33,6 +33,20 @@ interfaces may still change before the first public release.
 
 ### The viewer
 
+- In a `ThreeDScene` a plain drag now orbits the camera about its centre;
+  shift-drag pans, scroll still zooms, and alt-press grabs a mobject (a plain
+  press no longer does there, because a set of 3D axes contains nearly every
+  point the pointer can reach). The orbit is a look around, not an edit: any
+  navigation restores the authored camera. 2D scenes are unchanged, and
+  `drag_to_orbit` on the scene class turns the gesture on or off.
+- `mobject.set_draggable()` marks a handle the pointer may move: it is
+  grabbed before anything else under the pointer, in a presentation as well
+  as in development (where every mobject can still be grabbed), and the
+  viewer names it in a chip by the cursor on hover. `along=` keeps it on a
+  curve or a line, `on_drag=` reports each move (the place to set a
+  `ValueTracker`). A scene with handles presents from the live stage rather
+  than its recording. Drags are never saved: navigation restores the
+  checkpoint.
 - The chrome is now Plass and Knuth's toolbar rather than a resemblance of
   it: one 60px bar of glass pods pressed into a run with stadium ends, their
   contents asleep until the pointer comes near, and flyouts that lay a group's

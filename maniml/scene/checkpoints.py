@@ -938,10 +938,21 @@ def _rebind_functions(old_namespace: dict, new_namespace: dict, memo: dict) -> N
             new_namespace[name] = rebind(value)
 
     for value in list(memo.values()):
-        if isinstance(value, Mobject) and getattr(value, 'updaters', None):
+        if not isinstance(value, Mobject):
+            continue
+        if getattr(value, 'updaters', None):
             rebound = [rebind(u) for u in value.updaters]
             if any(a is not b for a, b in zip(rebound, value.updaters)):
                 value.updaters = rebound
+        # A handle's on_drag callback (set_draggable) is a function the
+        # copy reaches exactly as an updater is: left alone it would set
+        # the tracker of the namespace it was written in — after a seek,
+        # the frontier's — while the copies on screen read their own.
+        drag = getattr(value, '_draggable', None)
+        if drag and drag.get('on_drag') is not None:
+            new_callback = rebind(drag['on_drag'])
+            if new_callback is not drag['on_drag']:
+                value._draggable = dict(drag, on_drag=new_callback)
 
 
 VERIFY_LEDGER_ENV = "MANIML_VERIFY_LEDGER"

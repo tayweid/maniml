@@ -405,6 +405,15 @@ class WebViewer:
         performance.increment("transport.geometry_frames")
         performance.increment("transport.geometry_bytes", len(payload))
 
+    def set_hover(self, label: str | None) -> None:
+        """Name the handle under the pointer for the page (a chip by the
+        cursor), once per change; None clears it."""
+        if label == getattr(self, "_hover_label", None):
+            return
+        self._hover_label = label
+        if self.server.has_clients():
+            self.server.broadcast_json({"type": "hover", "label": label})
+
     def _broadcast_logs(self, replace: bool = False) -> None:
         """Send whatever the scene has printed since the last frame.
 
@@ -953,6 +962,9 @@ class WebViewer:
             "current": current,
             "count": len(checkpoints),
             "present": bool(getattr(scene, "_present_mode", False)),
+            # Handles (set_draggable) need the engine behind the stage:
+            # a presentation of such a scene stays live, not the mp4
+            "draggable": scene._scene_has_handles(),
             "presentation_ready": bool(
                 getattr(scene, "_presentation_ready", False)),
             "baked": bool(baked is not None and baked.is_dir()),
@@ -1065,3 +1077,6 @@ class WebViewer:
         if state != self._last_state:
             self._last_state = state
             self.server.broadcast_json(state)
+            # Whatever was under the pointer may be gone now; the next
+            # motion sample names what is there
+            self.set_hover(None)
