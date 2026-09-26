@@ -88,8 +88,12 @@ class _ViewerHarness:
             f.write(cls.SOURCE)
 
         cls.proc = subprocess.Popen(
+            # Its own OS-assigned port, never the rendezvous range a person's
+            # viewers bind: a tab left open on one of those ports reconnects
+            # to whatever serves it next, joins the test as a second client
+            # with a renderer up, and geometry flows that no test asked for.
             [sys.executable, "-m", "maniml", scene_path, cls.SCENE,
-             "--web", "--no-browser"],
+             "--web", "--no-browser", "--port=0"],
             cwd=cls.tmpdir.name,
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
                  "PYTHONUNBUFFERED": "1"},
@@ -535,6 +539,20 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(retreated, "no state update after DOWN")
             self.assertEqual(
                 retreated[-1]["current"], start_state["current"])
+
+    def test_a_departed_renderer_does_not_speak_for_the_next_client(self):
+        """Readiness belongs to the clients that reported it. A page that
+        reloads is a new client with no renderer yet, so it gets state and
+        no picture until it says otherwise."""
+        with self._connect() as ws:
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            frames, _ = self._collect(ws, 2)
+            self.assertTrue(frames, "no payload after the renderer came up")
+        with self._connect() as ws:
+            frames, states = self._collect(ws, 2)
+            self.assertTrue(states, "no state message after connect")
+            self.assertEqual(frames, [], "the last client's renderer was "
+                             "taken for this one's")
 
     def test_geometry_snapshot(self):
         import numpy as np

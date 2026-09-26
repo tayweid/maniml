@@ -32,7 +32,9 @@ Modes:
   (default)        Interactive development in the browser: checkpoints,
                    hot-reload, click-to-inspect. The scene renders in
                    the browser with WebGPU; --no-browser skips opening
-                   the tab (--web is accepted and means the same)
+                   the tab (--web is accepted and means the same);
+                   --port=N looks for a free viewer port from N
+                   rather than from 8687 (0: any free port)
   --present        Presentation: pre-runs every animation up front
                    (validating the whole scene), disables the file
                    watcher, then starts at the first checkpoint. In
@@ -130,6 +132,18 @@ def main():
         print(USAGE)
         sys.exit(0)
 
+    port = None
+    for flag in sorted(flags):
+        if flag.startswith("--port="):
+            try:
+                port = int(flag.split("=", 1)[1])
+            except ValueError:
+                port = -1
+            if not 0 <= port <= 65535:
+                print(f"Invalid port: {flag}")
+                sys.exit(1)
+            flags.discard(flag)
+
     unknown = flags - {"--present", "--render", "--web", "--no-browser",
                        "--export", "--export-present", "--export-checkpoints"}
     if unknown:
@@ -154,6 +168,7 @@ def main():
         export_present="--export-present" in flags,
         export_checkpoints="--export-checkpoints" in flags,
         open_browser="--no-browser" not in flags,
+        port=port,
     )
 
 
@@ -270,6 +285,7 @@ def run_scene(
     export_present=False,
     export_checkpoints=False,
     open_browser=True,
+    port=None,
 ):
     module = load_scene_module(script_file)
 
@@ -338,7 +354,7 @@ def run_scene(
         # is accepted for muscle memory and scripts but changes nothing.
         from maniml.web import WebViewer
 
-        viewer = WebViewer(open_browser=open_browser)
+        viewer = WebViewer(open_browser=open_browser, port=port)
         _run_web_scenes(viewer, script_file, scene_name, scene_class, present)
         return
 

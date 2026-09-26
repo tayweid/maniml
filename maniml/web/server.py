@@ -163,9 +163,13 @@ class WebServer:
             # The Origin check in the handshake already decided this; a
             # connection that gets here is the page we served.
             self._clients.add(ws)
+            # Read before joining: a client arriving at an empty viewer
+            # inherits nothing a departed one reported about itself.
+            alone = not self._client_lease.has_clients()
             self._client_lease.connected()
             registered = True
-            self._events.append({"type": "_connect"})
+            with self._events_lock:
+                self._events.append({"type": "_connect", "alone": alone})
             await ws.send(json.dumps({
                 "type": "ready",
                 "capabilities": self.capabilities,
