@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
 import platform
 from time import perf_counter
@@ -42,6 +43,55 @@ MOTIONS = {
     "tex_tilt": "camera orientation0→(15deg,50deg,0deg), fixed source paths",
     "tex_resize": "960x540→1280x720→800x450 repeated; fixed logical camera/style",
 }
+
+# Report metadata shared with episode_frames, so both archives read the gpu_
+# columns the same way. Numbers are from the 2026-09-26 verification on the
+# M3 with other work running; they size the effects, they are not results.
+GPU_TIMING_SCOPE = (
+    "With MANIML_GPU_TIMESTAMPS=1 (--gpu-timestamps) the generated renderers stamp every GPU pass at its "
+    "boundaries, the finest grain Metal offers. Read gpu_total_ms (the frame on the GPU: first pass begin to "
+    "latest pass end) and the per-label gpu_exclusive_<label>_ms sums (programs, borders, nets, out with any "
+    "numbered out/N folded in, resolve), which add up to gpu_total_ms; those are the costs. gpu_pass_<label>_ms "
+    "is begin to end and, for any pass after the first, mostly waiting: a render pass begins at its vertex "
+    "stage, which on Apple's tiling GPU starts before the previous pass's fragments end, so gpu_pass_resolve_ms "
+    "is the resolve's wait, not its cost, and gpu_sum_ms (the pass durations added) is a diagnostic of overlap "
+    "or gaps, never a cost. Independent compute passes (one per changed border batch) run concurrently and "
+    "finish out of order on Metal (16-51 of a 259-pass frame's passes end before an earlier one), so exclusive "
+    "time is each pass's end past the latest end before it, zero for a pass that finished inside earlier work: "
+    "a contiguous run of one label is attributed, a single pass among concurrent ones is not. A pass the frame "
+    "did not encode has no column on that row; each column reduces over the rows that carry it and reports n, "
+    "in this harness and in episode_frames alike. The instrument's own cost is outside every wall-clock column: "
+    "Metal lands the last pass's end sample only once the frame's command buffer completes, so the query "
+    "resolve and its staging copy are one small submission after the frame's full readback, mapped directly, "
+    "run on the first read of gpu_timings after the harness's timer stops; gpu_readback_ms is that cost "
+    "(about 1.5 ms) and no total contains it. What the flag does perturb is the stamped passes themselves, "
+    "roughly 30 us of wall clock per pass on the M3: below noise on a 2-3 pass steady-state frame, about 1 ms "
+    "on a 25-40 pass cold or navigation frame, 8-9 ms on a 259-pass one. Cold rows under the flag are not the "
+    "flag-off navigation cost, and per-pass compute costs on cold frames are read from flag-off wall clock "
+    "(batch the dispatches into one pass first if the border phase's cost is the question). Original 2D (the "
+    "frozen winding reference) and native GL are not instrumented, carry no gpu_ columns and are never charged "
+    "the instrument.")
+GPU_CLOCK_CAVEAT = (
+    "GPU timestamps do not remove the GPU clock confound. The period is a fixed nanosecond clock (period_ns "
+    "1.0; 1.0002 ns per tick calibrated against perf_counter), so a pass's duration stretches and shrinks with "
+    "the M3's clock state, which follows the whole machine's load: the same cached frame's gpu_total_ms ranged "
+    "0.27-0.91 ms (changing_paths) and 0.42-1.34 ms (tex_static patch_fill) across minutes of varying "
+    "concurrent load, idle gaps of the instrument's size did not move the minimum, and preemption by other GPU "
+    "clients lands inside a pass (gpu_exclusive_resolve_ms p95 1.61 ms against p50 0.09). Measure on a quiet "
+    "machine and keep the frame-by-frame rotation; read minima and medians together and treat a minimum far "
+    "below the median as a clock excursion, not a floor; never compare gpu_ columns across runs taken under "
+    "different load. The alternation effect of the wall-clock columns holds here too: a lighter load alone is "
+    "not faster on this GPU.")
+GATE_SCOPE = (
+    "What a run of this harness answers for the B1 gate (docs/phase_b_plan.md, Increment B1 acceptance): the "
+    "fixture controls' completion in a two-variant rotation (--variants patch_fill gpu_border, then patch_fill "
+    "original_2d; the full rotation puts each readback after three others' work) with the timestamp flag off, "
+    "and the pixel pairs patch_vs_cpu and patch_vs_original against the plan's 0.5% of pixels over 24. It does "
+    "not measure the browser driver (accepted, plan item 3), animation or updater-ticked frames "
+    "(episode_frames --play-frames and --tick-updaters), or the cold first frame, which is archived and "
+    "excluded. submit_through_full_readback_ms is mostly the full-frame readback the browser never does; "
+    "gpu_total_ms (flag on, a separate attribution run) is the GPU's own span of the frame and excludes the "
+    "readback copy and command-buffer scheduling.")
 
 
 def build_case(name):
@@ -165,6 +215,24 @@ def resource_summary(renderer, cache, header):
     return result
 
 
+def gpu_columns(timings):
+    """A frame's GPU pass times as row columns. Passes sharing a label add
+    up (a frame with several changed border batches runs several border
+    passes; the numbered output passes of a reopened scene pass fold into
+    gpu_pass_out_ms). A pass the frame did not encode has no column on
+    that row: both harnesses reduce a column over the rows that carry it
+    and say how many (n). The raw pass list stays for the numbered
+    detail."""
+    columns = {"gpu_total_ms": timings["total_ms"], "gpu_sum_ms": timings["sum_ms"],
+               "gpu_readback_ms": timings["readback_ms"], "gpu_passes": timings["passes"]}
+    for entry in timings["passes"]:
+        label = entry["label"].split("/")[0]
+        for prefix, value in (("gpu_pass", entry["ms"]), ("gpu_exclusive", entry["exclusive_ms"])):
+            key = f"{prefix}_{label}_ms"
+            columns[key] = columns.get(key, 0.0) + value
+    return columns
+
+
 def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None):
     stages.reset()
     if queue is not None:
@@ -206,6 +274,14 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
             post_readback_ms=1000 * (completed - queue.read_completed_at),
             serialize_through_rgba_image_ms=1000 * (completed - started),
             full_readback_bytes=image.width * image.height * 4)
+        # Reading gpu_timings is what resolves and maps the frame's stamps
+        # (WgpuRenderer.gpu_timings): after `completed`, so the intervals
+        # above end where an uninstrumented renderer's do.
+        timings = getattr(renderer, "gpu_timings", None)
+        if queue.timing_submissions != (0 if timings is None else 1):
+            raise RuntimeError("timestamp resolve must be the one submission after the readback")
+        if timings is not None:
+            row.update(gpu_columns(timings))
     row.update(resource_summary(renderer, cache, header))
     return row, image, header
 
@@ -325,8 +401,17 @@ def run_case(name, count, warmups, stages, output, *, cpu_only=False, transport=
                   "first_cold_frames_excluded_from_warmed_statistics": cold,
                   "per_frame_image_diagnostics": comparisons, "variants": {}}
         for variant in variants:
-            result["variants"][variant] = {"samples": rows[variant], "timing_ms": {
-                key: stats([row[key] for row in rows[variant]]) for key in rows[variant][0] if key.endswith("_ms")}}
+            # A pass the frame did not encode (a border batch whose output
+            # was current) has no column on that row. Each column reduces
+            # over the rows that carry it and says how many (n), the rule
+            # episode_frames.summarize applies, so a column name means one
+            # thing in both reports.
+            keys = [key for key in dict.fromkeys(key for row in rows[variant] for key in row) if key.endswith("_ms")]
+            timing = {}
+            for key in keys:
+                values = [row[key] for row in rows[variant] if key in row]
+                timing[key] = dict(stats(values), n=len(values))
+            result["variants"][variant] = {"samples": rows[variant], "timing_ms": timing}
             key = ("capture_return_through_full_readback_ms" if variant == "native_gl"
                    else "submit_through_full_readback_ms")
             if key in rows[variant][0]:
@@ -354,9 +439,13 @@ def main():
     parser.add_argument("--transport", action="store_true")
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS),
                         help="renderers to alternate per frame; two alone isolates one renderer's completion time")
+    parser.add_argument("--gpu-timestamps", action="store_true",
+                        help="per-pass GPU timestamps on the generated renderers (MANIML_GPU_TIMESTAMPS=1)")
     args = parser.parse_args()
     if args.samples < 3 or args.warmups < 1:
         parser.error("samples must be >=3 and warmups >=1")
+    if args.gpu_timestamps:
+        os.environ["MANIML_GPU_TIMESTAMPS"] = "1"
     args.output.mkdir(parents=True, exist_ok=True)
     paths = [Path(__file__), *Path("maniml/web").glob("*.py"), *Path("maniml/web/static/wgsl").glob("*.wgsl"),
              *Path("maniml/rendering").rglob("*.py"), *Path("maniml/rendering/shaders").rglob("*.glsl"),
@@ -371,10 +460,12 @@ def main():
     hashes = {str(path): sha256(path.read_bytes()).hexdigest() for path in paths}
     report = {"recorded_utc": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(),
         "python": platform.python_version(), "cpu_only": args.cpu_only, "transport": args.transport,
+        "gpu_timestamps": os.environ.get("MANIML_GPU_TIMESTAMPS") == "1",
         "source_files_sha256": hashes, "samples": args.samples, "warmups": args.warmups,
         "aa": "GPU/CPU borders share production4MSAA+2x spatial resolve. Original2D uses the shipped winding serializer plus frozen native WebGPU mirror; native GL uses the packaged NativeGLCamera. Both historical references retain samples0 plus their historical internal AA.",
         "timing_scope": "Fresh sources/devices/caches per case/variant. Cold first frame archived separately, then excluded warmups. Rotated/reversed order, full RGBA readback/PIL image construction per measured frame. Source evaluation is separately timed and excluded from rendering total. Source checks, retained memory summaries, pixel comparisons and PNG writes are outside timings. WebGPU render CPU ends at queue.submit; completion includes GPU work/host waiting/polling/mapping and resource retirement, not GPU timestamps. GL capture may block; its capture-return/readback split is not the WebGPU submission split. Native GL has no wire. Component medians must not be added.",
         "transport_scope": "Optional real uncompressed localhost WebSocket echo roundtrip after serialization and before parse. Two wire traversals, not one-way delivery or browser presentation; byte equality checked. No stage for native GL.",
+        "gpu_timing_scope": GPU_TIMING_SCOPE, "gpu_clock_caveat": GPU_CLOCK_CAVEAT, "gate_scope": GATE_SCOPE,
         "native_gl_camera_adapter": "All reference captures inject the exact source camera packet through refresh_uniforms, including original B0's24x12 projection. Resize case reallocates/retire only camera targets via existing allocation helpers inside measured time; keeps context and wrappers.",
         "memory_scope": "Post-completion retained arrays/buffers. GPU border output includes copied fill prefix; separate fill source buffer remains retained. Winding history/target retention follows frozen reference; generated active-frame retirement occurs before readback, winding target retirement after readback. No peak RSS, staging buffers, native helper scratch or driver allocation overhead. Native GL buffer byte counts unavailable.",
         "draw_counts": "Generated scene/resolve counts derived from the exact driver loop, excluding compute and readback commands. Indexed triangle counts include padded degenerate slots. Historical native draw counts unavailable here; B0 Original135logical batches confirmed by fixture.",

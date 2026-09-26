@@ -81,11 +81,16 @@ class QueueObserver:
         self.submissions = self.reads = 0
         self.read_size = None
         self.inside_read = False
-        self.readback_submissions = 0
+        self.readback_submissions = self.timing_submissions = 0
 
     def submit(self, *args, **kwargs):
         if self.inside_read:
             self.readback_submissions += 1
+        elif self.read_completed_at is not None:
+            # The GPU timestamp resolve follows the frame's readback, on the
+            # first read of renderer.gpu_timings (wgpu_renderer
+            # _PassTimestamps); it is outside the interval.
+            self.timing_submissions += 1
         else:
             self.submissions += 1
             self.submitted_at = perf_counter()

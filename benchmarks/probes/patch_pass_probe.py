@@ -6,12 +6,22 @@ No argument: the strip pattern at the reservation, at the steps the run needs,
 and no strips at all, interleaved frame by frame with rotating order (a lighter
 load alone is not faster on the M3, whose GPU clock follows the load).
 "passes": each patch draw skipped in turn. "phasea": Phase A against the patch
-path and the patch path without its draws."""
-import statistics, sys, time
+path and the patch path without its draws.
+
+Beside the wall clock, each variant reports the GPU's own time for the frame
+and for its output pass (MANIML_GPU_TIMESTAMPS=1, wgpu_renderer._PassTimestamps):
+pass boundaries on Metal, so a skipped draw shows in the out pass rather than
+in completion latency. The out pass is given as its exclusive time (its end
+past the latest end before it), since its begin, the vertex stage, precedes
+the border compute's end on this GPU. The timings are read after the wall
+clock stops, which is when their resolve runs, so the wall column does not
+carry the instrument."""
+import os, statistics, sys, time
 from copy import deepcopy
 from unittest.mock import patch as mock_patch
 import numpy as np
 import wgpu
+os.environ["MANIML_GPU_TIMESTAMPS"] = "1"
 from maniml.web import wgpu_renderer
 from maniml.web.border_geometry import _density_counts
 from maniml.web.generated_geometry import serialize_generated_frame
@@ -53,7 +63,18 @@ class Variant:
     def __init__(self, name, header, payload, quads=None):
         self.name, self.header, self.payload, self.quads = name, header, payload, quads
         self.renderer = wgpu_renderer.WgpuRenderer()
-        self.times, self.frames = [], 0
+        self.times, self.gpu_totals, self.gpu_outs, self.frames = [], [], [], 0
+
+    def record(self, elapsed):
+        self.frames += 1
+        if self.frames <= WARMUPS:
+            return
+        self.times.append(elapsed)
+        timings = self.renderer.gpu_timings
+        if timings is not None:
+            self.gpu_totals.append(timings["total_ms"])
+            self.gpu_outs.append(sum(entry["exclusive_ms"] for entry in timings["passes"]
+                                     if entry["label"].split("/")[0] == "out"))
 
     def render(self):
         h = deepcopy(self.header)
@@ -90,9 +111,7 @@ class Variant:
             start = time.perf_counter()
             self.renderer.render(h, self.payload if not self.frames else b"")
             elapsed = 1000 * (time.perf_counter() - start)
-        self.frames += 1
-        if self.frames > WARMUPS:
-            self.times.append(elapsed)
+        self.record(elapsed)
 
 
 def run_interleaved(variants):
@@ -102,8 +121,11 @@ def run_interleaved(variants):
             order = order[::-1]
         for variant in order:
             variant.render()
+    print(f"  {'':44s} {'wall':>13s}  {'gpu frame':>13s}  {'gpu out pass':>13s}   (median / min ms)")
     for variant in variants:
-        print(f"  {variant.name:44s} median {statistics.median(variant.times):5.2f} ms  min {min(variant.times):5.2f} ms")
+        columns = [f"{statistics.median(values):5.2f} / {min(values):5.2f}" if values else f"{'n/a':>13s}"
+                   for values in (variant.times, variant.gpu_totals, variant.gpu_outs)]
+        print(f"  {variant.name:44s} {'  '.join(columns)}")
         variant.renderer.close()
 
 
@@ -182,9 +204,7 @@ class SkipVariant(Variant):
             start = time.perf_counter()
             self.renderer.render(h, self.payload if not self.frames else b"")
             elapsed = 1000 * (time.perf_counter() - start)
-        self.frames += 1
-        if self.frames > WARMUPS:
-            self.times.append(elapsed)
+        self.record(elapsed)
 
 
 wgpu_renderer.WgpuRenderer._encode_patch_original = wgpu_renderer.WgpuRenderer._encode_patch

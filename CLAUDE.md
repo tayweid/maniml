@@ -269,6 +269,23 @@ direction draws (`tests/player_commands.cjs phaseB`, `test_export.py`
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
+**Measuring the renderers.** `MANIML_GPU_TIMESTAMPS=1` makes `WgpuRenderer`
+request timestamp queries and stamp every pass (`_PassTimestamps` in
+`web/wgpu_renderer.py`); `renderer.gpu_timings` (a property, read after the
+frame) carries per-pass `ms` and `exclusive_ms`, `total_ms`, `sum_ms` and the
+instrument's own `readback_ms`. Two Metal facts shape it: the last pass's end
+stamp cannot be resolved in the frame's own command buffer, so the resolve is
+its own submission after the frame's readback (outside every timed interval;
+the harness's queue contract counts it as `timing_submissions`); and a render
+pass's begin stamp is its vertex start, which overlaps the previous pass's
+fragments, so only `total_ms` and the per-label exclusive sums are costs.
+The flag perturbs what it measures (~30 µs per stamped pass), so gate numbers
+come from flag-off two-variant runs and attribution from a separate flag-on
+run — the recipe is in `benchmarks/README.md` ("GPU pass timestamps",
+"Episode frames"), and `benchmarks/episode_frames.py` applies it to frames of
+a real episode. Never compare `gpu_` columns across runs taken under
+different machine load: the GPU clock follows the load.
+
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a
 mobject's rows: a straight-path `Transform` (so `.animate`, `MoveToTarget`,

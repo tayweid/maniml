@@ -379,3 +379,119 @@ moving floor. The next instrument is GPU timestamp queries in the harness,
 which measure pass time rather than completion latency; until then, the
 patch fill is level with Phase A on pan and zoom and about 1 ms behind on
 a still text frame, and Phase A stays the default.
+
+## GPU timestamps, and the gate on two course episodes (2026-09-26)
+
+Taylor's direction, quoted: "start with the timestamp queries", and, asked
+what the flip must beat, "complete frame, per the plan" — CPU preparation,
+encoding and GPU together, at or below Phase A on the five controls *and*
+a course episode, pixels within the 0.5% gate; the timestamps are the
+diagnostic, not the gate. Two episodes were named: `B2_Supply/03_Code.py`
+(`EpisodeB2`, text-heavy 2D) and `B3_Equilibrium/Animate.py`
+(`PriceDiscovery`, 3D). Scope for the day: measure and report; no design
+change without a fresh decision.
+
+**The instrument.** `MANIML_GPU_TIMESTAMPS=1` stamps every GPU pass of the
+native mirror (`_PassTimestamps` in `wgpu_renderer.py`; `gpu_timings` after
+each frame). Two Metal facts shape it and are recorded in `CLAUDE.md`: the
+last pass's end stamp cannot be resolved in the frame's own command buffer,
+so the resolve is a separate submission after the readback, outside every
+timed interval; and a render pass's begin stamp is its vertex-stage start,
+overlapping the previous pass's fragments, so only the frame total and the
+per-label *exclusive* times are costs. The flag perturbs what it measures
+(~30 µs per stamped pass), so gate numbers come from flag-off two-variant
+runs and attribution from a separate flag-on run. The harness for episodes
+is `benchmarks/episode_frames.py` (pausepoint frames, `--tick-updaters`,
+`--play-frames`); the archive is `benchmarks/results/gpu_timestamps_20260926/`.
+
+### The controls: the "~1 ms" was never GPU time
+
+The five controls of `patch_fill_20260911`, quiet GPU (0–12% device
+utilization, WindowServer's baseline), twelve samples after three warmups,
+two variants rotating frame by frame, flag off (complete frame, ms,
+median / minimum; then the GPU total from the flag-on attribution run):
+
+| Control | Patch fill | Phase A | GPU total, patch / Phase A |
+| --- | ---: | ---: | ---: |
+| Static 101-glyph text | 5.66 / 4.23 | 4.15 / 3.87 | 1.33 / 1.02 |
+| Text pan | 5.77 / 5.33 | 4.63 / 3.90 | 1.32 / 1.02 |
+| Repeated 5% zoom | 5.80 / 5.03 | 6.22 / 3.87 | 1.46 / 1.14 |
+| Text 1→4→1 zoom | 5.85 / 5.36 | 6.36 / 4.09 | 1.91 / 1.39 |
+| Concave quad morph + circle | 3.72 / 3.32 | 4.06 / 3.06 | 1.07 / 0.93 |
+
+On the still text frame the patch fill's GPU time is +0.30 ms, at the
+median and at the minimum alike, all of it in the output pass (+0.30
+exclusive; the border and resolve passes are equal), of which the five
+patch draws are ~0.16 ms and the strips and stencil state the rest; the
+probe puts the same difference at +0.29 interleaved, +0.44 zoomed. The CPU
+columns net to +0.04 ms. The +1.51 ms median gap in the complete frame is
+one quantum of the readback wait, which on this machine sits in ~1.9 and
+~3.45 ms modes: the patch fill's extra 0.30 ms of GPU work tips the wait
+into the slower mode on 11 of 12 frames against Phase A's 2, and the
+minima (+0.36) say the same. So the "~1 ms" the third candidate could not
+resolve was the readback quantum seen from the render call, not GPU
+execution; the GPU figure is 0.3 ms. The zoom medians favour the patch
+fill because Phase A re-tessellates on some zoom frames, as before.
+Pixels are identical to 2026-09-11 (0.00% against Phase A; 0.21–0.62%
+against Original 2D, the 1→4→1 zoom's 0.62% being Phase A's own gap).
+
+A first pass of the same runs, taken while a leftover viewer held the GPU
+at 35–42%, is superseded and kept in the archive for the record: the patch
+fill's numbers did not move between the two (5.66 / 4.34 loaded), Phase
+A's did (4.79 / 3.98 loaded), which is the GPU clock following the load.
+
+Against the plan's gate as Taylor stated it — complete frame at or below
+Phase A — the still frame and the pan fail by the readback quantum, the two
+zooms and the morph pass at the median and fail at the minimum. In the
+browser there is no readback: the difference a viewer would feel on these
+controls is the 0.30 ms of GPU work, unmeasured there.
+
+### The episodes: the gate is not met, and the reason is not the GPU
+
+Twelve pausepoint frames per episode at the episodes' own 2160×1080, twelve
+samples after three warmups, two variants rotating frame by frame, flag off
+(complete frame, ms, median; Δ = patch fill − Phase A):
+
+| Episode | Frames at/below Phase A | Median of frame medians | Largest deficit |
+| --- | ---: | ---: | ---: |
+| B2 `EpisodeB2` | 4 of 12 | 21.77 vs 19.83 | **+27.77** (8.a, line 1016: 64.65 vs 36.88) |
+| B3 `PriceDiscovery` | 2 of 12 (three more within +0.1) | 18.18 vs 16.95 | +2.46 (3.a.3, line 1179: 19.25 vs 16.79) |
+
+Against Original 2D the patch fill is below on 24 of 24 frames (Original
+2D's readback at this resolution is 10–69 ms). Pixels: 0.000% over 24/255
+against Phase A on every frame (max single-channel difference 27); worst
+0.114% (B2 3.i) and 0.269% (B3 2.b.i) against Original 2D — under the gate
+everywhere. The live rows (updaters ticking; the play into each pausepoint)
+are worse for the patch fill where the frame is heavy: B2 8.a +52.5 ms
+ticking, +106.8 ms mid-play; B3 at most +5.1 (3.a.4 ticking) and +7.1
+(3.a.9 play).
+
+Where the deficit is, on B2 8.a (patch fill / Phase A): serialize 27.31 /
+19.96, prepare 17.40 / 15.49, **command encoding 24.32 / 7.09**, submit
+through readback 9.39 / 7.78. The wire carried 911 batches and 1840 draws
+against Phase A's 444 and 444. The attribution run (flag on, six frames)
+puts the GPU's share at +0.9 to +2.1 ms per frame on B2 and −0.6 to +1.3
+on B3, all of it in the output pass; every frame of both variants encoded
+exactly two passes (out, resolve). So on a real diagram the patch fill
+loses on the CPU, in proportion to its draw count, and the GPU difference
+is a small fraction of the gap.
+
+Why the draw count: a patch run joins only *consecutive* draws with equal
+uniforms, texture and pipeline (`triangle_scene.py`, the run builder), a
+painted patch stays a run of its own, and a translucent fill's coverage
+reference belongs to one object; each group in a run is five draws (mark
+fan, mark patch, strip mark, cover, strip cover). A course diagram
+interleaves colours, opacities and dashed strokes, so its runs are short:
+on the light bar-chart beats (4.b–4.d, 79–132 mobjects) the patch fill has
+8–12 batches to Phase A's 45–62 and wins by 1–3 ms; on 8.a (531 mobjects)
+it has twice the batches and four times the draws and loses by 28. The
+controls did not show this because the 101-glyph paragraph is one run of
+one group.
+
+Left open, not decided: the lever the numbers point at is the run rule —
+per-object colour and opacity are already in the object record's reach
+(eight words per object), so a run could span uniform changes and a frame's
+opaque patch objects become one group of five draws; whether translucent
+and painted objects can join, and what the browser (which pays per draw in
+JavaScript, unmeasured here) does with it, are the questions. The verdict,
+and whether to spend the week, are Taylor's.
