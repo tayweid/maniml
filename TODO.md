@@ -196,9 +196,18 @@ functions stay on the CPU; the recording player for `patch`, `net` and
 program batches; the default flips, which are Taylor's — measured from the viewer's **Phase B**
 selector (2026-09-26), which runs the whole stack on any scene without the
 environment flags; the gates are B1's frame time against Phase A on text
-(currently ~1 ms behind on a still frame, level on pan and zoom), the pixel
-gate on one course episode, and the recording player for `patch`, `net` and
-program batches. The paragraphs below are the
+and on a course episode, the pixel gate on the episode, and the recording
+player for `patch`, `net` and program batches. **Measured 2026-09-26**
+(docs/phase_b1_plan.md, "GPU timestamps, and the gate on two course
+episodes"; archive `benchmarks/results/gpu_timestamps_20260926/`): pixels
+pass everywhere; on the controls the still-text gap is 0.30 ms of GPU time
+plus a readback quantum the browser never pays; on the episodes the patch
+fill loses by up to 28 ms on a full diagram (B2 8.a) because its runs
+fragment — twice Phase A's batches, four times its draws — and the CPU
+encodes per draw; the GPU share there is +0.9 to +2.1 ms. The lever is
+the run rule (per-object colour and opacity into the object record so a
+frame's opaque patch objects are one group); the decision is Taylor's. The
+recording player learned the batches the same day. The paragraphs below are the
 earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
