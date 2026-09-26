@@ -127,6 +127,10 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- `Surface` accepts CE's spelling — `Surface(func, u_range, v_range,
+  resolution=32, fill_color=..., fill_opacity=...)` — beside GL's (colour
+  first, `uv_func` a method); CE's stroke, checkerboard and piece options
+  are accepted and dropped.
 - Checkpoints now restore the camera's orientation and field of view,
   not only its center and size. A backward seek across a beat that
   orbited the camera (`set_theta`, `set_phi`, `set_focal_distance`)
