@@ -206,7 +206,10 @@ fill loses by up to 28 ms on a full diagram (B2 8.a) because its runs
 fragment — twice Phase A's batches, four times its draws — and the CPU
 encodes per draw; the GPU share there is +0.9 to +2.1 ms. The lever is
 the run rule (per-object colour and opacity into the object record so a
-frame's opaque patch objects are one group); the decision is Taylor's. The
+frame's opaque patch objects are one group); the decision is Taylor's. **Superseded the same evening by
+[the B4 plan](docs/phase_b4_plan.md)**: the retained frame first (Python
+silent at rest, only movers cost), then the flips, then one final test point
+with the whole stack; the patch run rule becomes B5.2, conditional. The
 recording player learned the batches the same day (`geometry_recording.js`
 indexes `object_data`, `net_data` and `program_data`, and a Phase B
 `--export` plays and seeks). The paragraphs below are the
