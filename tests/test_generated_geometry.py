@@ -384,6 +384,9 @@ class RecordedGeometryReplay(unittest.TestCase):
     def test_player_rehydrates_gpu_borders_across_seeks_and_render_failure(self):
         self.run_player("border")
 
+    def test_player_rehydrates_phase_b_tables_across_seeks_and_render_failure(self):
+        self.run_player("phaseB")
+
     def test_gpu_border_sources_and_fill_bytes_survive_random_seek_and_sender_reset(self):
         red, blue, cache = self.border_draw(), self.border_draw((0, 0, 1, .75)), GeometryCache()
         messages = [encode([red], cache), encode([red], cache), encode([blue], cache),

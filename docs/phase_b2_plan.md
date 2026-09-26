@@ -197,8 +197,9 @@ back only when the object is retired, as the border reservation does.
 the same compute stage, reservation and index pattern; `netWire` in
 `tests/generated_webgpu_commands.cjs` checks two real frames across a zoom,
 and the live viewer matched the native render exactly on a 32×18 grid of
-cell means). The recording player does not index `net` batches yet, so an
-`--export` made with the switch on will not play. The step rule is
+cell means). The recording player indexes `net` batches since 2026-09-26
+(`geometry_recording.js` carries `net_data` into every reconstructed
+frame), so an `--export` made with the switch on plays. The step rule is
 per object, so a large surface partly in view pays for its whole extent.
 Nets are one draw per object; runs are not coalesced. Per-pixel lighting
 would let the floor of two steps go, and would change every surface's

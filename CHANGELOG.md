@@ -23,6 +23,11 @@ interfaces may still change before the first public release.
 - Unchanged fill-paint coefficients are retained by content hash in both
   drivers and restored independently when seeking recordings. Large static
   gradients no longer repeat their full coefficient arrays in every frame.
+- The baked geometry player plays recordings made with the Phase B switches
+  (`MANIML_FILL=patches`, `MANIML_SURFACE=nets`, `MANIML_PROGRAMS`): the
+  recording indexer carries patch object tables, surface nets and program
+  sources into every reconstructed frame, so a seek in either direction
+  restores them as it does paints and borders.
 - Native OpenGL is retained as the explicit `NativeGLCamera` reference, with
   its original shaders and public `ShaderWrapper`. Source/editable installs
   now require Cargo and a linker for the Lyon fill helper; compatible wheels
