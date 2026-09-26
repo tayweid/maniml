@@ -848,8 +848,15 @@ function setRenderError(error) {
 }
 
 function handleGeometry(arrayBuffer) {
+  // Each drawn frame is a "maniml:render" span in DevTools' Performance
+  // panel: the header parse, prepare and encode, plus any wait behind an
+  // earlier frame in the session's chain. benchmarks/browser_frames.py
+  // times the same driver headlessly.
+  const started = performance.now();
   rendererSession.render(arrayBuffer).then((header) => {
     if (!header) return;
+    performance.measure("maniml:render", { start: started, end: performance.now(),
+      detail: { batches: header.batches.length, bytes: arrayBuffer.byteLength } });
     setRenderError(null);
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";

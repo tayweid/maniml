@@ -202,6 +202,65 @@ under that frame's `errors` and the frame keeps the rest. Pass the episode by
 absolute path (its own `../_Assets` imports resolve from it); TeX is needed;
 nothing is written beside the episode.
 
+## Browser frames
+
+`python -m benchmarks.browser_frames --scene <file.py> <Scene> --output <dir>
+--tick-updaters --play-frames` measures the other half of a live frame on the
+same episode frames: the JavaScript the browser runs on every geometry
+message (`docs/phase_b4_plan.md`, B4.6). The episode is loaded and its
+frames chosen exactly as `episode_frames` chooses them (pausepoints thinned
+to `--max-frames`, each restored and serialized `--warmups` + `--samples`
+times, its updaters ticking before every round under `--tick-updaters`, and
+under `--play-frames` the middle frames of the play that leads into it), so
+the two harnesses describe the same frames. Each round is one geometry
+message serialized as the viewer sends it, one `GeometryCache` per stream
+and never reset, so every message is a delta against the one before it:
+the first message after a restore re-sends what the cache no longer holds,
+as a seek does, and the rest are cached batches with the camera. Two
+streams of the same frames are the variants: `phase_a` from the default
+renderer and `phase_b` from the whole Phase B stack (`MANIML_FILL=patches
+MANIML_SURFACE=nets MANIML_PROGRAMS=gpu`) through the same driver. Each is
+written under `<dir>/<variant>/` in the export recorder's format
+(`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
+it, `scene.json`'s frame entries also say what each frame is, and its
+`lines` name each recorded group's line, the checkpoint's or the play's, so
+the player's chips name the frames), then played in order through the real
+`maniml/web/static/webgpu.js` in Node (`benchmarks/browser_frames.cjs`) on
+the counting fake device the command tests use
+(`tests/webgpu_fake_device.cjs`, with its validation off so the timed frame
+pays for nothing but the driver).
+
+Per frame: `js_ms`, `performance.now` around the driver's render (the header
+parse, the prepare stages, the encode loop, the fake submit and the
+retirement sweeps), and the calls it made — `draws`, `set_pipeline_calls`
+and the `pipeline_switches` among them, `bind_groups_created`,
+`buffers_created` / `buffers_destroyed`, `uniform_writes` (uniform buffers
+created with their data plus `queue.writeBuffer` calls into one),
+`compute_dispatches`, `bytes_uploaded` — beside `wire_bytes`, the batch
+counts and Python's `serialize_ms` for the same message. Rows fall into four
+classes, reduced to medians and minima with `n` per variant and per frame:
+`pausepoint` (the still redraw rounds after the warmups), `ticked` (the same
+on a frame whose updaters tick), `play` (the recorded mid-play frames) and
+`cold` (the first message after each restore, delta-encoded against the
+previous message as a seek is against the frame on screen: `cached_batches`
+says how much the cache still held, and only the stream's first message, or
+a frame whose objects all changed, uploads everything; its own class,
+excluded from the others). `report.json` holds every row, `summary.json`
+the reductions with the scene, commit, machine, Node version and scope
+strings, and `summary.md` the table.
+
+What it is not: Dawn's validation and command encoding behind each call, the
+GPU, the canvas present, texture decoding (a stub) or the viewer's second
+header parse in `renderer_selection.js`. The live viewer marks each drawn
+frame as a `maniml:render` span (`performance.measure`) that DevTools'
+Performance panel shows; that span includes the second parse and any wait
+behind an earlier frame. Node's garbage collector lands where it lands and
+V8 warms over the first frames, so read medians with minima. A repeated
+still frame is what the viewer sends on a camera change or an updater tick;
+at rest without either it sends nothing, and that silence is not a row. A
+cache miss on a recorded stream fails the run. Pass the episode by absolute
+path; TeX is needed; nothing is written beside the episode.
+
 ## Point reads by kind and phase
 
 The instruction-stream plan's prerequisite: which Python reads of source

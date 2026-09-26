@@ -285,6 +285,13 @@ run — the recipe is in `benchmarks/README.md` ("GPU pass timestamps",
 "Episode frames"), and `benchmarks/episode_frames.py` applies it to frames of
 a real episode. Never compare `gpu_` columns across runs taken under
 different machine load: the GPU clock follows the load.
+`benchmarks/browser_frames.py` measures the browser's side of the same
+frames without a GPU: it records each frame as the viewer would send it,
+in the export recorder's format, and plays the stream through the real
+`webgpu.js` in Node on the counting fake device
+(`tests/webgpu_fake_device.cjs`), reporting JS milliseconds and WebGPU
+call counts per frame; the live viewer marks each drawn frame as a
+`maniml:render` span for DevTools' Performance panel.
 
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a

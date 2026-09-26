@@ -133,7 +133,15 @@ gains the `retained` variant and the archived run; the default flips to on
 `webgpu.js` on a counting fake device in Node over a recorded frame stream
 from the episodes — JS ms per frame, command counts, buffers created — plus a
 viewer-side `performance.measure` per frame. Today: 2.2 ms JS at 444 batches
-(Phase A), 8.0 ms at 911 (Phase B), before Dawn's per-call work.
+(Phase A), 8.0 ms at 911 (Phase B), before Dawn's per-call work. Measured
+2026-09-26 (`benchmarks/results/browser_frames_20260926/`): the still 8.a
+frame 2.39 ms at 444 batches / 445 draws (Phase A) and 9.28 ms at 911 / 1841
+(Phase B), one `setPipeline` per draw, zero uploads, 179 / 434 KB of header
+per tick; plays 5.6 / 3.4 ms at the EpisodeB2 median, Phase B's with 100
+temporary uniform buffers and 166 bind groups per frame (1384 and 2306 on
+the 5.a play); the first message after a restore (a seek, delta-encoded
+against the previous message) 15 / 23 ms and 1.1 / 1.8 MB at the median,
+23 / 30 ms where nothing was cached.
 
 **B4.7 Slot list in the browser, still fed by full frames** (3 days).
 `frame.slots`, `makeSlot` / `releaseSlot`, refcount retention replacing the
@@ -142,7 +150,13 @@ occurrence)` keys go), persistent per-override-set uniform buffers written
 with `queue.writeBuffer`, a resolved-slot encode loop, `applyFull`. Proof:
 every case of `generated_webgpu_commands.cjs` and `player_commands.cjs` with
 the same command sequence except the intended differences; `test_wgpu_port`
-pixels unchanged.
+pixels unchanged; and one new case the `(hash, occurrence)` keys fail
+today: two objects under one program (same sources) whose scalars differ,
+coincide for a frame, then differ again — the second object's border or net
+output keeps the bind group made against a program output that the
+coincidence retired and destroyed, and the third frame's compute reads a
+destroyed buffer (a Dawn validation error; found in B4.6's review, deferred
+here because slot-owned outputs replace that ownership).
 
 **B4.8 Format 8 deltas** (3 days). `RetainedFrame.diff` → splices and
 `scalars` ops; `epoch` / `frame` / `base`; the client negotiates in its
