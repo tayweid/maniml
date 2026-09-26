@@ -129,8 +129,8 @@ frame loop, not dropped.
   change an object's winding sign), one object per group; text is not a
   blend, so this costs nothing where grouping matters.
 - **Format** 7 is extended in place: nothing already on the wire changes,
-  and the recording player's indexing of program batches is the same open
-  item as for patch and net batches.
+  and the recording player's indexing of program batches was the same open
+  item as for patch and net batches (all three done 2026-09-26).
 
 ## Sequence
 
@@ -261,9 +261,10 @@ the library is covered.
 shading fall back to the CPU path (B3b's `paint`); `path_arc` transforms
 stay on the CPU until an `arc` program exists; `FadeIn`/`FadeOut` and the
 other subclasses that override `interpolate_submobject` keep their CPU
-path for now; the recording player does not index program batches, as for
-patch and net batches; the default stays `off`, Taylor's call with the
-other Phase B switches.
+path for now; the recording player indexes program batches since
+2026-09-26 (`geometry_recording.js` carries `program_data` into every
+reconstructed frame), as it does patch and net batches; the default stays
+`off`, Taylor's call with the other Phase B switches.
 
 ## B3b results (2026-09-11)
 
@@ -341,7 +342,7 @@ serializer's per-batch cost, as in B3a.
 
 **Open.** `MoveAlongPath`, `Homotopy` and the other per-point functions
 stay on the CPU; `ShowIncreasingSubsets` and the submobject-list
-animations write no rows and need nothing; the recording player does not
-index program batches; the default stays `off`. B3c (declarative updaters
+animations write no rows and need nothing; the recording player indexes
+program batches since 2026-09-26; the default stays `off`. B3c (declarative updaters
 and the streamed reductions) is planned after this is measured on the
 course.

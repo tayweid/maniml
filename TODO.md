@@ -193,12 +193,14 @@ a program, and fixed two things its gate found: the fan closes an open
 subpath through its start, and Write's outline is no longer drawn edge-on
 (DECISIONS.md). Next: B3c. Open: `MoveAlongPath` and the per-point
 functions stay on the CPU; the recording player for `patch`, `net` and
-program batches; the default flips, which are Taylor's — measured from the viewer's **Phase B**
+program batches (done 2026-09-26); the default flips, which are Taylor's — measured from the viewer's **Phase B**
 selector (2026-09-26), which runs the whole stack on any scene without the
 environment flags; the gates are B1's frame time against Phase A on text
 (currently ~1 ms behind on a still frame, level on pan and zoom), the pixel
 gate on one course episode, and the recording player for `patch`, `net` and
-program batches. The paragraphs below are the
+program batches (done 2026-09-26: `geometry_recording.js` indexes
+`object_data`, `net_data` and `program_data`, and a Phase B `--export`
+plays and seeks). The paragraphs below are the
 earlier framing and remain the contracts for resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):

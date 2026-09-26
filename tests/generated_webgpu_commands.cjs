@@ -1045,6 +1045,38 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
+  // A real Phase B export (tests.test_export) through the recording indexer
+  // and this driver: every reconstructed frame, forward, back and out of
+  // order, draws with nothing missing, because the indexer put each frame's
+  // object tables, nets and program sources back into its own payload.
+  async recordingReplay() {
+    const zlib = require("node:zlib"), dir = process.argv[3];
+    vm.runInThisContext(fs.readFileSync(path.join(STATIC, "geometry_recording.js"), "utf8"));
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, "scene.json"), "utf8"));
+    const data = zlib.gunzipSync(fs.readFileSync(path.join(dir, "scene.bin.gz")));
+    const frames = [];
+    let offset = 0;
+    for (const frame of meta.frames) {
+      frames.push(new Uint8Array(data.buffer, data.byteOffset + offset, frame.len));
+      offset += frame.len;
+    }
+    const recording = globalThis.ManimlRecording.index(frames);
+    const d = await driver();
+    const indices = [...frames.keys()];
+    const order = [...indices, ...indices.slice().reverse(), ...indices.filter(i => i % 3 === 1), 0, indices.at(-1)];
+    const stages = new Set();
+    for (const i of order) {
+      const passes = await d.renderBytes(recording.frame(i));
+      assert.equal(d.cacheMisses(), 0, `frame ${i} drew from what its own message carried`);
+      const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+      for (const draw of scene.draws) stages.add(draw.pipeline.descriptor.vertex.entryPoint);
+    }
+    // Patch fans, patch covers and the strips, strokes and nets all drew.
+    assert.deepEqual([...stages].sort(), ["vs_cover", "vs_fan", "vs_main", "vs_patch"]);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+    process.stdout.write(JSON.stringify({frames: frames.length, rendered: order.length}));
+  },
   async wire() {
     const d = await driver();
     const file = fs.readFileSync(process.argv[3]);

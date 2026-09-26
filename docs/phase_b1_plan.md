@@ -298,9 +298,10 @@ paragraph).
   pipelines; `patchWire` in `tests/generated_webgpu_commands.cjs` checks the
   command sequence on a real frame, and the live viewer's canvas matched the
   native render exactly on a 32×18 grid of cell means over a frame of text,
-  translucent fills, a sphere and a square). The recording player does not
-  index `patch` batches yet, so an `--export` made with the switch on will
-  not play; the default flip waits on Taylor.
+  translucent fills, a sphere and a square). The recording player indexes
+  `patch` batches since 2026-09-26 (`geometry_recording.js` carries the
+  object table and curve records into every reconstructed frame), so an
+  `--export` made with the switch on plays; the default flip waits on Taylor.
 - The count wraps at 128-fold winding; recorded, not defended.
 
 The verdict on B1-fan against these numbers is Taylor's.

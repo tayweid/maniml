@@ -260,7 +260,12 @@ instead and the native driver evaluates it at screen density
 (`net_compute.wgsl`, capacity reserved from the second difference with the
 border stage's headroom, capped per object); a zoomed sphere then shows no
 facets. Both drivers evaluate nets; the default stays `grids`. Recordings
-(`--export`) made with either switch on are not indexed by the player yet.
+(`--export`) made with any of the Phase B switches on play since 2026-09-26:
+`geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
+beside the paint and border tables and carries every record a frame's
+batches reference into the reconstructed frame, so a seek in either
+direction draws (`tests/player_commands.cjs phaseB`, `test_export.py`
+`PhaseBWebExportE2E`).
 See `docs/unified_triangle_renderer_phase_a.md` for the full contract, limits
 and validation evidence.
 
