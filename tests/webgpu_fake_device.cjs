@@ -89,7 +89,12 @@ function newCounts() {
 
 // options.validate (default true) keeps the command records and asserts
 // resource lifetimes at submission; false only counts, so a timed frame
-// pays nothing but the driver.
+// pays nothing but the driver. options.realm (default "sandbox") runs the
+// driver in a vm context of its own, as the command tests always have;
+// "main" runs it in this realm with the device's globals as parameters,
+// where a global lookup costs what it does in a browser (in the sandbox
+// every one is an interceptor call, which dominates the driver's per-value
+// loops and makes its JavaScript several times dearer than a page's).
 async function driver(options = {}) {
   const validate = options.validate !== false;
   const counts = newCounts();
@@ -137,8 +142,10 @@ async function driver(options = {}) {
         counts.bytes_uploaded += descriptor.size;
         if (uniform) counts.uniform_writes++;
       }
-      const buffer = { descriptor, bytes: new ArrayBuffer(descriptor.size), destroyed: false,
-        getMappedRange() { return this.bytes; }, unmap() {},
+      // version counts the writes into bytes, for a trace that reads them
+      // (tests/webgpu_trace.cjs).
+      const buffer = { descriptor, bytes: new ArrayBuffer(descriptor.size), destroyed: false, version: 0,
+        getMappedRange() { return this.bytes; }, unmap() { this.version++; },
         destroy() {
           if (validate) assert.ok(!this.destroyed);
           this.destroyed = true;
@@ -220,7 +227,10 @@ async function driver(options = {}) {
     },
     queue: {
       onSubmittedWorkDone: async () => { events.push(["completed"]); },
-      copyExternalImageToTexture() { counts.texture_uploads++; },
+      copyExternalImageToTexture(source, destination) {
+        counts.texture_uploads++;
+        if (validate) destination.texture.image = source.source;
+      },
       writeBuffer(buffer, offset, data, dataOffset = 0, size) {
         // dataOffset and size are in elements of a typed array, bytes of
         // an ArrayBuffer, as WebGPU reads them.
@@ -244,6 +254,7 @@ async function driver(options = {}) {
         if (buffer.descriptor.usage & BUFFER_USAGE.UNIFORM) counts.uniform_writes++;
         if (!validate) return;
         new Uint8Array(buffer.bytes, offset, length).set(bytes.subarray(start, start + length));
+        buffer.version++;
       },
       submit(commands) {
         counts.submits++;
@@ -254,6 +265,7 @@ async function driver(options = {}) {
               const [source, from, target, to, size] = pass.copy;
               assert.ok(!source.destroyed && !target.destroyed, "copy uses live buffers");
               new Uint8Array(target.bytes, to, size).set(new Uint8Array(source.bytes, from, size));
+              target.version++;
               continue;
             }
             if (pass.compute) {
@@ -350,8 +362,14 @@ async function driver(options = {}) {
     createImageBitmap: options.decode || (async () => ({ width: 2, height: 2, close() {} })),
     Blob, TextDecoder, ArrayBuffer, Uint8Array, Uint32Array, Float32Array, DataView,
   };
-  vm.runInNewContext(fs.readFileSync(path.join(STATIC, options.legacy ? "winding_webgpu.js" : "webgpu.js"), "utf8")
-    + "\nglobalThis.renderer = " + (options.legacy ? "ManimlWindingWGPU" : "ManimlWGPU") + ";", context);
+  const source = fs.readFileSync(path.join(STATIC, options.legacy ? "winding_webgpu.js" : "webgpu.js"), "utf8");
+  const name = options.legacy ? "ManimlWindingWGPU" : "ManimlWGPU";
+  if (options.realm === "main") {
+    const names = Object.keys(context);
+    context.renderer = new Function(...names, source + "\nreturn " + name + ";")(...names.map(key => context[key]));
+  } else {
+    vm.runInNewContext(source + "\nglobalThis.renderer = " + name + ";", context);
+  }
   await context.renderer.init(canvas);
   context.renderer.onCacheMiss = () => { cacheMisses++; };
   return { buffers, textures, submissions, events, cacheMisses: () => cacheMisses,

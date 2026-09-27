@@ -50,6 +50,25 @@ function fixture() {
   await assert.rejects(selection.select('__proto__'));
   assert.equal(selection.mode,'triangles');
 
+  // A message the same as the last one (a resend of a still frame) is
+  // routed as that one was, without parsing its header again; another
+  // message is parsed.
+  const parse = JSON.parse;
+  let parses = 0;
+  JSON.parse = (...args) => { parses++; return parse(...args); };
+  drivers.triangles.render = async () => { calls.push('render:resend'); return {}; };
+  try {
+    await selection.render(payload('triangles'));
+    await selection.render(payload('triangles'));
+    assert.equal(parses,1);
+    assert.equal(calls.filter(x=>x==='render:resend').length,2);
+    assert.equal(await selection.render(payload('winding')),null);
+    assert.equal(await selection.render(payload('winding')),null);
+    assert.equal(parses,2);
+  } finally {
+    JSON.parse = parse;
+  }
+
   const rapid = fixture();
   const initializing = deferred();
   rapid.drivers.triangles.init = async () => { rapid.calls.push('init:held'); await initializing.promise; };

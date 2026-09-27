@@ -169,6 +169,17 @@ class BrowserFrames(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)["frames"], len(stream.meta["frames"]))
 
+    def test_every_frame_draws_what_a_fresh_driver_draws_from_it(self):
+        # The retained frame against no retained frame: each message played
+        # in order traces, by content, as the same frame rebuilt whole by
+        # the recording indexer does on a fresh driver (webgpu_trace.cjs).
+        for variant, stream in self.streams.items():
+            result = subprocess.run(["node", str(TESTS / "generated_webgpu_commands.cjs"),
+                                     "streamDrawsWhatFreshDriversDraw", str(stream.directory)],
+                                    capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, variant + ": " + result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["frames"], len(stream.meta["frames"]), variant)
+
     def test_the_replay_reports_one_row_per_frame_with_the_drivers_calls(self):
         stream = self.streams["phase_a"]
         replayed = browser_frames.replay_stream(stream.directory)
@@ -179,6 +190,7 @@ class BrowserFrames(unittest.TestCase):
         self.assertEqual(len(rows), len(stream.entries))
         for row, (header, _) in zip(rows, messages_of(stream)):
             self.assertGreater(row["js_ms"], 0)
+            self.assertGreaterEqual(row["page_ms"], row["js_ms"], "the page's time spans the driver's")
             self.assertEqual(row["batches"], len(header["batches"]))
             self.assertEqual(row["cached_batches"], sum(bool(batch.get("cached")) for batch in header["batches"]))
             self.assertEqual(row["submits"], 1)
@@ -200,7 +212,8 @@ class BrowserFrames(unittest.TestCase):
         self.assertEqual([browser_frames.frame_class(row) for row in rows],
                          ["cold", "pausepoint", "pausepoint", "play", "play", "play",
                           "cold", "ticked", "ticked", "play", "play", "play"])
-        classes = {cls: browser_frames.summarize(browser_frames.measured(rows, cls)) for cls in browser_frames.CLASSES}
+        classes = {cls: browser_frames.summarize(browser_frames.measured(rows, cls))
+                   for cls in browser_frames.CLASSES if browser_frames.measured(rows, cls)}
         self.assertEqual({cls: stats["js_ms"]["n"] for cls, stats in classes.items()},
                          {"pausepoint": 2, "ticked": 2, "play": 4, "cold": 2})
         self.assertEqual(set(classes["play"]), set(browser_frames.COLUMNS))
@@ -212,6 +225,57 @@ class BrowserFrames(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             browser_frames.join_rows(stream.entries, missed)
 
+    def test_the_main_realm_replay_makes_the_same_calls(self):
+        # --realm main changes what a global lookup costs, nothing the driver
+        # does: every row but its times is the sandbox's.
+        for variant in ("phase_a", "phase_b"):
+            stream = self.streams[variant]
+            sandbox = browser_frames.replay_stream(stream.directory)
+            main = browser_frames.replay_stream(stream.directory, realm="main")
+            self.assertEqual((sandbox["realm"], main["realm"]), ("sandbox", "main"))
+            self.assertEqual(len(main["frames"]), len(sandbox["frames"]))
+            for ours, theirs in zip(main["frames"], sandbox["frames"]):
+                self.assertEqual({key: value for key, value in ours.items() if key not in ("js_ms", "page_ms")},
+                                 {key: value for key, value in theirs.items() if key not in ("js_ms", "page_ms")},
+                                 variant)
+
+    def test_play_edges_follow_every_frame_and_are_classes_of_their_own(self):
+        # Each play once more at its edges, after every frame's rows: the
+        # checkpoint before it, its first and last frames, the landing. The
+        # rows before them are the stream without edges, message for message.
+        with patch.dict(os.environ, browser_frames.ENVIRONMENTS["phase_a"]):
+            messages, entries, frames = browser_frames.record_stream(
+                self.scene, self.indices, samples=2, warmups=1, tick_updaters=True, play_frames=True, play_edges=True)
+        stream = self.streams["phase_a"]
+        base = len(stream.entries)
+        self.assertEqual(b"".join(messages[:base]), gzip.open(stream.directory / "scene.bin.gz").read())
+        edges = entries[base:]
+        self.assertEqual([entry["phase"] for entry in edges], ["play_source", "play_entry", "play_last", "landing"] * 2)
+        self.assertEqual([entry["segment"] for entry in edges], [4] * 4 + [5] * 4)
+        self.assertEqual([entry["play_checkpoint"] for entry in edges], [1] * 4 + [3] * 4)
+        entry, last = edges[1], edges[2]
+        self.assertEqual((entry["play_frame"], last["play_frame"]), (0, frames[0]["play_edges"]["frames"] - 1))
+        self.assertLess(entry["alpha"], last["alpha"])
+        self.assertEqual([frame["play_edges"]["checkpoint"] for frame in frames], [1, 3])
+        with tempfile.TemporaryDirectory() as directory:
+            meta = browser_frames.write_stream(Path(directory), self.scene, messages, entries)
+            checkpoints = self.scene.animation_checkpoints
+            self.assertEqual(meta["lines"][4:], [checkpoints[index]["line_number"] for index in (1, 3)])
+            rows = browser_frames.join_rows(entries, browser_frames.replay_stream(Path(directory))["frames"])
+        self.assertEqual([browser_frames.frame_class(row) for row in rows[base:]],
+                         ["play_source", "play_entry", "play_last", "landing"] * 2)
+        classes = {cls: browser_frames.summarize(browser_frames.measured(rows, cls)) for cls in browser_frames.CLASSES}
+        self.assertEqual({cls: classes[cls]["js_ms"]["n"] for cls in browser_frames.EDGE_CLASSES},
+                         {"play_entry": 2, "landing": 2})
+        self.assertEqual(classes["play"]["js_ms"]["n"], 4, "the edges are not play rows")
+        entered = rows[base + 1]
+        self.assertGreater(entered["buffers_created"], 0, "the play's first frame re-sends the moving square")
+        report = {"frames": [], "variants": {}}
+        browser_frames.assemble(report, "phase_a", rows, frames, environment={}, stream={})
+        table = browser_frames.markdown_table(browser_frames.summary_of(report))
+        self.assertIn("| play entry |", table)
+        self.assertIn("| all |  |  |  | landing |", table)
+
     def test_report_summary_and_table_shape(self):
         report = {"frames": [], "variants": {}}
         for variant, stream in self.streams.items():
@@ -220,7 +284,7 @@ class BrowserFrames(unittest.TestCase):
             classes = browser_frames.assemble(report, variant, rows, stream.frames,
                                               environment=browser_frames.ENVIRONMENTS[variant],
                                               stream={"frames": len(rows)})
-            self.assertEqual(set(classes), set(browser_frames.CLASSES))
+            self.assertEqual(set(classes), set(browser_frames.CLASSES) - set(browser_frames.EDGE_CLASSES))
         self.assertEqual([frame["checkpoint"] for frame in report["frames"]], [2, 4])
         first, second = report["frames"]
         for variant in browser_frames.VARIANTS:

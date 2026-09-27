@@ -234,9 +234,23 @@ steps its curves need at the current zoom, doubled for headroom and capped at
 64; the reservation grows only when a zoom outgrows it, and nothing is
 resent when it does. Only fill indices travel on the wire (format 6): each
 driver expands the per-object strip pattern from the run layout itself.
-Both drivers retire absent sources/outputs after submission and roll back new
-resources on failure. Recordings reconstruct sources for arbitrary seeks;
-formats 1–6 remain readable. These resources never enter checkpoints.
+The native driver retires absent sources/outputs after submission. The
+browser driver retains the last submitted frame instead (B4.7,
+`docs/phase_b4_plan.md`): an ordered list of slots, each batch resolved
+once to its pipelines, bind groups, geometry and its own border, net and
+program outputs; shared resources are counted per slot and destroyed after
+the submit that follows their last release; uniforms live in one buffer
+per override set, rewritten in place when the camera moves; a full frame
+is diffed against the slots (`applyFull`), so an unchanged batch costs its
+draws and a byte-identical message redraws the slots without a parse (the
+viewer's `renderer_selection.js` skips its own parse of such a message
+too; both keep the caller's buffer, so a caller hands it over). A failed
+frame releases what it made and leaves every uniform set to be repacked by
+the next. `tests/webgpu_trace.cjs` traces submissions by content, and the
+command cases check the retained frame against a fresh driver given each
+frame whole. Both drivers roll back new resources on failure. Recordings
+reconstruct sources for arbitrary seeks; formats 1–6 remain readable. These
+resources never enter checkpoints.
 
 `MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
 border generator) prepares no fill mesh at all: every filled path is a
@@ -289,9 +303,15 @@ different machine load: the GPU clock follows the load.
 frames without a GPU: it records each frame as the viewer would send it,
 in the export recorder's format, and plays the stream through the real
 `webgpu.js` in Node on the counting fake device
-(`tests/webgpu_fake_device.cjs`), reporting JS milliseconds and WebGPU
-call counts per frame; the live viewer marks each drawn frame as a
-`maniml:render` span for DevTools' Performance panel.
+(`tests/webgpu_fake_device.cjs`) through the viewer's renderer selection,
+reporting per frame the driver's JS milliseconds, the page's (`page_ms`,
+the selection's routing included) and WebGPU call counts; `--play-edges`
+adds a play's first frame and its landing as classes. The live viewer marks
+each drawn frame as a `maniml:render` span for DevTools' Performance
+panel. The driver runs in a vm sandbox there unless `--realm main`, and the
+sandbox makes every global lookup an interceptor call: read its
+milliseconds against its own past, and the main realm's `page_ms` for what
+a page pays.
 
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a

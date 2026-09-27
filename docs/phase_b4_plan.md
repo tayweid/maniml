@@ -134,7 +134,8 @@ gains the `retained` variant and the archived run; the default flips to on
 from the episodes — JS ms per frame, command counts, buffers created — plus a
 viewer-side `performance.measure` per frame. Today: 2.2 ms JS at 444 batches
 (Phase A), 8.0 ms at 911 (Phase B), before Dawn's per-call work. Measured
-2026-09-26 (`benchmarks/results/browser_frames_20260926/`): the still 8.a
+2026-09-26 (`benchmarks/results/browser_frames_20260926/`; in the vm
+sandbox, which B4.7 found inflates them, see there): the still 8.a
 frame 2.39 ms at 444 batches / 445 draws (Phase A) and 9.28 ms at 911 / 1841
 (Phase B), one `setPipeline` per draw, zero uploads, 179 / 434 KB of header
 per tick; plays 5.6 / 3.4 ms at the EpisodeB2 median, Phase B's with 100
@@ -156,7 +157,49 @@ coincide for a frame, then differ again — the second object's border or net
 output keeps the bind group made against a program output that the
 coincidence retired and destroyed, and the third frame's compute reads a
 destroyed buffer (a Dawn validation error; found in B4.6's review, deferred
-here because slot-owned outputs replace that ownership).
+here because slot-owned outputs replace that ownership). Built 2026-09-26
+and revised after its review (`browser_frames_20260926/README.md`, "After
+B4.7"). What the page pays, measured in Node's own realm through the
+viewer's renderer selection (`browser_frames.py --realm main`, `page_ms`),
+B4.6 → B4.7: a resend of the 8.a frame 2.04 → 0.09 ms (Phase A) and 5.98 →
+0.24 ms (Phase B), the driver redrawing its slots and the selection no
+longer parsing a message it has just routed; the same frame with its bytes
+differing 2.02 → 0.85 / 5.85 → 2.12 ms, its header parsed twice (by the
+selection, 0.35 / 0.88 ms, and by the driver); a camera move 2.00 → 0.85 /
+6.66 → 2.15 ms with no buffer or bind group made (46 / 461 before); plays
+1.96 → 1.23 / 2.14 → 0.97 ms at the EpisodeB2 median; seeks 1.99 → 1.34 /
+4.17 → 3.35 ms. The medians hide the dearest frames: Phase B plays make
+nothing per frame where the movers are programs, but 8.a's movers are not
+(about 700 uncached batches, 1402 buffers and 701 bind groups per frame,
+6.10 ms), Phase A's 5.a play uploads 1148 buffers per frame (5.52 ms), and
+a play's first frame and its landing, now classes of their own
+(`--play-edges`), reach 13.66 and 6.00 ms on the 5.a play in Phase B. Every
+existing command case and the four episode streams with their edges (1484
+messages) trace identically by content under the B4.6 and B4.7 drivers, and
+the streams without their edges rendered pixel-identically on a real WebGPU
+device (on the draft, whose traces the review's fixes left unchanged).
+Committed with
+it: `tests/webgpu_trace.cjs` (a trace by content, compute outputs as tokens
+of what their kernel read) and two cases that check the retained frame
+against a fresh driver given each frame whole, over a synthetic sequence
+and over `test_browser_frames`' recorded streams; `failedFramesKeepTheCamera`
+for the defect the review found (a frame that failed after rewriting the
+shared uniform sets left them at its camera; a failed frame now clears what
+every set is taken to hold) and `generationFollowsItsInputs`. The new cases
+`slotsReuseAcrossFullFrames`, `outputsSurviveInsertion` and
+`programOutputsSurviveCoincidence` fail on the old driver.
+`player_commands.cjs` stubs the driver and `test_wgpu_port` draws with the
+Python reference, so neither touches `webgpu.js`. Two findings about the
+instrument, for B4.8. The fake device runs the driver in a vm sandbox, where
+every global lookup is an interceptor call, and that alone made most of
+B4.6's cold and play milliseconds (the B4.6 driver's seek 15.5 ms there, 1.9
+ms in Node's own realm), so every B4.6 number in this plan, the "8.0 ms at
+911" above among them, is a sandbox number. And B4.8's play gates below were
+set on B4.6's sandbox medians: as the page's cost in the main realm, B4.6
+already met them at the class median, and as bounds on every play frame
+B4.7 misses them on the 8.a and 5.a plays and on play entries, frames whose
+uploads or first resolution are the cost (under patches the movers' uploads
+are B5.1's).
 
 **B4.8 Format 8 deltas** (3 days). `RetainedFrame.diff` → splices and
 `scalars` ops; `epoch` / `frame` / `base`; the client negotiates in its
@@ -170,7 +213,11 @@ gains 8, the recorder and native capture stay on full frames. Proof: Node
 renderer switches): identical slot lists, buffer sets and command
 sequences; `test_web_viewer` end to end: connect (full), still (nothing),
 renderer switch (full), reset (full), two tabs. Gates: wire at rest 0 B; a
-camera move < 1 KB; JS at rest 0; play ≤ 2 ms JS (Phase A) / ≤ 4 ms (Phase B).
+camera move < 1 KB; JS at rest 0; play ≤ 2 ms JS (Phase A) / ≤ 4 ms (Phase B),
+set on B4.6's sandbox medians: re-derived here in the main realm on the
+page's cost (`browser_frames.py --realm main`, `page_ms`), stating whether
+they bound the class median or every play frame, entry and landing included
+(B4.7's finding above).
 
 **B4.9 Render bundles for Phase A segments** (2 days, only if B4.6/B4.8
 show Dawn's per-draw cost above 1 ms at 911 slots). Phase B bundles wait on

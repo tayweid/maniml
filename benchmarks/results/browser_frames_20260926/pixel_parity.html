@@ -1,0 +1,114 @@
+<!doctype html>
+<!--
+  Pixel parity of two browser drivers, as run for B4.7 (README.md, "After
+  B4.7"; the result is after_b47.json's proof.pixel_parity_real_webgpu).
+  Serve it from a folder that also holds:
+    webgpu_old.js    maniml/web/static/webgpu.js as of ab113484 (B4.6,
+                     sha256 99148e04...), its "const ManimlWGPU" renamed
+                     OldWGPU (and its onCacheMiss reference with it);
+    webgpu_final.js  the driver under test, renamed NewWGPU the same way;
+    wgsl/            maniml/web/static/wgsl;
+    streams/<name>/  browser_frames.py stream folders (scene.json +
+                     scene.bin.gz), e.g. B2_phase_a.
+  Then, in a WebGPU browser's console on the page: await compare("B2_phase_a")
+  plays the stream through both drivers in order, reads each frame's canvases
+  back in the same task and returns {frames, identical, nonblank, differing,
+  errors}, errors being every uncaptured validation error of either device.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Driver pixel parity</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; } }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+  canvas { width: 320px; height: 160px; border: 1px solid #888; margin-right: 8px; }
+  #scratch { display: none; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Old and new <code>webgpu.js</code> render the same recorded stream; every frame's canvas pixels are compared and every device's validation errors collected.</p>
+<canvas id="old"></canvas><canvas id="new"></canvas><canvas id="scratch"></canvas>
+<pre id="log">idle</pre>
+<script>
+  // Every device either driver makes reports its uncaptured errors here.
+  const errors = [];
+  const requestDevice = GPUAdapter.prototype.requestDevice;
+  GPUAdapter.prototype.requestDevice = async function (...args) {
+    const device = await requestDevice.apply(this, args);
+    device.addEventListener("uncapturederror", event => errors.push(String(event.error && event.error.message)));
+    return device;
+  };
+</script>
+<script src="webgpu_old.js"></script>
+<script src="webgpu_final.js"></script>
+<script>
+  const log = text => { document.getElementById("log").textContent = text; };
+
+  async function loadStream(name) {
+    const meta = await (await fetch(`streams/${name}/scene.json`)).json();
+    const response = await fetch(`streams/${name}/scene.bin.gz`);
+    const data = new Uint8Array(await new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const frames = [];
+    let offset = 0;
+    for (const frame of meta.frames) { frames.push(data.slice(offset, offset + frame.len).buffer); offset += frame.len; }
+    return {meta, frames};
+  }
+
+  function pixels(canvas) {
+    const scratch = document.getElementById("scratch");
+    scratch.width = canvas.width; scratch.height = canvas.height;
+    const context = scratch.getContext("2d", {willReadFrequently: true});
+    context.clearRect(0, 0, scratch.width, scratch.height);
+    context.drawImage(canvas, 0, 0);
+    return context.getImageData(0, 0, scratch.width, scratch.height).data;
+  }
+
+  // Render each frame through both drivers in order (each keeps its own
+  // retained state), read both canvases back in the same task, and compare.
+  async function compare(name) {
+    const result = {stream: name, frames: 0, identical: 0, differing: [], errors: [], nonblank: 0, oldMs: 0, newMs: 0};
+    window.result = result;
+    try {
+      const {frames} = await loadStream(name);
+      const oldCanvas = document.getElementById("old"), newCanvas = document.getElementById("new");
+      await OldWGPU.init(oldCanvas);
+      await NewWGPU.init(newCanvas);
+      for (const [index, bytes] of frames.entries()) {
+        let t = performance.now();
+        await OldWGPU.render(bytes.slice(0));
+        const a = pixels(oldCanvas);
+        result.oldMs += performance.now() - t;
+        t = performance.now();
+        await NewWGPU.render(bytes.slice(0));
+        const b = pixels(newCanvas);
+        result.newMs += performance.now() - t;
+        result.frames++;
+        let same = a.length === b.length, lit = false;
+        for (let i = 0; same && i < a.length; i++) if (a[i] !== b[i]) same = false;
+        for (let i = 0; i < a.length && !lit; i += 4 * 97) if (a[i] || a[i + 1] || a[i + 2]) lit = true;
+        if (lit) result.nonblank++;
+        if (same) result.identical++;
+        else if (result.differing.length < 10) {
+          let count = 0;
+          for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) count++;
+          result.differing.push({index, bytes: count});
+        }
+        if (index % 20 === 0) log(`${name}: ${index + 1}/${frames.length}`);
+      }
+    } catch (error) {
+      result.failure = String(error && error.stack || error);
+    } finally {
+      await Promise.allSettled([OldWGPU.destroy(), NewWGPU.destroy()]);
+      result.errors = errors.splice(0);
+      result.done = true;
+      log(JSON.stringify(result, null, 1));
+    }
+    return result;
+  }
+  window.compare = compare;
+</script>
+</body>
+</html>

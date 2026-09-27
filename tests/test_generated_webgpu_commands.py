@@ -46,11 +46,29 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_texture_bindings_reuse_and_missing_texture_requests_resend(self):
         self.run_case("textures")
 
-    def test_gpu_border_compute_precedes_draw_and_reuses_distinct_occurrence_outputs(self):
+    def test_gpu_border_compute_precedes_draw_and_gives_each_draw_its_own_output(self):
         self.run_case("borderCompute")
 
-    def test_format_6_border_runs_expand_indices_locally_and_rekey_by_occurrence(self):
+    def test_format_6_border_runs_expand_indices_locally_and_survive_an_insertion(self):
         self.run_case("borderRuns")
+
+    def test_identical_full_frames_reuse_every_slot_and_create_nothing(self):
+        self.run_case("slotsReuseAcrossFullFrames")
+
+    def test_an_inserted_batch_leaves_later_border_and_net_outputs_in_place(self):
+        self.run_case("outputsSurviveInsertion")
+
+    def test_program_outputs_survive_scalars_that_coincide_and_diverge(self):
+        self.run_case("programOutputsSurviveCoincidence")
+
+    def test_a_failed_frame_leaves_the_uniform_sets_at_the_submitted_camera(self):
+        self.run_case("failedFramesKeepTheCamera")
+
+    def test_camera_position_and_net_density_evaluate_what_reads_them(self):
+        self.run_case("generationFollowsItsInputs")
+
+    def test_retained_frames_draw_what_a_fresh_driver_draws_from_each_frame(self):
+        self.run_case("retainedFramesDrawWhatFreshDriversDraw")
 
     def test_gpu_border_failure_rolls_back_buffers_and_preserves_generation_state(self):
         self.run_case("borderComputeFailures")

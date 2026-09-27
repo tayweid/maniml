@@ -849,9 +849,9 @@ function setRenderError(error) {
 
 function handleGeometry(arrayBuffer) {
   // Each drawn frame is a "maniml:render" span in DevTools' Performance
-  // panel: the header parse, prepare and encode, plus any wait behind an
-  // earlier frame in the session's chain. benchmarks/browser_frames.py
-  // times the same driver headlessly.
+  // panel: the selection's routing and the driver's render, plus any wait
+  // behind an earlier frame in the session's chain.
+  // benchmarks/browser_frames.py times the same two headlessly (page_ms).
   const started = performance.now();
   rendererSession.render(arrayBuffer).then((header) => {
     if (!header) return;

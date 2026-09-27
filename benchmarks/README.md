@@ -224,15 +224,21 @@ written under `<dir>/<variant>/` in the export recorder's format
 (`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
 it, `scene.json`'s frame entries also say what each frame is, and its
 `lines` name each recorded group's line, the checkpoint's or the play's, so
-the player's chips name the frames), then played in order through the real
+the player's chips name the frames), then played in order through the
+viewer's renderer selection (`renderer_selection.js`) into the real
 `maniml/web/static/webgpu.js` in Node (`benchmarks/browser_frames.cjs`) on
 the counting fake device the command tests use
 (`tests/webgpu_fake_device.cjs`, with its validation off so the timed frame
-pays for nothing but the driver).
+pays for nothing but the page's JavaScript).
 
 Per frame: `js_ms`, `performance.now` around the driver's render (the header
-parse, the prepare stages, the encode loop, the fake submit and the
-retirement sweeps), and the calls it made — `draws`, `set_pipeline_calls`
+parse, the match against the retained slots, the compute stages, the encode
+loop, the fake submit and the release of what the frame no longer holds);
+`page_ms`, around the selection's render, which is the driver's plus the
+selection's own routing (a parse of the whole header for its `renderer`, or
+for a message the same as the one before a comparison) and a promise hop:
+what a page pays per message; and the calls the driver made — `draws`,
+`set_pipeline_calls`
 and the `pipeline_switches` among them, `bind_groups_created`,
 `buffers_created` / `buffers_destroyed`, `uniform_writes` (uniform buffers
 created with their data plus `queue.writeBuffer` calls into one),
@@ -245,16 +251,34 @@ on a frame whose updaters tick), `play` (the recorded mid-play frames) and
 previous message as a seek is against the frame on screen: `cached_batches`
 says how much the cache still held, and only the stream's first message, or
 a frame whose objects all changed, uploads everything; its own class,
-excluded from the others). `report.json` holds every row, `summary.json`
+excluded from the others). The play class samples a play's middle, so
+`--play-edges` records, after every frame's rows (the rows before them stay
+the stream without edges, message for message), each frame's play once more
+at its edges: the checkpoint before it restored (`play_source`), the play's
+first frame (`play_entry`, a class), its last frame (`play_last`) and the
+destination on screen after it (`landing`, a class), one row each per play;
+the entry and the landing are where a retained frame is made and let go,
+and a play's dearest frames. `report.json` holds every row, `summary.json`
 the reductions with the scene, commit, machine, Node version and scope
 strings, and `summary.md` the table.
 
+`--realm main` replays with the driver and the selection in Node's own realm
+instead of the vm sandbox the command tests give it (the device's `realm`
+option; every call and count is the same, `tests/test_browser_frames.py`
+checks it). The
+difference is what a global lookup costs: in the sandbox each one is an
+interceptor call, so a loop that names a builtin per value pays for it per
+value, and the sandbox's rows overstate a page's JavaScript several times
+over on the frames that validate uploads (B4.7's archive,
+`browser_frames_20260926/README.md`, "After B4.7", has both). Read the
+sandbox rows against the sandbox rows of the same driver's past, and the
+main realm's `page_ms` for what a browser pays; gates are set there.
+
 What it is not: Dawn's validation and command encoding behind each call, the
-GPU, the canvas present, texture decoding (a stub) or the viewer's second
-header parse in `renderer_selection.js`. The live viewer marks each drawn
-frame as a `maniml:render` span (`performance.measure`) that DevTools'
-Performance panel shows; that span includes the second parse and any wait
-behind an earlier frame. Node's garbage collector lands where it lands and
+GPU, the canvas present, texture decoding (a stub), the socket or the
+viewer's queue. The live viewer marks each drawn frame as a `maniml:render`
+span (`performance.measure`) that DevTools' Performance panel shows; that
+span is `page_ms` plus any wait behind an earlier frame. Node's garbage collector lands where it lands and
 V8 warms over the first frames, so read medians with minima. A repeated
 still frame is what the viewer sends on a camera change or an updater tick;
 at rest without either it sends nothing, and that silence is not a row. A

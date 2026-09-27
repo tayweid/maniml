@@ -17,11 +17,15 @@ sources carry between messages as they do on a socket. The stream is
 written in the export recorder's format (scene.json + scene.bin.gz, which
 geometry_recording.js and the player read) and then played in order through
 the real maniml/web/static/webgpu.js in Node on the counting fake device
-(benchmarks/browser_frames.cjs on tests/webgpu_fake_device.cjs): per frame,
-the JavaScript milliseconds around the driver's render and every WebGPU
-call it made. The variants are streams of the same frames: phase_a from the
-default renderer, phase_b from the whole Phase B stack (patch fills, net
-surfaces, GPU programs) through the same driver.
+(benchmarks/browser_frames.cjs on tests/webgpu_fake_device.cjs), through the
+viewer's renderer selection as a page draws it: per frame, the JavaScript
+milliseconds around the driver's render and around the page's (the
+selection's routing included) and every WebGPU call the driver made. Under
+--play-edges the stream then carries, per play, the frames the play window
+leaves out: the play's first frame and its landing. The variants are
+streams of the same frames: phase_a from the default renderer, phase_b from
+the whole Phase B stack (patch fills, net surfaces, GPU programs) through
+the same driver.
 """
 
 import argparse
@@ -59,10 +63,13 @@ ENVIRONMENTS = {
 # pausepoint, the same with its updaters ticking, a frame of a play, and
 # the first message after a restore, delta-encoded against the previous
 # message of the stream as a seek is against the frame on screen (its
-# cached_batches say how much the cache still held).
-CLASSES = ("pausepoint", "ticked", "play", "cold")
+# cached_batches say how much the cache still held). Under --play-edges,
+# per play, its first frame and its landing (the destination on screen
+# after the play's last frame): where a retained frame is made and let go.
+EDGE_CLASSES = ("play_entry", "landing")
+CLASSES = ("pausepoint", "ticked", "play", "cold", *EDGE_CLASSES)
 # The columns summary.json reduces per class and per frame, in this order.
-COLUMNS = ("js_ms", "serialize_ms", "wire_bytes", "batches", "cached_batches", "draws", "set_pipeline_calls",
+COLUMNS = ("js_ms", "page_ms", "serialize_ms", "wire_bytes", "batches", "cached_batches", "draws", "set_pipeline_calls",
            "pipeline_switches", "set_bind_group_calls", "bind_groups_created", "buffers_created", "buffers_destroyed",
            "uniform_writes", "compute_dispatches", "compute_passes", "render_passes", "bytes_uploaded")
 HARNESS = Path(__file__).with_name("browser_frames.cjs")
@@ -70,8 +77,12 @@ FAKE_DEVICE = ROOT / "tests" / "webgpu_fake_device.cjs"
 
 
 def frame_class(row):
-    if row["phase"] == "play":
-        return "play"
+    """A row's class: its phase, except that a pausepoint round is cold,
+    ticked or a still. The play edges' source still and last play frame
+    (play_source, play_last) are in no class: they are what the entry and
+    the landing follow."""
+    if row["phase"] != "pausepoint":
+        return row["phase"]
     if row["cold"]:
         return "cold"
     return "ticked" if row["updaters_ticked"] else "pausepoint"
@@ -94,12 +105,14 @@ def summarize(rows):
     return result
 
 
-def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play_frames=False):
+def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play_frames=False, play_edges=False):
     """Serialize the chosen frames as the viewer would send them: per frame
     the pausepoint's rounds (warmups then samples; under ``tick_updaters``
     the scene's updaters tick 1/fps before every round on a frame that has
     any), then under ``play_frames`` the middle frames of the play leading
-    into it. Returns the messages, one stream entry per message (the
+    into it; under ``play_edges``, after every frame, each frame's play
+    again from its first frame to its landing (record_edges). Returns the
+    messages, one stream entry per message (the
     export's ``len`` and ``segment`` plus what the frame is) and one block
     per frame. One cache for the whole stream, never reset, as one viewer
     session keeps one: every message is a delta against the one before it,
@@ -141,6 +154,9 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
         if play_frames:
             frame["play"] = record_play(scene, index, samples, warmups, take, fields, segments)
         frames.append(frame)
+    if play_edges:
+        for position, (index, frame) in enumerate(zip(indices, frames)):
+            frame["play_edges"] = record_edges(scene, index, take, dict(frame=position, checkpoint=index), segments)
     return messages, entries, frames
 
 
@@ -178,6 +194,42 @@ def record_play(scene, index, samples, warmups, take, fields, segments):
     return play
 
 
+def record_edges(scene, index, take, fields, segments):
+    """The frames of the play into checkpoint ``index`` that its window
+    leaves out, as a viewer meets them, one message each: the checkpoint
+    before the play restored (play_source, a seek from whatever the stream
+    held before it), the play's first frame (play_entry), its last frame
+    (play_last) and the destination on screen after it (landing). The
+    entry is where most of a play's batches first differ from the frame on
+    screen, and the landing where they return to the destination's: the
+    frames a retained frame is made and let go on. Recorded after every
+    frame's rows, so the rows before them are the stream without edges;
+    the play's next segment. None when nothing played."""
+    checkpoints = scene.animation_checkpoints
+    target = play_before(checkpoints, index)
+    if target is None:
+        return None
+    segment = next(segments)
+    run_time, fps = checkpoints[target]["run_time"], scene.camera.fps
+    frames = play_frame_count(fps, run_time)
+    edge = dict(fields, play_checkpoint=target, iteration=0, warmup=False, cold=False, updaters_ticked=False)
+    show_frame(scene, target - 1)
+    take(dict(edge, phase="play_source"), segment)
+    alphas = {}
+
+    def on_frame(k):
+        if k in (0, frames - 1):
+            scene.camera.refresh_uniforms()
+            alphas[k] = (k + 1) / fps / run_time
+            take(dict(edge, phase="play_entry" if k == 0 else "play_last", play_frame=k, alpha=alphas[k]), segment)
+
+    replay_play(scene, target, on_frame)
+    scene.camera.refresh_uniforms()
+    take(dict(edge, phase="landing"), segment)
+    return {"checkpoint": target, "line": checkpoints[target]["line_number"], "frames": frames,
+            "entry_alpha": alphas.get(0), "last_alpha": alphas.get(frames - 1)}
+
+
 def write_stream(directory, scene, messages, entries, **about):
     """The export recorder's folder (web/export.py _write_export), so the
     player and geometry_recording.js read it: scene.bin.gz is the messages
@@ -197,7 +249,7 @@ def write_stream(directory, scene, messages, entries, **about):
     first = {}
     for entry in entries:
         first.setdefault(entry["segment"], entry)
-    lines = [checkpoints[entry["play_checkpoint"] if entry["phase"] == "play" else entry["checkpoint"]].get("line_number")
+    lines = [checkpoints[entry.get("play_checkpoint", entry["checkpoint"])].get("line_number")
              for _, entry in sorted(first.items())]
     meta = {"format_version": GEOMETRY_FORMAT_VERSION, "scene": type(scene).__name__, "fps": int(scene.camera.fps),
             "frames": entries, "segments": len(lines), "lines": lines, "harness": "browser_frames", **about}
@@ -205,10 +257,13 @@ def write_stream(directory, scene, messages, entries, **about):
     return meta
 
 
-def replay_stream(directory, timeout=1800):
+def replay_stream(directory, timeout=1800, realm="sandbox"):
     """browser_frames.cjs over the stream: Node's version, the driver's init
-    time and one row per frame."""
-    result = subprocess.run(["node", str(HARNESS), str(directory)], capture_output=True, text=True, timeout=timeout)
+    time and one row per frame. ``realm`` is where the driver runs: a vm
+    sandbox of its own (the command tests' setting), or Node's own realm,
+    where a global lookup costs what it does in a browser."""
+    result = subprocess.run(["node", str(HARNESS), str(directory), "--realm", realm],
+                            capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(f"browser_frames.cjs failed on {directory}:\n{result.stdout}\n{result.stderr}")
     return json.loads(result.stdout)
@@ -262,15 +317,16 @@ def _cell(stats, key, fmt="{:.2f}"):
 
 def markdown_table(summary):
     """One line per frame and class present, each variant's median
-    JavaScript ms (with its minimum), batches (and the cached among them),
+    JavaScript ms (with its minimum) and the page's median, batches (and the
+    cached among them),
     draws, setPipeline calls, bind groups created, buffers
     created/destroyed, uniform writes and KB uploaded; closing lines over
     every measured row of each class."""
     variants = list(summary["variants"])
     head = ["frame", "checkpoint", "line", "name", "class"]
     head += [f"{variant} {column}" for variant in variants
-             for column in ("js p50/min", "batches (cached)", "draws", "setPipeline", "bindGroups", "buffers +/-",
-                            "uniform writes", "KB up")]
+             for column in ("js p50/min", "page p50", "batches (cached)", "draws", "setPipeline", "bindGroups",
+                            "buffers +/-", "uniform writes", "KB up")]
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
 
     def line(cells, per_variant):
@@ -279,7 +335,7 @@ def markdown_table(summary):
             js = f"{stats['js_ms']['p50']:.2f} / {stats['js_ms']['min']:.2f}" if "js_ms" in stats else "–"
             batches = (f"{stats['batches']['p50']:.0f} ({stats['cached_batches']['p50']:.0f})"
                        if "batches" in stats else "–")
-            cells += [js, batches, _cell(stats, "draws", "{:.0f}"),
+            cells += [js, _cell(stats, "page_ms"), batches, _cell(stats, "draws", "{:.0f}"),
                       _cell(stats, "set_pipeline_calls", "{:.0f}"), _cell(stats, "bind_groups_created", "{:.0f}"),
                       (f"{stats['buffers_created']['p50']:.0f} / {stats['buffers_destroyed']['p50']:.0f}"
                        if "buffers_created" in stats else "–"),
@@ -293,7 +349,7 @@ def markdown_table(summary):
             per_variant = {variant: frame["variants"][variant][cls] for variant in variants
                            if cls in frame["variants"].get(variant, {})}
             if per_variant:
-                label = cls
+                label = cls.replace("_", " ")
                 if cls == "play":
                     alphas = frame["play"]["measured_alphas"]
                     label = f"play α {alphas[0]:.2f}–{alphas[-1]:.2f}"
@@ -302,7 +358,7 @@ def markdown_table(summary):
         per_variant = {variant: summary["variants"][variant]["classes"][cls] for variant in variants
                        if cls in summary["variants"][variant]["classes"]}
         if per_variant:
-            line(["all", "", "", "", cls], per_variant)
+            line(["all", "", "", "", cls.replace("_", " ")], per_variant)
     return "\n".join(lines)
 
 
@@ -316,7 +372,7 @@ def summary_of(report):
     return summary
 
 
-def scope(tick_updaters, play_frames):
+def scope(tick_updaters, play_frames, realm="sandbox", play_edges=False):
     """The report's own caveats, worded for the run's switches."""
     return {
         "frame_selection": (
@@ -325,7 +381,12 @@ def scope(tick_updaters, play_frames):
             "dt=0 updater pass as a navigation shows it, so the two harnesses describe the same frames. "
             + ("With --play-frames the play leading into each pausepoint is replayed from the checkpoint before it "
                "at camera.fps and its middle frames are recorded, warmups then samples, as episode_frames samples "
-               "them." if play_frames else "No play frames (--play-frames): the stream holds no mid-animation state.")),
+               "them." if play_frames else "No play frames (--play-frames): the stream holds no mid-animation state.")
+            + (" With --play-edges, after every frame's rows, each frame's play is replayed once more and recorded "
+               "at its edges: the checkpoint before it restored (play_source), its first frame (play_entry), its "
+               "last frame (play_last) and the destination on screen after it (landing), one message each."
+               if play_edges else " No play edges (--play-edges): a play's first frame and its landing are in no "
+               "class.")),
         "stream_scope": (
             "Every round is one geometry message serialized as the viewer sends it (serialize_scene, renderer "
             "triangles, the variant's MANIML_* switches in the environment), one GeometryCache per stream and never "
@@ -345,11 +406,22 @@ def scope(tick_updaters, play_frames):
                "not the live per-frame cost at a pausepoint whose mobjects have updaters.")),
         "timing_scope": (
             "js_ms is performance.now around ManimlWGPU.render in Node on the counting fake device "
-            "(tests/webgpu_fake_device.cjs, validate: false): the header parse, preparePaints/Programs/Borders/Nets, "
-            "the encode loop, the fake queue.submit and the retirement sweeps. Not in it: Dawn's validation and "
+            "(tests/webgpu_fake_device.cjs, validate: false): the header parse, the match against the retained "
+            "slots (or, before B4.7, preparePaints/Programs/Borders/Nets), the compute stages, the encode loop, the "
+            "fake queue.submit and the release of what the frame no longer holds. page_ms is performance.now "
+            "around the viewer's entry point, ManimlRendererSelection.render (renderer_selection.js) over the "
+            "same driver: js_ms plus the selection's routing, a parse of the whole header (or, for a message the "
+            "same as the one before, a comparison) and a promise hop; it is what a page pays per message. "
+            + ("The driver and the selection ran in Node's own realm (--realm main), where a global lookup costs "
+               "what it does in a browser. " if realm == "main" else
+               "The driver and the selection ran in a vm sandbox of their own (--realm sandbox, the command tests' "
+               "setting), where every global lookup is an interceptor call: per-value loops that name a builtin "
+               "per value pay that per value, so these rows overstate a browser's JavaScript; --realm main "
+               "measures without it. ")
+            + "Not in either: Dawn's validation and "
             "command encoding behind each call, the GPU, the canvas present, texture decoding (createImageBitmap "
-            "is a stub) and the viewer's second header parse in renderer_selection.js; the live viewer's "
-            "performance.measure('maniml:render') spans that parse and the queue wait as well. Node's garbage "
+            "is a stub), the socket and the viewer's queue; the live viewer's "
+            "performance.measure('maniml:render') spans the queue wait as well. Node's garbage "
             "collector runs where it runs and V8 warms over the first frames of the stream: read medians with "
             "minima, and the warmup rounds are excluded. serialize_ms is Python's serialize_scene for the same "
             "message in the recording process, unpaced, cache warm after the first round; episode_frames.py owns "
@@ -369,7 +441,11 @@ def scope(tick_updaters, play_frames):
             "seek is against the frame on screen, so it uploads what the cache no longer held (cached_batches and "
             "bytes_uploaded say how much; only the stream's first message, or a frame whose objects all changed, "
             "uploads every batch), its own class and excluded from the others. Warmup rounds are excluded from "
-            "every class but cold."),
+            "every class but cold. "
+            + ("play_entry: a play's first frame, following the checkpoint before it (one row per play); landing: "
+               "the destination after the play's last frame (one row per play). The source still and the last "
+               "frame they follow (play_source, play_last) are rows of no class." if play_edges else
+               "No play_entry or landing rows (--play-edges).")),
     }
 
 
@@ -388,6 +464,12 @@ def main(argv=None):
                         help="tick a pausepoint's updaters 1/fps before every round, as the idle loop does")
     parser.add_argument("--play-frames", action="store_true",
                         help="also record consecutive frames of the play leading into each pausepoint")
+    parser.add_argument("--play-edges", action="store_true",
+                        help="after every frame, record each frame's play again at its edges: its first frame and "
+                             "its landing, each after what a viewer shows before it")
+    parser.add_argument("--realm", choices=("sandbox", "main"), default="sandbox",
+                        help="replay with the driver in a vm sandbox (the command tests' setting) or in Node's "
+                             "own realm, where a global lookup costs what it does in a browser")
     args = parser.parse_args(argv)
     if min(args.samples, args.warmups, args.every, args.max_frames) < 1:
         parser.error("samples, warmups, every and max-frames must be positive")
@@ -409,7 +491,8 @@ def main(argv=None):
     hashes = {str(path.relative_to(ROOT) if path.is_relative_to(ROOT) else path): sha256(path.read_bytes()).hexdigest()
               for path in paths}
     selection = {"samples": args.samples, "warmups": args.warmups, "every": args.every, "max_frames": args.max_frames,
-                 "tick_updaters": args.tick_updaters, "play_frames": args.play_frames}
+                 "tick_updaters": args.tick_updaters, "play_frames": args.play_frames, "play_edges": args.play_edges,
+                 "realm": args.realm}
     report = {
         "recorded_utc": datetime.now(timezone.utc).isoformat(), "command": sys.argv,
         "scene": {"path": str(scene_path), "name": args.scene[1], "checkpoint_count": len(checkpoints),
@@ -423,14 +506,15 @@ def main(argv=None):
         "machine": {"platform": platform.platform(), "machine": platform.machine(), "node": platform.node()},
         "python": platform.python_version(), "numpy": np.__version__, **selection,
         "variants_in_order": list(args.variants), "environments": {variant: ENVIRONMENTS[variant] for variant in args.variants},
-        "source_files_sha256": hashes, **scope(args.tick_updaters, args.play_frames),
+        "source_files_sha256": hashes, **scope(args.tick_updaters, args.play_frames, args.realm, args.play_edges),
         "frames": [], "variants": {},
     }
     for variant in args.variants:
         environment = ENVIRONMENTS[variant]
         with patch.dict(os.environ, environment):
             messages, entries, frames = record_stream(scene, indices, args.samples, args.warmups,
-                                                      tick_updaters=args.tick_updaters, play_frames=args.play_frames)
+                                                      tick_updaters=args.tick_updaters, play_frames=args.play_frames,
+                                                      play_edges=args.play_edges)
         directory = args.output / variant
         write_stream(directory, scene, messages, entries, variant=variant, environment=environment,
                      frame_selection=selection)
@@ -440,14 +524,15 @@ def main(argv=None):
                   "samples": header["samples"], "supersample": header.get("supersample")}
         del messages
         print(f"{variant}: recorded {stream['frames']} frames, {stream['bytes'] / 1e6:.1f} MB", flush=True)
-        replayed = replay_stream(directory)
+        replayed = replay_stream(directory, realm=args.realm)
         rows = join_rows(entries, replayed["frames"])
         report["node"] = replayed["node"]
         stream["init_ms"] = replayed["init_ms"]
         classes = assemble(report, variant, rows, frames, environment=environment, stream=stream)
         (args.output / "report.json").write_text(json.dumps(report, indent=2, default=_jsonable) + "\n")
         print(f"{variant}: played in {replayed['node']}; " + ", ".join(
-            f"{cls} js p50 {stats['js_ms']['p50']:.2f} ms (n={stats['js_ms']['n']})" for cls, stats in classes.items()),
+            f"{cls} js p50 {stats['js_ms']['p50']:.2f} ms, page {stats['page_ms']['p50']:.2f} (n={stats['js_ms']['n']})"
+            for cls, stats in classes.items()),
             flush=True)
     report["source_files_unchanged_during_run"] = all(
         sha256((ROOT / path if not Path(path).is_absolute() else Path(path)).read_bytes()).hexdigest() == value

@@ -482,3 +482,537 @@ bytes B4.8's deltas are measured against ("a camera move < 1 KB").
   the scope strings), the commands, the run-times log and the machine.
 - `report.json`: EpisodeB2's complete report from the harness, one row
   per message of each stream.
+- `after_b47.json`: the "After B4.7" record. `episodes.<scene>.b47_run`:
+  both episodes' `summary.json` from `browser_frames.py` on the B4.7 page
+  (`--play-edges --realm main`); `same_session_replays`: the B4.6 page and
+  B4.7's replayed on the same streams in both realms, five rounds each,
+  reduced per class and per frame (`js_ms` and `page_ms`, each message's
+  time the median of its five rounds); `streams`: the streams' hashes;
+  `moves_8a`: the 8.a rows through both pages; `proof`: the trace
+  comparisons, the mutants and the tests that catch each, and the pixel
+  parity result.
+- `pixel_parity.html`: the page that compared the two drivers' pixels on a
+  real WebGPU device (its opening comment says how to serve it).
+
+## After B4.7
+
+B4.7 (`docs/phase_b4_plan.md`) makes the browser own the frame, still fed
+full frames: `webgpu.js` keeps the last submitted frame as an ordered list
+of slots, each batch resolved once (its pipelines for the sample count, its
+uniform set's bind group per pipeline layout, its geometry and index
+pattern, its paint or texture binding, and the border, net and program
+outputs it owns), and a full frame is diffed against it (`applyFull`): a
+batch equal to its slot keeps it and costs its draws, a batch that changed
+takes over its slot in place (keeping outputs whose layout still fits),
+resources are counted per slot and destroyed after the submit that follows
+their last release, uniforms live in one buffer per override set rewritten
+with `queue.writeBuffer` when the camera moves, compute stages run only
+where their state moved, the encode loop sets a pipeline, bind group,
+vertex or index buffer only when it changes, and a message byte-identical
+to the last one submitted is a redraw of the slots with no parse. The
+viewer's renderer selection (`renderer_selection.js`), which reads each
+message's `renderer` before the driver sees it, recognises the same
+message too, so on the page a resend is not parsed at all.
+
+This section was rewritten after B4.7's review, which found three things
+its first draft got wrong. A frame that failed after it had rewritten the
+shared uniform sets for its own camera left them there, so the next frame
+at the submitted camera drew and generated with the failed one's (fixed:
+a failed frame now clears what every set is taken to hold, and
+`failedFramesKeepTheCamera` pins it). The draft's still-frame numbers timed
+the driver alone while the page parsed every header once more in the
+renderer selection (now timed as `page_ms`, and the selection no longer
+parses a resend). And its play numbers were class medians that hide where a
+play is dearest (the 8.a and 5.a rows are now named, and a play's first
+frame and its landing are classes of their own). Every number below is
+from the runs described next.
+
+### Runs
+
+The archive's two commands with two switches added, from the same worktree
+(branch `b4-tier2-browser`, commit `ab113484` = B4.6, plus the uncommitted
+B4.7 working tree; `after_b47.json` `episodes.*.b47_run.source_files_sha256`
+has the hashes, `webgpu.js` at `d8a9b35b…` and `renderer_selection.js` at
+`2728c0c6…`, unchanged during the runs), Node v22.16.0, Apple M3,
+03:02–03:06 UTC 2026-09-27, load average 3.3–4.4:
+
+```bash
+python -m benchmarks.browser_frames \
+  --scene /Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py EpisodeB2 \
+  --output <scratch>/B2 --samples 12 --warmups 3 --max-frames 12 --tick-updaters --play-frames \
+  --play-edges --realm main
+python -m benchmarks.browser_frames \
+  --scene <scratch>/episodes/Blocks/B3_Equilibrium/Animate.py PriceDiscovery \
+  --output <scratch>/B3 --samples 12 --warmups 3 --max-frames 12 --tick-updaters --play-frames \
+  --play-edges --realm main
+```
+
+PriceDiscovery ran from a scratch copy of `Animate.py` as committed in
+econ-0100 (sha256 `dfe6e831…`, the file every earlier run measured) beside
+links to `Blocks/_Assets` and `Blocks/Sim`: the working tree had just moved
+it into `_archive/`, where its relative imports no longer resolve.
+`--play-edges` records each frame's play once more at its edges, after
+every frame's rows, so every stream begins with B4.6's recording byte for
+byte (sha1 of the gunzipped prefix: EpisodeB2 `41c66793…` / `c42bb696…`,
+PriceDiscovery `83c81cad…` / `e978326a…`, B4.6's hashes) and 48 edge
+messages follow it (378 and 364 messages in all). Beside the runs, the same
+streams were replayed through the B4.6 page (the driver and the selection
+as of `ab113484`, loaded by a require hook that swaps only the files the
+harness reads) and through B4.7's, in both realms, five rounds interleaved,
+03:14–03:15 UTC at load 3.8–4.3. Each message's time below is the median of
+its five rounds; every count is the same in every round.
+
+```bash
+node benchmarks/browser_frames.cjs <stream> --realm <main|sandbox>
+NODE_OPTIONS="--require source_hook.cjs" WEBGPU_SOURCE=<webgpu.js as of ab113484> \
+  SELECTION_SOURCE=<renderer_selection.js as of ab113484> \
+  node benchmarks/browser_frames.cjs <stream> --realm <main|sandbox>
+```
+
+### What a row times now
+
+`js_ms` is, as before, `performance.now` around the driver's render.
+`page_ms` is around the viewer's entry point, `ManimlRendererSelection.render`
+over the same driver: the driver's time plus the selection's routing, a
+parse of the whole header to read its `renderer` (or, since this increment,
+a comparison with the message before, and no parse when they match), and a
+promise hop. B4.6's archive named the selection's parse as outside its
+number. After B4.7 it was most of a resend's JavaScript: the review
+measured it at 0.38 / 0.94 ms on the 8.a header (Phase A / Phase B) against
+the driver's 0.05 / 0.14 ms redraw. So the page's cost is the headline
+here. Read the main realm for what a page pays; the sandbox columns are
+kept only as continuity with B4.6's archive (next).
+
+### The sandbox, a finding about this instrument
+
+The fake device runs the driver in a vm context of its own
+(`vm.runInNewContext`), as the command tests always have. There every read
+of a global (`Number`, `Array`, `JSON`, `Math`, a typed array constructor)
+is a call into the context's interceptor, a fraction of a microsecond each.
+Measured on the 8.a frame's 911 Phase B batches, one comparison of every
+batch against its slot costs 1.88 ms compiled inside a vm context and 0.16
+ms with its one global (`Array.isArray`) looked up once; replaying the
+EpisodeB2 Phase A stream in the sandbox, the per-value checks of uploaded
+border curves and fills, `Number.isFinite` read per value (as the B4.6
+driver's loops read it), took 73% of the whole replay's CPU profile, stream
+decompression included. B4.6's cold and play milliseconds were mostly
+that: the B4.6 driver's seek into a frame is 15.5 ms at the EpisodeB2
+median in the sandbox and 1.9 ms in the main realm, its Phase A play 5.1
+against 1.7 ms. A browser resolves globals as the main realm does.
+`browser_frames.py` and `browser_frames.cjs` take `--realm main`
+(`tests/webgpu_fake_device.cjs`'s `realm` option; the calls and counts are
+identical, `tests/test_browser_frames.py` checks it), and the B4.7 driver
+looks the builtin up once per call in its four per-value loops, which is
+most of the sandbox's gain on cold rows and changes nothing a browser does.
+B4.6's gates and baselines were set in the sandbox (the plan's "8.0 ms at
+911", the play gates for B4.8); the main realm is where they are re-read
+(Reading).
+
+### (i) Classes
+
+`page` and `js` p50 in ms in the main realm, B4.6 page → B4.7 page; `js,
+sandbox` is B4.6's archive, the B4.6 driver replayed now and B4.7, for
+continuity; `worst page row` is the class's dearest message in the main
+realm and the frame it belongs to. The counts are per frame, B4.6 → B4.7,
+the same in either realm. `play entry` and `landing` are one row per play
+(`--play-edges`): the play's first frame, after the checkpoint before it,
+and the destination after the play's last frame.
+
+**EpisodeB2**
+
+| class | variant | n | page, main | js, main | js, sandbox: archive / B4.6 now / B4.7 | worst page row, main | setPipeline | bindGroups | buffers + / − | uniform writes | KB up |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pausepoint | phase_a | 120 | 0.91 → **0.04** | 0.76 → 0.02 | 1.26 / 1.23 / 0.03 | 5.79 → 0.71 (frame 0) | 166 → 138 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| pausepoint | phase_b | 120 | 0.95 → **0.05** | 0.80 → 0.03 | 1.55 / 1.57 / 0.03 | 4.18 → 0.57 (frame 1) | 305 → 305 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| ticked | phase_a | 24 | 1.58 → **0.09** | 1.27 → 0.05 | 2.15 / 2.10 / 0.05 | 2.46 → 0.10 (frame 11) | 314 → 271 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| ticked | phase_b | 24 | 3.95 → **0.15** | 3.32 → 0.10 | 6.89 / 6.33 / 0.11 | 6.26 → 0.22 (frame 11) | 1217 → 1217 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| play | phase_a | 114 | 1.96 → **1.23** | 1.70 → 0.91 | 5.61 / 5.05 / 1.44 | 11.10 → 7.22 (frame 10) | 245 → 181 | 21 → 10 | 166 / 166 → 99 / 99 | 11 → 0 | 367 → 367 |
+| play | phase_b | 114 | 2.14 → **0.97** | 1.84 → 0.66 | 3.41 / 3.40 / 0.75 | 12.29 → 7.09 (frame 11) | 830 → 813 | 166 → 0 | 100 / 100 → 0 / 0 | 100 → 29 | 2 → 1 |
+| cold | phase_a | 12 | 1.99 → **1.34** | 1.87 → 1.16 | 15.33 / 15.50 / 2.27 | 17.13 → 11.80 (frame 0) | 196 → 160 | 41 → 37 | 266 / 116 → 259 / 92 | 22 → 17 | 1083 → 1083 |
+| cold | phase_b | 12 | 4.17 → **3.35** | 3.88 → 3.10 | 23.24 / 23.52 / 5.05 | 21.22 → 13.75 (frame 0) | 418 → 418 | 220 → 218 | 433 / 754 → 429 / 860 | 74 → 72 | 1784 → 1784 |
+| play entry | phase_a | 12 | 1.48 → **1.03** | 1.30 → 0.77 | – / 4.59 / 1.16 | 7.92 → 5.22 (frame 10) | 220 → 162 | 27 → 20 | 154 / 50 → 153 / 23 | 14 → 10 | 290 → 290 |
+| play entry | phase_b | 12 | 3.72 → **2.34** | 3.17 → 1.79 | – / 12.14 / 2.61 | 15.16 → 13.66 (frame 10) | 720 → 712 | 220 → 218 | 376 / 100 → 376 / 6 | 94 → 59 | 774 → 774 |
+| landing | phase_a | 12 | 1.06 → **0.48** | 0.89 → 0.31 | – / 2.57 / 0.41 | 6.55 → 3.05 (frame 10) | 190 → 147 | 13 → 6 | 32 / 32 → 19 / 19 | 7 → 0 | 89 → 88 |
+| landing | phase_b | 12 | 2.21 → **1.36** | 1.85 → 0.88 | – / 7.85 / 1.46 | 9.32 → 6.00 (frame 10) | 418 → 418 | 8 → 7 | 18 / 282 → 16 / 374 | 4 → 2 | 720 → 720 |
+
+**PriceDiscovery**
+
+| class | variant | n | page, main | js, main | js, sandbox: archive / B4.6 now / B4.7 | worst page row, main | setPipeline | bindGroups | buffers + / − | uniform writes | KB up |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pausepoint | phase_a | 12 | 0.33 → **0.01** | 0.29 → 0.01 | 0.58 / 0.60 / 0.01 | 0.35 → 0.01 (frame 11) | 41 → 9 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| pausepoint | phase_b | 12 | 0.37 → **0.04** | 0.32 → 0.03 | 0.71 / 0.73 / 0.02 | 0.39 → 0.04 (frame 11) | 147 → 147 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| ticked | phase_a | 132 | 0.67 → **0.03** | 0.58 → 0.02 | 1.03 / 1.05 / 0.02 | 1.00 → 0.25 (frame 0) | 118 → 50 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| ticked | phase_b | 132 | 1.12 → **0.04** | 0.98 → 0.03 | 1.84 / 1.87 / 0.03 | 1.92 → 0.42 (frame 0) | 366 → 307 | 1 → 0 | 0 / 0 → 0 / 0 | 0 → 0 | 0 → 0 |
+| play | phase_a | 100 | 0.93 → **0.41** | 0.85 → 0.31 | 1.81 / 1.78 / 0.36 | 8.75 → 1.99 (frame 1) | 126 → 53 | 5 → 2 | 19 / 19 → 14 / 14 | 3 → 0 | 151 → 151 |
+| play | phase_b | 100 | 1.76 → **0.55** | 1.51 → 0.39 | 2.81 / 2.95 / 0.44 | 2.80 → 1.32 (frame 7) | 491 → 491 | 236 → 0 | 144 / 144 → 0 / 0 | 144 → 52 | 4 → 1 |
+| cold | phase_a | 12 | 1.10 → **0.76** | 1.00 → 0.65 | 4.92 / 4.82 / 1.03 | 11.63 → 7.24 (frame 0) | 126 → 54 | 30 → 14 | 75 / 55 → 58 / 37 | 22 → 14 | 815 → 814 |
+| cold | phase_b | 12 | 2.56 → **1.68** | 2.32 → 1.43 | 13.97 / 14.31 / 2.49 | 15.87 → 11.14 (frame 0) | 416 → 356 | 136 → 116 | 275 / 512 → 238 / 596 | 70 → 54 | 757 → 755 |
+| play entry | phase_a | 12 | 0.75 → **0.36** | 0.65 → 0.26 | – / 1.75 / 0.33 | 2.37 → 1.40 (frame 10) | 124 → 52 | 6 → 5 | 22 / 12 → 21 / 3 | 4 → 3 | 274 → 274 |
+| play entry | phase_b | 12 | 2.18 → **1.59** | 1.80 → 1.26 | – / 6.80 / 1.96 | 2.90 → 2.26 (frame 1) | 514 → 480 | 344 → 342 | 564 / 160 → 560 / 10 | 156 → 152 | 267 → 266 |
+| landing | phase_a | 12 | 0.64 → **0.28** | 0.55 → 0.18 | – / 1.13 / 0.19 | 1.74 → 0.89 (frame 10) | 112 → 50 | 6 → 0 | 12 / 11 → 6 / 6 | 4 → 0 | 61 → 61 |
+| landing | phase_b | 12 | 1.71 → **0.88** | 1.49 → 0.80 | – / 5.26 / 1.23 | 1.94 → 1.31 (frame 6) | 366 → 306 | 24 → 17 | 59 / 446 → 44 / 557 | 14 → 11 | 227 → 226 |
+
+### (ii) The 8.a frame: resent, differing, moved
+
+The stream's 8.a rows are the viewer's resends (byte-identical messages).
+Two rows the stream lacks were measured on the same 8.a message after
+playing the stream up to it, through each page (`after_b47.json`
+`moves_8a`): the message with a header key reordered, alternating two
+orders, so nothing changed but no byte matches (the full diff path), and
+the message with its `frame_scale` alternating between two values, every
+message a camera move. p50 in ms over 180 messages (03:11–03:12 UTC, load
+average 5.1–5.2); the counts are per frame.
+
+| 8.a, EpisodeB2 | variant | page, main | js, main | page, sandbox | buffers / bind groups / uniform writes | border dispatches |
+|---|---|---:|---:|---:|---:|---:|
+| resent, identical bytes | phase_a | 2.04 → **0.09** | 1.64 → 0.05 | 2.74 → 0.10 | 0 / 1 / 0 → 0 / 0 / 0 | 0 → 0 |
+| resent, identical bytes | phase_b | 5.98 → **0.24** | 4.95 → 0.13 | 10.38 → 0.24 | 0 / 1 / 0 → 0 / 0 / 0 | 0 → 0 |
+| still, bytes differing | phase_a | 2.02 → **0.85** | 1.67 → 0.50 | 2.66 → 0.82 | 0 / 1 / 0 → 0 / 0 / 0 | 0 → 0 |
+| still, bytes differing | phase_b | 5.85 → **2.12** | 4.94 → 1.24 | 10.35 → 2.04 | 0 / 1 / 0 → 0 / 0 / 0 | 0 → 0 |
+| camera move | phase_a | 2.00 → **0.85** | 1.66 → 0.50 | 2.75 → 0.84 | 46 / 46 / 46 → 0 / 0 / 2 | 42 → 42 |
+| camera move | phase_b | 6.66 → **2.15** | 5.78 → 1.28 | 11.68 → 2.18 | 461 / 461 / 461 → 0 / 0 / 2 | 456 → 456 |
+
+At 8.a the header is 179 / 434 KB. A resend costs the page the selection's
+comparison (0.04 / 0.11 ms) and the driver's comparison and redraw (0.05 /
+0.13); nothing is made or written. A message that differs is parsed twice,
+by the selection (0.35 / 0.88 ms, the page column less the js column) and
+by the driver (0.37 / 0.92 ms of its 0.50 / 1.24), and matched against the
+slots (the rest, 0.13 / 0.32). A camera move adds two uniform writes (the
+one uniform set at 8.a, its render and generation values) and the same
+border dispatches as before, without a buffer, bind group or parameter
+upload per dispatch; Phase B's 456 patch runs each re-evaluate their strips
+at the new scale.
+
+### (iii) Per frame
+
+**EpisodeB2** (page and js p50 in ms, main realm, B4.6 → B4.7; buffers + bind groups made per frame, B4.7)
+
+| frame | beat | class | phase_a page | phase_a js | phase_b page | phase_b js | made, phase_a | made, phase_b |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| 0 | 0.a | pausepoint | 2.39 → 0.23 | 2.00 → 0.18 | 3.76 → 0.21 | 3.25 → 0.16 | 0 + 0 | 0 + 0 |
+| 0 | 0.a | play | 7.53 → 1.88 | 7.08 → 1.37 | 4.26 → 1.46 | 3.74 → 0.94 | 99 + 33 | 0 + 0 |
+| 0 | 0.a | cold | 17.13 → 11.80 | 16.67 → 11.33 | 21.22 → 13.75 | 20.57 → 13.10 | 705 + 32 | 1274 + 641 |
+| 0 | 0.a | play entry | 3.13 → 1.61 | 2.68 → 1.17 | 3.95 → 2.37 | 3.35 → 1.67 | 165 + 66 | 396 + 231 |
+| 0 | 0.a | landing | 1.91 → 0.89 | 1.53 → 0.52 | 3.64 → 1.67 | 3.18 → 1.21 | 0 + 0 | 6 + 3 |
+| 1 | 2.h | pausepoint | 0.80 → 0.07 | 0.67 → 0.06 | 0.93 → 0.08 | 0.80 → 0.06 | 0 + 0 | 0 + 0 |
+| 1 | 2.h | play | 1.69 → 0.93 | 1.52 → 0.77 | 1.70 → 0.72 | 1.49 → 0.52 | 210 + 10 | 0 + 0 |
+| 1 | 2.h | cold | 2.35 → 2.13 | 2.19 → 1.96 | 3.60 → 3.47 | 3.36 → 3.22 | 302 + 48 | 257 + 127 |
+| 1 | 2.h | play entry | 1.04 → 0.91 | 0.89 → 0.73 | 4.30 → 2.30 | 3.98 → 2.00 | 230 + 20 | 846 + 493 |
+| 1 | 2.h | landing | 0.74 → 0.33 | 0.57 → 0.19 | 1.77 → 5.02 | 1.55 → 1.08 | 0 + 0 | 361 + 180 |
+| 2 | 3.i | ticked | 1.10 → 0.06 | 0.92 → 0.04 | 1.92 → 0.10 | 1.61 → 0.07 | 0 + 0 | 0 + 0 |
+| 2 | 3.i | play | 1.15 → 0.58 | 0.97 → 0.38 | 1.89 → 0.79 | 1.58 → 0.47 | 12 + 4 | 0 + 0 |
+| 2 | 3.i | cold | 6.49 → 2.30 | 6.25 → 2.08 | 5.41 → 5.15 | 4.98 → 4.63 | 285 + 112 | 817 + 408 |
+| 2 | 3.i | play entry | 1.05 → 0.48 | 0.88 → 0.31 | 2.02 → 0.90 | 1.68 → 0.58 | 20 + 8 | 48 + 28 |
+| 2 | 3.i | landing | 1.03 → 0.47 | 0.87 → 0.30 | 2.00 → 0.86 | 1.68 → 0.56 | 20 + 8 | 6 + 3 |
+| 3 | 4.c.1 | pausepoint | 0.32 → 0.01 | 0.27 → 0.01 | 0.10 → 0.01 | 0.09 → 0.01 | 0 + 0 | 0 + 0 |
+| 3 | 4.c.1 | play | 0.54 → 0.30 | 0.48 → 0.23 | 0.27 → 0.10 | 0.24 → 0.07 | 30 + 9 | 0 + 0 |
+| 3 | 4.c.1 | cold | 1.63 → 1.20 | 1.55 → 1.11 | 1.23 → 1.00 | 1.19 → 0.97 | 194 + 74 | 34 + 15 |
+| 3 | 4.c.1 | play entry | 0.55 → 0.27 | 0.48 → 0.21 | 0.42 → 0.32 | 0.38 → 0.27 | 48 + 18 | 120 + 70 |
+| 3 | 4.c.1 | landing | 0.53 → 0.26 | 0.47 → 0.20 | 0.40 → 0.20 | 0.38 → 0.18 | 45 + 18 | 13 + 6 |
+| 4 | 4.b.2 | pausepoint | 0.36 → 0.01 | 0.30 → 0.01 | 0.09 → 0.01 | 0.08 → 0.00 | 0 + 0 | 0 + 0 |
+| 4 | 4.b.2 | play | 0.57 → 0.29 | 0.50 → 0.22 | 0.21 → 0.08 | 0.18 → 0.05 | 22 + 7 | 0 + 0 |
+| 4 | 4.b.2 | cold | 1.56 → 1.03 | 1.48 → 0.94 | 1.70 → 1.02 | 1.67 → 0.99 | 113 + 42 | 21 + 9 |
+| 4 | 4.b.2 | play entry | 0.68 → 0.34 | 0.60 → 0.26 | 0.87 → 0.58 | 0.82 → 0.53 | 55 + 20 | 97 + 55 |
+| 4 | 4.b.2 | landing | 0.48 → 0.22 | 0.42 → 0.16 | 0.74 → 0.39 | 0.73 → 0.37 | 19 + 6 | 12 + 5 |
+| 5 | 4.b.4 | pausepoint | 0.37 → 0.01 | 0.32 → 0.01 | 0.09 → 0.01 | 0.08 → 0.00 | 0 + 0 | 0 + 0 |
+| 5 | 4.b.4 | play | 0.56 → 0.28 | 0.49 → 0.21 | 0.21 → 0.08 | 0.18 → 0.06 | 22 + 7 | 0 + 0 |
+| 5 | 4.b.4 | cold | 0.69 → 0.36 | 0.63 → 0.29 | 1.67 → 0.98 | 1.64 → 0.96 | 29 + 8 | 21 + 9 |
+| 5 | 4.b.4 | play entry | 0.67 → 0.33 | 0.59 → 0.26 | 0.86 → 0.53 | 0.82 → 0.49 | 55 + 20 | 97 + 55 |
+| 5 | 4.b.4 | landing | 0.47 → 0.22 | 0.42 → 0.16 | 1.03 → 0.40 | 1.01 → 0.38 | 19 + 6 | 12 + 5 |
+| 6 | 4.return.5 | pausepoint | 0.95 → 0.04 | 0.79 → 0.02 | 0.95 → 0.05 | 0.80 → 0.03 | 0 + 0 | 0 + 0 |
+| 6 | 4.return.5 | play | 1.96 → 1.24 | 1.71 → 1.00 | 2.13 → 0.92 | 1.84 → 0.64 | 300 + 30 | 0 + 0 |
+| 6 | 4.return.5 | cold | 1.62 → 0.96 | 1.43 → 0.78 | 3.65 → 3.22 | 3.40 → 2.98 | 233 + 8 | 418 + 211 |
+| 6 | 4.return.5 | play entry | 2.06 → 1.15 | 1.83 → 0.93 | 4.38 → 3.84 | 3.92 → 3.31 | 378 + 66 | 1326 + 765 |
+| 6 | 4.return.5 | landing | 1.10 → 0.48 | 0.93 → 0.31 | 3.41 → 2.31 | 3.15 → 2.05 | 19 + 6 | 420 + 212 |
+| 7 | 4.return.7 | pausepoint | 0.99 → 0.04 | 0.81 → 0.03 | 1.01 → 0.04 | 0.85 → 0.03 | 0 + 0 | 0 + 0 |
+| 7 | 4.return.7 | play | 1.92 → 1.29 | 1.69 → 1.03 | 2.14 → 0.98 | 1.83 → 0.67 | 312 + 30 | 0 + 0 |
+| 7 | 4.return.7 | cold | 1.15 → 0.59 | 0.96 → 0.40 | 4.69 → 2.92 | 4.37 → 2.62 | 35 + 6 | 440 + 224 |
+| 7 | 4.return.7 | play entry | 1.92 → 1.18 | 1.70 → 0.96 | 4.82 → 3.46 | 4.35 → 2.88 | 390 + 66 | 1388 + 801 |
+| 7 | 4.return.7 | landing | 1.09 → 0.49 | 0.92 → 0.32 | 6.75 → 2.10 | 6.47 → 1.84 | 19 + 6 | 440 + 224 |
+| 8 | 4.d.9 | pausepoint | 0.44 → 0.02 | 0.37 → 0.01 | 0.12 → 0.01 | 0.11 → 0.01 | 0 + 0 | 0 + 0 |
+| 8 | 4.d.9 | play | 0.49 → 0.22 | 0.42 → 0.15 | 0.16 → 0.07 | 0.14 → 0.04 | 9 + 2 | 0 + 0 |
+| 8 | 4.d.9 | cold | 0.96 → 0.59 | 0.88 → 0.51 | 1.99 → 1.20 | 1.95 → 1.16 | 79 + 26 | 39 + 17 |
+| 8 | 4.d.9 | play entry | 0.61 → 0.28 | 0.54 → 0.21 | 0.79 → 0.39 | 0.75 → 0.36 | 32 + 10 | 41 + 23 |
+| 8 | 4.d.9 | landing | 0.62 → 0.27 | 0.54 → 0.20 | 0.84 → 0.40 | 0.80 → 0.38 | 29 + 10 | 18 + 8 |
+| 9 | 4.h | pausepoint | 1.52 → 0.06 | 1.27 → 0.04 | 2.32 → 0.10 | 1.92 → 0.06 | 0 + 0 | 0 + 0 |
+| 9 | 4.h | play | 2.31 → 1.24 | 1.98 → 0.90 | 2.85 → 1.19 | 2.42 → 0.71 | 85 + 28 | 0 + 0 |
+| 9 | 4.h | cold | 3.17 → 1.49 | 2.89 → 1.21 | 5.45 → 4.42 | 4.91 → 3.87 | 417 + 20 | 1039 + 546 |
+| 9 | 4.h | play entry | 2.24 → 1.14 | 1.91 → 0.81 | 3.49 → 2.41 | 2.98 → 1.91 | 141 + 56 | 355 + 206 |
+| 9 | 4.h | landing | 1.74 → 0.61 | 1.49 → 0.35 | 2.42 → 1.05 | 2.02 → 0.67 | 0 + 0 | 1 + 0 |
+| 10 | 5.a | pausepoint | 2.75 → 0.11 | 2.27 → 0.07 | 2.99 → 0.13 | 2.49 → 0.09 | 0 + 0 | 0 + 0 |
+| 10 | 5.a | play | 9.24 → 5.52 | 8.15 → 4.77 | 9.05 → 3.25 | 7.95 → 2.15 | 1148 + 229 | 0 + 0 |
+| 10 | 5.a | cold | 8.19 → 5.76 | 7.58 → 5.17 | 7.55 → 6.01 | 6.89 → 5.27 | 1396 + 374 | 822 + 586 |
+| 10 | 5.a | play entry | 7.92 → 5.22 | 7.27 → 4.56 | 15.16 → 13.66 | 13.56 → 12.15 | 1606 + 458 | 5497 + 3227 |
+| 10 | 5.a | landing | 6.55 → 3.05 | 6.02 → 2.52 | 9.32 → 6.00 | 8.63 → 5.30 | 398 + 55 | 1336 + 696 |
+| 11 | 8.a | ticked | 2.04 → 0.09 | 1.63 → 0.05 | 5.83 → 0.21 | 4.84 → 0.13 | 0 + 0 | 0 + 0 |
+| 11 | 8.a | play | 2.50 → 1.48 | 2.07 → 1.06 | 9.70 → 6.10 | 8.21 → 4.85 | 330 + 9 | 1402 + 701 |
+| 11 | 8.a | cold | 4.70 → 2.77 | 3.29 → 2.31 | 11.87 → 9.82 | 10.49 → 8.54 | 813 + 84 | 2737 + 1368 |
+| 11 | 8.a | play entry | 2.50 → 1.49 | 2.08 → 1.07 | 9.85 → 7.77 | 8.43 → 5.46 | 347 + 9 | 1392 + 696 |
+| 11 | 8.a | landing | 2.20 → 1.28 | 1.79 → 0.79 | 8.23 → 5.07 | 6.98 → 3.90 | 21 + 6 | 503 + 252 |
+
+**PriceDiscovery** (page and js p50 in ms, main realm, B4.6 → B4.7; buffers + bind groups made per frame, B4.7)
+
+| frame | beat | class | phase_a page | phase_a js | phase_b page | phase_b js | made, phase_a | made, phase_b |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| 0 | 0.a | ticked | 0.59 → 0.07 | 0.51 → 0.06 | 1.09 → 0.07 | 0.95 → 0.06 | 0 + 0 | 0 + 0 |
+| 0 | 0.a | play | 0.93 → 0.40 | 0.85 → 0.31 | 1.02 → 0.39 | 0.89 → 0.27 | 6 + 2 | 0 + 0 |
+| 0 | 0.a | cold | 11.57 → 7.24 | 11.44 → 7.11 | 15.87 → 11.14 | 15.69 → 10.95 | 224 + 77 | 445 + 196 |
+| 0 | 0.a | play entry | 0.53 → 0.24 | 0.46 → 0.17 | 0.89 → 0.42 | 0.77 → 0.30 | 10 + 4 | 24 + 14 |
+| 0 | 0.a | landing | 0.46 → 0.19 | 0.39 → 0.12 | 0.88 → 0.36 | 0.76 → 0.24 | 0 + 0 | 6 + 3 |
+| 1 | 1.b | ticked | 0.54 → 0.02 | 0.48 → 0.01 | 0.35 → 0.02 | 0.32 → 0.01 | 0 + 0 | 0 + 0 |
+| 1 | 1.b | play | 4.56 → 1.54 | 4.37 → 1.35 | 2.06 → 0.53 | 1.92 → 0.39 | 196 + 65 | 0 + 0 |
+| 1 | 1.b | cold | 11.63 → 3.06 | 11.53 → 2.96 | 10.02 → 3.57 | 9.95 → 3.51 | 104 + 38 | 93 + 45 |
+| 1 | 1.b | play entry | 2.28 → 1.31 | 2.11 → 1.13 | 2.60 → 2.26 | 2.37 → 2.01 | 326 + 130 | 794 + 462 |
+| 1 | 1.b | landing | 0.45 → 0.16 | 0.39 → 0.10 | 1.43 → 0.83 | 1.39 → 0.79 | 0 + 0 | 7 + 3 |
+| 2 | 2.b.i | ticked | 0.65 → 0.02 | 0.58 → 0.01 | 0.61 → 0.03 | 0.53 → 0.02 | 0 + 0 | 0 + 0 |
+| 2 | 2.b.i | play | 1.50 → 0.67 | 1.38 → 0.56 | 1.13 → 0.34 | 1.02 → 0.23 | 68 + 22 | 0 + 0 |
+| 2 | 2.b.i | cold | 9.04 → 1.71 | 8.90 → 1.61 | 9.92 → 1.89 | 9.77 → 1.76 | 116 + 41 | 210 + 102 |
+| 2 | 2.b.i | play entry | 1.26 → 0.67 | 1.14 → 0.55 | 1.37 → 1.02 | 1.23 → 0.85 | 112 + 44 | 280 + 162 |
+| 2 | 2.b.i | landing | 0.59 → 0.23 | 0.52 → 0.16 | 1.00 → 0.50 | 0.92 → 0.42 | 6 + 0 | 20 + 9 |
+| 3 | 3.a.1 | ticked | 0.55 → 0.04 | 0.47 → 0.03 | 1.43 → 0.05 | 1.25 → 0.04 | 0 + 0 | 0 + 0 |
+| 3 | 3.a.1 | play | 0.64 → 0.30 | 0.55 → 0.21 | 1.90 → 0.75 | 1.66 → 0.51 | 12 + 2 | 0 + 0 |
+| 3 | 3.a.1 | cold | 1.25 → 0.92 | 1.15 → 0.83 | 7.14 → 3.08 | 6.86 → 2.79 | 111 + 26 | 583 + 266 |
+| 3 | 3.a.1 | play entry | 0.61 → 0.31 | 0.52 → 0.22 | 2.22 → 1.54 | 1.79 → 1.23 | 17 + 6 | 547 + 336 |
+| 3 | 3.a.1 | landing | 0.53 → 0.23 | 0.45 → 0.15 | 1.67 → 1.04 | 1.45 → 0.81 | 5 + 0 | 190 + 95 |
+| 4 | 3.a.3 | ticked | 0.64 → 0.04 | 0.56 → 0.03 | 1.45 → 0.04 | 1.25 → 0.03 | 0 + 0 | 0 + 0 |
+| 4 | 3.a.3 | play | 0.67 → 0.31 | 0.58 → 0.22 | 2.17 → 0.82 | 1.90 → 0.55 | 14 + 2 | 0 + 0 |
+| 4 | 3.a.3 | cold | 0.83 → 0.56 | 0.74 → 0.46 | 5.54 → 2.09 | 5.28 → 1.83 | 51 + 11 | 267 + 136 |
+| 4 | 3.a.3 | play entry | 0.66 → 0.31 | 0.57 → 0.22 | 2.14 → 1.66 | 1.82 → 1.35 | 18 + 5 | 572 + 347 |
+| 4 | 3.a.3 | landing | 0.60 → 0.26 | 0.52 → 0.18 | 1.76 → 1.12 | 1.52 → 0.88 | 6 + 0 | 210 + 103 |
+| 5 | 3.a.5 | ticked | 0.68 → 0.03 | 0.58 → 0.02 | 1.41 → 0.05 | 1.20 → 0.03 | 0 + 0 | 0 + 0 |
+| 5 | 3.a.5 | play | 0.77 → 0.35 | 0.67 → 0.25 | 1.83 → 0.75 | 1.58 → 0.49 | 14 + 2 | 0 + 0 |
+| 5 | 3.a.5 | cold | 0.95 → 0.55 | 0.84 → 0.44 | 2.34 → 1.77 | 2.05 → 1.50 | 61 + 15 | 278 + 142 |
+| 5 | 3.a.5 | play entry | 0.75 → 0.36 | 0.65 → 0.26 | 2.25 → 1.64 | 1.90 → 1.30 | 18 + 5 | 578 + 349 |
+| 5 | 3.a.5 | landing | 0.68 → 0.29 | 0.59 → 0.19 | 1.88 → 1.15 | 1.61 → 0.90 | 6 + 0 | 215 + 105 |
+| 6 | 3.a.8 | ticked | 0.67 → 0.03 | 0.57 → 0.02 | 1.32 → 0.05 | 1.13 → 0.03 | 0 + 0 | 0 + 0 |
+| 6 | 3.a.8 | play | 0.75 → 0.34 | 0.65 → 0.23 | 1.78 → 0.77 | 1.53 → 0.50 | 14 + 2 | 0 + 0 |
+| 6 | 3.a.8 | cold | 0.93 → 0.60 | 0.82 → 0.48 | 2.13 → 1.59 | 1.85 → 1.30 | 55 + 14 | 268 + 130 |
+| 6 | 3.a.8 | play entry | 0.76 → 0.36 | 0.66 → 0.26 | 2.28 → 1.74 | 1.95 → 1.39 | 24 + 5 | 599 + 356 |
+| 6 | 3.a.8 | landing | 0.72 → 0.31 | 0.62 → 0.21 | 1.87 → 1.31 | 1.63 → 1.05 | 12 + 0 | 237 + 112 |
+| 7 | 3.a.10 | ticked | 0.66 → 0.03 | 0.57 → 0.02 | 0.95 → 0.03 | 0.81 → 0.02 | 0 + 0 | 0 + 0 |
+| 7 | 3.a.10 | play | 0.69 → 0.28 | 0.59 → 0.18 | 1.20 → 0.47 | 1.03 → 0.30 | 6 + 0 | 0 + 0 |
+| 7 | 3.a.10 | cold | 0.76 → 0.38 | 0.66 → 0.28 | 1.42 → 0.94 | 1.25 → 0.76 | 29 + 3 | 95 + 41 |
+| 7 | 3.a.10 | play entry | 0.73 → 0.32 | 0.63 → 0.23 | 1.48 → 0.98 | 1.25 → 0.75 | 15 + 1 | 262 + 139 |
+| 7 | 3.a.10 | landing | 0.71 → 0.31 | 0.61 → 0.21 | 1.24 → 0.64 | 1.09 → 0.48 | 11 + 0 | 67 + 25 |
+| 8 | 3.a.12 | ticked | 0.71 → 0.03 | 0.61 → 0.02 | 1.39 → 0.05 | 1.19 → 0.03 | 0 + 0 | 0 + 0 |
+| 8 | 3.a.12 | play | 0.79 → 0.34 | 0.69 → 0.24 | 1.77 → 0.74 | 1.52 → 0.48 | 14 + 2 | 0 + 0 |
+| 8 | 3.a.12 | cold | 0.92 → 0.53 | 0.81 → 0.42 | 2.09 → 1.56 | 1.82 → 1.27 | 51 + 11 | 272 + 130 |
+| 8 | 3.a.12 | play entry | 0.86 → 0.42 | 0.74 → 0.31 | 2.29 → 1.77 | 1.95 → 1.43 | 28 + 5 | 617 + 362 |
+| 8 | 3.a.12 | landing | 0.81 → 0.38 | 0.71 → 0.27 | 1.94 → 1.26 | 1.69 → 0.99 | 18 + 0 | 255 + 118 |
+| 9 | 3.b.1 | ticked | 0.72 → 0.03 | 0.62 → 0.02 | 0.98 → 0.03 | 0.83 → 0.02 | 0 + 0 | 0 + 0 |
+| 9 | 3.b.1 | play | 0.74 → 0.28 | 0.63 → 0.18 | 1.19 → 0.48 | 1.02 → 0.31 | 6 + 0 | 0 + 0 |
+| 9 | 3.b.1 | cold | 0.83 → 0.39 | 0.72 → 0.28 | 1.49 → 0.98 | 1.32 → 0.82 | 29 + 2 | 113 + 47 |
+| 9 | 3.b.1 | play entry | 0.75 → 0.33 | 0.65 → 0.22 | 1.42 → 0.81 | 1.21 → 0.60 | 7 + 1 | 216 + 123 |
+| 9 | 3.b.1 | landing | 0.77 → 0.29 | 0.66 → 0.18 | 1.13 → 0.51 | 0.99 → 0.36 | 1 + 0 | 21 + 9 |
+| 10 | 3.b | ticked | 0.96 → 0.03 | 0.83 → 0.02 | 0.97 → 0.04 | 0.83 → 0.02 | 0 + 0 | 0 + 0 |
+| 10 | 3.b | play | 2.55 → 1.33 | 2.33 → 1.12 | 1.96 → 0.68 | 1.72 → 0.44 | 165 + 55 | 0 + 0 |
+| 10 | 3.b | cold | 2.35 → 1.32 | 2.19 → 1.17 | 2.79 → 1.48 | 2.58 → 1.31 | 140 + 44 | 142 + 54 |
+| 10 | 3.b | play entry | 2.37 → 1.40 | 2.18 → 1.17 | 2.90 → 1.91 | 2.56 → 1.57 | 275 + 110 | 660 + 385 |
+| 10 | 3.b | landing | 1.74 → 0.89 | 1.61 → 0.74 | 1.87 → 0.86 | 1.71 → 0.71 | 65 + 26 | 6 + 3 |
+| 11 | 5.a | pausepoint | 0.33 → 0.01 | 0.29 → 0.01 | 0.37 → 0.04 | 0.32 → 0.03 | 0 + 0 | 0 + 0 |
+| 11 | 5.a | play | 1.63 → 0.93 | 1.50 → 0.80 | 1.20 → 0.39 | 1.08 → 0.27 | 129 + 43 | 0 + 0 |
+| 11 | 5.a | cold | 8.44 → 1.02 | 8.38 → 0.97 | 2.01 → 1.44 | 1.95 → 1.36 | 8 + 2 | 13 + 6 |
+| 11 | 5.a | play entry | 1.54 → 0.97 | 1.41 → 0.82 | 1.77 → 1.31 | 1.56 → 1.10 | 215 + 86 | 516 + 301 |
+| 11 | 5.a | landing | 0.32 → 0.13 | 0.27 → 0.08 | 1.76 → 0.90 | 1.69 → 0.84 | 0 + 0 | 6 + 3 |
+
+### (iv) What the GPU is asked
+
+What B4.7 must not change is what the GPU is asked to do, and the review
+found that nothing committed showed it: `tests/test_wgpu_port.py` draws with
+the Python winding reference and never runs `webgpu.js`,
+`tests/player_commands.cjs` stubs the driver, and the draft's trace
+comparison lived in scratch. Now committed:
+
+- `tests/webgpu_trace.cjs` traces a submission by content rather than
+  identity: every draw (its pipeline's descriptor, the content of each bound
+  group, vertex and index buffer, its stencil reference and arguments) and
+  every compute dispatch (its kernel and what it reads), each compute write
+  simulated as a token of the dispatch's inputs, so a draw that reads a
+  stale, borrowed or destroyed output differs. A generation kernel's inputs
+  are the uniform fields it reads, taken from its WGSL and checked against
+  it at load (border_compute.wgsl reads the camera position only for a
+  stroke that is not flat), so a camera move that changes only what a
+  kernel does not read leaves its output equal.
+- `retainedFramesDrawWhatFreshDriversDraw`: fifteen full frames that resend
+  a message byte for byte, replace a bordered mover's geometry in place,
+  move the camera's scale and position, change a net's density and
+  programs' scalars (differing, coinciding, parting), insert a batch and the
+  same geometry under other overrides, fail after rewriting the uniform
+  sets and return to the submitted camera, change the sample count and
+  remove batches. Every frame's render passes trace as a fresh driver's do
+  given the same frame whole, and the failed frame fails alike.
+- `streamDrawsWhatFreshDriversDraw` (run by `test_browser_frames` on its
+  episode fixture, both variants): every message of a recorded stream,
+  played in order, traces as the same frame rebuilt whole by the recording
+  indexer does on a fresh driver.
+- `failedFramesKeepTheCamera` (the review's three rollback sequences) and
+  `generationFollowsItsInputs` (a camera-position move re-evaluates a border
+  whose stroke is not flat and no other; a density change re-evaluates the
+  net with the new density, the same density nothing). Both pass on the B4.6
+  driver, which packed uniforms per frame; the first fails on the draft,
+  the second on the review's M4 and M5 mutants.
+
+Mutants of the final driver, each caught by at least one committed test
+(`after_b47.json` `proof.mutants`): the rollback left out; the net density
+(the review's M4) or the camera position (M5) out of a state key; the frame
+scale out of the border state; one uniform set for every batch; an output's
+fill identity not checked; no fill copy; a program group that ignores the
+scalars; a redraw on equal length rather than equal bytes; a border
+binding not remade for a new source; retained program slots not evaluated.
+A fresh driver shares the draft's code, so a defect it has cold (no fill
+copy, the scalars ignored) is the other cases' to catch, and they do.
+
+The side-by-side comparison of the B4.6 and B4.7 drivers on the scratch
+tracer was re-run on the final driver: every existing case of
+`tests/generated_webgpu_commands.cjs` (through
+`test_generated_webgpu_commands`, the Python encoder's patch, net and
+program frames among them, and `test_export`'s recording replay) traces
+identically, one fill copy fewer in `borderComputeFailures` (a slot taken
+over in place already held the same geometry's fill); the four B4.7 cases
+that fail on the B4.6 driver do so by design
+(`slotsReuseAcrossFullFrames`, `outputsSurviveInsertion`,
+`programOutputsSurviveCoincidence` and, from the coinciding frame on,
+`retainedFramesDrawWhatFreshDriversDraw`). The four streams with their
+edges, 1484 messages, trace identically frame by frame: 503,298 draws and
+80,015 dispatches, zero cache misses, nothing live after teardown. The
+calls over the whole streams, B4.6 → B4.7:
+
+| stream | frames | draws | compute dispatches | buffer copies | set pipeline | set bind group | set vertex buffer | set index buffer | bind groups created | buffers created | uniform buffers created | uniform writes | write buffer | bytes uploaded |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| EpisodeB2 phase_a | 378 | 87693 → 87693 | 6939 → 6939 | 6939 → 6939 | 94632 → 74707 | 101571 → 81646 | 87315 → 87315 | 54729 → 54729 | 14259 → 8093 | 61229 → 49707 | 7145 → 1282 | 7145 → 1282 | 0 → 0 | 132.4 → 132.2 MB |
+| EpisodeB2 phase_b | 378 | 249817 → 249817 | 49770 → 49770 | 0 → 0 | 299587 → 299077 | 408538 → 296629 | 56165 → 56165 | 7535 → 7535 | 98886 → 32227 | 109423 → 60567 | 49983 → 7586 | 49983 → 19634 | 0 → 12048 | 94.4 → 93.6 MB |
+| PriceDiscovery phase_a | 364 | 39220 → 39220 | 3221 → 3221 | 3117 → 3117 | 42441 → 17560 | 45662 → 31535 | 38856 → 35181 | 24619 → 20944 | 6911 → 3728 | 17256 → 11708 | 3615 → 608 | 3615 → 721 | 0 → 113 | 78.9 → 78.7 MB |
+| PriceDiscovery phase_b | 364 | 126568 → 126568 | 20085 → 20085 | 0 → 0 | 146653 → 129927 | 193168 → 129798 | 35827 → 35827 | 22587 → 22587 | 37152 → 9572 | 34333 → 16871 | 20826 → 3749 | 20826 → 9978 | 0 → 6229 | 33.5 → 33.1 MB |
+
+On a real device the streams without edges were rendered through both
+drivers side by side in Chromium 152 (Dawn on Metal, the M3), each frame's
+canvas read back and compared (`pixel_parity.html`): all 1292 frames
+identical byte for byte, every one non-blank, no validation error on either
+device; a mutant that drops the border runs' fill copies differs on every
+frame of the PriceDiscovery Phase A stream. That ran on the draft, before
+the review's fixes. The fixes change nothing a frame that does not fail
+submits, and the final driver traces those streams identically to B4.6's,
+so the result stands; it was not re-run.
+
+### Reading
+
+**At rest the page does almost nothing.** Every pausepoint and ticked row
+is a resend, and a resend costs the page 0.04 / 0.05 ms at the EpisodeB2
+pausepoint median and 0.09 / 0.15 ms ticked (B4.6's page: 0.91 / 0.95 and
+1.58 / 3.95), 0.09 / 0.24 ms at 8.a (2.04 / 5.98), and nothing is made. The
+driver's redraw alone was B4.7's first number (0.07 / 0.15 ms at 8.a, in
+the sandbox); without the selection's comparison the page would still have
+paid the header parse on every resend. B4.8 removes the resend itself (an
+empty delta is not sent).
+
+**A message that differs pays its parse twice.** 0.85 / 2.12 ms at 8.a
+(2.02 / 5.85 before), a camera move 0.85 / 2.15 ms (2.00 / 6.66) with no
+buffer or bind group made (46 / 461 of each before). The selection's parse
+is 0.35 / 0.88 of it. Handing it to the driver would remove one of the two;
+that is left to B4.8, whose delta headers change what is parsed at all.
+
+**Plays: medians, and the rows the medians hide.** The page's play median
+is 1.23 / 0.97 ms on EpisodeB2 (1.96 / 2.14) and 0.41 / 0.55 on
+PriceDiscovery (0.93 / 1.76). Phase B plays make nothing per frame where
+the movers are programs, which is every Phase B play row but 8.a's: none of
+its 375 movers is a program, so about 700 of its 895 batches (351 patch and
+350 stroke runs on the first measured frame) arrive uncached every frame and
+the frame makes 1402 buffers and 701 bind groups (2104 and 1052 before),
+6.10 ms on the page (9.70). Phase A's plays upload
+their movers' re-tessellated fills, 99 buffers per frame at the median (166
+before) and 1148 on the 5.a play, 5.52 ms (9.24). Neither is the driver's
+to remove: a non-program mover costs what its upload costs until rows travel
+instead (B5.1), and Phase A's movers until tier 1 and B4.8 send less.
+
+**A play's edges are its dearest frames.** The first frame of the 5.a play
+on Phase B costs the page 13.66 ms (15.16), making 5497 buffers and 3227
+bind groups: the slots of its 692 batches, their program outputs and
+bindings, resolved once for the frames that follow at 3.25 ms. Its landing
+costs 6.00 ms (9.32). At the class median the entry is 1.03 / 2.34 ms on
+EpisodeB2 and the landing 0.48 / 1.36 (1.48 / 3.72 and 1.06 / 2.21 before).
+The play class samples a play's middle, so these are classes of their own
+now.
+
+**What that means for B4.8's play gates.** "Play ≤ 2 ms JS (Phase A) / ≤ 4
+ms (Phase B)" was set on B4.6's sandbox medians (5.6 / 3.4 ms). Read as
+the page's cost in the main realm, B4.6's page already met it at the class
+median (1.96 / 2.14 ms), so as class medians the gates do not tell the
+drivers apart. Read as a bound on every play frame, B4.7 misses it on the
+5.a Phase A play (5.52 ms) and the 8.a Phase B play (6.10), and on play
+entries up to 13.66 ms, all of them frames whose uploads or first
+resolution are the cost. B4.8 re-derives its gates in the main realm on
+`page_ms`, and says whether they bound the class median or every play
+frame, entry and landing included; B4.7 sets none.
+
+**Seeks.** The cold class is 1.34 / 3.35 ms on the page at the EpisodeB2
+median (1.99 / 4.17) and 0.76 / 1.68 on PriceDiscovery (1.10 / 2.56). With
+each message the median of five rounds, no row of any class is slower on
+B4.7's page than on B4.6's but one: the EpisodeB2 2.h landing on Phase B,
+1.77 → 5.02 ms on the page while its driver time fell (1.55 → 1.08), where a
+garbage collection lands in three of the five rounds (1.1–1.2 ms in the
+other two). The draft's "5 of 48 cold rows 6–16% slower" were single
+samples. The wire still carries every uncached byte (1.1 / 1.8 MB), which is
+B4.8's.
+
+**Pipelines and bindings.** On Phase A a pipeline is set once per run of
+draws that share it (setPipeline 166 → 138 at the pausepoint median, 94,632
+→ 74,707 over EpisodeB2's stream); on Phase B almost every call already
+switches (a patch group alternates five pipelines), so its count hardly
+moves. Bind group calls fall by 20–33% over the streams, vertex and index
+buffer calls by 9–15% on PriceDiscovery's Phase A. A patch run's pipeline
+changes are the draw count's cost that B5.2 or render bundles (B4.9) would
+address; at 1841 draws they are now 0.13 ms of a resend's JavaScript.
+
+### Scope and caveats (B4.7)
+
+- **Not Dawn, not the GPU.** As for B4.6: the counts are what Dawn would be
+  handed; the pixel check shows the GPU draws the same frames, not what it
+  costs. The main realm is Node's V8 without Chrome's heap or render-thread
+  contention, the closest this instrument gets to a page.
+- **The resend paths keep the caller's buffer.** The driver keeps the last
+  message it drew (while it is at most 1 MiB and every batch drew) and the
+  selection the last one it routed, and compares the next message with it
+  word by word; both keep a reference, not a copy, so a caller hands a
+  buffer over and does not write into it afterwards (the viewer and the
+  player hand over a fresh one per message). The driver returns its
+  previous parse as the header.
+- **Single rows.** A cold, entry or landing row is one message, here the
+  median of five rounds. The rounds of one row varied by up to a factor of
+  four where a garbage collection lands (the 2.h landing above), and
+  typically by under 10%.
+- **The play edges' base.** A play's entry follows its source checkpoint
+  restored and serialized once (`play_source`), and its landing the play's
+  last frame (`play_last`), each after the frame before it in the stream,
+  as a viewer meets them after a seek to the source. Those two rows are in
+  no class.
+- **What the review verified** (on the draft, the same streams; these are
+  the review's notes, not re-run): per frame, draws, dispatches, copies,
+  setStencilReference calls, render and compute passes, pipeline switches,
+  submits and texture uploads are identical between the drivers, and only
+  the kinds the commit names change (setPipeline, setBindGroup, vertex and
+  index buffer calls, buffers and bind groups made, uniform buffers and
+  writes, writeBuffer); validation-on replays of the four streams and of an
+  8.a pan and zoom recorded through `serialize_scene` assert no lifetime,
+  miss nothing and leave nothing live after teardown; those real camera
+  moves agree with the synthetic `frame_scale` row (0 buffers, 0 bind
+  groups, 2 uniform writes, 42 / 456 border dispatches on a zoom, 0.6–0.8 /
+  1.2–2.1 ms of driver time in the main realm); `player.js` with
+  `geometry_recording.js` over the real B4.7 driver, validation on, passes
+  every `player_commands` mode as the B4.6 driver does (recovery, segments,
+  formats 2–7, paint, border, Phase B, corrupt, and export over all four
+  streams and the camera stream; formats 1–2 go to the winding driver);
+  allocating the fake's GPU-filled outputs lazily moves class medians within
+  noise, so the fake's own cost does not favour either driver; the class
+  selection shares `select_frames`, `play_before`, `play_frame_count` and
+  `replay_play` with `episode_frames.py`; and the main-realm option makes
+  the same calls. The review ran at load ≈ 4, so its timings were
+  indicative.
+- **The native mirror.** `maniml/web/wgpu_renderer.py` still keys program,
+  border and net outputs by `(…, occurrence)` and binds a program output
+  once when an output is made, the structure behind the defect
+  `programOutputsSurviveCoincidence` catches in the browser; the native
+  driver was out of this increment's scope and was not tested for it.
+- **Load.** As for B4.6, other sessions' work shared the machine (load
+  average 3.3–5.2 over these runs, above 10 during an earlier replay that
+  was discarded and re-run); the B4.6 driver's sandbox medians replayed now
+  agree with the archive's within 1–10% on every class.
