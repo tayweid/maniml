@@ -52,7 +52,7 @@ from maniml.mobject.types.surface import TexturedSurface
 from maniml.mobject.types.vectorized_mobject import VGroup, VMobject
 from maniml.scene.scene import Scene
 from maniml.utils import programs
-from maniml.web import triangle_scene
+from maniml.web import generated_geometry, triangle_scene
 from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, GeometryCache, parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import _packaged_library
 from tests.renderer_fixtures import build_scene, renderer_cases
@@ -342,7 +342,11 @@ class SyntheticGoldens(GoldenCase):
         # Texture bytes travel beside the draws, keyed by content, once per
         # connection: a still frame sends none, a reset sends them again.
         # Written as a BMP, whose bytes an encoder cannot vary; its digest
-        # is the case's input all the same.
+        # is the case's input all the same. The serializer finds the bytes
+        # in the frame alone: its fallback, the module's read cache, holds
+        # every file this case reads and would hide a frame (or a retained
+        # leaf) that lost its payload.
+        self.enterContext(patch.object(generated_geometry, "_TEXTURE_BY_HASH", {}))
         with tempfile.TemporaryDirectory() as tmp:
             texture = Path(tmp) / "texture.bmp"
             pixels = np.zeros((8, 16, 3), dtype=np.uint8)

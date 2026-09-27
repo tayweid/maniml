@@ -203,6 +203,39 @@ class TriangleDrawCoalescing(unittest.TestCase):
         for actual, expected in zip(result, draws):
             self.assertIs(actual, expected)
 
+    def test_memoized_kind_and_combine_keep_the_run_rule(self):
+        # The retained frame (docs/phase_b4_plan.md) keeps draws across
+        # frames and memoizes both halves of coalescing; where a run closes
+        # is still decided by coalesce_draws alone.
+        stroke = TriangleDraw("stroke", np.zeros(3, dtype=VMobject.data_dtype), {}, count=4)
+        draws = [self.fill(0), self.fill(1), stroke, self.fill(2), self.fill(3, pipeline="surface_depth")]
+        kinds, runs, held = [], [], {}
+
+        def kind(draw):
+            kinds.append(draw)
+            return triangle_scene.run_kind(draw)
+
+        def combine(run, run_kind, *, border_cache=None):
+            runs.append(list(run))
+            key = tuple(map(id, run))
+            if key not in held:
+                held[key] = triangle_scene.combine_run(run, run_kind, border_cache=border_cache)
+            return held[key]
+
+        first = coalesce_draws(draws, kind=kind, combine=combine)
+        self.assertEqual([id(draw) for draw in kinds], [id(draw) for draw in draws])
+        self.assertEqual([len(run) for run in runs], [2, 1, 1, 1])
+        self.assertEqual([id(draw) for run in runs for draw in run], [id(draw) for draw in draws])
+        again = coalesce_draws(draws, kind=kind, combine=combine)
+        self.assertTrue(all(a is b for a, b in zip(first, again, strict=True)))
+
+        def content(draw):
+            return (draw.pipeline, draw.count, draw.instances, draw.vertices.tobytes(),
+                    None if draw.indices is None else draw.indices.tobytes())
+
+        self.assertEqual([content(draw) for draw in first],
+                         [content(draw) for draw in coalesce_draws(draws)])
+
 
 class TriangleSceneCoordinates(unittest.TestCase):
     def test_rotated_plane_roundtrips_without_flattening_world_z(self):

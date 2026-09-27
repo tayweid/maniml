@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from maniml.web.generated_geometry import serialize_generated_frame
+from maniml.web.generated_geometry import MessageParts, assemble_message, encode_draw, serialize_generated_frame
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 from maniml.web.geometry import GeometryCache, SURFACE_DTYPE, parse_geometry_message, serialize_scene
 from maniml.web.triangle_scene import TriangleDraw, TriangleFrame
@@ -130,6 +130,30 @@ class GeneratedGeometryWire(unittest.TestCase):
         header, raw = parse_geometry_message(encode([replace(quad(), count=0)]))
         self.assertEqual(header["batches"], [])
         self.assertEqual(raw, b"")
+
+    def test_message_is_its_encoded_batches_then_their_definitions(self):
+        # The retained frame (docs/phase_b4_plan.md) reuses batches encoded
+        # on earlier frames, so a message must be exactly its batches'
+        # descriptors and bytes, then the definitions they name, and the
+        # receiver's state may move only when the message is committed.
+        draws = [quad(), painted_quad(), replace(quad(), count=0)]
+        camera = {"frame_scale": 1}
+        whole, cache = GeometryCache(), GeometryCache()
+        for _ in range(2):  # every batch sent, then every batch held
+            frame = TriangleFrame((32, 16), (0, 0, 0, 0), 4, draws)
+            expected = serialize_generated_frame(frame, camera, whole)
+            parts = MessageParts(cache)
+            batches = [encode_draw(draw, camera, parts) for draw in draws[:-1]]
+            blobs, hashes = list(parts.blobs), set(parts.current_hashes)
+            self.assertIsNone(encode_draw(draws[-1], camera, parts))
+            self.assertEqual((parts.blobs, parts.current_hashes), (blobs, hashes))
+            held = set(cache.sent)
+            message = assemble_message(frame, camera, batches, parts)
+            self.assertEqual(cache.sent, held)
+            parts.commit()
+            self.assertEqual(message, expected)
+            self.assertEqual(cache.sent, whole.sent)
+            self.assertEqual(cache.generated_paints.keys(), whole.generated_paints.keys())
 
     def test_immutable_mesh_digest_is_reused_and_absent_entries_retire(self):
         from maniml.web.triangle_scene import _readonly
