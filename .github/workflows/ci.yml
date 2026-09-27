@@ -195,5 +195,6 @@ jobs:
           tests.test_ce_surface_spelling
           tests.test_export
           tests.test_episode_frames
+          tests.test_browser_frames
           tests.test_app
           tests.test_web_viewer

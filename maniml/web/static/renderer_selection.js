@@ -9,6 +9,7 @@ window.ManimlRendererSelection = class {
     this.active = null;
     this.pending = null;
     this.chain = Promise.resolve();
+    this.last = null;
   }
 
   select(mode) {
@@ -46,11 +47,33 @@ window.ManimlRendererSelection = class {
     this.generation += 1;
   }
 
+  // The renderer a message was made for. The same message sent again (the
+  // engine's resend of a still frame) names the same one, so its header is
+  // not parsed again: the driver redraws such a message from its retained
+  // frame, and the parse would be most of the page's work. The buffer is
+  // kept, as the driver keeps it; the viewer hands over a fresh one each
+  // message.
+  rendererOf(buffer) {
+    if (this.last && this.sameBytes(buffer, this.last.buffer)) return this.last.renderer;
+    const length = new DataView(buffer).getUint32(1, true);
+    const {renderer} = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 5, length)));
+    this.last = {buffer, renderer};
+    return renderer;
+  }
+
+  sameBytes(a, b) {
+    if (a.byteLength !== b.byteLength) return false;
+    const words = a.byteLength >> 2, x = new Uint32Array(a, 0, words), y = new Uint32Array(b, 0, words);
+    for (let i = 0; i < words; i++) if (x[i] !== y[i]) return false;
+    const tailA = new Uint8Array(a, words << 2), tailB = new Uint8Array(b, words << 2);
+    for (let i = 0; i < tailA.length; i++) if (tailA[i] !== tailB[i]) return false;
+    return true;
+  }
+
   render(buffer) {
     const generation = this.generation;
-    const length = new DataView(buffer).getUint32(1, true);
-    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 5, length)));
-    if (!this.ready || header.renderer !== this.mode) return Promise.resolve(null);
+    const renderer = this.rendererOf(buffer);
+    if (!this.ready || renderer !== this.mode) return Promise.resolve(null);
     const work = this.chain.then(async () => {
       // A switch invalidates queued old frames; the active draw finishes
       // before select() destroys its resources or reconfigures the canvas.

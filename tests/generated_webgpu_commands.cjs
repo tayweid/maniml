@@ -5,271 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const STATIC = path.join(__dirname, "..", "maniml", "web", "static");
-const CAMERA = {
-  view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-  frame_rescale_factors: [1, 1, 1], camera_position: [0, 0, 10],
-  light_position: [0, 0, 10],
-};
-const STRIDE = { surface: 40, paint: 40, stroke: 68, dot: 32, image: 24, texsurface: 36 };
-const constantPaint = color => [0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, ...color, ...Array(8).fill(0)];
-
-function payload(specs, overrides = {}) {
-  let offset = 0;
-  const parts = [];
-  const batches = specs.map((spec, i) => {
-    const base = (spec.pipeline || "surface").replace(/_depth$/, "");
-    const batch = { kind: "generated", pipeline: "surface", hash: `shape-${i}`,
-      num_verts: 3, stride: STRIDE[base], count: 3, instances: 1,
-      indexed: false, index_count: 0, uniforms: {}, ...spec };
-    if (base === "paint" && !("paint" in batch) && !batch.paint_hash) batch.paint = constantPaint([1, 0, 0, .5]);
-    if (!batch.cached) {
-      batch.offset = offset;
-      const data = Buffer.alloc((batch.fill_num_verts ?? batch.num_verts) * batch.stride, i % 255);
-      parts.push(data); offset += data.length;
-      if (batch.indexed) {
-        batch.index_offset = offset;
-        const indices = new Uint32Array(spec.index_values || Array.from({ length: batch.index_count }, (_, j) => j));
-        delete batch.index_values;
-        parts.push(Buffer.from(indices.buffer)); offset += indices.byteLength;
-      }
-    }
-    return batch;
-  });
-  const {paint_definitions, border_definitions, paint_padding = 0, ...headerOverrides} = overrides;
-  const paint_data = {};
-  if (paint_padding) { parts.push(Buffer.alloc(paint_padding)); offset += paint_padding; }
-  for (const [hash, values] of Object.entries(paint_definitions || {})) {
-    const data = Buffer.isBuffer(values) ? values : Buffer.from(new Float32Array(values).buffer);
-    paint_data[hash] = {offset, nbytes: data.length};
-    parts.push(data); offset += data.length;
-  }
-  const border_data = {};
-  for (const [hash, values] of Object.entries(border_definitions || {})) {
-    const data = Buffer.isBuffer(values) ? values : Buffer.from(new Float32Array(values).buffer);
-    border_data[hash] = {offset, nbytes: data.length};
-    parts.push(data); offset += data.length;
-  }
-  const header = { renderer: "triangles", resolution: [320, 180], samples: 1, supersample: 1,
-    background: [0.2, 0.4, 0.6, 0.5], camera: CAMERA, batches,
-    ...(paint_definitions ? {paint_data} : {}), ...(border_definitions ? {border_data} : {}), ...headerOverrides };
-  const json = Buffer.from(JSON.stringify(header));
-  const out = Buffer.alloc(5 + json.length + offset);
-  out[0] = 3; out.writeUInt32LE(json.length, 1); json.copy(out, 5);
-  let position = 5 + json.length;
-  for (const part of parts) { part.copy(out, position); position += part.length; }
-  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
-}
-
-async function driver(options = {}) {
-  const buffers = [], textures = [], submissions = [], events = [];
-  let cacheMisses = 0, sequence = 0;
-  const makeTexture = descriptor => {
-    const texture = { descriptor, destroyed: false,
-      createView() { return { texture: this }; },
-      destroy() { assert.ok(!this.destroyed); this.destroyed = true; events.push(["texture", this]); },
-    };
-    textures.push(texture); return texture;
-  };
-  const device = {
-    limits: options.limits || {},
-    destroy() { events.push(["device_destroy"]); },
-    createShaderModule: descriptor => descriptor,
-    createRenderPipeline(descriptor) {
-      const pipeline = { descriptor, id: ++sequence,
-        getBindGroupLayout(index) { return { pipeline: this, index }; } };
-      return pipeline;
-    },
-    createComputePipeline(descriptor) {
-      return {descriptor, id: ++sequence, getBindGroupLayout(index) { return {pipeline: this, index}; }};
-    },
-    // Explicit layouts, as the patch pipelines use: a bind group made from
-    // one is compatible with every pipeline whose layout lists it.
-    createBindGroupLayout: descriptor => ({explicit: true, descriptor}),
-    createPipelineLayout: descriptor => ({explicit: true, descriptor}),
-    createSampler: descriptor => ({ descriptor }),
-    createBindGroup: descriptor => descriptor,
-    createTexture: makeTexture,
-    createBuffer(descriptor) {
-      const buffer = { descriptor, bytes: new ArrayBuffer(descriptor.size), destroyed: false,
-        getMappedRange() { return this.bytes; }, unmap() {},
-        destroy() { assert.ok(!this.destroyed); this.destroyed = true; events.push(["buffer", this]); },
-      };
-      buffers.push(buffer); return buffer;
-    },
-    createCommandEncoder() {
-      const passes = [];
-      return {
-        copyBufferToBuffer(source, sourceOffset, target, targetOffset, size) {
-          passes.push({copy: [source, sourceOffset, target, targetOffset, size], ended: true});
-        },
-        beginComputePass() {
-          const pass = {compute: true, draws: [], bindings: new Map(), ended: false};
-          passes.push(pass);
-          return {
-            setPipeline(pipeline) { pass.pipeline = pipeline; },
-            setBindGroup(index, binding) { pass.bindings.set(index, binding); },
-            dispatchWorkgroups(count, rows = 1) {
-              assert.equal(pass.bindings.get(0).layout.pipeline, pass.pipeline);
-              assert.equal(pass.bindings.get(1).layout.pipeline, pass.pipeline);
-              pass.draws.push({bindings: new Map(pass.bindings), count, rows, pipeline: pass.pipeline});
-            },
-            end() { pass.ended = true; },
-          };
-        },
-        beginRenderPass(descriptor) {
-          const pass = { descriptor, draws: [], bindings: new Map(), vertices: [], ended: false };
-          passes.push(pass);
-          return {
-            setPipeline(pipeline) { pass.pipeline = pipeline; },
-            setStencilReference(reference) { pass.stencil = reference; },
-            setBindGroup(index, binding) { pass.bindings.set(index, binding); },
-            setVertexBuffer(index, buffer) { pass.vertices[index] = buffer; },
-            setIndexBuffer(buffer, format) { pass.index = { buffer, format }; },
-            draw(...args) { record(false, args); },
-            drawIndexed(...args) { record(true, args); },
-            end() { pass.ended = true; },
-          };
-          function record(indexed, args) {
-            // Automatic layouts are specific to the concrete pipeline, even
-            // when two shader entry points declare the same uniform struct;
-            // an explicit layout must be one the pipeline's layout lists.
-            // A group the pipeline's layout does not list is ignored, as
-            // WebGPU ignores it; one it lists must be that layout.
-            const layout = pass.pipeline.descriptor.layout;
-            for (const [index, binding] of pass.bindings) {
-              if (layout.explicit) {
-                const listed = layout.descriptor.bindGroupLayouts[index];
-                if (listed !== undefined) assert.equal(binding.layout, listed, "bind group layout is not the pipeline's at group " + index);
-              } else if (!binding.layout.explicit && index === 0) {
-                assert.equal(binding.layout.pipeline, pass.pipeline);
-              }
-            }
-            pass.draws.push({ pipeline: pass.pipeline, bindings: new Map(pass.bindings),
-              stencil: pass.stencil, vertices: [...pass.vertices], index: indexed ? pass.index : null, indexed, args });
-          }
-        },
-        finish() { assert.ok(passes.every(p => p.ended)); return passes; },
-      };
-    },
-    queue: {
-      onSubmittedWorkDone: async () => { events.push(["completed"]); },
-      copyExternalImageToTexture() {},
-      submit(commands) {
-        for (const passes of commands) {
-          for (const pass of passes) {
-            if (pass.copy) {
-              const [source, from, target, to, size] = pass.copy;
-              assert.ok(!source.destroyed && !target.destroyed, "copy uses live buffers");
-              new Uint8Array(target.bytes, to, size).set(new Uint8Array(source.bytes, from, size));
-              continue;
-            }
-            if (pass.compute) {
-              for (const draw of pass.draws) {
-                for (const binding of draw.bindings.values()) {
-                  for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
-                }
-                const group0 = draw.bindings.get(0).entries;
-                if (group0.length === 1) {
-                  // A program kernel: params alone in group 0, 16 bytes.
-                  const words = new Uint32Array(group0[0].resource.buffer.bytes);
-                  const buffers = draw.bindings.get(1).entries.map(entry => entry.resource);
-                  const code = draw.pipeline.descriptor.compute.module.code;
-                  if (code.includes("BlendParams")) {
-                    assert.equal(group0[0].resource.size, 16);
-                    assert.equal(buffers.length, 3);
-                    assert.ok(buffers.every(buffer => words[0] * 4 <= buffer.size), "blend within its rows");
-                    assert.equal(draw.count, Math.ceil(words[0] / 256));
-                  } else if (code.includes("AffineParams") || code.includes("PaintParams") || code.includes("PartialParams")) {
-                    // A row kernel: rows first, one source and one output of 17 floats per row.
-                    assert.equal(group0[0].resource.size, code.includes("AffineParams") ? 80 : code.includes("PaintParams") ? 16 : 32);
-                    assert.equal(buffers.length, 2);
-                    assert.ok(buffers.every(buffer => words[0] * 17 * 4 <= buffer.size), "row kernel within its rows");
-                    assert.equal(draw.count, Math.ceil(words[0] / 64));
-                    if (code.includes("PartialParams")) {
-                      const [rows, curves, lower, upper] = words;
-                      assert.equal(curves, Math.floor(rows / 2));
-                      assert.ok(lower < curves && upper < curves);
-                    }
-                  } else {
-                    assert.equal(group0[0].resource.size, 16);
-                    const [curves, channels] = words, [rows, records, strokes] = buffers;
-                    assert.equal(channels, 17);
-                    assert.ok((2 * curves + 1) * channels * 4 <= rows.size, "finalize within its rows");
-                    assert.ok(curves * 176 <= records.size && curves * 204 <= strokes.size);
-                    assert.equal(draw.count, Math.ceil(curves / 64));
-                  }
-                  continue;
-                }
-                const paramsResource = group0[1].resource;
-                const params = new Uint32Array(paramsResource.buffer.bytes);
-                const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
-                if (paramsResource.size === 48) {
-                  // A surface net: [_, nu, nv, channels, capacity, output base, patch offset, patch count].
-                  const [, nu, nv, channels, capacity, base, patchOffset, patchCount] = params;
-                  const side = capacity + 1;
-                  assert.ok(nu * nv * channels * 4 <= source.size);
-                  assert.ok(capacity >= 2 && capacity <= 32);
-                  assert.ok((base + patchCount * side * side) * channels * 4 <= output.size);
-                  assert.ok(patchOffset + patchCount <= ((nu - 1) / 2) * ((nv - 1) / 2));
-                  assert.equal(draw.count, patchCount);
-                  assert.equal(draw.rows, Math.ceil(side * side / 64));
-                  continue;
-                }
-                assert.ok((params[0] + params[1]) * 176 <= source.size);
-                assert.ok(params[4] % 2 === 0 && params[4] >= 4 && params[4] <= 64, "capacity is an even vertex count");
-                assert.ok((params[2] + params[1] * params[4]) * 40 <= output.size);
-                assert.equal(output.offset % (device.limits.minStorageBufferOffsetAlignment ?? 256), 0);
-                assert.ok(output.size <= (device.limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2));
-                assert.equal(draw.count, params[1]);
-                assert.ok(draw.count <= (device.limits.maxComputeWorkgroupsPerDimension ?? 65535));
-              }
-              continue;
-            }
-            for (const attachment of pass.descriptor.colorAttachments) {
-              assert.ok(!attachment.view.texture.destroyed, "attachment destroyed before submission");
-            }
-            for (const draw of pass.draws) {
-              for (const buffer of draw.vertices) assert.ok(!buffer.destroyed, "early vertex eviction");
-              if (draw.index) assert.ok(!draw.index.buffer.destroyed, "early index eviction");
-              for (const binding of draw.bindings.values()) {
-                for (const { resource } of binding.entries) {
-                  if (resource.buffer) assert.ok(!resource.buffer.destroyed, "early uniform eviction");
-                  if (resource.texture) assert.ok(!resource.texture.destroyed, "early texture eviction");
-                }
-              }
-            }
-          }
-          submissions.push(passes); events.push(["submit", submissions.length]);
-        }
-      },
-    },
-  };
-  const canvas = { getContext: () => ({ configure() {}, unconfigure() { events.push(["unconfigure"]); },
-    getCurrentTexture: () => makeTexture({ format: "canvas", size: [canvas.width, canvas.height] }),
-  }) };
-  const context = {
-    navigator: { gpu: { requestAdapter: async () => ({ requestDevice: async () => device }),
-      getPreferredCanvasFormat: () => "bgra8unorm" } },
-    GPUBufferUsage: { VERTEX: 1, INDEX: 2, UNIFORM: 4, STORAGE: 8, COPY_SRC: 16, COPY_DST: 32 },
-    GPUTextureUsage: { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_DST: 4 },
-    GPUShaderStage: { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 },
-    fetch: async name => ({ ok: true, text: async () => fs.readFileSync(path.join(STATIC, name), "utf8") }),
-    createImageBitmap: options.decode || (async () => ({ width: 2, height: 2, close() {} })),
-    Blob, TextDecoder, ArrayBuffer, Uint8Array, Uint32Array, Float32Array, DataView,
-  };
-  vm.runInNewContext(fs.readFileSync(path.join(STATIC, options.legacy ? "winding_webgpu.js" : "webgpu.js"), "utf8")
-    + "\nglobalThis.renderer = " + (options.legacy ? "ManimlWindingWGPU" : "ManimlWGPU") + ";", context);
-  await context.renderer.init(canvas);
-  context.renderer.onCacheMiss = () => { cacheMisses++; };
-  return { buffers, textures, submissions, events, cacheMisses: () => cacheMisses,
-    destroy: () => context.renderer.destroy(), init: () => context.renderer.init(canvas),
-    async render(specs, overrides) {
-      await context.renderer.render(payload(specs, overrides)); return submissions.at(-1);
-    },
-    async renderBytes(bytes) { await context.renderer.render(bytes); return submissions.at(-1); },
-  };
-}
+const {STATIC, CAMERA, STRIDE, constantPaint, payload, driver} = require("./webgpu_fake_device.cjs");
 
 const uniformBuffer = draw => draw.bindings.get(0).entries[0].resource.buffer;
 const uniform = draw => new Float32Array(uniformBuffer(draw).bytes);
@@ -309,6 +45,94 @@ function borderRunFixture(count = 3, fillCount = 40, hash = "c".repeat(32), capa
     index_values: indices, border: {hash, num_curves: count, capacity, layout: [[indices.length, fillCount, count]]}};
   return {spec, options: {...legacy.options, format_version: 6}, records: legacy.records};
 }
+
+// A format 7 message from batches and definition tables ({table: {hash:
+// bytes}}): the batches' vertex and index bytes (uncached ones) first, then
+// the tables, as the Python encoder lays them out. A batch's vertex bytes
+// are its fill_value (3 unless given), which does not travel.
+function formatSeven(batches, tables = {}, header = {}) {
+  let offset = 0;
+  const parts = [];
+  batches = batches.map(spec => {
+    const batch = {kind: "generated", stride: 40, uniforms: {}, instances: 1, indexed: false, index_count: 0, ...spec};
+    if (!batch.cached) {
+      batch.offset = offset;
+      const data = Buffer.alloc((batch.fill_num_verts ?? batch.num_verts) * batch.stride, batch.fill_value ?? 3);
+      parts.push(data); offset += data.length;
+      if (batch.indexed) {
+        batch.index_offset = offset;
+        const indices = Buffer.from(new Uint32Array(batch.index_values).buffer);
+        parts.push(indices); offset += indices.length;
+      }
+    }
+    delete batch.index_values;
+    delete batch.fill_value;
+    return batch;
+  });
+  const data = {};
+  for (const [table, entries] of Object.entries(tables)) {
+    data[table] = {};
+    for (const [hash, bytes] of Object.entries(entries)) {
+      data[table][hash] = {offset, nbytes: bytes.length};
+      parts.push(bytes); offset += bytes.length;
+    }
+  }
+  const json = Buffer.from(JSON.stringify({renderer: "triangles", format_version: 7, resolution: [320, 180], samples: 4,
+    supersample: 2, background: [0, 0, 0, 1], camera: CAMERA, batches, ...data, ...header}));
+  const out = Buffer.alloc(5 + json.length + offset);
+  out[0] = 3; out.writeUInt32LE(json.length, 1); json.copy(out, 5);
+  let position = 5 + json.length;
+  for (const part of parts) { part.copy(out, position); position += part.length; }
+  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+}
+
+const H = character => character.repeat(32);
+const floats = (count, value) => {
+  const bytes = Buffer.alloc(count * 4);
+  for (let i = 0; i < count; i++) bytes.writeFloatLE(value + i / 1024, 4 * i);
+  return bytes;
+};
+// Border curve records (active, finite, no density cap) and one patch
+// object record per run of curves: [x, y, z, curve offset, curves,
+// bordered, sign, 0].
+function curveRecords(count) {
+  const bytes = Buffer.alloc(176 * count);
+  for (let curve = 0; curve < count; curve++) bytes.writeFloatLE(1, (44 * curve + 37) * 4);
+  return bytes;
+}
+function objectTable(runs) {
+  const bytes = Buffer.alloc(32 * runs.length);
+  let offset = 0;
+  runs.forEach(([curves, bordered], index) => {
+    [offset, curves, bordered].forEach((value, i) => bytes.writeFloatLE(value, 32 * index + 12 + 4 * i));
+    offset += curves;
+  });
+  return bytes;
+}
+const CAPACITY = 8, STRIP = 6 * (CAPACITY / 2 - 1);
+// A patch run of one bordered object, its curves from border_data or, under
+// a program, from the program's records.
+const patchRun = (hash, curves, objects, border = H("b"), extra = {}) => ({pipeline: "patch", hash, fill_num_verts: 0,
+  num_verts: CAPACITY * curves, count: curves * (6 + STRIP),
+  border: {hash: border, num_curves: curves, capacity: CAPACITY, layout: [[curves, 1, 0]]},
+  objects: {hash: objects, count: 1}, ...extra});
+const netBatch = (hash, net, extra = {}) => ({pipeline: "surface", hash, num_verts: 9, count: 24, fill_num_verts: 0,
+  net: {hash: net, nu: 3, nv: 3, channels: 10, capacity: 2, density: 0}, ...extra});
+const blend = (sources, alpha, rows, channels) => ({kind: "blend", sources, scalars: [alpha], rows, channels});
+// Cached copies of batches, as the encoder sends them once the client holds
+// their bytes: no offsets and no run layout.
+const cached = batches => batches.map(batch => {
+  const out = {...batch, cached: true};
+  if (out.border) { out.border = {...out.border}; delete out.border.layout; }
+  delete out.index_values;
+  return out;
+});
+const scenePasses = passes => passes.filter(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
+const sceneDraws = passes => scenePasses(passes).flatMap(pass => pass.draws);
+const kernel = pass => ["BorderParams", "NetParams", "BlendParams", "FinalizeParams"]
+  .find(name => pass.draws.some(draw => draw.pipeline.descriptor.compute.module.code.includes("struct " + name)));
+const computePasses = (passes, name) => passes.filter(pass => pass.compute && kernel(pass) === name);
+const countsDelta = (before, after) => Object.fromEntries(Object.keys(after).map(key => [key, after[key] - before[key]]));
 
 function expectedRunIndices(fillCount, count, capacity) {
   const indices = [0, 1, 2, 0, 2, 3];
@@ -356,8 +180,8 @@ const cases = {
     assert.ok(!fillBuffer.destroyed);
     const retired = d.events.slice(destroyedBefore).filter(event => event[0] === "buffer");
     assert.ok(retired.some(event => event[1] === draw.index.buffer) && retired.some(event => event[1] === output));
-    // Outputs are keyed by occurrence of the same geometry, so an unrelated
-    // object inserted earlier in the frame rekeys nothing.
+    // An unrelated object inserted earlier in the frame leaves the run's
+    // slot, its output and its index pattern where they are.
     const third = await d.render([{pipeline: "surface", hash: "plain"}, grown], {format_version: 6});
     assert.equal(scene(third).draws[1].vertices[0], draw2.vertices[0]);
     assert.equal(scene(third).draws[1].index.buffer, draw2.index.buffer);
@@ -1076,6 +900,370 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
     process.stdout.write(JSON.stringify({frames: frames.length, rendered: order.length}));
+  },
+  // The retained frame (docs/phase_b4_plan.md, B4.7): a full frame the
+  // driver already holds creates nothing. The frame mixes plain, stroke and
+  // paint batches and a format 6 border run with a patch run, a net and a
+  // program drawn three ways (a patch run's records, a stroke's instances, a
+  // net's rows). The same message again, the same frame with every batch
+  // cached, and then a camera move draw the same draws from the same
+  // resources; the move rewrites the uniform sets in place.
+  async slotsReuseAcrossFullFrames() {
+    const d = await driver();
+    const run = borderRunFixture(3, 40, H("c"));
+    const program = blend([H("1"), H("2")], .25, 9, 17), netProgram = blend([H("5"), H("6")], .25, 9, 10);
+    const batches = [
+      {pipeline: "surface", hash: "plain", num_verts: 3, count: 3},
+      {pipeline: "surface", hash: "plain-2", num_verts: 3, count: 3},
+      {pipeline: "stroke", hash: "stroke", stride: 68, num_verts: 6, count: 4, instances: 2},
+      {pipeline: "paint", hash: "painted", num_verts: 3, count: 3, paint_hash: H("a")},
+      run.spec,
+      patchRun("patch", 4, H("d")),
+      netBatch("net", H("e")),
+      patchRun("patch-program", 4, H("f"), H("9"), {program}),
+      {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4, fill_num_verts: 0, program},
+      netBatch("net-program", H("8"), {program: netProgram}),
+    ];
+    const tables = {paint_data: {[H("a")]: Buffer.from(new Float32Array(constantPaint([1, 0, 0, .5])).buffer)},
+      border_data: {[H("c")]: curveRecords(3), [H("b")]: curveRecords(4)},
+      object_data: {[H("d")]: objectTable([[4, 1]]), [H("f")]: objectTable([[4, 1]])},
+      net_data: {[H("e")]: floats(90, 1)},
+      program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
+    const counted = async message => {
+      const before = d.counts(), passes = await d.renderBytes(message);
+      return {passes, delta: countsDelta(before, d.counts())};
+    };
+    const first = await counted(formatSeven(batches, tables));
+    const drawn = sceneDraws(first.passes);
+    assert.equal(d.cacheMisses(), 0);
+    assert.equal(drawn.length, 18, "one draw per plain batch, five per patch run of one bordered object");
+    assert.ok(first.delta.compute_dispatches >= 7 && first.delta.buffers_created > 0);
+    assert.equal(computePasses(first.passes, "BlendParams").length, 2, "the patch run and the stroke share one evaluation");
+    assert.equal(first.delta.set_pipeline_calls, first.delta.pipeline_switches,
+      "a pipeline is set once per run of draws that share it (the two plain surfaces)");
+    const sameDraws = (label, passes) => {
+      const draws = sceneDraws(passes);
+      assert.equal(draws.length, drawn.length, label);
+      draws.forEach((draw, i) => {
+        const was = drawn[i];
+        assert.equal(draw.pipeline, was.pipeline, `${label}: draw ${i} pipeline`);
+        assert.deepEqual(draw.args, was.args);
+        assert.equal(draw.stencil, was.stencil);
+        assert.deepEqual(draw.vertices, was.vertices, `${label}: draw ${i} vertices`);
+        assert.equal(draw.index && draw.index.buffer, was.index && was.index.buffer);
+        for (const [index, group] of was.bindings) assert.equal(draw.bindings.get(index), group, `${label}: draw ${i} group ${index}`);
+      });
+    };
+    const nothingMade = ["buffers_created", "buffers_destroyed", "bind_groups_created", "uniform_buffers_created",
+                         "write_buffer_calls", "compute_dispatches", "buffer_copies", "compute_passes"];
+    for (const [label, message] of [["the same message", formatSeven(batches, tables)],
+                                    ["the frame cached", formatSeven(cached(batches))]]) {
+      const frame = await counted(message);
+      for (const key of nothingMade) assert.equal(frame.delta[key], 0, `${label}: ${key}`);
+      assert.equal(frame.delta.draws, first.delta.draws, label);
+      sameDraws(label, frame.passes);
+    }
+    // A camera move: every border and net output is evaluated again at the
+    // new scale, the program is not, and nothing is made.
+    const moved = await counted(formatSeven(cached(batches), {}, {camera: {...CAMERA, frame_scale: .9}}));
+    for (const key of ["buffers_created", "buffers_destroyed", "bind_groups_created", "uniform_buffers_created"]) {
+      assert.equal(moved.delta[key], 0, `camera move: ${key}`);
+    }
+    assert.ok(moved.delta.write_buffer_calls > 0 && moved.delta.write_buffer_calls === moved.delta.uniform_writes,
+      "the uniform sets and the nets' parameters are rewritten in place");
+    assert.equal(computePasses(moved.passes, "BorderParams").length, 3);
+    assert.equal(computePasses(moved.passes, "NetParams").length, 2);
+    assert.equal(computePasses(moved.passes, "BlendParams").length, 0);
+    sameDraws("camera move", moved.passes);
+    for (const draw of sceneDraws(moved.passes)) {
+      const buffer = draw.bindings.get(0).entries[0].resource.buffer;
+      near([new Float32Array(buffer.bytes)[23]], [.9]);
+    }
+    assert.equal(d.cacheMisses(), 0);
+    await d.render([], {format_version: 7});
+    assert.equal(d.buffers.filter(buffer => !buffer.destroyed).length, 0, "an empty frame retires every slot");
+    await d.destroy();
+  },
+  // A batch inserted before a bordered one, or before a net, moves nothing:
+  // the later slot keeps its output, evaluated and filled, and the
+  // inserted batches get their own. Among the inserted is the same geometry
+  // under other overrides, which a (geometry, occurrence) key would have
+  // handed the later batch's output.
+  async outputsSurviveInsertion() {
+    const d = await driver();
+    const run = borderRunFixture(3, 40, H("c"));
+    const tables = {border_data: {[H("c")]: curveRecords(3)}, net_data: {[H("e")]: floats(90, 1)}};
+    const bordered = run.spec, net = netBatch("net", H("e"));
+    const moved = {uniforms: {frame_scale: 2}};
+    const first = await d.renderBytes(formatSeven([bordered, net], tables));
+    const [runOutput, netOutput] = sceneDraws(first).map(draw => draw.vertices[0]);
+    assert.equal(computePasses(first, "BorderParams")[0].draws[0].bindings.get(1).entries[1].resource.buffer, runOutput);
+    const before = d.counts();
+    const second = await d.renderBytes(formatSeven([{pipeline: "surface", hash: "inserted", num_verts: 3, count: 3},
+      {...cached([bordered])[0], ...moved}, cached([bordered])[0], {...cached([net])[0], ...moved}, cached([net])[0]]));
+    const draws = sceneDraws(second);
+    assert.equal(draws.length, 5);
+    assert.equal(draws[2].vertices[0], runOutput, "the run keeps its output");
+    assert.equal(draws[4].vertices[0], netOutput, "the net keeps its output");
+    assert.ok(draws[1].vertices[0] !== runOutput && draws[3].vertices[0] !== netOutput);
+    const written = second.flatMap(pass => pass.copy ? [pass.copy[2]]
+      : pass.compute ? pass.draws.map(draw => draw.bindings.get(1).entries[1].resource.buffer) : []);
+    assert.ok(!written.includes(runOutput) && !written.includes(netOutput), "nothing is evaluated into a kept output");
+    assert.equal(computePasses(second, "BorderParams").length, 1, "only the inserted run is evaluated");
+    assert.equal(computePasses(second, "NetParams").length, 1, "only the inserted net is evaluated");
+    assert.equal(countsDelta(before, d.counts()).buffers_destroyed, 0);
+    const [insertedRun, insertedNet] = [draws[1].vertices[0], draws[3].vertices[0]];
+    const third = await d.renderBytes(formatSeven(cached([bordered, net])));
+    assert.deepEqual(sceneDraws(third).map(draw => draw.vertices[0]), [runOutput, netOutput]);
+    assert.equal(third.filter(pass => pass.compute || pass.copy).length, 0);
+    assert.ok(insertedRun.destroyed && insertedNet.destroyed && !runOutput.destroyed && !netOutput.destroyed);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // Two objects under one program (the same sources) whose scalars differ,
+  // coincide for a frame, then differ again: a patch run pair and a net
+  // pair. When they coincide one evaluation serves both; when they part,
+  // each draws its own output again, which it kept. A (program, occurrence)
+  // key retired the second output while the second object's border and net
+  // bindings still named it, so the third frame read a destroyed buffer.
+  async programOutputsSurviveCoincidence() {
+    const d = await driver();
+    const patchProgram = alpha => blend([H("1"), H("2")], alpha, 9, 17);
+    const netProgram = alpha => blend([H("5"), H("6")], alpha, 9, 10);
+    const frame = ([a, b], tables) => formatSeven(
+      [patchRun("a", 4, H("c"), H("b"), {program: patchProgram(a)}), patchRun("b", 4, H("d"), H("b"), {program: patchProgram(b)}),
+       netBatch("net-a", H("e"), {program: netProgram(a)}), netBatch("net-b", H("f"), {program: netProgram(b)})]
+        .map(batch => tables ? batch : cached([batch])[0]), tables || {});
+    const tables = {object_data: {[H("c")]: objectTable([[4, 1]]), [H("d")]: objectTable([[4, 1]])},
+      program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
+    const reads = (passes, name) => computePasses(passes, name).map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer);
+    const first = await d.renderBytes(frame([.3, .6], tables));
+    assert.equal(computePasses(first, "BlendParams").length, 4, "four states, four evaluations");
+    const [recordsA, recordsB] = reads(first, "BorderParams"), [rowsA, rowsB] = reads(first, "NetParams");
+    assert.ok(recordsA !== recordsB && rowsA !== rowsB);
+    let before = d.counts();
+    const second = await d.renderBytes(frame([.5, .5]));
+    assert.equal(computePasses(second, "BlendParams").length, 2, "one evaluation per program serves both objects");
+    assert.deepEqual(reads(second, "BorderParams"), [recordsA, recordsA]);
+    assert.deepEqual(reads(second, "NetParams"), [rowsA, rowsA]);
+    assert.ok(!recordsB.destroyed && !rowsB.destroyed, "the second object's outputs are kept while it borrows");
+    const third = await d.renderBytes(frame([.3, .7]));
+    assert.equal(computePasses(third, "BlendParams").length, 4);
+    assert.deepEqual(reads(third, "BorderParams"), [recordsA, recordsB], "each object reads its own records again");
+    assert.deepEqual(reads(third, "NetParams"), [rowsA, rowsB]);
+    const fourth = await d.renderBytes(frame([.3, .7]));
+    assert.equal(fourth.filter(pass => pass.compute).length, 0);
+    const made = countsDelta(before, d.counts());
+    assert.equal(made.buffers_created, 0, "evaluations write their parameters in place");
+    assert.equal(made.buffers_destroyed, 0);
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // A frame that fails after it rewrote, for its own camera, the uniform
+  // sets it shares with the retained slots leaves nothing of that camera
+  // behind: the next frame at the camera last submitted, cached or resent
+  // byte for byte, draws and generates with that camera's values, and a
+  // camera the border stage rejects is not remembered either.
+  async failedFramesKeepTheCamera() {
+    const tables = {border_data: {[H("c")]: curveRecords(3)}};
+    const plain = {pipeline: "surface", hash: "plain", num_verts: 3, count: 3};
+    const run = borderRunFixture(3, 40, H("c")).spec;
+    const halved = {...CAMERA, frame_scale: .5};
+    const frameScale = buffer => new Float32Array(buffer.bytes)[23];
+    const drawnScales = passes => sceneDraws(passes).map(draw => frameScale(uniformBuffer(draw)));
+    const generatedScales = passes => computePasses(passes, "BorderParams")
+      .map(pass => frameScale(pass.draws[0].bindings.get(0).entries[0].resource.buffer));
+    const retained = d => d.buffers.filter(buffer => !buffer.destroyed);
+    {
+      // The sets repacked for the failed frame's camera before its border
+      // stage refused another batch's overrides.
+      const d = await driver();
+      const first = formatSeven([plain, run], tables);
+      await d.renderBytes(first);
+      const bad = {...run, hash: "fill-2", uniforms: {joint_type: 7}};
+      await assert.rejects(d.renderBytes(formatSeven([...cached([plain, run]), bad], {}, {camera: halved})),
+        /border generation uniforms/);
+      const back = await d.renderBytes(formatSeven(cached([plain, run])));
+      assert.deepEqual(drawnScales(back), [1, 1], "the committed camera, not the failed frame's");
+      assert.equal(computePasses(back, "BorderParams").length, 0, "the border evaluated at that camera still stands");
+      assert.deepEqual(drawnScales(await d.renderBytes(first)), [1, 1], "and the first message again draws as it did");
+      await d.render([], {format_version: 7});
+      assert.equal(retained(d).length, 0);
+      await d.destroy();
+    }
+    {
+      // A camera the border stage rejects fails its frame and only its frame.
+      const d = await driver();
+      const first = formatSeven([plain, run], tables);
+      await d.renderBytes(first);
+      await assert.rejects(d.renderBytes(formatSeven(cached([plain, run]), {}, {camera: {...CAMERA, frame_scale: 0}})),
+        /border generation uniforms/);
+      for (let i = 0; i < 2; i++) assert.deepEqual(drawnScales(await d.renderBytes(first)), [1, 1]);
+      await d.destroy();
+    }
+    {
+      // The failed frame made the first border slot on a retained set, so
+      // the set's generation view was packed at its camera, and then failed
+      // in its batches: the next frame at the committed camera generates
+      // with the committed camera.
+      const d = await driver();
+      await d.renderBytes(formatSeven([plain]));
+      await assert.rejects(d.renderBytes(formatSeven([...cached([plain]), run,
+        {pipeline: "invalid", hash: "invalid", num_verts: 3, count: 3}], tables, {camera: halved})), /unsupported generated pipeline/);
+      const back = await d.renderBytes(formatSeven([...cached([plain]), run], tables));
+      assert.deepEqual(generatedScales(back), [1]);
+      assert.deepEqual(drawnScales(back), [1, 1]);
+      const still = await d.renderBytes(formatSeven(cached([plain, run])));
+      assert.equal(computePasses(still, "BorderParams").length, 0);
+      await d.destroy();
+      assert.ok(d.buffers.every(buffer => buffer.destroyed));
+    }
+  },
+  // A border's generation reads the camera position unless its stroke is
+  // flat, and a net's reads its density: moving either evaluates the output
+  // again with the new value, and moving what an output does not read
+  // evaluates nothing.
+  async generationFollowsItsInputs() {
+    const d = await driver();
+    const tables = {border_data: {[H("c")]: curveRecords(3)}, net_data: {[H("e")]: floats(90, 1)}};
+    const run = borderRunFixture(3, 40, H("c")).spec, flat = {...run, uniforms: {flat_stroke: 1}};
+    const net = density => netBatch("net", H("e"), {net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 2, density}});
+    const frame = (camera, density) => formatSeven(cached([run, flat, net(density)]), {}, {camera});
+    const first = await d.renderBytes(formatSeven([run, flat, net(0)], tables));
+    const [output, flatOutput, netOutput] = sceneDraws(first).map(draw => draw.vertices[0]);
+    assert.equal(computePasses(first, "BorderParams").length, 2);
+    const written = (passes, name) => computePasses(passes, name).map(pass => pass.draws[0].bindings.get(1).entries[1].resource.buffer);
+    const read = (passes, name, offset, count) => computePasses(passes, name)
+      .map(pass => Array.from(new Float32Array(pass.draws[0].bindings.get(0).entries[offset].resource.buffer.bytes)).slice(...count));
+    const moved = {...CAMERA, camera_position: [1, 0, 10]};
+    const position = await d.renderBytes(frame(moved, 0));
+    assert.deepEqual(written(position, "BorderParams"), [output], "the run whose stroke is not flat, alone");
+    assert.deepEqual(read(position, "BorderParams", 0, [20, 23]), [[1, 0, 10]]);
+    assert.equal(computePasses(position, "NetParams").length, 0, "a net does not read the camera position");
+    const denser = await d.renderBytes(frame(moved, 1));
+    assert.deepEqual(written(denser, "NetParams"), [netOutput]);
+    assert.deepEqual(read(denser, "NetParams", 1, [8, 9]), [[1]], "the net's parameters carry the density");
+    assert.equal(computePasses(denser, "BorderParams").length, 0);
+    assert.equal((await d.renderBytes(frame(moved, 1))).filter(pass => pass.compute).length, 0);
+    const back = await d.renderBytes(frame(moved, 0));
+    assert.deepEqual(read(back, "NetParams", 1, [8, 9]), [[0]]);
+    assert.ok(!flatOutput.destroyed);
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // The retained frame draws what a driver with nothing retained draws from
+  // the same frame whole. Over full frames that resend a message byte for
+  // byte, replace a bordered mover's geometry in place (its slot and output
+  // taken over, its new fill copied in), move the camera (its scale, its
+  // position, which a flat stroke's border does not read), change a net's
+  // density and programs' scalars (differing, coinciding, parting), insert
+  // a batch and the same geometry under other overrides, fail after
+  // rewriting the uniform sets and return to the camera last submitted,
+  // change the sample count and remove batches, every frame's render passes
+  // trace by content as a fresh driver's do (tests/webgpu_trace.cjs: an
+  // output as a token of what its kernel read, so a stale or borrowed one
+  // shows), and a frame that fails fails alike. What a fresh driver would
+  // get wrong too is the other cases' to catch.
+  async retainedFramesDrawWhatFreshDriversDraw() {
+    const {tracedDriver, renderPasses, drawnCold, firstDifference} = require("./webgpu_trace.cjs");
+    const tables = {paint_data: {[H("a")]: Buffer.from(new Float32Array(constantPaint([1, 0, 0, .5])).buffer)},
+      border_data: {[H("c")]: curveRecords(3), [H("b")]: curveRecords(4)},
+      object_data: {[H("d")]: objectTable([[4, 1]]), [H("f")]: objectTable([[4, 1]])},
+      net_data: {[H("e")]: floats(90, 1)}, texture_data: {texture: Buffer.alloc(4, 7)},
+      program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
+    const run = borderRunFixture(3, 40, H("c")).spec;
+    const patchProgram = (hash, alpha) => patchRun(hash, 4, H("f"), H("9"), {program: blend([H("1"), H("2")], alpha, 9, 17)});
+    const netProgram = (hash, alpha) => netBatch(hash, H("8"), {program: blend([H("5"), H("6")], alpha, 9, 10)});
+    const everything = ([a, b], density, step = 0) => [
+      {pipeline: "surface", hash: "plain", num_verts: 3, count: 3},
+      {...run, hash: `mover-${step}`, fill_value: 10 + step},
+      {pipeline: "stroke", hash: "stroke", stride: 68, num_verts: 6, count: 4, instances: 2},
+      {pipeline: "paint", hash: "painted", num_verts: 3, count: 3, paint_hash: H("a")},
+      {pipeline: "image", hash: "image", stride: 24, num_verts: 3, count: 3, textures: {Texture: "texture"}},
+      run, {...run, uniforms: {flat_stroke: 1}}, patchRun("patch", 4, H("d")),
+      netBatch("net", H("e"), {net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 2, density}}),
+      patchProgram("patch-a", a), patchProgram("patch-b", b),
+      {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4, fill_num_verts: 0,
+       program: blend([H("1"), H("2")], a, 9, 17)},
+      netProgram("net-a", a), netProgram("net-b", b)];
+    const scaled = {...CAMERA, frame_scale: .9}, moved = {...scaled, camera_position: [1, 0, 10]};
+    const inserted = [{pipeline: "surface", hash: "inserted", num_verts: 3, count: 3}, {...run, uniforms: {frame_scale: 2}},
+                      ...everything([.3, .7], 1, 2)];
+    // [batches, header, the batches sent whole (the rest cached), or true
+    // for every batch with the definitions]
+    const frames = [
+      [everything([.25, .6], 0), {}, true],
+      [everything([.25, .6], 0), {}, true],
+      [everything([.25, .6], 0), {}, []],
+      [everything([.25, .6], 0, 1), {}, ["mover-1"]],
+      [everything([.25, .6], 0, 1), {camera: scaled}, []],
+      [everything([.25, .6], 0, 2), {camera: moved}, ["mover-2"]],
+      [everything([.25, .6], 1, 2), {camera: moved}, []],
+      [everything([.5, .5], 1, 2), {camera: moved}, []],
+      [everything([.3, .7], 1, 2), {camera: moved}, []],
+      [inserted, {camera: moved}, ["inserted"]],
+      [[...inserted, {...run, hash: "refused", uniforms: {joint_type: 7}}], {camera: {...CAMERA, frame_scale: .5}}, ["refused"]],
+      [inserted, {camera: moved}, []],
+      [inserted, {camera: moved, samples: 1, resolution: [640, 360]}, []],
+      [inserted.filter((_, i) => i % 3 === 0), {camera: moved, samples: 1, resolution: [640, 360]}, []],
+      [[], {}, []],
+    ];
+    const d = await tracedDriver();
+    let failed = 0;
+    for (const [index, [batches, header, whole]] of frames.entries()) {
+      const message = whole === true ? formatSeven(batches, tables, header)
+        : formatSeven(batches.map(batch => whole.includes(batch.hash) ? batch : cached([batch])[0]), {}, header);
+      let warm;
+      try {
+        await d.renderer.render(message);
+        warm = {drawn: renderPasses(d.trace())};
+      } catch (error) {
+        warm = {error: error.message};
+        failed++;
+      }
+      const cold = await drawnCold(formatSeven(batches, tables, header));
+      assert.equal(warm.error, cold.error, `frame ${index} fails alike`);
+      if (!warm.error) {
+        assert.equal(cold.misses, 0);
+        const found = firstDifference(warm.drawn, cold.drawn);
+        assert.equal(found, null, `frame ${index} draws what a fresh driver draws: ${found}`);
+      }
+    }
+    assert.equal(failed, 1);
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // A recorded stream (tests.test_browser_frames' episode fixture) played in
+  // order draws, frame by frame, what a fresh driver draws from the same
+  // frame rebuilt whole by the recording indexer.
+  async streamDrawsWhatFreshDriversDraw() {
+    const zlib = require("node:zlib"), dir = process.argv[3];
+    const {tracedDriver, renderPasses, drawnCold, firstDifference} = require("./webgpu_trace.cjs");
+    vm.runInThisContext(fs.readFileSync(path.join(STATIC, "geometry_recording.js"), "utf8"));
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, "scene.json"), "utf8"));
+    const data = zlib.gunzipSync(fs.readFileSync(path.join(dir, "scene.bin.gz")));
+    const frames = [];
+    let offset = 0;
+    for (const frame of meta.frames) {
+      frames.push(new Uint8Array(data.buffer, data.byteOffset + offset, frame.len));
+      offset += frame.len;
+    }
+    const recording = globalThis.ManimlRecording.index(frames);
+    const d = await tracedDriver();
+    for (const [index, bytes] of frames.entries()) {
+      await d.renderer.render(bytes.slice().buffer);
+      const cold = await drawnCold(recording.frame(index));
+      assert.equal(cold.error, undefined, `frame ${index} draws whole`);
+      const found = firstDifference(renderPasses(d.trace()), cold.drawn);
+      assert.equal(found, null, `frame ${index} draws what a fresh driver draws: ${found}`);
+    }
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+    process.stdout.write(JSON.stringify({frames: frames.length}));
   },
   async wire() {
     const d = await driver();
