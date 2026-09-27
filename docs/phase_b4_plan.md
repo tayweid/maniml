@@ -201,7 +201,8 @@ B4.7 misses them on the 8.a and 5.a plays and on play entries, frames whose
 uploads or first resolution are the cost (under patches the movers' uploads
 are B5.1's).
 
-**B4.8 Format 8 deltas** (3 days). `RetainedFrame.diff` → splices and
+**B4.8 Format 8 deltas** (3 days; shipped, "B4.8: shipped" below).
+`RetainedFrame.diff` → splices and
 `scalars` ops; `epoch` / `frame` / `base`; the client negotiates in its
 `mode` message and the viewer emits deltas only when every client of the
 viewer has (one cache, one broadcast); `applyDelta` with staging and
@@ -322,6 +323,144 @@ what reading every leaf costs: 8.a still 36.8 ms against the flag-off path's
 27.1 under the same switch (ticked 42.8 against 31.5, PriceDiscovery ticked
 15.0 against 10.5). Tier 2 (B4.6 on) is where a frame at rest stops costing
 anything, and B5.1 where a mover costs a memcpy.
+
+## B4.8: shipped
+
+Format 8 is a stream, negotiated per client (2026-09-27, on
+`b4-integration`). Every format 8 message carries its `epoch` (bumped by
+every reset: a connect, a renderer or generator change, a client's
+`geometry_reset`, a serializer failure, a change in what the clients
+negotiated, a `geometry_request`) and its `frame` number in the epoch. An
+epoch opens with a full frame; every later message is a delta against the
+one before it (`base`), and a frame that changes nothing is not a message
+at all. The page announces the format in every `mode` message (`format:
+8`); the viewer, with one cache and one broadcast, streams deltas only while
+every client connected has announced it (the server numbers its clients and
+tags their events), and a tab that has not has every tab sent format 7 full
+frames. `Camera.capture`, the export recorder and any other cache never
+negotiate.
+
+**The goldens keep format 7.** A cache whose receivers have not negotiated
+writes format 7 full frames, byte for byte what format 7 always wrote:
+`GEOMETRY_FORMAT_VERSION` is 8, `FULL_FRAME_FORMAT_VERSION` 7, and a format
+8 full frame is the format 7 frame with `"format_version": 8, "epoch": E,
+"frame": 0` where `"format_version": 7` was. Chosen over normalising the
+pinned digests because the evidence ran one way: the pin's 502 digests stand
+unmoved with no normalisation in the pin at all; a frame number in every
+full frame would make no two of a non-negotiated stream's messages equal,
+so B4.7's byte-identical redraw (0.09 against 0.85 ms at 8.a) would be lost
+for a tab that has not negotiated, and recordings, which the player replays
+the same way, would carry numbers no reader uses; and native capture and
+the recorder would take a format change for nothing. The pin now proves the
+rest: every golden case is also streamed through a negotiated cache per
+renderer, each full frame is the pinned bytes once its two keys are taken
+out (`format_seven`), and each delta, or silence, applied to the frame
+before it by `geometry.expand_delta` is the pinned frame's bytes exactly
+(the payload is the same bytes: the batches the receivers lack, then the
+definitions, so the batches a delta carries keep their offsets).
+
+**The delta.** `generated_geometry.diff_runs` over the last message's
+batches and this one's (`SentBatch`: content hash, program scalars, the
+held descriptor's text without them): the runs both share at either end are
+kept; where the frames hold as many runs between, each maximal range that
+differs is a splice, else the range is one; a kept program run whose
+scalars moved is a `scalars` op. A header field (camera, background,
+resolution, samples, supersample, limitations) travels only when its text
+changed, and a definition table only when it holds something. The diff is a
+function beside the encoder rather than `RetainedFrame.diff` as this plan
+first named it: the whole-frame path streams the same deltas byte for byte
+(the lockstep's scripted sequence runs as a stream too, 85 deltas and 75
+silent frames equal on both sides), and a program run is a new `RunMemo`
+every frame, so run identity is compared by the held text, which a kept
+run hands over as the same string object frame after frame. In the browser,
+`expandDelta` builds the frame from the retained slots' batches as held and
+the delta's splices and ops, and `applyDelta` keeps each slot the delta did
+not splice without a comparison and resolves the carried batches as
+`applyFull` resolves the ones that differ, staged and rolled back as a full
+frame is. A delta whose epoch or base is not the frame drawn, or a delta
+that fails, asks for a full frame through the existing `geometry_reset`,
+once per epoch. A full frame that fails asks nothing, as format 7's does
+(the review's finding: the full frame that answered it fails alike when the
+cause is its content or the device, an undecodable image or a buffer limit,
+and the page and the engine then asked and answered at up to 45 Hz with the
+scene at rest); the stream stays where it stood, so the epoch's first delta
+asks, once. `renderer_selection.js` reads the renderer
+from the header's start (it follows integer fields only), so the page parses
+a header once. `geometry_recording.js` refuses a delta; the player reads
+formats 1-8.
+
+**Proof.** `deltaEqualsFull` (Node, two drivers, one fed the format 7
+frames and one the format 8 stream of the same history, a renderer switch
+destroying and initializing both as the page's selection does): after every
+message the same slots, the same live buffers (size, usage, bytes) and the
+same submission, compute passes included; where the stream sent nothing,
+the full frame redrew the picture on screen. Committed over a synthetic
+history (stills, a move, a pan, a zoom, z-order both ways, an insertion and
+a removal, a play and its landing, a reset, both renderer switches, Phase
+B's programs as scalars ops) and `test_browser_frames`' episode fixture
+(seeks, plays, ticking updaters); run over both episodes' recorded streams
+with every class (1628 messages: 946 deltas, 678 silent, 4 full), all
+equal. `deltasApplyOnlyToTheirBase`: a delta against another base draws
+nothing and asks once per epoch; a failed one leaves the frame and the
+stream as they were; a full frame that fails, epoch after epoch, asks
+nothing, and the epoch's first delta asks once; a format 7 frame or a
+destroyed driver ends the stream. `test_web_viewer.DeltaStreamE2E`: connect (a format 8 full frame),
+still with the updater ticking (nothing), a pan (a delta under a kilobyte,
+the camera alone), a zoom (the next delta), a renderer switch and a
+`geometry_reset` (full frames of new epochs), and a second tab that has
+not announced format 8 (format 7 full frames for both, the stream resuming
+with a full frame when it goes).
+
+**Gates** (`browser_frames.py --deltas --camera-moves --play-edges --realm
+main --rounds 5`, the format 7 and format 8 streams of the same frames
+replayed alternately, each frame's median page_ms;
+`benchmarks/results/browser_frames_20260926/README.md`, "After B4.8"):
+
+| Gate | Phase A | Phase B |
+| --- | ---: | ---: |
+| Wire at rest, 8.a with its updaters ticking (14 rounds) | 183,234 B → 0 (nothing sent) | 444,120 B → 0 |
+| A camera move at 8.a: pan / 2% zoom / back | 456 / 517 / 427 B | 456 / 517 / 427 B |
+| JS at rest: 8.a ticked, page_ms (12 timed rounds) | 0.06 → 0 ms (no render call) | 0.15 → 0 ms |
+| Play, class median (EpisodeB2 / PriceDiscovery) | 0.75 / 0.20 ms ≤ 2 | 0.29 / 0.17 ms ≤ 4 |
+| Play, every frame, entry and landing included | PriceDiscovery ≤ 1.90; EpisodeB2 5.18 max | PriceDiscovery ≤ 2.27; EpisodeB2 11.51 max |
+
+The play gates bound the class medians on both episodes and every play
+frame of PriceDiscovery, entries and landings included. They do not bound
+every frame of EpisodeB2: 14 of its 138 play, entry and landing frames
+exceed them each way, all where uploads are the cost and a delta changes
+none of them: Phase A's 5.a play (all 461 leaves move: ~2.4 MB on the wire
+and 3.4-3.9 MB uploaded a frame, 4.1-5.2 ms), its entry and its landing;
+Phase B's 8.a play (the movers that are not programs, ~0.9 MB uploaded a
+frame, 4.1-6.7 ms) and its entry, and 5.a's entry and landing (5.1 and 3.9
+MB uploaded, 11.5 and 4.9 ms). Those are B5.1's and tier 1's to remove, as
+B4.7 found. Elsewhere the stream removes work but in one place: 8.a's
+ticked frame 0.06 → 0 ms (Phase A) and 0.15 → 0 (Phase B) a frame at rest
+(format 7's cost there is B4.7's redraw of a byte-identical resend; the
+round after a seek, whose message is not the seek's and is matched batch
+by batch, 0.58 → 0 / 1.41 → 0 once), a camera move 0.29 → 0.09 / 0.30 →
+0.12 ms at the median, a Phase B play 0.65 → 0.29, a landing 0.30 → 0.12 /
+0.92 → 0.52. **The negative: EpisodeB2's Phase A seeks cost more JS under
+format 8**, 4-9%, about 0.1 ms a seek, though they send and make the same:
+the archived rounds' class median 1.16 → 1.27 ms and per-row minima 25.5 →
+26.9 ms summed over its 12 seeks (+5.5%); the review's eight rounds 26.4 →
+28.8 (medians) and 24.9 → 26.4 (minima); the fix pass's eight 26.3 → 27.6
+and 25.1 → 26.2. Phase B's seeks (2.53 → 2.54 ms; minima 42.8 → 41.7) and
+PriceDiscovery's cost the same. Timed by stage, `expandDelta` is 0.01 ms a
+seek; the difference is in resolving the slots, partly because a splice
+carries the batches of a middle whose length changed, equal ones included,
+through the hash search (33 → 173 batches searched on one seek), but not
+only: an in-place match for carried batches (`applyFull`'s first pass)
+made the searched counts equal without closing the gap (minima 25.3
+against 26.1), and the streams' first message, the same full frame run
+through the same code, is 0.3 ms slower in the format 8 run too, so part
+of the gap is not the delta's work at all. Left as measured, and deferred
+with the review's candidates (`heldBatch` copies of kept head and tail
+batches, the middle's hash search). What Python pays for the stream at
+8.a, both caches on one scene alternating which goes first: still 1.40 →
+1.48 ms, ticked 3.36 → 3.54, pan 3.02 → 3.16 (Phase A), about 0.1 ms of
+diff over 444 runs; a play is neutral. Not done: a real-device pixel check
+of the delta path (the Node equivalence is the proof, as planned: the
+native driver never sees a delta).
 
 ## After B4: the flips and the test point
 

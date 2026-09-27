@@ -6,8 +6,8 @@ global.window = {};
 vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../maniml/web/static/renderer_selection.js'), 'utf8'));
 const Selection = window.ManimlRendererSelection;
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => {resolve=a; reject=b;}); return {promise,resolve,reject}; };
-function payload(mode) {
-  const header = Buffer.from(JSON.stringify({renderer:mode, unsupported:[]}));
+function payload(mode, before = {}) {
+  const header = Buffer.from(JSON.stringify({...before, renderer:mode, unsupported:[]}));
   const data = Buffer.alloc(5+header.length);
   data[0] = 3; data.writeUInt32LE(header.length,1); header.copy(data,5);
   return data.buffer.slice(data.byteOffset, data.byteOffset+data.byteLength);
@@ -50,21 +50,25 @@ function fixture() {
   await assert.rejects(selection.select('__proto__'));
   assert.equal(selection.mode,'triangles');
 
-  // A message the same as the last one (a resend of a still frame) is
-  // routed as that one was, without parsing its header again; another
-  // message is parsed.
+  // The renderer is read from the start of the header, where the engine
+  // writes it after integer fields only (a format 8 delta's version,
+  // epoch, frame and base), without parsing the rest; a header laid out
+  // otherwise is parsed.
   const parse = JSON.parse;
   let parses = 0;
   JSON.parse = (...args) => { parses++; return parse(...args); };
-  drivers.triangles.render = async () => { calls.push('render:resend'); return {}; };
+  drivers.triangles.render = async () => { calls.push('render:read'); return {}; };
   try {
     await selection.render(payload('triangles'));
-    await selection.render(payload('triangles'));
+    await selection.render(payload('triangles', {format_version: 8, epoch: 3, frame: 12, base: 11}));
+    assert.equal(parses,0);
+    assert.equal(calls.filter(x=>x==='render:read').length,2);
+    assert.equal(await selection.render(payload('winding', {format_version: 7})),null);
+    assert.equal(parses,0);
+    // A renderer nested before the header's own is not taken for it.
+    await selection.render(payload('triangles', {camera: {renderer: 'winding'}}));
     assert.equal(parses,1);
-    assert.equal(calls.filter(x=>x==='render:resend').length,2);
-    assert.equal(await selection.render(payload('winding')),null);
-    assert.equal(await selection.render(payload('winding')),null);
-    assert.equal(parses,2);
+    assert.equal(calls.filter(x=>x==='render:read').length,3);
   } finally {
     JSON.parse = parse;
   }

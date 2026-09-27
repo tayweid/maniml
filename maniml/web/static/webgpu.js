@@ -145,8 +145,13 @@ const ManimlWGPU = (() => {
   // was drawn from (the caller's buffer, handed over with render) and its
   // parse, kept while the frame drew every batch and the message is small
   // (a still frame's is its header), so the same message again is a redraw.
+  // Under format 8 (B4.8) the frame is also a stream's: stream holds its
+  // epoch, the number of the frame drawn and the header fields a delta
+  // sends only when they change, and a delta is applied to the slots
+  // (applyDelta) only when it was taken against that frame; resync is the
+  // epoch a full frame was last asked for.
   const frame = { slots: [], serial: 0, samples: null, format: null, environment: null,
-                  message: null, header: null };
+                  message: null, header: null, stream: null, resync: null };
   // Resources the slots share, each counted per holding slot (hold,
   // releaseSlot): geometry and its index patterns by hash, uniform sets by
   // their overrides, paint storage and its bindings, textures and theirs,
@@ -1383,6 +1388,17 @@ const ManimlWGPU = (() => {
     return draw;
   }
 
+  // Format 8 batches are format 7's (it adds the stream around them), so
+  // slots resolved from either are kept across a change between them.
+  const slotFormat = format => (format === 8 ? 7 : format ?? null);
+
+  // The retained slots a frame may keep: none when they were resolved for
+  // another sample count or format.
+  function retainedSlots(header, incoming) {
+    return frame.samples === incoming.samples && slotFormat(frame.format) === slotFormat(header.format_version)
+      ? frame.slots : [];
+  }
+
   // Diff a full frame against the retained slots, in order. A batch equal
   // to the slot at its position, or else to a retained slot of its hash,
   // keeps that slot; a batch that matches none takes over the next
@@ -1394,8 +1410,7 @@ const ManimlWGPU = (() => {
   // failed frame's rollback repacks.
   function applyFull(header, payload, incoming) {
     const batches = header.batches, serial = incoming.serial;
-    const previous = frame.samples === incoming.samples && frame.format === (header.format_version ?? null)
-      ? frame.slots : [];
+    const previous = retainedSlots(header, incoming);
     const slots = new Array(batches.length);
     let unmatched = null;
     for (let i = 0; i < batches.length; i++) {
@@ -1408,6 +1423,39 @@ const ManimlWGPU = (() => {
         unmatched.push(i);
       }
     }
+    return resolveSlots(batches, previous, slots, unmatched, payload, incoming);
+  }
+
+  // A format 8 delta's frame against the retained slots (B4.8): a batch the
+  // delta keeps (expandDelta's kept, the index of its retained slot) keeps
+  // that slot without a comparison, since the engine sent nothing for it;
+  // the batches its splices carry are matched as applyFull matches the
+  // batches that differ from the slot in their place. Staged and rolled
+  // back as a full frame is.
+  function applyDelta(header, kept, payload, incoming) {
+    const batches = header.batches, serial = incoming.serial;
+    const previous = retainedSlots(header, incoming);
+    const slots = new Array(batches.length);
+    let unmatched = null;
+    for (let i = 0; i < batches.length; i++) {
+      const old = kept[i] >= 0 ? previous[kept[i]] : undefined;
+      if (old !== undefined && !old.missing) {
+        old.frame = serial;
+        slots[i] = old;
+      } else {
+        if (!unmatched) unmatched = [];
+        unmatched.push(i);
+      }
+    }
+    return resolveSlots(batches, previous, slots, unmatched, payload, incoming);
+  }
+
+  // The slots of the batches the first pass left unmatched (a retained slot
+  // of the same hash that is equal, else the next unclaimed one of the
+  // same shape taken over, else a new one), then the per-frame checks of
+  // every retained slot and the lists the compute stages walk.
+  function resolveSlots(batches, previous, slots, unmatched, payload, incoming) {
+    const serial = incoming.serial;
     if (unmatched) {
       const byHash = new Map(), byShape = new Map(), rest = [];
       for (const old of previous) {
@@ -1458,6 +1506,89 @@ const ManimlWGPU = (() => {
       if (slot.net) incoming.netSlots.push(i);
     }
     return slots;
+  }
+
+  // A batch as a receiver holds it once its bytes were sent: no bytes of its
+  // own, so no offsets, and no run layout, which travelled with the bytes
+  // (generated_geometry.held_batch). Copied field by field rather than
+  // spread and deleted from: a deleted property leaves V8 an object in
+  // dictionary mode, and a slot's batch is read field by field every
+  // frame a batch is matched against it (sameBatch).
+  function heldBatch(batch) {
+    if (batch.cached && !("offset" in batch) && !(batch.border && "layout" in batch.border)) return batch;
+    const held = {};
+    for (const key in batch) {
+      if (key !== "offset" && key !== "index_offset" && key !== "cached") held[key] = batch[key];
+    }
+    held.cached = true;
+    if (held.border && "layout" in held.border) {
+      const border = {};
+      for (const key in held.border) if (key !== "layout") border[key] = held.border[key];
+      held.border = border;
+    }
+    return held;
+  }
+
+  // The frame a format 8 delta stands for (B4.8): the retained slots'
+  // batches as a receiver holds them, the delta's splices applied (each
+  // replaces `removed` batches from `at`, in the retained order, with the
+  // batches it carries, whose offsets are into this message's payload),
+  // its scalars ops written into the programs they name (by index in the
+  // new frame, a batch the delta keeps), and each header field it leaves
+  // out the stream's. Returns that header and, per batch, the index of the
+  // retained slot it keeps, or -1 for a batch a splice carries.
+  function expandDelta(delta, stream) {
+    const previous = frame.slots, splices = delta.splices, ops = delta.scalars;
+    if (!isArray(splices) || !isArray(ops) || delta.renderer !== stream.renderer) {
+      throw new Error("invalid geometry delta");
+    }
+    const batches = [], kept = [];
+    let read = 0;
+    const keep = end => {
+      for (; read < end; read++) { batches.push(heldBatch(previous[read].batch)); kept.push(read); }
+    };
+    for (const splice of splices) {
+      if (!isArray(splice) || splice.length !== 3) throw new Error("invalid geometry delta splice");
+      const [at, removed, inserted] = splice;
+      if (!Number.isSafeInteger(at) || !Number.isSafeInteger(removed) || at < read || removed < 0
+          || removed > previous.length - at || !isArray(inserted)) {
+        throw new Error("invalid geometry delta splice");
+      }
+      keep(at);
+      for (const batch of inserted) {
+        if (batch === null || typeof batch !== "object" || isArray(batch)) throw new Error("invalid geometry delta splice");
+        batches.push(batch);
+        kept.push(-1);
+      }
+      read = at + removed;
+    }
+    keep(previous.length);
+    for (const op of ops) {
+      const [index, scalars] = isArray(op) && op.length === 2 ? op : [];
+      const batch = Number.isSafeInteger(index) && kept[index] >= 0 ? batches[index] : null;
+      if (!batch || batch.program === null || typeof batch.program !== "object" || isArray(batch.program)) {
+        throw new Error("invalid geometry delta scalars");
+      }
+      batches[index] = {...batch, program: {...batch.program, scalars}};
+    }
+    const field = name => (name in delta ? delta[name] : stream[name]);
+    const header = {format_version: delta.format_version, epoch: delta.epoch, frame: delta.frame,
+      renderer: delta.renderer, camera: field("camera"), background: field("background"),
+      resolution: field("resolution"), samples: field("samples"), supersample: field("supersample"), batches,
+      paint_data: delta.paint_data ?? {}, border_data: delta.border_data ?? {}, object_data: delta.object_data ?? {},
+      net_data: delta.net_data ?? {}, program_data: delta.program_data ?? {}, texture_data: delta.texture_data ?? {},
+      unsupported: stream.unsupported, limitations: field("limitations")};
+    return {header, kept};
+  }
+
+  // Ask the engine for a full frame (the geometry_reset a cache miss sends),
+  // once per epoch: a delta taken against a frame this driver did not draw
+  // (another epoch, another base), or one that failed, leaves every later
+  // delta of its epoch unappliable.
+  function resync(epoch) {
+    if (frame.resync === epoch) return;
+    frame.resync = epoch;
+    if (ManimlWGPU.onCacheMiss) ManimlWGPU.onCacheMiss();
   }
 
   // A program's evaluated output, made for the slot that first evaluates
@@ -1779,9 +1910,16 @@ const ManimlWGPU = (() => {
     frame.samples = incoming.samples;
     frame.format = incoming.header.format_version ?? null;
     frame.environment = incoming.environment;
-    const redraw = message.byteLength <= REDRAW_BYTES && slots.every(slot => !slot.missing);
+    // A format 8 message is never sent twice (its frame number moves), and
+    // a delta must not be redrawn past its base check: only a format 7
+    // frame is kept for a redraw.
+    const header = incoming.header, numbered = "epoch" in header;
+    const redraw = !numbered && message.byteLength <= REDRAW_BYTES && slots.every(slot => !slot.missing);
     frame.message = redraw ? message : null;
-    frame.header = redraw ? incoming.header : null;
+    frame.header = redraw ? header : null;
+    frame.stream = numbered ? {epoch: header.epoch, frame: header.frame, renderer: header.renderer,
+      camera: header.camera, background: header.background, resolution: header.resolution, samples: header.samples,
+      supersample: header.supersample, unsupported: header.unsupported, limitations: header.limitations} : null;
     for (const [output, state] of completed) Object.assign(output, state);
     destroyRetired();
     for (const entry of looseTextures) {
@@ -1896,10 +2034,37 @@ const ManimlWGPU = (() => {
     }
     const bytes = new Uint8Array(arrayBuffer);
     const headerLen = new DataView(arrayBuffer, 1, 4).getUint32(0, true);
-    const header = JSON.parse(
+    const message = JSON.parse(
       new TextDecoder().decode(bytes.subarray(5, 5 + headerLen)));
     const vertexBytes = bytes.subarray(5 + headerLen);
+    // Format 8 (docs/phase_b4_plan.md, B4.8): every message is numbered in
+    // its epoch, and a delta applies only to the frame it was taken
+    // against. One that was not, or a delta that fails, asks for a full
+    // frame: every later delta of the epoch would fail with it. A full
+    // frame that fails asks nothing, as a format 7 frame's failure does:
+    // the full frame the engine would answer with is the same frame, so a
+    // failure that repeats (an image the browser cannot decode, a device
+    // limit) would have the two ask and answer for as long as the scene
+    // rests. The stream stays where it stood, so the epoch's first delta
+    // asks instead, once.
+    const delta = "base" in message;
+    if (delta && !(frame.stream && message.epoch === frame.stream.epoch && message.base === frame.stream.frame)) {
+      resync(message.epoch);
+      return null;
+    }
+    try {
+      return await drawMessage(message, delta, vertexBytes, arrayBuffer);
+    } catch (error) {
+      if (delta) resync(message.epoch);
+      throw error;
+    }
+  }
 
+  async function drawMessage(message, delta, vertexBytes, arrayBuffer) {
+    if ("epoch" in message && ![message.epoch, message.frame, delta ? message.base : 0].every(Number.isSafeInteger)) {
+      throw new Error("invalid geometry stream numbering");
+    }
+    const {header, kept} = delta ? expandDelta(message, frame.stream) : {header: message, kept: null};
     const [width, height] = header.resolution;
     // "triangles" is Phase A; "phase_b" is the same format from the Phase B
     // stack (patch fills, net surfaces, programs), which this driver draws.
@@ -1948,7 +2113,7 @@ const ManimlWGPU = (() => {
         looseTextures.add(entry);
       }
       Object.assign(incoming, sourceDefinitions(header, vertexBytes));
-      const slots = applyFull(header, vertexBytes, incoming);
+      const slots = delta ? applyDelta(header, kept, vertexBytes, incoming) : applyFull(header, vertexBytes, incoming);
       updateEnvironment(incoming, slots);
       const encoder = device.createCommandEncoder();
       const completed = [];
@@ -1975,6 +2140,7 @@ const ManimlWGPU = (() => {
         for (const slot of frame.slots) releaseSlot(slot);
         frame.slots = [];
         frame.samples = frame.format = frame.environment = frame.message = frame.header = null;
+        frame.stream = frame.resync = null;
         destroyRetired();
         for (const entry of textureCache.values()) entry.texture.destroy();
         textureCache.clear();

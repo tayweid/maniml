@@ -1016,3 +1016,196 @@ address; at 1841 draws they are now 0.13 ms of a resend's JavaScript.
   average 3.3–5.2 over these runs, above 10 during an earlier replay that
   was discarded and re-run); the B4.6 driver's sandbox medians replayed now
   agree with the archive's within 1–10% on every class.
+
+## After B4.8
+
+B4.8 (`docs/phase_b4_plan.md`, "B4.8: shipped") makes the geometry a
+stream for a page that announces format 8: a full frame opens an epoch,
+each later message is a delta against the one before it (splices of the
+batch list, program scalars as ops, the camera and the other header fields
+only when they change, the definitions the page lacks), and a frame that
+changes nothing is no message at all. The page's renderer selection reads
+the renderer from the header's first bytes instead of parsing the header.
+The rows below compare, frame for frame, the format 7 stream (what a tab
+that has not negotiated is sent, as before) with the format 8 stream of the
+same history.
+
+### Runs
+
+From the worktree on `b4-integration` (commit `1cf482b2` = main plus tiers
+1 and 2, with the uncommitted B4.8 tree; `after_b48.json`
+`episodes.*.source_files_sha256` has the hashes, unchanged during the
+runs), Node v22.16.0, Apple M3, 21:05:29–21:07:22 UTC 2026-09-27, load
+average 2.0–2.8, the GPU 13–14% busy with other applications (nothing
+here uses it):
+
+```bash
+python -m benchmarks.browser_frames \
+  --scene /Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py EpisodeB2 \
+  --output <scratch>/B2 --samples 12 --warmups 3 --max-frames 12 --tick-updaters --play-frames \
+  --play-edges --camera-moves --deltas --realm main --rounds 5
+python -m benchmarks.browser_frames \
+  --scene <scratch>/episodes/Blocks/B3_Equilibrium/Animate.py PriceDiscovery \
+  --output <scratch>/B3 --samples 12 --warmups 3 --max-frames 12 --tick-updaters --play-frames \
+  --play-edges --camera-moves --deltas --realm main --rounds 5
+node tests/generated_webgpu_commands.cjs deltaEqualsFull <scratch>/<episode>/<variant> \
+  <scratch>/<episode>/<variant>_delta
+```
+
+PriceDiscovery ran through a tree of links whose
+`Blocks/B3_Equilibrium/Animate.py` is econ-0100's
+`_archive/Animate.py` (sha256 `dfe6e831…`, the file every earlier run
+measured) beside links to `B2_Supply`, `_Assets` and `Sim`;
+`browser_frames.py` now takes the scene's path as given, as
+`episode_frames.py` does, so the file imports its neighbours from the tree.
+Each episode's four streams (414 and 400 messages; `--camera-moves` adds a
+pan, a 2% zoom and the camera put back after every pausepoint's rounds)
+were replayed five times, the format 7 and format 8 streams taking turns;
+each row's times are its median over the rounds, every other column the
+same in every round.
+
+### The proof on these streams
+
+`deltaEqualsFull` played each variant's two streams on two drivers,
+validation on: after every message the same slots, the same live buffers
+(size, usage, bytes) and the same submission, compute passes included; where
+the format 8 stream sent nothing, the format 7 frame redrew the picture on
+screen. All equal:
+
+| Stream | Messages | Deltas | Not sent | Full |
+| --- | ---: | ---: | ---: | ---: |
+| EpisodeB2 Phase A / Phase B | 414 / 414 | 242 / 245 | 171 / 168 | 1 / 1 |
+| PriceDiscovery Phase A / Phase B | 400 / 400 | 228 / 231 | 171 / 168 | 1 / 1 |
+
+### (i) The gates
+
+| Gate | Phase A | Phase B |
+| --- | ---: | ---: |
+| Wire at rest: 8.a, its updaters ticking, 14 rounds | 183,234 B → 0 (nothing sent) | 444,120 B → 0 |
+| A camera move at 8.a: pan / 2% zoom / back | 183,263 → 456 / 517 / 427 B | 444,149 → 456 / 517 / 427 B |
+| A camera move, every frame of both episodes | ≤ 671 B | ≤ 671 B |
+| JS at rest: 8.a ticked, page_ms, 12 timed rounds (median, max) | 0.061, 0.064 ms → 0 (no render call) | 0.153, 0.185 ms → 0 |
+| The round after the seek to 8.a (a warmup round), page_ms | 0.58 ms → 0 | 1.41 ms → 0 |
+| Play, class median, page_ms (EpisodeB2 / PriceDiscovery) | 0.75 / 0.20 ms, ≤ 2 | 0.29 / 0.17 ms, ≤ 4 |
+| Play, entry, landing: every frame (EpisodeB2 / PriceDiscovery) | 5.18 / 1.90 ms max | 11.51 / 2.27 ms max |
+
+At rest the format 7 frame costs what B4.7's redraw of a byte-identical
+resend costs; the timed rounds leave the warmup rounds out, as every class
+does. The round after a seek is dearer, once: its message is not the
+seek's (every batch is now cached), so the driver matches it batch by
+batch. The first draft of this table gave that round (0.58 / 1.41 ms) as
+the cost at rest, about ten times too much; `after_b48.json`'s `gate_8a`
+now keeps the two apart.
+
+The play gates were set on B4.6's sandbox medians (the plan's B4.7
+finding); read here as the page's cost in the main realm, they bound the
+class median on both episodes, and every play, entry and landing frame of
+PriceDiscovery. They do not bound every frame of EpisodeB2: 14 of its 138
+such frames exceed them each way, and a delta changes none of what makes
+them dear, their uploads:
+
+| Frames over the gate (format 8 stream) | Frames | page_ms | Uploaded a frame |
+| --- | ---: | ---: | ---: |
+| Phase A, 5.a's play (all 461 leaves move) | 12 | 4.09–5.18 | 3.4–3.9 MB |
+| Phase A, 5.a's entry / landing | 1 / 1 | 4.57 / 2.57 | 3.4 / 2.5 MB |
+| Phase B, 8.a's play (its movers are not programs) | 11 | 4.13–6.69 | ~0.9 MB |
+| Phase B, 8.a's entry | 1 | 4.55 | 0.9 MB |
+| Phase B, 5.a's entry / landing | 1 / 1 | 11.51 / 4.91 | 5.1 / 3.9 MB |
+
+The format 7 stream has the same frames over the gates (Phase A 4.39–6.06
+ms on 5.a's play; Phase B 4.17–5.70 on 8.a's, 12.80 on 5.a's entry): these
+are B5.1's and tier 1's (a mover sent as rows, not as a mesh), as B4.7
+found.
+
+### (ii) Classes, format 7 → format 8
+
+Each class's median page_ms and wire bytes (a frame not sent counts 0):
+
+EpisodeB2
+
+| Class (n) | Phase A page ms | Phase A wire KB | Phase B page ms | Phase B wire KB |
+| --- | ---: | ---: | ---: | ---: |
+| pausepoint (120) | 0.03 → 0.00 | 69.2 → 0.0 | 0.03 → 0.00 | 63.8 → 0.0 |
+| ticked (24) | 0.05 → 0.00 | 129.1 → 0.0 | 0.12 → 0.00 | 282.1 → 0.0 |
+| play (114) | 0.90 → 0.75 | 406.9 → 286.4 | 0.65 → 0.29 | 133.5 → 1.0 |
+| cold (12) | 1.16 → 1.27 | 649.6 → 638.7 | 2.53 → 2.54 | 898.4 → 898.1 |
+| play entry (12) | 0.66 → 0.50 | 312.9 → 247.2 | 1.44 → 1.37 | 446.8 → 386.8 |
+| landing (12) | 0.30 → 0.12 | 122.7 → 60.1 | 0.92 → 0.52 | 314.7 → 304.0 |
+| camera (36) | 0.29 → 0.09 | 78.7 → 0.4 | 0.30 → 0.12 | 70.0 → 0.4 |
+
+PriceDiscovery
+
+| Class (n) | Phase A page ms | Phase A wire KB | Phase B page ms | Phase B wire KB |
+| --- | ---: | ---: | ---: | ---: |
+| pausepoint (12) | 0.01 → 0.00 | 21.1 → 0.0 | 0.03 → 0.00 | 22.3 → 0.0 |
+| ticked (132) | 0.02 → 0.00 | 44.7 → 0.0 | 0.03 → 0.00 | 63.7 → 0.0 |
+| play (100) | 0.30 → 0.20 | 183.7 → 142.1 | 0.38 → 0.17 | 75.2 → 1.3 |
+| cold (12) | 0.72 → 0.66 | 621.6 → 620.4 | 1.58 → 1.45 | 407.7 → 406.7 |
+| play entry (12) | 0.31 → 0.17 | 301.8 → 285.0 | 1.16 → 1.37 | 245.9 → 221.2 |
+| landing (12) | 0.19 → 0.06 | 99.5 → 56.4 | 0.72 → 0.64 | 181.2 → 157.4 |
+| camera (36) | 0.19 → 0.09 | 42.3 → 0.6 | 0.34 → 0.13 | 63.5 → 0.6 |
+
+A Phase B play is a kilobyte of scalars ops (its programs' batches are held
+and kept); a Phase A play still sends its movers' meshes. A seek (cold) and
+a play's entry send and make the same either way. Over eight more rounds of
+PriceDiscovery Phase B the per-row minima sum to 12.05 against 12.01 ms
+(entries) and 26.9 against 27.6 (seeks), and of EpisodeB2's Phase B seeks
+to 42.8 against 41.7: the same. **EpisodeB2's Phase A seeks are not: they
+cost 4-9% more under format 8**, about 0.1 ms a seek. Summed over the 12
+seeks, per-row minima 25.5 against 26.9 ms (+5.5%) in those rounds; in the
+review's eight (Node's main realm, the streams alternating which goes
+first) medians 26.41 against 28.79 ms and minima 24.94 against 26.35, the
+median row 1.139 against 1.214; in the fix pass's eight 26.30 against 27.60
+and 25.14 against 26.16. Timed by stage in a scratch copy of the driver
+(ten rounds), `expandDelta` costs 0.01 ms a seek and the difference is in
+resolving the slots: a splice carries a middle whose length changed whole,
+batches equal to their slot in place included, into the hash search (33
+against 173 batches searched on one seek), but matching carried batches in
+place first (`applyFull`'s first pass) made the searched counts equal
+without closing the gap (minima 25.29 against 26.09), and the streams'
+first message, the same full frame through the same code, is 0.3 ms slower
+in the format 8 run as well, so not all of it is the delta's work. It is
+left as measured, not as noise; the review's candidates (`heldBatch`
+copies of kept head and tail batches, the middle's hash search) are
+deferred. The first draft of the driver built a kept
+slot's held descriptor by spreading the batch and deleting its offsets,
+which left V8 an object in dictionary mode that every later frame's
+`sameBatch` read field by field: EpisodeB2's Phase B seeks cost 3.3 ms
+against 2.5 at the median until it copied the fields instead.
+
+### (iii) What Python pays for the stream
+
+Not this harness's measurement (the format 8 stream's `serialize_ms`
+follows the format 7 serialization of the same frame). A scratch loop at
+8.a, one scene, a format 7 cache and a format 8 one serializing each frame
+in turns, alternating which goes first; median ms (min), 20 stills, 20
+ticks, 10 pans of 1% of the frame, the 23 frames of the play into 8.a:
+
+| 8.a | Phase A format 7 → 8 | Phase B format 7 → 8 |
+| --- | ---: | ---: |
+| still | 1.40 (1.33) → 1.48 (1.40) | 2.19 (2.02) → 2.31 (2.21) |
+| ticked | 3.36 (2.87) → 3.54 (3.14) | 4.35 (4.07) → 4.40 (4.08) |
+| pan | 3.02 (2.88) → 3.16 (3.01) | 3.13 (2.91) → 3.24 (3.05) |
+| play | 81.1 (71.6) → 73.5 (70.7) | 102.9 (91.6) → 101.9 (92.4) |
+
+About 0.1 ms a frame of diff over 444 runs (911 under Phase B): the kept
+runs compare their held text, the same string object frame after frame.
+
+### Scope and caveats (B4.8)
+
+- The JavaScript is Node's on the counting fake device (validation off for
+  the times, on for `deltaEqualsFull`), as for B4.6 and B4.7: not Dawn's
+  per-call work, the GPU, the canvas present or the socket. No real-device
+  pixel check of the delta path was run; the Node equivalence is the proof,
+  as the plan has it (the native driver never sees a delta, and the format
+  7 path B4.7 checked on a real device draws what the stream draws, call for
+  call).
+- The at-rest rows are silences: under format 8 the viewer sends nothing,
+  so the page runs nothing. The 8.a ticked frame's zero depends on its
+  updaters changing no byte, which B4.3's comparison already established;
+  an updater that moves something sends a delta of what it moved.
+- Load average 2.0–2.8 throughout, other applications sharing the machine.
+- `after_b48.json` holds, per episode and stream, the classes, the gate
+  figures, every play, entry and landing frame over its gate, the camera
+  moves' bytes, the proof's counts, and the runs' commands, commit and
+  source hashes; the streams themselves (≈ 180 MB) are not archived.

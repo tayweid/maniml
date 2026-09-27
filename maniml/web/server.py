@@ -15,6 +15,7 @@ touch the scene directly.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import socket
 import threading
@@ -40,28 +41,39 @@ DROPPABLE_EVENT_TYPES = frozenset({"pointer"})
 
 
 class ClientLease:
-    """Thread-safe count of connected clients.
+    """Thread-safe count of connected clients, and the ids of those the
+    server numbered.
 
     The scene thread reads `has_clients()` to skip frame readback and
-    encoding entirely while no browser is attached.
+    encoding entirely while no browser is attached, and `clients()` to
+    send format 8 deltas only while every client connected has announced
+    them.
     """
 
     def __init__(self):
         self._client_count = 0
+        self._clients: set[int] = set()
         self._lock = threading.Lock()
 
-    def connected(self) -> None:
+    def connected(self, client: int | None = None) -> None:
         with self._lock:
             self._client_count += 1
+            if client is not None:
+                self._clients.add(client)
 
-    def disconnected(self) -> None:
+    def disconnected(self, client: int | None = None) -> None:
         with self._lock:
             if self._client_count > 0:
                 self._client_count -= 1
+            self._clients.discard(client)
 
     def has_clients(self) -> bool:
         with self._lock:
             return self._client_count > 0
+
+    def clients(self) -> frozenset[int]:
+        with self._lock:
+            return frozenset(self._clients)
 
 
 def bind_loopback(preferred: int, scan: int = 1) -> socket.socket:
@@ -103,6 +115,7 @@ class WebServer:
         self._events_lock = threading.Lock()
         self._clients: set = set()
         self._client_lease = ClientLease()
+        self._client_ids = itertools.count(1)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._closing: asyncio.Event | None = None
         self._started = threading.Event()
@@ -159,6 +172,9 @@ class WebServer:
 
     async def _handle_client(self, ws):
         registered = False
+        # Every event this client sends names it (`_client`), so the viewer
+        # can tell whose mode message announced what.
+        client = next(self._client_ids)
         try:
             # The Origin check in the handshake already decided this; a
             # connection that gets here is the page we served.
@@ -166,10 +182,10 @@ class WebServer:
             # Read before joining: a client arriving at an empty viewer
             # inherits nothing a departed one reported about itself.
             alone = not self._client_lease.has_clients()
-            self._client_lease.connected()
+            self._client_lease.connected(client)
             registered = True
             with self._events_lock:
-                self._events.append({"type": "_connect", "alone": alone})
+                self._events.append({"type": "_connect", "alone": alone, "client": client})
             await ws.send(json.dumps({
                 "type": "ready",
                 "capabilities": self.capabilities,
@@ -188,6 +204,7 @@ class WebServer:
                 # scene was moving (stale — it must die, not fire late)
                 # from one pressed after it settled.
                 event["_received"] = time.monotonic()
+                event["_client"] = client
                 with self._events_lock:
                     if len(self._events) >= MAX_EVENT_QUEUE:
                         self._evict_one()
@@ -197,7 +214,7 @@ class WebServer:
         finally:
             self._clients.discard(ws)
             if registered:
-                self._client_lease.disconnected()
+                self._client_lease.disconnected(client)
                 if not self._client_lease.has_clients():
                     # Nothing queued by a departed page can still be
                     # wanted, and a rejoining page must not find the queue
@@ -241,6 +258,10 @@ class WebServer:
 
     def has_clients(self) -> bool:
         return self._client_lease.has_clients()
+
+    def clients(self) -> frozenset[int]:
+        """The ids of the clients connected now (their events' `_client`)."""
+        return self._client_lease.clients()
 
     def broadcast(self, data: bytes | str) -> None:
         """Send to every client. Nothing is droppable: geometry payloads

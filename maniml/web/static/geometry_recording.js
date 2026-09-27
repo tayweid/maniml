@@ -268,6 +268,10 @@ globalThis.ManimlRecording = (() => {
       const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1, true);
       if (length > bytes.length - 5) throw new Error("Truncated recorded geometry header");
       const header = JSON.parse(decoder.decode(bytes.subarray(5, 5 + length)));
+      // A recording is full frames (a format 8 one's epoch and frame number
+      // are carried along and read by no one). A delta names only what
+      // changed since the frame before it, which a seek does not have.
+      if ("base" in header) throw new Error("A recording holds full frames; a geometry delta cannot be indexed");
       const payload = bytes.subarray(5 + length);
       function span(offset, size) {
         if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(size) || offset < 0 || size < 0

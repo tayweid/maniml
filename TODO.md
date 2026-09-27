@@ -214,8 +214,16 @@ recording player learned the batches the same day (`geometry_recording.js`
 indexes `object_data`, `net_data` and `program_data`, and a Phase B
 `--export` plays and seeks). B4's tier 1 shipped on 2026-09-27 and is the
 default (the plan's "B4 tier 1: shipped"): Python keeps the frame and prepares
-only what changed, byte-identical on the wire, and tier 2, the browser owning
-the frame (B4.6-B4.9), is next. Open from tier 1: a play where every leaf moves
+only what changed, byte-identical on the wire. Tier 2, the browser owning the
+frame, followed: B4.6's measure, B4.7's slot list, and B4.8's format 8
+stream (the plan's "B4.8: shipped"), where a negotiated page is sent a delta
+per change and nothing at rest; B4.9 (render bundles) is conditional. Open
+from B4.8: EpisodeB2's dearest play frames (5.a's play on Phase A, 8.a's on
+Phase B, 5.a's entry) stay over the play gates, their uploads being the
+cost, which is B5.1's; and EpisodeB2's Phase A seeks cost the page 4-9%
+more JS under format 8 (~0.1 ms a seek, in slot resolution; the plan's
+"B4.8: shipped" has the stage timings and the candidates). Open from tier
+1: a play where every leaf moves
 costs ~16% more (the plan names the fast path that would take it back, and
 whether the flip stands for `--render` is Taylor's call), and the 8.a seek-up
 gate (≤ 8 ms) is unverified until it runs on a quiet machine. The paragraphs

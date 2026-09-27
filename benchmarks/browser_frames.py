@@ -67,7 +67,15 @@ ENVIRONMENTS = {
 # per play, its first frame and its landing (the destination on screen
 # after the play's last frame): where a retained frame is made and let go.
 EDGE_CLASSES = ("play_entry", "landing")
-CLASSES = ("pausepoint", "ticked", "play", "cold", *EDGE_CLASSES)
+# Under --camera-moves, per frame after its pausepoint rounds: a pan, a 2%
+# zoom and the camera put back, one message each.
+CLASSES = ("pausepoint", "ticked", "play", "cold", *EDGE_CLASSES, "camera")
+# Under --deltas each variant's frames are also recorded as the format 8
+# stream a viewer sends a page that announced it (docs/phase_b4_plan.md,
+# B4.8), beside the format 7 one: a delta per message, or nothing (a
+# stream entry of length 0, drawn as nothing) where the frame changed
+# nothing. Its report variant is the variant's name with this suffix.
+DELTA = "_delta"
 # The columns summary.json reduces per class and per frame, in this order.
 COLUMNS = ("js_ms", "page_ms", "serialize_ms", "wire_bytes", "batches", "cached_batches", "draws", "set_pipeline_calls",
            "pipeline_switches", "set_bind_group_calls", "bind_groups_created", "buffers_created", "buffers_destroyed",
@@ -80,7 +88,7 @@ def frame_class(row):
     """A row's class: its phase, except that a pausepoint round is cold,
     ticked or a still. The play edges' source still and last play frame
     (play_source, play_last) are in no class: they are what the entry and
-    the landing follow."""
+    the landing follow. A camera move's is ``camera``."""
     if row["phase"] != "pausepoint":
         return row["phase"]
     if row["cold"]:
@@ -105,11 +113,13 @@ def summarize(rows):
     return result
 
 
-def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play_frames=False, play_edges=False):
+def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play_frames=False, play_edges=False,
+                  camera_moves=False, delta_stream=None):
     """Serialize the chosen frames as the viewer would send them: per frame
     the pausepoint's rounds (warmups then samples; under ``tick_updaters``
     the scene's updaters tick 1/fps before every round on a frame that has
-    any), then under ``play_frames`` the middle frames of the play leading
+    any), under ``camera_moves`` a pan, a 2% zoom and the camera put back,
+    then under ``play_frames`` the middle frames of the play leading
     into it; under ``play_edges``, after every frame, each frame's play
     again from its first frame to its landing (record_edges). Returns the
     messages, one stream entry per message (the
@@ -118,10 +128,18 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
     session keeps one: every message is a delta against the one before it,
     so the first round after a restore re-sends what the cache no longer
     holds (as a seek does; the message before it is the last recorded
-    frame of the previous frame's play) and the rest are cached."""
+    frame of the previous frame's play) and the rest are cached.
+
+    A ``delta_stream`` list receives the same frames as the format 8 stream
+    of a second cache, whose receivers negotiated it: per message, the
+    stream's message (None where it sends nothing) and its serialize time,
+    each serialized right after the format 7 one from the scene as that
+    left it (delta_entries makes its stream entries)."""
     from maniml.web.geometry import GeometryCache, serialize_scene
 
     cache = GeometryCache()
+    stream = GeometryCache()
+    stream.negotiate(True)
     checkpoints = scene.animation_checkpoints
     messages, entries, frames, segments = [], [], [], count()
 
@@ -131,6 +149,10 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
         entries.append({"len": len(message), "segment": segment, **fields,
                         "serialize_ms": 1000 * (perf_counter() - started)})
         messages.append(message)
+        if delta_stream is not None:
+            started = perf_counter()
+            message = serialize_scene(scene, stream, renderer="triangles")
+            delta_stream.append((message, 1000 * (perf_counter() - started)))
 
     for position, index in enumerate(indices):
         checkpoint = checkpoints[index]
@@ -151,6 +173,8 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
                 scene.camera.refresh_uniforms()
             take(dict(fields, phase="pausepoint", iteration=local, warmup=local < warmups, cold=local == 0,
                       updaters_ticked=ticked), segment)
+        if camera_moves:
+            record_camera_moves(scene, take, fields, segment)
         if play_frames:
             frame["play"] = record_play(scene, index, samples, warmups, take, fields, segments)
         frames.append(frame)
@@ -158,6 +182,29 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
         for position, (index, frame) in enumerate(zip(indices, frames)):
             frame["play_edges"] = record_edges(scene, index, take, dict(frame=position, checkpoint=index), segments)
     return messages, entries, frames
+
+
+def record_camera_moves(scene, take, fields, segment):
+    """A pan of 5% of the frame's width, a 2% zoom out, and the camera put
+    back as it was, after a frame's pausepoint rounds, one message each
+    (class ``camera``), as a viewer's drag and wheel move it."""
+    frame = scene.camera.frame
+    frame.save_state()
+    pan = .05 * frame.get_width() * np.array([1., 0., 0.])
+    for move, apply in (("pan", lambda: frame.shift(pan)), ("zoom", lambda: frame.scale(1.02)),
+                        ("back", frame.restore)):
+        apply()
+        scene.camera.refresh_uniforms()
+        take(dict(fields, phase="camera", move=move, iteration=0, warmup=False, cold=False,
+                  updaters_ticked=False), segment)
+
+
+def delta_entries(entries, delta_stream):
+    """The format 8 stream's entries for ``delta_stream`` (record_stream's):
+    each format 7 entry with the stream message's length (0 where it sent
+    nothing) and serialize time."""
+    return [dict(entry, len=0 if message is None else len(message), serialize_ms=ms, delta=True)
+            for entry, (message, ms) in zip(entries, delta_stream)]
 
 
 def record_play(scene, index, samples, warmups, take, fields, segments):
@@ -238,20 +285,26 @@ def write_stream(directory, scene, messages, entries, **about):
     checkpoints'; here a segment is a recorded group, so each names its own
     line (the checkpoint's for a pausepoint group, the play's for a play
     group) and the player's chips name the frames. The entries' other keys
-    and ``about`` say what the stream is."""
-    from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+    and ``about`` say what the stream is. A format 8 stream (``messages``
+    holding None where it sent nothing, a length-0 entry) is format 8's
+    folder, which browser_frames.cjs plays in order and the player does not
+    read: a delta is no frame to seek to."""
+    from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION, GEOMETRY_FORMAT_VERSION
 
+    delta = any(entry.get("delta") for entry in entries)
     directory.mkdir(parents=True, exist_ok=True)
     with gzip.open(directory / "scene.bin.gz", "wb", compresslevel=6) as file:
         for message in messages:
-            file.write(message)
+            if message is not None:
+                file.write(message)
     checkpoints = scene.animation_checkpoints
     first = {}
     for entry in entries:
         first.setdefault(entry["segment"], entry)
     lines = [checkpoints[entry.get("play_checkpoint", entry["checkpoint"])].get("line_number")
              for _, entry in sorted(first.items())]
-    meta = {"format_version": GEOMETRY_FORMAT_VERSION, "scene": type(scene).__name__, "fps": int(scene.camera.fps),
+    meta = {"format_version": GEOMETRY_FORMAT_VERSION if delta else FULL_FRAME_FORMAT_VERSION,
+            "scene": type(scene).__name__, "fps": int(scene.camera.fps),
             "frames": entries, "segments": len(lines), "lines": lines, "harness": "browser_frames", **about}
     (directory / "scene.json").write_text(json.dumps(meta) + "\n")
     return meta
@@ -267,6 +320,30 @@ def replay_stream(directory, timeout=1800, realm="sandbox"):
     if result.returncode != 0:
         raise RuntimeError(f"browser_frames.cjs failed on {directory}:\n{result.stdout}\n{result.stderr}")
     return json.loads(result.stdout)
+
+
+def replay_rounds(directories, rounds=1, realm="sandbox"):
+    """replay_stream over each of ``directories``, ``rounds`` times, the
+    streams taking turns within a round so a drift in the machine's load
+    falls on each alike: per stream, each frame's median js_ms and page_ms
+    over the rounds, and the rest of its row (sizes and call counts, the
+    same every round, which is checked) from the first."""
+    runs = {directory: [] for directory in directories}
+    for _ in range(rounds):
+        for directory in directories:
+            runs[directory].append(replay_stream(directory, realm=realm))
+    merged = {}
+    for directory, replays in runs.items():
+        frames = []
+        for rows in zip(*(replay["frames"] for replay in replays)):
+            untimed = [{key: value for key, value in row.items() if key not in ("js_ms", "page_ms")} for row in rows]
+            if any(row != untimed[0] for row in untimed):
+                raise RuntimeError(f"{directory}: frame {rows[0]['index']} made other calls in another round")
+            frames.append({**rows[0], **{key: float(np.median([row[key] for row in rows]))
+                                         for key in ("js_ms", "page_ms")}})
+        merged[directory] = {**replays[0], "frames": frames, "rounds": rounds,
+                             "init_ms": float(np.median([replay["init_ms"] for replay in replays]))}
+    return merged
 
 
 def join_rows(entries, replayed):
@@ -372,9 +449,24 @@ def summary_of(report):
     return summary
 
 
-def scope(tick_updaters, play_frames, realm="sandbox", play_edges=False):
+def scope(tick_updaters, play_frames, realm="sandbox", play_edges=False, camera_moves=False, deltas=False,
+          rounds=1):
     """The report's own caveats, worded for the run's switches."""
     return {
+        "stream_format": (
+            "With --deltas each variant's frames are also recorded as the format 8 stream (docs/phase_b4_plan.md, "
+            "B4.8) of a second GeometryCache whose receivers negotiated it, each frame serialized right after the "
+            "format 7 one from the scene as that serialization left it (the format 7 stream is byte-identical to one "
+            "recorded alone): the variant named with '_delta', a full frame and then a delta per message, or no "
+            "message where the frame changed nothing (wire_bytes 0, js_ms and page_ms 0, every count 0: the page "
+            "runs nothing, and batches is the frame on screen). A delta row carries splices, spliced_batches and "
+            "scalars_ops. The delta stream's serialize_ms follows the format 7 serialization of the same frame and "
+            "is not Python's cost of the stream alone; episode_frames.py owns the Python measurement."
+            if deltas else "Format 7 streams only (--deltas off)."),
+        "rounds": (
+            f"Each variant's streams were replayed {rounds} times, taking turns within a round; js_ms and page_ms "
+            "are each frame's median over the rounds, every other column the same in every round (checked)."
+            if rounds > 1 else "One replay per stream (--rounds 1)."),
         "frame_selection": (
             "episode_frames.select_frames: pausepoints of a pause-anchored file, else every --every-th checkpoint "
             "after the empty first one, thinned evenly to --max-frames keeping the last; each restored with one "
@@ -445,7 +537,10 @@ def scope(tick_updaters, play_frames, realm="sandbox", play_edges=False):
             + ("play_entry: a play's first frame, following the checkpoint before it (one row per play); landing: "
                "the destination after the play's last frame (one row per play). The source still and the last "
                "frame they follow (play_source, play_last) are rows of no class." if play_edges else
-               "No play_entry or landing rows (--play-edges).")),
+               "No play_entry or landing rows (--play-edges).")
+            + (" camera: with --camera-moves, after each frame's pausepoint rounds, a pan of 5% of the frame's width, "
+               "a 2% zoom out and the camera restored as it was (move pan, zoom, back), one message each."
+               if camera_moves else " No camera rows (--camera-moves).")),
     }
 
 
@@ -470,12 +565,22 @@ def main(argv=None):
     parser.add_argument("--realm", choices=("sandbox", "main"), default="sandbox",
                         help="replay with the driver in a vm sandbox (the command tests' setting) or in Node's "
                              "own realm, where a global lookup costs what it does in a browser")
+    parser.add_argument("--deltas", action="store_true",
+                        help="also record each variant's frames as the format 8 stream a page that announced it "
+                             "is sent, and replay it beside the format 7 one (variant name + '_delta')")
+    parser.add_argument("--camera-moves", action="store_true",
+                        help="after each pausepoint's rounds, record a pan, a 2%% zoom and the camera put back")
+    parser.add_argument("--rounds", type=int, default=1,
+                        help="replay each variant's streams this many times, taking turns, and report each "
+                             "frame's median milliseconds")
     args = parser.parse_args(argv)
-    if min(args.samples, args.warmups, args.every, args.max_frames) < 1:
-        parser.error("samples, warmups, every and max-frames must be positive")
+    if min(args.samples, args.warmups, args.every, args.max_frames, args.rounds) < 1:
+        parser.error("samples, warmups, every, max-frames and rounds must be positive")
     if shutil.which("node") is None:
         parser.error("node is needed to play the stream through the browser driver")
-    scene_path = Path(args.scene[0]).resolve()
+    # As given, as episode_frames takes it: an episode reached through a
+    # tree of symbolic links imports its neighbours from where it is named.
+    scene_path = Path(os.path.abspath(args.scene[0]))
     if not scene_path.is_file():
         parser.error(f"no scene file at {scene_path}")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -492,7 +597,7 @@ def main(argv=None):
               for path in paths}
     selection = {"samples": args.samples, "warmups": args.warmups, "every": args.every, "max_frames": args.max_frames,
                  "tick_updaters": args.tick_updaters, "play_frames": args.play_frames, "play_edges": args.play_edges,
-                 "realm": args.realm}
+                 "camera_moves": args.camera_moves, "deltas": args.deltas, "rounds": args.rounds, "realm": args.realm}
     report = {
         "recorded_utc": datetime.now(timezone.utc).isoformat(), "command": sys.argv,
         "scene": {"path": str(scene_path), "name": args.scene[1], "checkpoint_count": len(checkpoints),
@@ -506,34 +611,49 @@ def main(argv=None):
         "machine": {"platform": platform.platform(), "machine": platform.machine(), "node": platform.node()},
         "python": platform.python_version(), "numpy": np.__version__, **selection,
         "variants_in_order": list(args.variants), "environments": {variant: ENVIRONMENTS[variant] for variant in args.variants},
-        "source_files_sha256": hashes, **scope(args.tick_updaters, args.play_frames, args.realm, args.play_edges),
+        "source_files_sha256": hashes, **scope(args.tick_updaters, args.play_frames, args.realm, args.play_edges,
+                                               args.camera_moves, args.deltas, args.rounds),
         "frames": [], "variants": {},
     }
     for variant in args.variants:
         environment = ENVIRONMENTS[variant]
+        delta_stream = [] if args.deltas else None
         with patch.dict(os.environ, environment):
             messages, entries, frames = record_stream(scene, indices, args.samples, args.warmups,
                                                       tick_updaters=args.tick_updaters, play_frames=args.play_frames,
-                                                      play_edges=args.play_edges)
-        directory = args.output / variant
-        write_stream(directory, scene, messages, entries, variant=variant, environment=environment,
-                     frame_selection=selection)
-        header, _ = parse_geometry_message(messages[0])
-        stream = {"directory": str(directory), "frames": len(messages), "bytes": sum(map(len, messages)),
-                  "gzip_bytes": (directory / "scene.bin.gz").stat().st_size, "resolution": header["resolution"],
-                  "samples": header["samples"], "supersample": header.get("supersample")}
-        del messages
-        print(f"{variant}: recorded {stream['frames']} frames, {stream['bytes'] / 1e6:.1f} MB", flush=True)
-        replayed = replay_stream(directory, realm=args.realm)
-        rows = join_rows(entries, replayed["frames"])
-        report["node"] = replayed["node"]
-        stream["init_ms"] = replayed["init_ms"]
-        classes = assemble(report, variant, rows, frames, environment=environment, stream=stream)
-        (args.output / "report.json").write_text(json.dumps(report, indent=2, default=_jsonable) + "\n")
-        print(f"{variant}: played in {replayed['node']}; " + ", ".join(
-            f"{cls} js p50 {stats['js_ms']['p50']:.2f} ms, page {stats['page_ms']['p50']:.2f} (n={stats['js_ms']['n']})"
-            for cls, stats in classes.items()),
-            flush=True)
+                                                      play_edges=args.play_edges, camera_moves=args.camera_moves,
+                                                      delta_stream=delta_stream)
+        recorded = [(variant, messages, entries)]
+        if delta_stream is not None:
+            recorded.append((variant + DELTA, [message for message, _ in delta_stream],
+                             delta_entries(entries, delta_stream)))
+        streams, stream_entries = {}, {}
+        for name, stream_messages, name_entries in recorded:
+            directory = args.output / name
+            write_stream(directory, scene, stream_messages, name_entries, variant=name, environment=environment,
+                         frame_selection=selection)
+            sent = [message for message in stream_messages if message is not None]
+            header, _ = parse_geometry_message(sent[0])
+            streams[name] = {"directory": str(directory), "frames": len(stream_messages), "sent": len(sent),
+                             "bytes": sum(map(len, sent)), "gzip_bytes": (directory / "scene.bin.gz").stat().st_size,
+                             "resolution": header["resolution"], "samples": header["samples"],
+                             "supersample": header.get("supersample")}
+            stream_entries[name] = name_entries
+            print(f"{name}: recorded {len(stream_messages)} frames, {len(sent)} sent, "
+                  f"{streams[name]['bytes'] / 1e6:.1f} MB", flush=True)
+        del messages, recorded, delta_stream
+        replayed = replay_rounds([Path(stream["directory"]) for stream in streams.values()], args.rounds, args.realm)
+        for name, stream in streams.items():
+            played = replayed[Path(stream["directory"])]
+            rows = join_rows(stream_entries[name], played["frames"])
+            report["node"] = played["node"]
+            stream["init_ms"] = played["init_ms"]
+            classes = assemble(report, name, rows, frames, environment=environment, stream=stream)
+            (args.output / "report.json").write_text(json.dumps(report, indent=2, default=_jsonable) + "\n")
+            print(f"{name}: played in {played['node']}; " + ", ".join(
+                f"{cls} js p50 {stats['js_ms']['p50']:.2f} ms, page {stats['page_ms']['p50']:.2f} "
+                f"(n={stats['js_ms']['n']})" for cls, stats in classes.items()), flush=True)
+    report["variants_in_order"] = list(report["variants"])
     report["source_files_unchanged_during_run"] = all(
         sha256((ROOT / path if not Path(path).is_absolute() else Path(path)).read_bytes()).hexdigest() == value
         for path, value in hashes.items())

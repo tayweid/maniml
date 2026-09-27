@@ -252,8 +252,9 @@ Per frame: `js_ms`, `performance.now` around the driver's render (the header
 parse, the match against the retained slots, the compute stages, the encode
 loop, the fake submit and the release of what the frame no longer holds);
 `page_ms`, around the selection's render, which is the driver's plus the
-selection's own routing (a parse of the whole header for its `renderer`, or
-for a message the same as the one before a comparison) and a promise hop:
+selection's own routing (its `renderer` read from the header's first bytes,
+since B4.8; before it, a parse of the whole header, or for a message the
+same as the one before a comparison) and a promise hop:
 what a page pays per message; and the calls the driver made — `draws`,
 `set_pipeline_calls`
 and the `pipeline_switches` among them, `bind_groups_created`,
@@ -275,9 +276,31 @@ at its edges: the checkpoint before it restored (`play_source`), the play's
 first frame (`play_entry`, a class), its last frame (`play_last`) and the
 destination on screen after it (`landing`, a class), one row each per play;
 the entry and the landing are where a retained frame is made and let go,
-and a play's dearest frames. `report.json` holds every row, `summary.json`
-the reductions with the scene, commit, machine, Node version and scope
-strings, and `summary.md` the table.
+and a play's dearest frames. `--camera-moves` records, after each frame's
+pausepoint rounds, a pan of 5% of the frame's width, a 2% zoom out and the
+camera restored as it was (`move` pan, zoom, back; the class `camera`).
+`report.json` holds every row, `summary.json` the reductions with the
+scene, commit, machine, Node version and scope strings, and `summary.md`
+the table.
+
+`--deltas` records each variant's frames twice, as the format 7 full frames
+a receiver that has not negotiated format 8 is sent and as the format 8
+stream one that has is sent (`docs/phase_b4_plan.md`, B4.8), the second
+through a cache of its own serialized right after the first from the scene
+as that left it (the format 7 stream is byte-identical to one recorded
+alone): `<dir>/<variant>_delta/`, a variant of the report, whose
+`scene.json` says format 8. A frame the stream did not send is an entry of
+length 0 and a row of zeros (the page runs nothing; `batches` is the frame
+on screen); a delta's row adds its `splices`, `spliced_batches` and
+`scalars_ops`. The player does not read such a folder (a delta is no frame
+to seek to); `node tests/generated_webgpu_commands.cjs deltaEqualsFull
+<dir>/<variant> <dir>/<variant>_delta` checks that the two streams draw
+alike, message by message. The stream's `serialize_ms` follows the format 7
+serialization of the same frame, so it is not Python's cost of the stream
+alone. `--rounds N` replays each variant's streams N times, taking turns
+within a round, and reports each frame's median `js_ms` and `page_ms` (the
+other columns are checked to be the same every round): the recipe for
+gate numbers, with `--realm main`.
 
 `--realm main` replays with the driver and the selection in Node's own realm
 instead of the vm sandbox the command tests give it (the device's `realm`
@@ -297,8 +320,9 @@ viewer's queue. The live viewer marks each drawn frame as a `maniml:render`
 span (`performance.measure`) that DevTools' Performance panel shows; that
 span is `page_ms` plus any wait behind an earlier frame. Node's garbage collector lands where it lands and
 V8 warms over the first frames, so read medians with minima. A repeated
-still frame is what the viewer sends on a camera change or an updater tick;
-at rest without either it sends nothing, and that silence is not a row. A
+still frame is what the viewer sends a format 7 tab on a camera change or
+an updater tick; at rest without either it sends nothing, and that silence
+is not a row (under `--deltas` the format 8 stream's silences are). A
 cache miss on a recorded stream fails the run. Pass the episode by absolute
 path; TeX is needed; nothing is written beside the episode.
 

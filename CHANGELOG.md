@@ -7,6 +7,19 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The viewer sends the browser only what changed (docs/phase_b4_plan.md,
+  B4.8, geometry format 8). A page announces format 8 in its mode message;
+  once every tab connected has, each geometry message after the first is a
+  delta against the one before it (the batches that changed, a play's
+  program scalars, the camera when it moved), and a frame that changes
+  nothing is not sent at all. On a 531-object course diagram a tick of its
+  updaters that moves nothing sends 0 bytes where it sent 183 KB, a pan
+  456 bytes, and the page runs no JavaScript at rest; a play under the
+  Phase B stack sends about a kilobyte a frame. A tab that has not
+  announced it (and native capture, and `--export`) is sent format 7 full
+  frames, byte for byte as before; recordings stay format 7, and the
+  player reads formats 1-8. A delta the page cannot apply (a dropped
+  frame, a reconnect) asks for a full frame through the existing reset.
 - The serializer keeps each drawn object's draws across frames, by default
   (docs/phase_b4_plan.md, tier 1; `MANIML_RETAINED_FRAME=0` turns it off): a
   frame prepares again only the objects whose rows or own uniforms changed,

@@ -5,6 +5,42 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Deltas are negotiated; full frames stay format 7 (2026-09-27)
+
+B4.8 (`docs/phase_b4_plan.md`, "B4.8: shipped") makes the geometry a stream
+for a page that asks for it: format 8 messages carry an epoch and a frame
+number, and after an epoch's full frame each is a delta against the one
+before, or nothing when nothing changed. Three choices, each on evidence.
+
+**Negotiated per client, one cache.** The page announces format 8 in its
+mode message, and the viewer streams deltas only while every connected
+client has: a delta against a frame a tab never drew is a corrupt picture,
+and one cache with one broadcast is what the viewer is (a second tab's
+connect already resets everyone). A tab that has not announced it gets
+format 7 full frames, and so do its neighbours until it goes.
+
+**Full frames keep format 7 until a client negotiates.** The alternative,
+every full frame format 8 with the golden pin's digests taken of normalised
+messages, would have put a frame number into every message of every
+consumer that never reads one (native capture, the recorder, a tab that has
+not negotiated), which makes no two messages of such a stream equal: B4.7's
+byte-identical redraw (0.09 against 0.85 ms at 8.a) would have gone for
+them, and recordings would have changed for nothing. Instead a cache that
+has not negotiated writes format 7's bytes exactly, so the pin stands with
+no normalisation, and a format 8 full frame is the format 7 frame with its
+two keys: the pin streams every golden case as format 8 too and holds each
+full frame to its pinned bytes with the keys taken out, and each delta,
+expanded against the frame before it, to the pinned bytes exactly.
+
+**The diff is the encoder's, not the retained frame's.** The plan named it
+`RetainedFrame.diff`. It is `generated_geometry.diff_runs`, used by both
+serializer paths, so `MANIML_RETAINED_FRAME=0` streams the same deltas byte
+for byte and stays the path the retained frame is held to; and it compares a
+run by its content hash and held descriptor rather than its `RunMemo`,
+because a program run is a new memo every frame and must still resolve to
+its slot and travel as a scalars op. A kept run hands the same text object
+back each frame, so the comparison costs what identity would.
+
 ## The frame is retained in Python (2026-09-27)
 
 Taylor's direction for Phase B4, quoted in `docs/phase_b4_plan.md`: "maniml

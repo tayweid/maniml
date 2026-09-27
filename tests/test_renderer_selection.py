@@ -20,9 +20,11 @@ class RendererSelectionProtocol(unittest.TestCase):
         viewer.scene = Scene(window=None, camera_config={"resolution": (32, 18)})
         viewer.scene.add(Square(fill_opacity=1))
         viewer.server = Mock()
+        viewer.server.clients.return_value = frozenset()
         viewer._renderer_mode = "triangles"
         viewer._geometry_mode = True
         viewer._geometry_cache = GeometryCache()
+        viewer._client_formats = {}
         viewer._geometry_cache.sent.add("old-delta")
         viewer._last_state = {"old": True}
         return viewer
@@ -96,6 +98,57 @@ class RendererSelectionProtocol(unittest.TestCase):
                               "renderer_origin": "second-tab", "renderer_request": 18})
         viewer.server.broadcast_json.assert_called_once_with({
             "type": "renderer", "renderer": "winding", "origin": "second-tab", "request": 18})
+
+    def test_deltas_only_while_every_client_announced_format_8(self):
+        """Format 8 (docs/phase_b4_plan.md, B4.8) is negotiated per client:
+        the viewer's one cache streams deltas only while every client
+        connected has said, in its last mode message, that it reads them.
+        A change starts an epoch, so the next frame is a full frame."""
+        from maniml.web.viewer import LogBuffer
+        viewer = self.viewer()
+        viewer.logs = LogBuffer()
+        viewer.server.clients.return_value = frozenset({1, 2})
+        viewer._handle_event({"type": "_connect", "alone": True, "client": 1})
+        viewer._handle_event({"type": "_connect", "alone": False, "client": 2})
+        viewer._handle_event({"type": "mode", "geometry": True, "format": 8, "_client": 1})
+        self.assertFalse(viewer._deltas_negotiated(), "client 2 has not spoken")
+        viewer._handle_event({"type": "mode", "geometry": True, "_client": 2})
+        self.assertFalse(viewer._deltas_negotiated(), "client 2 reads format 7")
+        viewer._handle_event({"type": "mode", "geometry": True, "format": 8, "_client": 2})
+        self.assertTrue(viewer._deltas_negotiated())
+        cache = viewer._geometry_cache
+        epoch = cache.epoch
+        with patch("maniml.web.geometry.serialize_scene", return_value=b"frame"):
+            viewer._send_geometry()
+        self.assertTrue(cache.deltas)
+        self.assertEqual(cache.epoch, epoch + 1)
+        # A client that says otherwise, or a third that joins, ends it.
+        viewer._handle_event({"type": "mode", "geometry": True, "format": 7, "_client": 1})
+        self.assertFalse(viewer._deltas_negotiated())
+        viewer._handle_event({"type": "mode", "geometry": True, "format": 8, "_client": 1})
+        viewer.server.clients.return_value = frozenset({1, 2, 3})
+        self.assertFalse(viewer._deltas_negotiated())
+        # The one that had not announced it leaves: the rest still read it.
+        viewer.server.clients.return_value = frozenset({1, 2})
+        self.assertTrue(viewer._deltas_negotiated())
+        viewer.server.clients.return_value = frozenset({2})
+        self.assertTrue(viewer._deltas_negotiated())
+        self.assertEqual(set(viewer._client_formats), {2})
+        viewer.server.clients.return_value = frozenset()
+        self.assertFalse(viewer._deltas_negotiated(), "no client, no stream")
+        # A new client at an empty viewer inherits nothing.
+        viewer.server.clients.return_value = frozenset({4})
+        viewer._handle_event({"type": "_connect", "alone": True, "client": 4})
+        self.assertFalse(viewer._deltas_negotiated())
+
+    def test_a_frame_that_changes_nothing_is_not_broadcast(self):
+        from maniml.performance import performance
+        viewer = self.viewer()
+        with patch("maniml.web.geometry.serialize_scene", return_value=None), \
+                patch.object(performance, "increment") as increment:
+            viewer._send_geometry()
+        viewer.server.broadcast.assert_not_called()
+        increment.assert_called_once_with("transport.geometry_skipped")
 
     def test_invalid_renderer_request_id_does_not_change_selection(self):
         for request_id in (True, 0, -1, 1.5, "1", 2**53):

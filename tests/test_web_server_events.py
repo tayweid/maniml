@@ -10,6 +10,7 @@ evict rather than close, and start a rejoining page from an empty queue.
 """
 
 import asyncio
+import itertools
 import json
 import threading
 import unittest
@@ -47,6 +48,7 @@ def bare_server():
     server._events_lock = threading.Lock()
     server._clients = set()
     server._client_lease = ClientLease()
+    server._client_ids = itertools.count(1)
     server.capabilities = []
     return server
 

@@ -60,10 +60,9 @@ if TYPE_CHECKING:
     from maniml.scene.scene import Scene
 
 GEOMETRY_MESSAGE_TYPE = 0x03
-# Increment when a geometry header or payload change is not backward
-# compatible. Baked exports copy this into scene.json so the standalone
-# player can reject stale data before attempting to render it.
-from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+# Original 2D writes full frames only, whatever its receivers negotiated:
+# format 7's (geometry.FULL_FRAME_FORMAT_VERSION).
+from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION
 
 
 class GeometryCache:
@@ -401,7 +400,7 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
         offset += len(raw_tex)
 
     header = {
-        "format_version": GEOMETRY_FORMAT_VERSION,
+        "format_version": FULL_FRAME_FORMAT_VERSION,
         "renderer": "winding",
         "camera": {k: _jsonable(v) for k, v in camera.uniforms.items()},
         "background": _jsonable(list(camera.background_rgba)),

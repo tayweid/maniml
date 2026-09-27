@@ -185,6 +185,10 @@ class WebViewer:
         self._export_process: subprocess.Popen | None = None
         from maniml.web.geometry import GeometryCache
         self._geometry_cache = GeometryCache()  # delta-encoding state
+        # The geometry format each connected client's last mode message
+        # announced, by the server's client id: deltas (format 8) only
+        # while every client has announced it.
+        self._client_formats: dict[int, object] = {}
         self.logs = LogBuffer()
         sys.stdout = OutputTap(sys.stdout, "out", self.logs)
         sys.stderr = OutputTap(sys.stderr, "err", self.logs)
@@ -380,9 +384,12 @@ class WebViewer:
 
         Never droppable: the server marks a batch cached once sent, so a
         dropped payload would take that batch's only transmission with
-        it and force a full resend.
+        it and force a full resend. Once every client has announced
+        format 8 the frames are a stream of deltas (one cache, one
+        broadcast), and a frame that changes nothing is not sent at all.
         """
         from maniml.web.geometry import serialize_scene
+        self._geometry_cache.negotiate(self._deltas_negotiated())
         try:
             payload = serialize_scene(self.scene, self._geometry_cache,
                                       renderer=self._renderer_mode)
@@ -400,10 +407,25 @@ class WebViewer:
         if getattr(self, "_render_error", None) is not None:
             self._render_error = None
             self.server.broadcast_json({"type": "render_error", "error": None})
+        if payload is None:
+            # A delta with nothing in it: the clients hold this frame.
+            performance.increment("transport.geometry_skipped")
+            return
         with performance.stage("transport.broadcast"):
             self.server.broadcast(payload)
         performance.increment("transport.geometry_frames")
         performance.increment("transport.geometry_bytes", len(payload))
+
+    def _deltas_negotiated(self) -> bool:
+        """Whether every client connected now announced format 8 in its
+        last mode message. A client that has not spoken yet has not: the
+        frames it is sent are format 7 full frames until it does."""
+        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+        clients = self.server.clients()
+        for client in [client for client in self._client_formats if client not in clients]:
+            del self._client_formats[client]
+        return bool(clients) and all(self._client_formats.get(client) == GEOMETRY_FORMAT_VERSION
+                                     for client in clients)
 
     def set_hover(self, label: str | None) -> None:
         """Name the handle under the pointer for the page (a chip by the
@@ -500,6 +522,8 @@ class WebViewer:
                 # that announced it, or a reloading page is sent a full
                 # payload before it has anything to draw it with.
                 self._geometry_mode = False
+                self._client_formats.clear()
+            self._client_formats[event.get("client")] = None
             self._needs_refresh = True
             self._last_state = None
             self._geometry_cache.reset()  # new client holds no batches
@@ -638,8 +662,9 @@ class WebViewer:
 
         elif kind == "geometry_request":
             # One-shot snapshot (sent when the client's renderer comes up,
-            # before any frame flows)
+            # before any frame flows): a full frame, under format 8 too
             if self._geometry_mode:
+                self._geometry_cache.restart()
                 self._send_geometry()
             self._dirty = False
             self._has_undrawn_event = False
@@ -668,6 +693,9 @@ class WebViewer:
                 or not 1 <= request_id <= 2**53 - 1
             ):
                 return
+            # The formats the client reads: format 8's deltas are sent
+            # once every client connected has announced them.
+            self._client_formats[event.get("_client")] = event.get("format")
             changed = requested != self._renderer_mode
             if changed:
                 self._renderer_mode = requested

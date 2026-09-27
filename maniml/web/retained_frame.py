@@ -123,7 +123,7 @@ from maniml.mobject.types.vmobject_3d import VMobject3D
 from maniml.scene.checkpoints import DERIVED_DATA_KEYS
 from maniml.web.border_geometry import _STANDARD_SOURCE_METHODS, RenderCacheStale, _same_bytes
 from maniml.web.generated_geometry import (
-    BatchRecord, MessageParts, _supersample, assemble_message, encode_draw, held_batch,
+    BatchRecord, MessageParts, SentBatch, _supersample, assemble_message, encode_draw, held_batch, stream_message,
 )
 from maniml.web.geometry import _jsonable, _stroke_sqrt_area, _stroke_verts_at
 from maniml.web.gpu_net_geometry import pixels_per_unit
@@ -1444,13 +1444,20 @@ class RetainedFrame:
         # Such a run's descriptor survives a camera move; a zoom that
         # changes what a run draws has already made it another run.
         portable = "NaN" not in camera_key
+        # A format 8 stream (docs/phase_b4_plan.md, B4.8) diffs the runs
+        # against the last message's: a kept run's held text is the same
+        # object frame after frame, so comparing it costs nothing.
+        stream = [] if getattr(cache, "deltas", False) else None
         texts, reused = [], 0
         for memo in runs:
             if ((memo.camera_key is camera_key or (memo.free and portable))
                     and memo.record.names <= sent):
                 if memo.batch is not None:
-                    texts.append(memo.held())
+                    text = memo.held()
+                    texts.append(text)
                     parts.carry(memo.record)
+                    if stream is not None:
+                        stream.append(SentBatch(memo.batch, text))
                 reused += 1
                 continue
             record = BatchRecord()
@@ -1458,8 +1465,14 @@ class RetainedFrame:
             memo.record, memo.camera_key, memo.held_text = record, camera_key, None
             memo.free = portable and self.uniform_sets.camera_free(memo.draw.uniforms)
             if memo.batch is not None:
-                texts.append(json.dumps(memo.batch))
-        message = assemble_message(frame, camera, ", ".join(texts), parts, renderer=renderer)
+                text = json.dumps(memo.batch)
+                texts.append(text)
+                if stream is not None:
+                    stream.append(SentBatch(memo.batch, text if memo.batch.get("cached") else None))
+        if stream is None:
+            message = assemble_message(frame, camera, ", ".join(texts), parts, renderer=renderer)
+        else:
+            message = stream_message(frame, camera, stream, texts, parts, renderer=renderer)
         parts.commit()
         self.stats.update(batches_reused=reused, batches_encoded=len(runs) - reused)
         return message

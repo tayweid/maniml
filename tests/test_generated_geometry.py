@@ -309,8 +309,8 @@ class GeneratedGeometryWire(unittest.TestCase):
         first, cache = painted_quad(), GeometryCache()
         second = replace(first, paint=painted_quad((0, 0, 1, .75)).paint)
         header, raw = parse_geometry_message(encode([first, second, first], cache))
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
-        self.assertEqual(header["format_version"], GEOMETRY_FORMAT_VERSION)
+        from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION
+        self.assertEqual(header["format_version"], FULL_FRAME_FORMAT_VERSION)
         self.assertEqual(len({batch["hash"] for batch in header["batches"]}), 1)
         self.assertEqual(len(header["paint_data"]), 2)
         for batch, draw in zip(header["batches"], (first, second, first)):

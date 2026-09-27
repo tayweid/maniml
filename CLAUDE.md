@@ -152,13 +152,13 @@ keeps that name. Module map:
 
 `server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location`. The WebSocket handshake requires the server's exact Origin — the page it served — before it sends frames or accepts events (`web/security.py`); there is no token and no authentication message, so the first thing a connected client receives is `{"type": "ready", "capabilities": [...]}`.
 
-**Wire protocol.** Server→client: binary geometry frames (1 header byte, 0x03; the 0x01 JPEG / 0x02 PNG pixel frames were deleted 2026-09-02) plus state JSON `{current, count, lines, units, future}` and move JSON `{from, to, back, unit}`. Client→server: `{"type": "mode", "geometry": bool}` once its WebGPU is up (or asleep behind recorded playback), `geometry_request` / `geometry_reset`, and key/pointer/chip JSON with pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping.
+**Wire protocol.** Server→client: binary geometry frames (1 header byte, 0x03; the 0x01 JPEG / 0x02 PNG pixel frames were deleted 2026-09-02) plus state JSON `{current, count, lines, units, future}` and move JSON `{from, to, back, unit}`. Client→server: `{"type": "mode", "geometry": bool, "format": 8}` once its WebGPU is up (or asleep behind recorded playback), `geometry_request` / `geometry_reset`, and key/pointer/chip JSON with pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping. The `format` a mode message announces is per client (the server numbers its clients and tags each event `_client`): once every connected client has announced format 8, the geometry frames are a stream of deltas (Stage 2, below), and until then every client is sent format 7 full frames.
 
 **Moving between pausepoints.** `current_animation_index` only advances when `play()` saves its checkpoint, so a rail driven by state alone sits still for a whole animation and then teleports. `begin_animation`/`end_animation` (already called from `pre_play`/`post_play`) therefore send their own `{"type": "move", "from", "to", "back"}` — its own message for two reasons: a *state* change forces a full payload under the streaming policy below, and this has to reach the client when the play starts rather than on whatever frame is sent next. It names the stretch being crossed and says nothing about progress through it: the animation is on screen at full size already, and any claim would have to hold up through skipped fast-forwards, which are suppressed entirely. (The `back` field is currently always false — backward navigation is an instant jump — but stays in the protocol for the recorded-playback layer, whose reverse playback will light the rail from the other end.) The client lights the link between the two chips and lifts the position ring off the chip being left.
 
 **A chip is a source statement, not a checkpoint.** The rail groups consecutive checkpoints sharing a `unit_index` into one chip, so a loop that stood as one stacked chip before it ran is still one stacked chip after — otherwise the rail swells as you step through it and every chip you were aiming at moves. That is why the state carries `units` and the move carries `unit`: a forward play's destination checkpoint does not exist yet, so only the statement being played can say whether the move stays inside the stack (the chip pulses, there being no stretch between two chips to light) or crosses to the next one.
 
-**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket; a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Readiness is one flag for the whole viewer, not per client (with two tabs the last `mode` message speaks for both), but it does not outlive the clients that reported it: a client arriving at an empty viewer (`_connect` with `alone`) clears it, so a reloading page gets no payload before its renderer is up. Input events drain inside `on_frame_rendered` — during the render tick — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
+**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket, and under format 8 not sent at all when the frame changed nothing (`transport.geometry_skipped`: an idle tick of updaters that move nothing costs the socket and the page nothing); a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Readiness is one flag for the whole viewer, not per client (with two tabs the last `mode` message speaks for both), but it does not outlive the clients that reported it: a client arriving at an empty viewer (`_connect` with `alone`) clears it, so a reloading page gets no payload before its renderer is up. Input events drain inside `on_frame_rendered` — during the render tick — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
 
 **The console.** Output rides the same socket: `OutputTap` tees `sys.stdout`/`sys.stderr` in the scene process (writes still reach the real stream, so the app can scrape the launch line) into a bounded `LogBuffer`, and `_broadcast_logs` sends new lines as `{"type": "log", "lines": [...]}` — deliberately *before* the "has anything changed" test, since an idle scene can still be printing, and with the full backlog on connect. This is the only way to see a running scene's output in app mode at all: the child's stdout is a pipe into the app process, read only when a scene fails to start. The panel is toggle-only (`C`), never automatic — stepping a scene prints on every arrow key. In full screen it rides with the rest of the chrome rather than being suppressed, overlaying rather than reflowing so the frame is not resized every time the pointer nears an edge.
 
@@ -174,9 +174,13 @@ The geometry player produced by `--export` is WebGPU-only. If WebGPU is not
 available it says so directly and points to the MP4 presentation export; it
 does not fall back to another graphics API. The preserved winding WebGPU code reads older recordings. The student
 bundle (`--export-present`) is ordinary video and needs no browser GPU.
-`GEOMETRY_FORMAT_VERSION` appears in every geometry header and in the
-export's `scene.json`; the player checks the metadata before loading frames
-and tells an incompatible folder to re-export instead of rendering garbage.
+A version appears in every geometry header and in the export's
+`scene.json`; the player checks the metadata before loading frames and tells
+an incompatible folder to re-export instead of rendering garbage. Full
+frames are format 7 (`geometry.FULL_FRAME_FORMAT_VERSION`) for every receiver
+that has not negotiated format 8 (`GEOMETRY_FORMAT_VERSION`): native capture,
+the export recorder (its `scene.json` says 7) and a viewer with any tab that
+has not; the player reads formats 1-8.
 
 Winding fills carry optional `fill_rect` screen bounds, calculated together
 by `web/fill_bounds.py` from shader geometry and current camera uniforms.
@@ -242,15 +246,46 @@ program outputs; shared resources are counted per slot and destroyed after
 the submit that follows their last release; uniforms live in one buffer
 per override set, rewritten in place when the camera moves; a full frame
 is diffed against the slots (`applyFull`), so an unchanged batch costs its
-draws and a byte-identical message redraws the slots without a parse (the
-viewer's `renderer_selection.js` skips its own parse of such a message
-too; both keep the caller's buffer, so a caller hands it over). A failed
-frame releases what it made and leaves every uniform set to be repacked by
-the next. `tests/webgpu_trace.cjs` traces submissions by content, and the
-command cases check the retained frame against a fresh driver given each
-frame whole. Both drivers roll back new resources on failure. Recordings
-reconstruct sources for arbitrary seeks; formats 1–6 remain readable. These
-resources never enter checkpoints.
+draws and a byte-identical format 7 message redraws the slots without a
+parse (the driver keeps the caller's buffer, so a caller hands it over; the
+viewer's `renderer_selection.js` reads the renderer from the header's first
+bytes, where it follows integer fields only, and never parses a whole
+header itself). A failed frame releases what it made and leaves every
+uniform set to be repacked by the next. `tests/webgpu_trace.cjs` traces
+submissions by content, and the command cases check the retained frame
+against a fresh driver given each frame whole. Both drivers roll back new
+resources on failure. Recordings reconstruct sources for arbitrary seeks;
+formats 1–8 remain readable (full frames: a recording holds no delta).
+These resources never enter checkpoints.
+
+**Format 8: the browser is sent only what changed** (B4.8,
+`docs/phase_b4_plan.md`). A viewer whose clients all announced format 8
+sends a stream: every message carries its `epoch` (bumped by every reset: a
+connect, a renderer or generator change, `geometry_reset`, a serializer
+failure, a change in what the clients negotiated, `geometry_request`) and
+`frame` number; an epoch opens with a full frame (format 7's with
+`"format_version": 8, "epoch", "frame"` where the version was), and each
+later message is a delta against the one before it (`base`): `splices`
+(`[at, removed, batches]` against the last frame's batch list, the batches
+as encode_draw writes them, offsets into this message's payload), `scalars`
+ops (`[index, scalars]`, a kept program run whose scalars moved), each of
+camera, background, resolution, samples, supersample and limitations only
+when its text changed, and the definition tables the receivers lack. A frame
+that changes nothing is no message (`serialize_scene` returns None). The
+diff is `generated_geometry.diff_runs`, shared by both serializer paths
+(the lockstep and the golden pin hold the stream to the format 7 bytes:
+`geometry.expand_delta` applied to a delta gives the pinned frame exactly).
+In the browser `expandDelta` rebuilds the frame from the retained slots and
+`applyDelta` keeps every slot the delta did not splice without comparing
+it; a delta against a frame the driver did not draw, or one that fails,
+asks for a full frame through `onCacheMiss` (the viewer's
+`geometry_reset`), once per epoch. A full frame that fails asks nothing, as
+a format 7 frame's failure does: the full frame that answered it would fail
+alike (an image the browser cannot decode, a device limit), and the page
+and the engine would ask and answer for as long as the scene rested; the
+epoch's first delta asks instead, once. `tests/generated_webgpu_commands.cjs
+deltaEqualsFull` holds a stream to the format 7 frames of the same history
+(same slots, same live buffers, same submissions after every message).
 
 **The frame is retained in Python** (`web/retained_frame.py`, Phase B4 tier 1,
 `docs/phase_b4_plan.md`; the default since 2026-09-27). A `GeometryCache`
@@ -345,7 +380,11 @@ in the export recorder's format, and plays the stream through the real
 (`tests/webgpu_fake_device.cjs`) through the viewer's renderer selection,
 reporting per frame the driver's JS milliseconds, the page's (`page_ms`,
 the selection's routing included) and WebGPU call counts; `--play-edges`
-adds a play's first frame and its landing as classes. The live viewer marks
+adds a play's first frame and its landing as classes, `--camera-moves` a
+pan, a zoom and the camera put back, `--deltas` records the same frames as
+the format 8 stream too and replays it beside the format 7 one (a frame it
+did not send is a row of zeros), and `--rounds N` replays the streams in
+turns and reports each frame's median. The live viewer marks
 each drawn frame as a `maniml:render` span for DevTools' Performance
 panel. The driver runs in a vm sandbox there unless `--realm main`, and the
 sandbox makes every global lookup an interceptor call: read its

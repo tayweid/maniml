@@ -86,6 +86,32 @@ function formatSeven(batches, tables = {}, header = {}) {
   return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
 }
 
+// A format 8 message (docs/phase_b4_plan.md, B4.8) from a format 7 one:
+// its header rewritten by `rewrite`, its payload as it was. A full frame is
+// the format 7 header with its epoch and frame; a delta carries the
+// batches formatSeven laid out in its splices, whose offsets stay good.
+function restream(message, rewrite) {
+  const bytes = Buffer.from(message), length = bytes.readUInt32LE(1);
+  const json = Buffer.from(JSON.stringify(rewrite(JSON.parse(bytes.subarray(5, 5 + length).toString()))));
+  const out = Buffer.concat([Buffer.from([3, 0, 0, 0, 0]), json, bytes.subarray(5 + length)]);
+  out.writeUInt32LE(json.length, 1);
+  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+}
+const fullEight = (message, epoch) => restream(message, ({format_version, ...header}) =>
+  ({format_version: 8, epoch, frame: 0, ...header}));
+// A delta of `epoch` numbered `frame` against `base`: splices [at, removed,
+// count] take their batches from the message's, in order; other fields as given.
+function deltaEight(message, epoch, frame, base, splices, fields = {}) {
+  return restream(message, header => {
+    const batches = header.batches;
+    let read = 0;
+    const carried = splices.map(([at, removed, count]) => [at, removed, batches.slice(read, read += count)]);
+    const tables = Object.fromEntries(Object.entries(header).filter(([key]) => key.endsWith("_data")));
+    return {format_version: 8, epoch, frame, base, renderer: header.renderer, splices: carried, scalars: [],
+            ...tables, ...fields};
+  });
+}
+
 const H = character => character.repeat(32);
 const floats = (count, value) => {
   const bytes = Buffer.alloc(count * 4);
@@ -1264,6 +1290,187 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
     process.stdout.write(JSON.stringify({frames: frames.length}));
+  },
+  // Format 8 (B4.8): a delta is applied only to the frame it was taken
+  // against. It keeps the retained slots it does not splice, resolves the
+  // batches it carries as a full frame's that differ, takes the scalars its
+  // ops name and the stream's camera where it sends none. A delta against
+  // another frame (another base or epoch, or no stream at all) draws
+  // nothing and asks for a full frame once per epoch (the cache-miss
+  // callback, the viewer's geometry_reset); one that fails is rolled back,
+  // leaving the retained frame and the stream as they were, and asks the
+  // same; a full frame of any format recovers. A full frame that fails asks
+  // nothing, as a format 7 frame's failure does (the full frame it would be
+  // answered with fails alike, so the page and the engine would ask and
+  // answer without end at rest); the epoch's first delta asks instead.
+  async deltasApplyOnlyToTheirBase() {
+    const d = await driver();
+    const plain = (hash, value) => ({pipeline: "surface", hash, num_verts: 3, count: 3, fill_value: value});
+    const program = (hash, alpha) => patchRun(hash, 4, H("f"), H("9"), {program: blend([H("1"), H("2")], alpha, 9, 17)});
+    const tables = {object_data: {[H("f")]: objectTable([[4, 1]])},
+      program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2)}};
+    const drawn = passes => sceneDraws(passes).length;
+    const first = [plain("a", 1), plain("b", 2), program("p", .25), plain("c", 3)];
+    let passes = await d.renderBytes(fullEight(formatSeven(first, tables), 1));
+    const draws = drawn(passes);
+    assert.ok(draws > 4);
+    let before = d.counts();
+    // b replaced by d in place: one upload, the retained slots kept.
+    passes = await d.renderBytes(deltaEight(formatSeven([plain("d", 4)]), 1, 1, 0, [[1, 1, 1]]));
+    let delta = countsDelta(before, d.counts());
+    assert.equal(drawn(passes), draws);
+    assert.equal(delta.buffers_created, 1);
+    assert.equal(delta.buffers_destroyed, 1, "b's geometry is released after the submit");
+    assert.equal(delta.compute_dispatches, 0);
+    // The program's scalars move: one evaluation, nothing made.
+    before = d.counts();
+    passes = await d.renderBytes(deltaEight(formatSeven([]), 1, 2, 1, [], {scalars: [[2, [.75]]]}));
+    delta = countsDelta(before, d.counts());
+    assert.equal(drawn(passes), draws);
+    assert.equal(delta.buffers_created, 0);
+    assert.ok(delta.compute_dispatches > 0, "the moved program is evaluated again");
+    const params = passes.find(pass => pass.compute).draws[0].bindings.get(0).entries[0].resource.buffer;
+    assert.equal(new Float32Array(params.bytes)[1], .75);
+    // The camera, sent alone, rewrites the uniform sets in place.
+    before = d.counts();
+    passes = await d.renderBytes(deltaEight(formatSeven([]), 1, 3, 2, [], {camera: {...CAMERA, frame_scale: .5}}));
+    delta = countsDelta(before, d.counts());
+    assert.equal(delta.buffers_created, 0);
+    assert.equal(delta.bind_groups_created, 0);
+    assert.ok(delta.uniform_writes > 0);
+    assert.equal(uniform(sceneDraws(passes)[0])[23], .5);
+    // Against another base: nothing drawn, one request for a full frame
+    // however many follow in the epoch.
+    const submits = d.submissions.length;
+    for (const base of [5, 2]) {
+      assert.equal(await d.renderer.render(deltaEight(formatSeven([]), 1, base + 1, base, [])), null);
+    }
+    assert.equal(d.cacheMisses(), 1);
+    assert.equal(d.submissions.length, submits);
+    // A delta that fails leaves the frame and the stream where they were:
+    // a splice past the end, then scalars for a batch without a program.
+    for (const [fields, splices] of [[{}, [[9, 1, 0]]], [{scalars: [[0, [.5]]]}, []]]) {
+      await assert.rejects(d.renderer.render(deltaEight(formatSeven([]), 1, 4, 3, splices, fields)), /geometry delta/);
+    }
+    assert.equal(d.cacheMisses(), 1, "the epoch's full frame was already asked for");
+    passes = await d.renderBytes(deltaEight(formatSeven([plain("e", 5)]), 1, 4, 3, [[3, 1, 1]]));
+    assert.equal(drawn(passes), draws, "the stream resumes where it stood");
+    // A new epoch opens with a full frame; its first delta that fails asks again.
+    passes = await d.renderBytes(fullEight(formatSeven(cached([plain("a", 1)])), 2));
+    assert.equal(drawn(passes), 1);
+    await assert.rejects(d.renderer.render(deltaEight(formatSeven([]), 2, 1, 0, [], {scalars: [[0, [.5]]]})), /scalars/);
+    assert.equal(d.cacheMisses(), 2);
+    // A format 7 frame ends the stream: no delta applies after it.
+    await d.renderBytes(formatSeven(cached([plain("a", 1)])));
+    assert.equal(await d.renderer.render(deltaEight(formatSeven([]), 3, 1, 0, [])), null);
+    assert.equal(d.cacheMisses(), 3);
+    // Nor after the driver is destroyed and made again.
+    await d.renderBytes(fullEight(formatSeven(cached([plain("a", 1)])), 4));
+    await d.destroy();
+    await d.init();
+    assert.equal(await d.renderer.render(deltaEight(formatSeven([]), 4, 1, 0, [])), null);
+    assert.equal(d.cacheMisses(), 4);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+    // Full frames that fail the same way every time (an image the browser
+    // cannot decode, as Chrome cannot a TIFF): neither epoch's asks.
+    const failing = await driver({decode: async () => { throw new Error("The source image could not be decoded."); }});
+    const image = {pipeline: "image", hash: "img", num_verts: 6, count: 6, textures: {Texture: H("7")}};
+    const undecodable = {texture_data: {[H("7")]: Buffer.alloc(4)}};
+    for (const epoch of [1, 2]) {
+      await assert.rejects(failing.renderer.render(fullEight(formatSeven([plain("a", 1), image], undecodable), epoch)),
+                           /could not be decoded/);
+    }
+    assert.equal(failing.cacheMisses(), 0, "a failed full frame asks nothing");
+    assert.equal(failing.submissions.length, 0);
+    // The epoch's deltas find no frame to apply to: the first asks, once.
+    for (const number of [1, 2]) {
+      assert.equal(await failing.renderer.render(deltaEight(formatSeven([]), 2, number, number - 1, [])), null);
+    }
+    assert.equal(failing.cacheMisses(), 1, "the epoch's first delta asks for a full frame");
+    // The full frame that answers, without the image, opens a stream that applies.
+    await failing.renderBytes(fullEight(formatSeven([plain("a", 1)]), 3));
+    passes = await failing.renderBytes(deltaEight(formatSeven([plain("b", 2)]), 3, 1, 0, [[1, 0, 1]]));
+    assert.equal(drawn(passes), 2);
+    assert.equal(failing.cacheMisses(), 1);
+    await failing.destroy();
+    assert.ok(failing.buffers.every(buffer => buffer.destroyed));
+  },
+  // Format 8 (docs/phase_b4_plan.md, B4.8): a stream of deltas draws what
+  // the same frames sent whole draw. Two recordings of one history
+  // (tests.test_browser_frames writes them: the format 7 full frames a
+  // receiver that has not negotiated is sent, and the format 8 stream, where
+  // a frame that changed nothing is no message, length 0), each played in
+  // order on a driver of its own, a renderer switch destroying both and
+  // initializing them again as the page's selection does. After every
+  // message the two hold the same slots (their batches as a receiver holds
+  // them) and the same live buffers (size, usage and bytes), and a message
+  // of both made the same submission, compute passes included; where the
+  // stream sent nothing, the full frame drew the picture already on screen.
+  async deltaEqualsFull() {
+    const zlib = require("node:zlib"), [fullDir, deltaDir] = process.argv.slice(3);
+    const {tracedDriver, renderPasses, firstDifference} = require("./webgpu_trace.cjs");
+    const crypto = require("node:crypto");
+    const read = dir => {
+      const meta = JSON.parse(fs.readFileSync(path.join(dir, "scene.json"), "utf8"));
+      const data = zlib.gunzipSync(fs.readFileSync(path.join(dir, "scene.bin.gz")));
+      let offset = 0;
+      return meta.frames.map(({len}) => {
+        const bytes = len ? data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + len) : null;
+        offset += len;
+        return bytes;
+      });
+    };
+    const headerOf = bytes => JSON.parse(Buffer.from(bytes, 5, new DataView(bytes).getUint32(1, true)).toString());
+    const held = batch => {
+      const {offset, index_offset, cached, ...rest} = batch;
+      if (rest.border) { const {layout, ...border} = rest.border; rest.border = border; }
+      return JSON.stringify(rest);
+    };
+    const live = d => d.buffers.filter(buffer => !buffer.destroyed).map(buffer => [buffer.descriptor.size,
+      buffer.descriptor.usage, crypto.createHash("sha1").update(new Uint8Array(buffer.bytes)).digest("hex")].join(":")).sort();
+    const full = read(fullDir), stream = read(deltaDir);
+    assert.equal(full.length, stream.length);
+    const f = await tracedDriver(), d = await tracedDriver();
+    let renderer = null, onScreen = null, headers = [null, null], deltas = 0, skipped = 0;
+    for (const [index, bytes] of full.entries()) {
+      const header = headerOf(bytes);
+      if (renderer !== null && header.renderer !== renderer) {
+        for (const driver of [f, d]) { await driver.destroy(); await driver.init(); driver.trace(); }
+        onScreen = null;
+      }
+      renderer = header.renderer;
+      headers[0] = await f.renderer.render(bytes.slice(0));
+      const drawn = f.trace();
+      assert.equal(drawn.length, 1, `frame ${index}: one submission of the full frame`);
+      if (stream[index] === null) {
+        skipped++;
+        assert.notEqual(onScreen, null, `frame ${index}: a stream opens with a full frame`);
+        assert.equal(d.trace().length, 0);
+        assert.ok(drawn[0].every(pass => pass[0] === "render"), `frame ${index}: nothing to evaluate`);
+        const found = firstDifference(renderPasses(drawn), onScreen);
+        assert.equal(found, null, `frame ${index}: the stream sent nothing, and the full frame redrew: ${found}`);
+      } else {
+        const message = headerOf(stream[index]);
+        assert.equal(message.format_version, 8);
+        if ("base" in message) deltas++;
+        headers[1] = await d.renderer.render(stream[index].slice(0));
+        assert.ok(headers[1], `frame ${index}: the delta applied`);
+        const found = firstDifference(d.trace(), drawn);
+        assert.equal(found, null, `frame ${index}: the stream's message made the full frame's submission: ${found}`);
+      }
+      onScreen = renderPasses(drawn);
+      // Each driver has a realm of its own: the lists are made in this one.
+      const slots = headers.map(header => Array.from(header.batches, held));
+      assert.deepEqual(slots[1], slots[0], `frame ${index}: the same slots`);
+      assert.deepEqual(live(d), live(f), `frame ${index}: the same live buffers`);
+    }
+    assert.equal(f.cacheMisses() + d.cacheMisses(), 0);
+    for (const driver of [f, d]) {
+      await driver.destroy();
+      assert.ok(driver.buffers.every(buffer => buffer.destroyed));
+    }
+    process.stdout.write(JSON.stringify({frames: full.length, deltas, skipped}));
   },
   async wire() {
     const d = await driver();

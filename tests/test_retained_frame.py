@@ -46,6 +46,8 @@ import itertools
 import json
 import os
 from pathlib import Path
+import re
+import struct
 import sys
 import tempfile
 import textwrap
@@ -73,8 +75,8 @@ from maniml.utils import programs
 from maniml.web import generated_geometry, retained_frame, triangle_scene
 from maniml.web.border_geometry import RenderCacheStale
 from maniml.web.geometry import (
-    GEOMETRY_FORMAT_VERSION, POLYLINE_FACTOR, GeometryCache, _jsonable, _stroke_sqrt_area, _stroke_verts,
-    _stroke_verts_at, parse_geometry_message, serialize_scene,
+    FULL_FRAME_FORMAT_VERSION, POLYLINE_FACTOR, GeometryCache, _jsonable, _stroke_sqrt_area, _stroke_verts,
+    _stroke_verts_at, expand_delta, parse_geometry_message, serialize_scene,
 )
 from maniml.web.triangle_geometry import LyonFillTessellator, _packaged_library
 from tests.renderer_fixtures import build_scene, renderer_cases
@@ -136,27 +138,73 @@ def frame_contract():
     return [config.pixel_width, config.pixel_height, config.frame_height]
 
 
+def format_seven(message):
+    """A format 8 full frame with its epoch and frame number taken out and
+    its version put back: exactly the format 7 frame, when the two keys are
+    all that format 8 added to it."""
+    (length,) = struct.unpack_from("<I", message, 1)
+    text = message[5:5 + length]
+    added = re.match(rb'\{"format_version": 8, "epoch": \d+, "frame": \d+, ', text)
+    if added is None:
+        raise AssertionError(f"not a format 8 full frame: {text[:80]!r}")
+    text = b'{"format_version": 7, ' + text[added.end():]
+    return b"".join((message[:1], struct.pack("<I", len(text)), text, message[5 + length:]))
+
+
+def expanded(previous, message):
+    """expand_delta's frame for ``message`` (bytes, or None for a frame the
+    stream did not send), as its header and message bytes."""
+    header, payload = expand_delta(previous, message)
+    text = json.dumps(header).encode()
+    return header, b"".join((b"\x03", struct.pack("<I", len(text)), text, payload))
+
+
 class Pin:
     """One case's history: a GeometryCache per renderer that lives across
     the case's frames, as the viewer's does, and the digest of every
-    frame's bytes in the order they were produced."""
+    frame's bytes in the order they were produced.
+
+    The same history is also streamed as format 8 (docs/phase_b4_plan.md,
+    B4.8) through a cache per renderer whose receivers negotiated it, after
+    the pinned caches, and every message is held to the pinned frame: a
+    full frame is the pinned bytes but for its two keys (format_seven),
+    and a delta, or the silence of a frame that changed nothing, applied
+    to the frame before it is the pinned bytes exactly (expand_delta).
+    ``kinds`` counts what the streams sent."""
 
     def __init__(self):
         self.caches = {renderer: GeometryCache() for renderer in RENDERERS}
+        self.streams = {renderer: GeometryCache() for renderer in RENDERERS}
+        for cache in self.streams.values():
+            cache.negotiate(True)
+        self.shown = dict.fromkeys(RENDERERS)
+        self.kinds = dict.fromkeys(("full", "delta", "silent"), 0)
         self.frames = {}
 
     def frame(self, scene, name):
         label = f"{len(self.frames):02d} {name}"
-        self.frames[label] = {
-            renderer: hashlib.blake2b(serialize_scene(scene, cache, renderer=renderer),
-                                      digest_size=16).hexdigest()
-            for renderer, cache in self.caches.items()}
+        messages = {renderer: serialize_scene(scene, cache, renderer=renderer)
+                    for renderer, cache in self.caches.items()}
+        self.frames[label] = {renderer: hashlib.blake2b(message, digest_size=16).hexdigest()
+                              for renderer, message in messages.items()}
+        for renderer, cache in self.streams.items():
+            message = serialize_scene(scene, cache, renderer=renderer)
+            kind = ("silent" if message is None
+                    else "delta" if "base" in parse_geometry_message(message)[0] else "full")
+            if kind == "full" and format_seven(message) != messages[renderer]:
+                raise AssertionError(f"{label} {renderer}: the format 8 full frame is not the pinned frame "
+                                     f"with its epoch and frame: {difference(messages[renderer], format_seven(message))}")
+            self.shown[renderer], frame = expanded(self.shown[renderer], message)
+            if frame != messages[renderer]:
+                raise AssertionError(f"{label} {renderer}: the format 8 {kind} does not stand for the pinned "
+                                     f"frame: {difference(messages[renderer], frame)}")
+            self.kinds[kind] += 1
         return label
 
     def reset(self):
         # What a client's connect does to the viewer's cache: the next
-        # message ships every batch in full.
-        for cache in self.caches.values():
+        # message ships every batch in full, and a stream opens an epoch.
+        for cache in (*self.caches.values(), *self.streams.values()):
             cache.reset()
 
 
@@ -230,7 +278,7 @@ class GoldenFile:
         self.cases[case] = entry
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps({
-            "format_version": GEOMETRY_FORMAT_VERSION,
+            "format_version": FULL_FRAME_FORMAT_VERSION,
             "recorded_with": "python -m tests.test_retained_frame --record",
             "cases": self.cases,
         }, indent=1, sort_keys=True) + "\n")
@@ -359,6 +407,13 @@ class SyntheticGoldens(GoldenCase):
         play(pin, scene, box.animate.set_anti_alias_width(6), globe.animate.set_shading(.6, .2, .4),
              name="a uniforms-only play")
         GoldenFile("synthetic").check(self, "scripted_sequence", pin, input={"frame": frame_contract()})
+        # The format 8 streams the pin held to these frames opened an epoch
+        # at the cold frame and at the reset, sent nothing for the stills
+        # and the play's first frame (its begin changes nothing drawn), and
+        # a delta for every other frame.
+        stills = sum(label.endswith((" still", " begins")) for label in pin.frames)
+        self.assertEqual(pin.kinds, {"full": 2 * len(RENDERERS), "silent": stills * len(RENDERERS),
+                                     "delta": (len(pin.frames) - 2 - stills) * len(RENDERERS)})
 
     def test_textured_leaves(self):
         # Texture bytes travel beside the draws, keyed by content, once per
@@ -736,11 +791,20 @@ class Lockstep:
     without asking the scene to survive a deep copy.
     """
 
-    def __init__(self, test, build):
+    def __init__(self, test, build, *, deltas=False):
         self.test = test
         self.sides = (build(), build())
-        self.caches = (GeometryCache(), GeometryCache())
+        self.deltas = deltas
+        self.fresh_caches()
         self.count = 0
+
+    def fresh_caches(self):
+        """A cache per side, as a new viewer holds; under ``deltas`` its
+        receivers negotiated format 8, so the two sides' messages are the
+        same stream (docs/phase_b4_plan.md, B4.8)."""
+        self.caches = (GeometryCache(), GeometryCache())
+        for cache in self.caches:
+            cache.negotiate(self.deltas)
 
     @property
     def retained(self):
@@ -1036,10 +1100,18 @@ class RetainedFrameLockstep(GoldenCase):
             with self.subTest(renderer=renderer), tempfile.TemporaryDirectory() as tmp:
                 self.scripted_sequence(renderer, Path(tmp) / "texture.bmp")
 
-    def scripted_sequence(self, renderer, texture):
+    def test_scripted_sequence_as_a_format_8_stream(self):
+        # The same history streamed (B4.8): the retained frame's deltas are
+        # the whole-frame path's, byte for byte, silence included, across
+        # resets, renderer switches, a refused frame and the flag's toggle.
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer), tempfile.TemporaryDirectory() as tmp:
+                self.scripted_sequence(renderer, Path(tmp) / "texture.bmp", deltas=True)
+
+    def scripted_sequence(self, renderer, texture, deltas=False):
         other = "phase_b" if renderer == "triangles" else "triangles"
         write_texture(texture, 200)
-        lock = Lockstep(self, lambda: lockstep_scene(texture))
+        lock = Lockstep(self, lambda: lockstep_scene(texture), deltas=deltas)
         lock.frame("cold", renderer)
         lock.expect(leaves_kept=0)
         for index in range(20):
@@ -1167,7 +1239,7 @@ class RetainedFrameLockstep(GoldenCase):
         programs.set_override(None)
         lock.frame("still", renderer)
 
-        lock.caches = (GeometryCache(), GeometryCache())
+        lock.fresh_caches()
         lock.frame("cold again", renderer)
         lock.frame("still", renderer)
         lock.expect(leaves_prepared=0, batches_encoded=0)

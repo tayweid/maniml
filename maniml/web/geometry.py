@@ -24,19 +24,41 @@ if TYPE_CHECKING:
 
 GEOMETRY_MESSAGE_TYPE = 0x03
 # Increment when a geometry header or payload change is not backward
-# compatible. Baked exports copy this into scene.json so the standalone
-# player can reject stale data before attempting to render it.
-GEOMETRY_FORMAT_VERSION = 7
+# compatible. Format 8 (docs/phase_b4_plan.md, B4.8) is a stream: every
+# message carries its epoch and frame number, and after the full frame
+# that opens an epoch each is a delta against the one before it, or is not
+# sent at all when nothing changed. A receiver announces it in its mode
+# message, and only a cache whose receivers all have (GeometryCache.deltas)
+# writes it.
+GEOMETRY_FORMAT_VERSION = 8
+# The full frame every other receiver is sent (native capture, the export
+# recorder, a viewer with a tab that has not announced format 8): format 7,
+# byte for byte what format 7 always wrote. A format 8 full frame is this
+# frame with "format_version": 8 and its "epoch" and "frame" after it.
+# Baked exports copy it into scene.json so the standalone player can
+# reject stale data before attempting to render it.
+FULL_FRAME_FORMAT_VERSION = 7
 
 
 class GeometryCache:
     """Delta-encoding state: the batch content hashes every connected
     client is known to hold. Owned by the viewer; reset whenever a
     client connects (or asks for a reset), so the next message ships
-    every batch in full."""
+    every batch in full.
+
+    Under format 8 (``deltas``, set through negotiate when every receiver
+    has announced it) the cache is also the stream's state: its ``epoch``,
+    the ``frame`` number of the last message sent in it, and ``last``,
+    what that message left the receivers holding
+    (generated_geometry.SentFrame), which the next delta is taken against;
+    None until an epoch's full frame is sent. Every reset starts an epoch."""
 
     def __init__(self):
         self.sent: set[str] = set()
+        self.deltas = False
+        self.epoch = 0
+        self.frame = 0
+        self.last = None
         self.renderer = None
         self.triangle_tessellator = None
         self.triangle_meshes = None
@@ -56,6 +78,23 @@ class GeometryCache:
 
     def reset(self):
         self.sent.clear()
+        self.restart()
+
+    def restart(self):
+        """Start an epoch: the next message is a full frame. What the
+        receivers hold is kept, and the full frame names it cached."""
+        self.epoch += 1
+        self.frame = 0
+        self.last = None
+
+    def negotiate(self, deltas: bool):
+        """Whether every receiver reads format 8. A change starts an epoch:
+        a receiver that joins without it is sent format 7 full frames from
+        the next message on, and the stream that resumes when it leaves
+        opens with a full frame."""
+        if deltas != self.deltas:
+            self.deltas = deltas
+            self.restart()
 
 # Constants from quadratic_bezier/stroke/geom.glsl
 POLYLINE_FACTOR = 100.0
@@ -154,10 +193,14 @@ def _texture_file(path: str) -> tuple[str, bytes]:
 
 
 def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
-                    renderer: str | None = None) -> bytes:
+                    renderer: str | None = None) -> bytes | None:
     """Snapshot ordered triangle operations; cache reuse checks source content.
 
-    The original winding path remains selectable in the viewer for dogfooding.
+    A cache whose receivers negotiated format 8 (``cache.deltas``) is sent
+    a stream: a full frame, then deltas against it, and None for a frame
+    that changes nothing, which is not a message. Any other caller gets a
+    format 7 full frame. The original winding path remains selectable in
+    the viewer for dogfooding; it writes full frames.
     """
     selected = renderer if renderer is not None else os.environ.get("MANIML_RENDERER", "triangles")
     if selected not in RENDERERS:
@@ -254,7 +297,8 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         else:
             message = retained.encode(frame, scene.camera.uniforms, cache, renderer=renderer)
     performance.increment("geometry.serialize.calls")
-    performance.increment("geometry.serialized_bytes", len(message))
+    if message is not None:
+        performance.increment("geometry.serialized_bytes", len(message))
     performance.gauge("geometry.batch_count", len(frame.draws))
     performance.gauge("geometry.triangle_retained_bytes", frame.mesh_cache_stats["retained_bytes"])
     if retained is not None and performance.enabled:
@@ -269,3 +313,63 @@ def parse_geometry_message(message: bytes):
     (header_len,) = struct.unpack_from("<I", message, 1)
     header = json.loads(message[5:5 + header_len].decode())
     return header, message[5 + header_len:]
+
+
+# The header fields a delta sends only when they change, and the order a
+# full frame lists every field in (generated_geometry.assemble_message).
+STREAM_FIELDS = ("camera", "background", "resolution", "samples", "supersample", "limitations")
+FULL_FIELDS = ("renderer", "camera", "background", "resolution", "samples", "supersample", "batches",
+               "paint_data", "border_data", "object_data", "net_data", "program_data", "texture_data",
+               "unsupported", "limitations")
+
+
+def expand_delta(previous, message):
+    """The format 7 full frame a format 8 message stands for, for tests and
+    tooling: (header, payload), where json.dumps(header) and the payload
+    are the bytes the same cache history writes when its receivers have not
+    negotiated format 8. ``previous`` is the header this returned for the
+    message before in the stream (None before an epoch's full frame);
+    ``message`` is the message's bytes, or None for a frame that changed
+    nothing and was not sent.
+
+    A full frame loses its epoch and frame number. A delta's frame is the
+    previous one's batches as a receiver holds them (held_batch: no bytes,
+    no offsets, no run layout), its splices applied (each replaces
+    ``removed`` batches from ``at``, in the previous frame's order, by the
+    batches it carries, as sent), its scalars ops written into the
+    programs they name (by index in the new frame), each field it omits
+    the previous frame's, and the definition tables it carries."""
+    from maniml.web.generated_geometry import held_batch
+
+    if message is None:
+        header, payload = {"splices": [], "scalars": []}, b""
+    else:
+        header, payload = parse_geometry_message(message)
+        if header["format_version"] != GEOMETRY_FORMAT_VERSION:
+            raise ValueError("expand_delta reads format 8 messages")
+        if "base" not in header:
+            full = {"format_version": FULL_FRAME_FORMAT_VERSION}
+            full.update((key, value) for key, value in header.items()
+                        if key not in ("format_version", "epoch", "frame"))
+            return full, payload
+    if previous is None:
+        raise ValueError("a delta needs the frame it was taken against")
+    batches, read = [], 0
+    kept = [held_batch(batch) for batch in previous["batches"]]
+    for at, removed, inserted in header["splices"]:
+        batches.extend(kept[read:at])
+        batches.extend(inserted)
+        read = at + removed
+    batches.extend(kept[read:])
+    for index, scalars in header["scalars"]:
+        batch = batches[index]
+        batches[index] = {**batch, "program": {**batch["program"], "scalars": scalars}}
+    full = {"format_version": FULL_FRAME_FORMAT_VERSION}
+    for key in FULL_FIELDS:
+        if key == "batches":
+            full[key] = batches
+        elif key.endswith("_data"):
+            full[key] = header.get(key, {})
+        else:
+            full[key] = header.get(key, previous[key])
+    return full, payload

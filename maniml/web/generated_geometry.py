@@ -13,7 +13,8 @@ import struct
 import numpy as np
 
 from maniml.web.geometry import (
-    GEOMETRY_FORMAT_VERSION, GEOMETRY_MESSAGE_TYPE, _jsonable, _TEXTURE_BY_HASH,
+    FULL_FRAME_FORMAT_VERSION, GEOMETRY_FORMAT_VERSION, GEOMETRY_MESSAGE_TYPE, STREAM_FIELDS, _jsonable,
+    _TEXTURE_BY_HASH,
 )
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 from maniml.web.gpu_border_geometry import (
@@ -251,13 +252,20 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None, *, renderer="t
     """Pack a prepared frame; both drivers consume exactly these operations.
 
     ``renderer`` is the name the client selected: it draws only frames
-    stamped with its own selection, so a Phase B frame says so."""
+    stamped with its own selection, so a Phase B frame says so. A cache
+    whose receivers negotiated format 8 is sent the stream's next message
+    (stream_message), None when the frame changes nothing."""
     _supersample(frame)
     camera = {key: _jsonable(value) for key, value in camera_uniforms.items()}
     parts = MessageParts(cache)
     batches = [batch for batch in (encode_draw(draw, camera, parts) for draw in frame.draws)
                if batch is not None]
-    message = assemble_message(frame, camera, batches, parts, renderer=renderer)
+    if getattr(cache, "deltas", False):
+        texts = [json.dumps(batch) for batch in batches]
+        sent = [SentBatch(batch, text if batch.get("cached") else None) for batch, text in zip(batches, texts)]
+        message = stream_message(frame, camera, sent, texts, parts, renderer=renderer)
+    else:
+        message = assemble_message(frame, camera, batches, parts, renderer=renderer)
     parts.commit()
     return message
 
@@ -579,22 +587,15 @@ def held_batch(batch):
     return held
 
 
-def assemble_message(frame, camera, batches, parts, *, renderer="triangles"):
-    """The message: header, then every batch's bytes in batch order, then
-    the definitions the receiver lacks. ``batches`` are encode_draw's
-    descriptors in draw order, their bytes and definitions in ``parts``;
-    or, from a caller that keeps descriptors as JSON text across messages,
-    the text json.dumps writes between their list's brackets (each
-    descriptor's own text, joined by ", "), which gives the same bytes.
-    The receiver's state is untouched until ``parts.commit()``."""
-    supersample = _supersample(frame)
-    # Definitions follow the batch bytes in this order; the header lists
-    # them in its own.
-    paint_data = parts.definitions("paint", parts.paints)
-    border_data = parts.definitions("border", parts.borders)
-    program_data = parts.definitions("rows", parts.row_sources)
-    net_data = parts.definitions("net", parts.nets)
-    object_data = parts.definitions("objects", parts.object_tables)
+def definition_tables(frame, parts):
+    """Append the definitions the receiver lacks after the batch bytes, in
+    the order both message forms lay them out, and return their tables as
+    the header names them: paint, border, program, net, object, texture."""
+    tables = {"paint_data": parts.definitions("paint", parts.paints),
+              "border_data": parts.definitions("border", parts.borders),
+              "program_data": parts.definitions("rows", parts.row_sources),
+              "net_data": parts.definitions("net", parts.nets),
+              "object_data": parts.definitions("objects", parts.object_tables)}
     texture_data = {}
     for key in sorted(parts.texture_hashes):
         if not parts.held(f"tex:{key}"):
@@ -602,22 +603,192 @@ def assemble_message(frame, camera, batches, parts, *, renderer="triangles"):
             if raw is None:
                 raw = _TEXTURE_BY_HASH[key]
             texture_data[key] = {"offset": parts.append(raw), "nbytes": len(raw)}
-    joined = isinstance(batches, str)
-    header = {"format_version": GEOMETRY_FORMAT_VERSION, "renderer": renderer,
-              "camera": camera, "background": list(frame.background),
-              "resolution": list(frame.resolution), "samples": frame.samples,
-              "supersample": supersample,
-              "batches": [] if joined else batches, "paint_data": paint_data, "border_data": border_data,
-              "object_data": object_data, "net_data": net_data, "program_data": program_data,
-              "texture_data": texture_data,
-              "unsupported": [], "limitations": list(frame.limitations)}
-    text = json.dumps(header)
-    if joined and batches:
-        # The empty list's brackets are where the texts go. Outside a
-        # string only the key can spell this: json.dumps escapes every
-        # quote inside one.
-        at = text.index('"batches": [') + len('"batches": [')
-        text = text[:at] + batches + text[at:]
+    tables["texture_data"] = texture_data
+    return tables
+
+
+def _insert_list(text, key, items):
+    """``text`` (json.dumps output) with ``items``, JSON text, written
+    between the brackets of the empty list at ``key``. Outside a string
+    only the key can spell '"key": [': json.dumps escapes every quote
+    inside one."""
+    if not items:
+        return text
+    at = text.index(f'"{key}": [') + len(key) + 5
+    return text[:at] + items + text[at:]
+
+
+def _pack(text, parts):
     encoded = text.encode()
     return b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
                      encoded, *parts.blobs))
+
+
+def assemble_message(frame, camera, batches, parts, *, renderer="triangles", stream=None):
+    """The message: header, then every batch's bytes in batch order, then
+    the definitions the receiver lacks. ``batches`` are encode_draw's
+    descriptors in draw order, their bytes and definitions in ``parts``;
+    or, from a caller that keeps descriptors as JSON text across messages,
+    the text json.dumps writes between their list's brackets (each
+    descriptor's own text, joined by ", "), which gives the same bytes.
+    ``stream``, the (epoch, frame number) of a format 8 full frame, makes
+    it one: the format 7 frame with "format_version": 8 and those two after
+    it, nothing else moved. The receiver's state is untouched until
+    ``parts.commit()``."""
+    supersample = _supersample(frame)
+    tables = definition_tables(frame, parts)
+    joined = isinstance(batches, str)
+    if stream is None:
+        header = {"format_version": FULL_FRAME_FORMAT_VERSION}
+    else:
+        header = {"format_version": GEOMETRY_FORMAT_VERSION, "epoch": stream[0], "frame": stream[1]}
+    header.update({"renderer": renderer,
+                   "camera": camera, "background": list(frame.background),
+                   "resolution": list(frame.resolution), "samples": frame.samples,
+                   "supersample": supersample,
+                   "batches": [] if joined else batches, "paint_data": tables["paint_data"],
+                   "border_data": tables["border_data"], "object_data": tables["object_data"],
+                   "net_data": tables["net_data"], "program_data": tables["program_data"],
+                   "texture_data": tables["texture_data"],
+                   "unsupported": [], "limitations": list(frame.limitations)})
+    text = json.dumps(header)
+    if joined:
+        text = _insert_list(text, "batches", batches)
+    return _pack(text, parts)
+
+
+class SentBatch:
+    """A batch of a format 8 message as the next delta compares it: its
+    content hash, its program's scalars (their text; None without a
+    program) and the text of its held descriptor with the scalars left
+    out, which is what a receiver resolves its slot from (made when first
+    compared, unless the encoder already wrote the held form)."""
+
+    __slots__ = ("hash", "scalars", "batch", "text")
+
+    def __init__(self, batch, held_text=None):
+        self.batch = batch
+        self.hash = batch["hash"]
+        program = batch.get("program")
+        self.scalars = None if program is None else json.dumps(program["scalars"])
+        self.text = held_text if program is None else None
+
+    def key(self):
+        if self.text is None:
+            held = held_batch(self.batch)
+            if self.scalars is not None:
+                held["program"] = {**held["program"], "scalars": None}
+            self.text = json.dumps(held)
+        return self.text
+
+    def same(self, other):
+        """Whether ``other`` resolves to this batch's slot: one content,
+        one held descriptor, its scalars aside. A batch sent with its bytes
+        is never one the receiver held: its hash was not in the cache's
+        ``sent``, which holds every hash of the message before."""
+        return self.hash == other.hash and self.key() == other.key()
+
+
+class SentFrame:
+    """What a format 8 message left its receivers holding: its batches
+    (SentBatch, in order) and the text of each header field a delta sends
+    only when it changes (geometry.STREAM_FIELDS)."""
+
+    __slots__ = ("batches", "fields")
+
+    def __init__(self, batches, fields):
+        self.batches = batches
+        self.fields = fields
+
+
+def diff_runs(last, runs):
+    """The splices and scalars ops that turn the frame a receiver holds
+    (``last``) into this one (``runs``), both SentBatch lists in draw
+    order, a run being one batch.
+
+    The runs both frames share at either end are kept (SentBatch.same, so
+    a run kept across frames compares its identical text for free). Where
+    the frames hold as many runs between those ends, each is compared
+    with the one in its place and every maximal range that differs is a
+    splice; otherwise the range between them is one. A splice is (at,
+    removed, first, end): ``removed`` runs of ``last`` from ``at`` are
+    replaced by runs[first:end]. A kept program run whose scalars moved
+    is a scalars op, (its index in ``runs``, its SentBatch)."""
+    m, n = len(last), len(runs)
+    limit = min(m, n)
+    scalars = []
+
+    def keep(old, new, index):
+        if new.scalars is not None and new.scalars != old.scalars:
+            scalars.append((index, new))
+
+    head = 0
+    while head < limit and last[head].same(runs[head]):
+        keep(last[head], runs[head], head)
+        head += 1
+    tail = 0
+    while tail < limit - head and last[m - 1 - tail].same(runs[n - 1 - tail]):
+        keep(last[m - 1 - tail], runs[n - 1 - tail], n - 1 - tail)
+        tail += 1
+    splices = []
+    if m == n:
+        i, end = head, m - tail
+        while i < end:
+            if last[i].same(runs[i]):
+                keep(last[i], runs[i], i)
+                i += 1
+                continue
+            j = i + 1
+            while j < end and not last[j].same(runs[j]):
+                j += 1
+            splices.append((i, j - i, i, j))
+            i = j
+    else:
+        splices.append((head, m - tail - head, head, n - tail))
+    scalars.sort(key=lambda op: op[0])
+    return splices, scalars
+
+
+def stream_message(frame, camera, sent, texts, parts, *, renderer="triangles"):
+    """The next message of a format 8 stream (parts.cache, whose receivers
+    negotiated it) for a frame encode_draw wrote: ``texts`` are its
+    descriptors' text and ``sent`` a SentBatch each.
+
+    An epoch opens with a full frame (assemble_message's, numbered 0).
+    Every other message is a delta against the last one sent (its frame
+    number ``base``): the splices and scalars ops diff_runs finds, each of
+    the header's other fields only where its text changed (camera,
+    background, resolution, samples, supersample, limitations), the
+    definition tables the receivers lack, and the same payload a full frame
+    of this history carries (the bytes of the batches the receivers lack,
+    in order, then the definitions), so the batches it carries keep their
+    offsets. A delta with nothing in it is None: it is not sent, and the
+    frame number does not move. Records on the cache what the receivers
+    hold afterwards."""
+    cache = parts.cache
+    fields = {"camera": camera, "background": list(frame.background), "resolution": list(frame.resolution),
+              "samples": frame.samples, "supersample": _supersample(frame),
+              "limitations": list(frame.limitations)}
+    written = {name: json.dumps(fields[name]) for name in STREAM_FIELDS}
+    last = cache.last
+    if last is None:
+        message = assemble_message(frame, camera, ", ".join(texts), parts, renderer=renderer,
+                                   stream=(cache.epoch, 0))
+        cache.frame = 0
+    else:
+        splices, scalars = diff_runs(last.batches, sent)
+        changed = {name: fields[name] for name in STREAM_FIELDS if written[name] != last.fields[name]}
+        tables = {key: table for key, table in definition_tables(frame, parts).items() if table}
+        if splices or scalars or changed or tables:
+            number = cache.frame + 1
+            header = {"format_version": GEOMETRY_FORMAT_VERSION, "epoch": cache.epoch, "frame": number,
+                      "base": cache.frame, "renderer": renderer, **changed, "splices": [],
+                      "scalars": [[index, run.batch["program"]["scalars"]] for index, run in scalars], **tables}
+            text = _insert_list(json.dumps(header), "splices", ", ".join(
+                f"[{at}, {removed}, [{', '.join(texts[first:end])}]]" for at, removed, first, end in splices))
+            message = _pack(text, parts)
+            cache.frame = number
+        else:
+            message = None
+    cache.last = SentFrame(sent, written)
+    return message

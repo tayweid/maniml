@@ -73,16 +73,25 @@ class BrowserFrames(unittest.TestCase):
         cls.scene, error = episode_frames.load_episode(root / "play_scene.py", "PlayScene")
         assert error is None, error
         cls.indices = episode_frames.select_frames(cls.scene.animation_checkpoints)
-        cls.streams = {}
+        cls.streams, cls.deltas = {}, {}
         for variant in browser_frames.VARIANTS:
+            delta_stream = []
             with patch.dict(os.environ, browser_frames.ENVIRONMENTS[variant]):
                 messages, entries, frames = browser_frames.record_stream(
-                    cls.scene, cls.indices, samples=2, warmups=1, tick_updaters=True, play_frames=True)
+                    cls.scene, cls.indices, samples=2, warmups=1, tick_updaters=True, play_frames=True,
+                    delta_stream=delta_stream)
             directory = root / variant
             meta = browser_frames.write_stream(directory, cls.scene, messages, entries, variant=variant,
                                                environment=browser_frames.ENVIRONMENTS[variant])
             cls.streams[variant] = SimpleNamespace(directory=directory, entries=entries, frames=frames, meta=meta,
                                                    bytes=sum(map(len, messages)))
+            # The same frames as the format 8 stream (B4.8), beside them.
+            name = variant + browser_frames.DELTA
+            messages = [message for message, _ in delta_stream]
+            entries = browser_frames.delta_entries(entries, delta_stream)
+            meta = browser_frames.write_stream(root / name, cls.scene, messages, entries, variant=name)
+            cls.deltas[variant] = SimpleNamespace(directory=root / name, entries=entries, meta=meta,
+                                                  messages=messages)
 
     @classmethod
     def tearDownClass(cls):
@@ -92,12 +101,12 @@ class BrowserFrames(unittest.TestCase):
         cls.tmpdir.cleanup()
 
     def test_the_stream_is_the_export_recorders_folder_with_the_frames_named(self):
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+        from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION
 
         stream = self.streams["phase_a"]
         meta = stream.meta
         self.assertEqual((meta["format_version"], meta["scene"], meta["fps"]),
-                         (GEOMETRY_FORMAT_VERSION, "PlayScene", int(self.scene.camera.fps)))
+                         (FULL_FRAME_FORMAT_VERSION, "PlayScene", int(self.scene.camera.fps)))
         self.assertEqual((meta["harness"], meta["variant"]), ("browser_frames", "phase_a"))
         self.assertEqual(self.indices, [2, 4])
         # Two pausepoints, each one warmup + two samples, then three frames
@@ -136,7 +145,7 @@ class BrowserFrames(unittest.TestCase):
         # partial, which cached_batches reports).
         available, cold_batches = set(), []
         for entry, (header, payload) in zip(meta["frames"], messages_of(stream)):
-            self.assertEqual((header["renderer"], header["format_version"]), ("triangles", GEOMETRY_FORMAT_VERSION))
+            self.assertEqual((header["renderer"], header["format_version"]), ("triangles", FULL_FRAME_FORMAT_VERSION))
             cached = [batch.get("cached", False) for batch in header["batches"]]
             if entry["cold"]:
                 cold_batches.append(cached)
@@ -179,6 +188,70 @@ class BrowserFrames(unittest.TestCase):
                                     capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 0, variant + ": " + result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)["frames"], len(stream.meta["frames"]), variant)
+
+    def test_the_format_8_stream_draws_what_the_full_frames_draw(self):
+        # The format 8 stream of the same frames (B4.8): the seeks into each
+        # pausepoint, its stills with the updaters ticking and its play, as
+        # a page that announced format 8 is sent them, draw what the format
+        # 7 frames draw (deltaEqualsFull), with nothing sent where no byte
+        # changed.
+        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+
+        for variant, stream in self.deltas.items():
+            self.assertEqual((stream.meta["format_version"], stream.meta["variant"]),
+                             (GEOMETRY_FORMAT_VERSION, variant + browser_frames.DELTA))
+            result = subprocess.run(["node", str(TESTS / "generated_webgpu_commands.cjs"), "deltaEqualsFull",
+                                     str(self.streams[variant].directory), str(stream.directory)],
+                                    capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, variant + ": " + result.stdout + result.stderr)
+            played = json.loads(result.stdout)
+            self.assertEqual(played["frames"], len(stream.entries))
+            self.assertEqual(played["skipped"], sum(message is None for message in stream.messages))
+            # One epoch: the first frame is the only full one.
+            self.assertEqual(played["deltas"], played["frames"] - played["skipped"] - 1, variant)
+            # Every still after a pausepoint's first round is silent, the
+            # ticked ones too (the dot's updater writes it where it is).
+            stills = [entry for entry in stream.entries if entry["phase"] == "pausepoint" and not entry["cold"]]
+            self.assertTrue(stills)
+            self.assertEqual({entry["len"] for entry in stills}, {0}, variant)
+
+    def test_the_format_8_replay_runs_nothing_where_nothing_was_sent(self):
+        stream = self.deltas["phase_a"]
+        rows = browser_frames.join_rows(stream.entries, browser_frames.replay_stream(stream.directory)["frames"])
+        counts = set(browser_frames.COLUMNS) - {"js_ms", "page_ms", "serialize_ms", "batches", "cached_batches"}
+        for row in rows:
+            if row["sent"]:
+                self.assertGreater(row["page_ms"], 0)
+                continue
+            self.assertEqual((row["js_ms"], row["page_ms"], row["wire_bytes"]), (0, 0, 0))
+            self.assertEqual({key: row[key] for key in counts}, dict.fromkeys(counts, 0))
+        silent = [row for row in rows if not row["sent"]]
+        self.assertTrue(silent)
+        # A frame sent nothing still shows the frame on screen.
+        self.assertTrue(all(row["batches"] > 0 for row in silent))
+        deltas = [row for row in rows if "splices" in row]
+        self.assertEqual(len(deltas), sum(row["sent"] for row in rows) - 1)
+        self.assertTrue(all(row["spliced_batches"] <= row["batches"] for row in deltas))
+        self.assertEqual(browser_frames.summarize(browser_frames.measured(rows, "pausepoint"))["page_ms"]["p50"], 0)
+
+    def test_camera_moves_are_a_class_of_their_own_and_a_pan_is_a_small_delta(self):
+        delta_stream = []
+        with patch.dict(os.environ, browser_frames.ENVIRONMENTS["phase_a"]):
+            messages, entries, _ = browser_frames.record_stream(
+                self.scene, self.indices[:1], samples=1, warmups=1, camera_moves=True, delta_stream=delta_stream)
+        moves = [(entry, message, delta) for entry, message, (delta, _) in zip(entries, messages, delta_stream)
+                 if entry["phase"] == "camera"]
+        self.assertEqual([entry["move"] for entry, _, _ in moves], ["pan", "zoom", "back"])
+        self.assertEqual({browser_frames.frame_class(entry) for entry, _, _ in moves}, {"camera"})
+        from maniml.web.geometry import parse_geometry_message
+        pan = parse_geometry_message(moves[0][2])[0]
+        self.assertIn("camera", pan)
+        self.assertEqual((pan["splices"], pan["scalars"]), ([], []))
+        self.assertLess(len(moves[0][2]), 1024)
+        self.assertGreater(len(moves[0][1]), len(moves[0][2]), "the full frame repeats every batch")
+        # The camera is put back where it was.
+        self.assertEqual(parse_geometry_message(messages[1])[0]["camera"],
+                         parse_geometry_message(moves[-1][1])[0]["camera"])
 
     def test_the_replay_reports_one_row_per_frame_with_the_drivers_calls(self):
         stream = self.streams["phase_a"]
@@ -284,7 +357,7 @@ class BrowserFrames(unittest.TestCase):
             classes = browser_frames.assemble(report, variant, rows, stream.frames,
                                               environment=browser_frames.ENVIRONMENTS[variant],
                                               stream={"frames": len(rows)})
-            self.assertEqual(set(classes), set(browser_frames.CLASSES) - set(browser_frames.EDGE_CLASSES))
+            self.assertEqual(set(classes), {"pausepoint", "ticked", "play", "cold"})
         self.assertEqual([frame["checkpoint"] for frame in report["frames"]], [2, 4])
         first, second = report["frames"]
         for variant in browser_frames.VARIANTS:

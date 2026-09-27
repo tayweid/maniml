@@ -7,7 +7,10 @@
 //     node benchmarks/browser_frames.cjs <stream directory> [--realm main]
 //
 // The directory is the export recorder's folder (scene.json + scene.bin.gz).
-// The frames are rendered in order, as the viewer receives them: through the
+// A format 8 stream's (docs/phase_b4_plan.md, B4.8) holds a delta per
+// message and a length-0 entry where the engine sent nothing: the page
+// does nothing then, and its row is zeros. The frames are rendered in
+// order, as the viewer receives them: through the
 // viewer's renderer selection (renderer_selection.js), which routes each
 // message by its header's renderer, into the driver. Each frame is timed
 // twice with performance.now: js_ms around the driver's render (the header
@@ -33,10 +36,10 @@ function loadStream(directory) {
   const frames = [];
   let offset = 0;
   for (const frame of meta.frames) {
-    if (!Number.isInteger(frame.len) || frame.len <= 0 || offset + frame.len > data.length) {
+    if (!Number.isInteger(frame.len) || frame.len < 0 || offset + frame.len > data.length) {
       throw new Error("invalid frame length in the stream");
     }
-    frames.push(data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + frame.len));
+    frames.push(frame.len ? data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + frame.len) : null);
     offset += frame.len;
   }
   if (offset !== data.length) throw new Error("incomplete stream");
@@ -64,21 +67,37 @@ async function main(directory, realm) {
     try { return await d.renderer.render(bytes); } finally { js_ms = performance.now() - began; }
   }};
   const page = selection(realm, {triangles: timed, phase_b: timed});
-  const first = new Uint8Array(frames[0], 5, new DataView(frames[0], 1, 4).getUint32(0, true));
-  await page.select(JSON.parse(new TextDecoder().decode(first)).renderer);
+  const headerOf = bytes => JSON.parse(new TextDecoder().decode(
+    new Uint8Array(bytes, 5, new DataView(bytes, 1, 4).getUint32(0, true))));
+  await page.select(headerOf(frames.find(bytes => bytes !== null)).renderer);
   const rows = [];
-  let before = d.counts(), misses = d.cacheMisses();
+  let before = d.counts(), misses = d.cacheMisses(), shown = null;
   for (const [index, bytes] of frames.entries()) {
+    if (bytes === null) {
+      // Nothing was sent: the frame on screen stays, and the page runs no
+      // JavaScript for it.
+      const row = {index, js_ms: 0, page_ms: 0, wire_bytes: 0, header_bytes: 0, sent: false, ...shown,
+        cache_misses: 0};
+      for (const key of Object.keys(before)) row[key] = 0;
+      rows.push(row);
+      continue;
+    }
     const began = performance.now();
     const header = await page.render(bytes);
     const page_ms = performance.now() - began;
     if (!header) throw new Error(`the renderer selection dropped frame ${index}`);
     const after = d.counts();
+    shown = {batches: header.batches.length, cached_batches: header.batches.filter(batch => batch.cached).length};
     const row = {index, js_ms, page_ms, wire_bytes: bytes.byteLength,
-      header_bytes: new DataView(bytes, 1, 4).getUint32(0, true),
-      batches: header.batches.length,
-      cached_batches: header.batches.filter(batch => batch.cached).length,
+      header_bytes: new DataView(bytes, 1, 4).getUint32(0, true), sent: true, ...shown,
       cache_misses: d.cacheMisses() - misses};
+    const sent = headerOf(bytes);
+    if ("base" in sent) {
+      // A delta: its splices, the batches they carry, its scalars ops.
+      Object.assign(row, {splices: sent.splices.length,
+        spliced_batches: sent.splices.reduce((total, splice) => total + splice[2].length, 0),
+        scalars_ops: sent.scalars.length});
+    }
     for (const key of Object.keys(after)) row[key] = after[key] - before[key];
     before = after; misses = d.cacheMisses();
     rows.push(row);

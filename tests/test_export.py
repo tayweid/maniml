@@ -59,9 +59,10 @@ class WebExportE2E(unittest.TestCase):
 
             with open(os.path.join(out, "scene.json")) as f:
                 meta = json.load(f)
-            from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+            # The recorder never negotiates format 8: full frames, format 7.
+            from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION
 
-            self.assertEqual(meta["format_version"], GEOMETRY_FORMAT_VERSION)
+            self.assertEqual(meta["format_version"], FULL_FRAME_FORMAT_VERSION)
             self.assertEqual(meta["scene"], "ExportDemo")
             self.assertEqual(meta["segments"], 2)
             self.assertGreater(len(meta["frames"]), 10)
@@ -85,7 +86,7 @@ class WebExportE2E(unittest.TestCase):
                 offset += frame["len"]
                 header, vertex_bytes = parse_geometry_message(message)
                 self.assertEqual(
-                    header["format_version"], GEOMETRY_FORMAT_VERSION)
+                    header["format_version"], FULL_FRAME_FORMAT_VERSION)
                 self.assertEqual(header["unsupported"], [])
                 self.assertEqual(header["renderer"], "triangles")
                 self.assertEqual((header["samples"], header["supersample"]), (4, 2))
@@ -150,7 +151,7 @@ class PhaseBWebExportE2E(unittest.TestCase):
         import gzip
         import tempfile
         from unittest.mock import patch
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, parse_geometry_message
+        from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION, parse_geometry_message
 
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
                 os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets",
@@ -166,7 +167,7 @@ class PhaseBWebExportE2E(unittest.TestCase):
             out = os.path.join(tmp, "media", "PhaseBDemo_web")
             with open(os.path.join(out, "scene.json")) as f:
                 meta = json.load(f)
-            self.assertEqual((meta["format_version"], GEOMETRY_FORMAT_VERSION), (7, 7))
+            self.assertEqual((meta["format_version"], FULL_FRAME_FORMAT_VERSION), (7, 7))
             with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
                 blob = f.read()
 

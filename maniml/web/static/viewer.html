@@ -787,12 +787,16 @@ const rendererSession = new ManimlRendererSelection(canvas, {
 for (const driver of Object.values(rendererSession.drivers)) {
   driver.onCacheMiss = () => send({ type: "geometry_reset" });
 }
+// Every mode message says the page reads geometry format 8: the engine
+// sends a stream of deltas once every tab connected has said so, and
+// nothing at all for a frame that changes nothing (webgpu.js applies them).
+const GEOMETRY_FORMAT = 8;
 
 function sendRendererMode() {
   if (!rendererNegotiated) return;
   // Readiness and playback resumption never select a renderer. Only an
   // explicit dropdown change may change the engine's shared selection.
-  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback" });
+  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback", format: GEOMETRY_FORMAT });
   if (rendererSession.ready && stageSource !== "playback") send({ type: "geometry_request" });
 }
 
@@ -803,7 +807,7 @@ async function startRenderer(mode = rendererSession.mode, announce = true) {
   if (changed) geometryQueue = [];
   if (announce) {
     pendingRendererRequest = ++rendererRequest;
-    send({ type: "mode", geometry: false, renderer: mode,
+    send({ type: "mode", geometry: false, format: GEOMETRY_FORMAT, renderer: mode,
            renderer_origin: rendererOrigin, renderer_request: pendingRendererRequest });
   }
   rendererSelect.value = mode;
@@ -1065,7 +1069,7 @@ async function enterPlayback({ freshExport = false } = {}) {
     playbackMeta = meta;
     stageSource = "playback";
     document.body.classList.add("playback");
-    send({ type: "mode", geometry: false });  // engine sleeps
+    send({ type: "mode", geometry: false, format: GEOMETRY_FORMAT });  // engine sleeps
     playbackVideo.src = scenePrefix + "/present/scene.mp4";
     const startIndex = Math.min(
       lastLiveState ? Math.max(0, lastLiveState.current) : 0,
