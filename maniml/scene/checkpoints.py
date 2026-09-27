@@ -970,7 +970,7 @@ _LEDGER_IGNORED_ATTRS = frozenset({
     "data", "uniforms", "submobjects", "parents", "family", "updaters",
     "revision", "shader_wrapper", "bounding_box",
     "_needs_new_bounding_box", "_data_has_changed", "_is_animating",
-    "_has_updaters_in_family", "_triangulation_cache", "needs_new_joint_angles",
+    "_has_updaters_in_family", "_triangulation_cache", "_grid_cache", "needs_new_joint_angles",
     "needs_new_unit_normal", "subpath_end_indices", "outer_vert_indices",
     "_shader_wrapper_id",
     "_data",     # compared above, column by column, as ``data``
@@ -1092,8 +1092,9 @@ class LedgerEntry:
     their old frozen copies. `nattrs` is the attribute count at freeze
     time: a plain attribute write bumps nothing, so a mobject that gained
     or lost an attribute since is copied afresh (an attribute
-    reassigned to a different mobject is the one write this cannot see;
-    verify mode does)."""
+    reassigned to a different mobject is the one write a save cannot
+    see; verify mode does, and a thaw checks what every reference points
+    at before it hands a live object back)."""
     __slots__ = ("revision", "frozen", "reusable", "refs", "nattrs")
 
     def __init__(self, revision: int, frozen: Mobject, reusable: bool, refs: tuple, nattrs: int):
@@ -1318,12 +1319,26 @@ def _freeze(must_copy: dict, ledger: CheckpointLedger | None) -> tuple[dict, dic
     return copied, memo
 
 
+def _stand_ins(frozen_items, live_items, stand_in: dict) -> bool:
+    """Whether `live_items` are, one for one, what stands in for
+    `frozen_items` on this thaw (a mobject kept by reference stands for
+    itself)."""
+    return len(frozen_items) == len(live_items) and all(
+        live is (frozen if frozen.checkpoint_by_reference else stand_in.get(id(frozen)))
+        for frozen, live in zip(frozen_items, live_items))
+
+
 def _reusable_thaw_closure(ledger: CheckpointLedger, top: Mobject):
     """The (frozen, live, entry) triples for everything the frozen `top`
     reaches when every one of them still has a live object that is exactly
     it; else None. The freeze rule in reverse: a live object standing in
     for a frozen one keeps pointing at its live children and references,
-    so all of them must qualify too."""
+    so all of them must qualify too, and they must be the very objects
+    standing in for the frozen copy's. A live object's revision says
+    nothing about what its references point at: one kept alive outside
+    the scene while the mobject it follows was thawed into a newer copy
+    is unchanged itself, and handed back it would point outside the
+    thawed graph at a later state."""
     triples = []
     seen: set[int] = set()
     stack = [top]
@@ -1339,6 +1354,11 @@ def _reusable_thaw_closure(ledger: CheckpointLedger, top: Mobject):
         triples.append((frozen, live, entry))
         stack.extend(frozen.submobjects)
         stack.extend(_referenced(frozen, entry.refs))
+    stand_in = {id(frozen): live for frozen, live, _ in triples}
+    for frozen, live, entry in triples:
+        if not (_stand_ins(frozen.submobjects, live.submobjects, stand_in)
+                and _stand_ins(_referenced(frozen, entry.refs), _referenced(live, entry.refs), stand_in)):
+            return None
     return triples
 
 

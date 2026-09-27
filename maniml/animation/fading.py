@@ -187,9 +187,11 @@ class VFadeIn(Animation):
                 # What set_stroke/set_fill write for a member without
                 # points, without recursing: the members with points are
                 # each their own program, and a family-wide bump would
-                # supersede the ones already recorded this frame.
-                submob._data_defaults["stroke_rgba"][:, 3] = stroke
-                submob._data_defaults["fill_rgba"][:, 3] = fill
+                # supersede the ones already recorded this frame. The
+                # member's own bump supersedes nothing.
+                defaults = submob._style_rows()
+                defaults["stroke_rgba"][:, 3] = stroke
+                defaults["fill_rgba"][:, 3] = fill
                 return
             if ((pending is None or (pending["kind"] == "paint" and pending["sources"] == (start,)))
                     and submob.paint_program(start, stroke, fill, defer=mode == "gpu")):

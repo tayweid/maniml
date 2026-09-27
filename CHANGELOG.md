@@ -7,6 +7,18 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The serializer's bytes are pinned. `tests/test_retained_frame.py` asserts
+  blake2b digests of every frame's message over the renderer fixtures,
+  scripted synthetic sequences (among them a real `Scene`'s render groups,
+  textures, a run split at its output cap, uniforms-only plays and GPU
+  program draws) and frames of two course episodes, for Phase A and
+  Phase B, through one persistent geometry cache per case, recorded
+  before the first increment of the retained frame (docs/phase_b4_plan.md,
+  B4.0). The render caches read the cache policy and the verify switch once
+  per frame rather than once per leaf.
+- A surface net cache no longer loses count of its bytes when a replaced
+  surface inherits a dead one's id between frames; the leak filled the
+  64 MiB budget until every live net was evicted each frame.
 - The native renderer can time its GPU passes. `MANIML_GPU_TIMESTAMPS=1`
   requests Metal/WebGPU timestamp queries when the adapter offers them and,
   after every frame, `WgpuRenderer.gpu_timings` gives each pass's span and
@@ -161,6 +173,27 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- A style set on a path or group that has no points yet is checkpoint
+  state: colour, opacity, stroke width, border width and `stroke_behind`
+  written there bump its revision. Only members with points were bumped,
+  so the save after such a write reused the frozen copy, and a seek back
+  and a replay drew the path grey, thin and unfilled. A `Surface`'s
+  per-revision grid cache is render state the ledger's verify mode no
+  longer names.
+- A seek back no longer hands back a live object whose references point
+  outside the restored checkpoint. A mobject kept alive off screen while
+  the one it follows (`tent.follow = body`) was restored as a newer copy
+  came back pointing at that copy's later state; the thaw now reuses a
+  live object only when its submobjects and references are the objects
+  standing in for its frozen copy's.
+- A play that moves only uniforms (`.animate.set_anti_alias_width`,
+  `set_shading`) bumps the revision every frame, as a play that moves rows
+  does.
+- maniml parses its command line only when it is the program. The config
+  is read at import, so a host program's flags were taken as maniml's:
+  `python -m unittest discover -s tests -t .` gave every scene the suite
+  built a transparent background. `python -m maniml`, as the app and the
+  viewer launch a scene, and the `maniml` command parse the same one.
 - `Surface` accepts CE's spelling — `Surface(func, u_range, v_range,
   resolution=32, fill_color=..., fill_opacity=...)` — beside GL's (colour
   first, `uv_func` a method); CE's stroke, checkerboard and piece options

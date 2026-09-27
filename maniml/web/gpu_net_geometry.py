@@ -144,6 +144,7 @@ class NetRecipeCache:
         self._bytes = 0
         self.updates = 0
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
 
     @property
     def nbytes(self):
@@ -151,7 +152,9 @@ class NetRecipeCache:
 
     def begin_frame(self):
         self.frame += 1
+        # Read once per frame: ``source`` is asked per surface.
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
 
     def clear(self):
         self.entries.clear()
@@ -166,14 +169,23 @@ class NetRecipeCache:
             key = next(iter(self.entries))
             self._bytes -= self.entries.pop(key).net.nbytes
 
-    def source(self, surface, *, revision=None, pixels_per_unit, frame_scale):
-        """The surface's net entry, reserved for this zoom."""
+    def _previous(self, surface):
+        """The surface's entry, or None. An entry at its id whose owner is
+        another object is a dead surface's whose id CPython handed on
+        before a finish_frame saw it die: dropped here, bytes and all, or
+        the overwrite would leave its bytes counted for good."""
         previous = self.entries.get(id(surface))
         if previous is not None and previous.owner() is not surface:
+            self._bytes -= self.entries.pop(id(surface)).net.nbytes
             previous = None
+        return previous
+
+    def source(self, surface, *, revision=None, pixels_per_unit, frame_scale):
+        """The surface's net entry, reserved for this zoom."""
+        previous = self._previous(surface)
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
-        if trusted and verify_render_cache():
+        if trusted and self.verify:
             fresh = surface.data.tobytes()
             if fresh != previous.data_bytes:
                 from maniml.web.border_geometry import RenderCacheStale
@@ -212,9 +224,7 @@ class NetRecipeCache:
         rows, channels = surface.get_num_points(), surface._data.dtype.itemsize // 4
         if nu * nv != rows or any(s.shape != (rows, channels) for s in sources):
             return None
-        previous = self.entries.get(id(surface))
-        if previous is not None and previous.owner() is not surface:
-            previous = None
+        previous = self._previous(surface)
         key = tuple(id(s) for s in sources)
         if previous is None or previous.data_bytes != key:
             density = max(float(bezier_net.second_difference(

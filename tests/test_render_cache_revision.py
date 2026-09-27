@@ -82,13 +82,15 @@ class BorderSourceRevision(unittest.TestCase):
         cache.source(mob, UNIFORMS, revision=mob.revision)
         cache.finish_frame()
         mob.data["point"][:, 0] += .5
-        cache.begin_frame()
+        # The switch is read at begin_frame, once for the frame's reads.
         with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1"}):
+            cache.begin_frame()
             with self.assertRaisesRegex(RenderCacheStale, "Circle changed in 'data'"):
                 cache.source(mob, UNIFORMS, revision=mob.revision)
         # Without verification the reuse is stale: the policy's documented
         # contract is that every mutation goes through a bumping method.
         with no_verify:
+            cache.begin_frame()
             self.assertTrue(np.array_equal(cache.source(mob, UNIFORMS, revision=mob.revision),
                                            cache.source(mob, UNIFORMS, revision=mob.revision)))
 
@@ -181,6 +183,39 @@ class MeshCacheRevision(unittest.TestCase):
         self.assertEqual(copy.revision, circle.revision)
         replaced = self.prepare(build_scene(copy), cache)
         self.assertEqual(replaced.mesh_cache_stats["regenerations"], 1)
+
+    def test_the_policy_and_verify_switch_are_read_once_per_frame(self):
+        # prepare_triangle_frame's loop once asked the environment per leaf
+        # (classify, the mesh source, the border source); the caches read
+        # both at begin_frame and hand them to their reads, so a frame's
+        # reads do not grow with the scene.
+        from contextlib import ExitStack
+        from maniml.web import gpu_border_geometry, gpu_net_geometry
+        originals = {name: getattr(border_geometry, name)
+                     for name in ("render_cache_policy", "verify_render_cache")}
+
+        def reads_per_frame(count):
+            scene = build_scene(*(shape().shift([.3 * i, 0, 0]) for i in range(count)))
+            cache = TriangleMeshCache()
+            self.prepare(scene, cache)
+            calls = dict.fromkeys(originals, 0)
+
+            def counting(name):
+                def read():
+                    calls[name] += 1
+                    return originals[name]()
+                return read
+
+            with ExitStack() as stack:
+                for module in (triangle_scene, border_geometry, gpu_border_geometry, gpu_net_geometry):
+                    for name in originals:
+                        stack.enter_context(patch.object(module, name, counting(name)))
+                self.prepare(scene, cache)
+            return calls
+
+        two, eight = reads_per_frame(2), reads_per_frame(8)
+        self.assertEqual(two, eight)
+        self.assertLessEqual(max(two.values()), 3)
 
     def test_serialized_frames_agree_between_policies(self):
         scene = build_scene(shape(), Square(fill_opacity=.5, stroke_width=0, fill_border_width=2))

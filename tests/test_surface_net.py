@@ -111,6 +111,39 @@ class NetAlignment(unittest.TestCase):
         self.assertEqual(coarse.get_num_points(), fine.get_num_points())
 
 
+class NetCacheAccounting(unittest.TestCase):
+    def test_a_dead_surfaces_entry_is_taken_off_when_its_id_comes_back(self):
+        # CPython hands a dead object's id to the next one made, so a
+        # surface replaced between two frames can find its predecessor's
+        # entry at its own id before any finish_frame saw that one die.
+        # The entry was overwritten with its bytes still counted: the
+        # budget filled with nothing until it evicted every live net.
+        import gc
+        from maniml.web.gpu_net_geometry import NetRecipeCache
+
+        def net(cache, surface):
+            return cache.source(surface, revision=surface.revision, pixels_per_unit=100, frame_scale=1)
+
+        def program(cache, surface):
+            rows = np.zeros((surface.get_num_points(), surface.data.dtype.itemsize // 4), dtype="f4")
+            return cache.program_entry(surface, [rows, rows], pixels_per_unit=100, frame_scale=1)
+
+        for what, read in (("source", net), ("program_entry", program)):
+            with self.subTest(what):
+                cache, surface = NetRecipeCache(), Sphere(resolution=(7, 5))
+                cache.begin_frame()
+                net(cache, Sphere(resolution=(9, 9)))   # dies before the frame ends
+                gc.collect()
+                entry = cache.entries.pop(next(iter(cache.entries)))
+                self.assertIsNone(entry.owner())
+                cache.entries[id(surface)] = entry   # the state an id reuse leaves
+                read(cache, surface)
+                self.assertIs(cache.entries[id(surface)].owner(), surface)
+                self.assertEqual(cache.nbytes, sum(held.net.nbytes for held in cache.entries.values()))
+                cache.finish_frame()
+                self.assertEqual(cache.nbytes, sum(held.net.nbytes for held in cache.entries.values()))
+
+
 if __name__ == "__main__":
     unittest.main()
 

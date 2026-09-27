@@ -39,7 +39,8 @@ def render_cache_policy():
 def verify_render_cache():
     """With MANIML_VERIFY_LEDGER=1 every revision-keyed reuse is checked
     against the live arrays and a miss raises naming the attribute, the same
-    switch the checkpoint ledger uses."""
+    switch the checkpoint ledger uses. The caches read it, like the policy,
+    once per frame in ``begin_frame`` and hand it to their reads."""
     return os.environ.get(VERIFY_ENV) == "1"
 _REQUIRED = {"point", "fill_rgba", "fill_border_width", "joint_angle", "base_normal"}
 _BORDER_DTYPE = np.dtype([("point", "f4", 3), ("fill_rgba", "f4", 4),
@@ -97,17 +98,19 @@ class BorderSource:
     frame_scale: float
 
     @classmethod
-    def read(cls, mobject, uniforms, *, previous=None, budget=True, trusted=False):
+    def read(cls, mobject, uniforms, *, previous=None, budget=True, trusted=False, verify=None):
         """Reuse expanded curves after exact canonical-data comparison, or on
         the caller's word that the source revision is unchanged.
 
         ``trusted`` says the caller saw the same ``Mobject.revision`` as when
         ``previous`` was read; the checkpoint ledger relies on that counter
         for correctness, and under MANIML_VERIFY_LEDGER=1 the bytes are still
-        compared and a stale reuse raises naming the attribute. Custom source
-        getters may depend on arbitrary state, so their output is read every
-        time. Standard getters also honor dirty normals/joints and direct
-        edits of the derived expansion indices before taking a fresh snapshot.
+        compared and a stale reuse raises naming the attribute (``verify`` is
+        that switch as the caller's cache read it for the frame; None asks
+        the environment). Custom source getters may depend on arbitrary
+        state, so their output is read every time. Standard getters also
+        honor dirty normals/joints and direct edits of the derived expansion
+        indices before taking a fresh snapshot.
 
         ``budget`` enforces the CPU emitter's triangle bound; the GPU recipe
         path sizes its own fixed-capacity output and passes False.
@@ -117,7 +120,7 @@ class BorderSource:
                    and not mobject.needs_new_joint_angles and not mobject.needs_new_unit_normal)
         if current and trusted:
             reuse = True
-            if verify_render_cache():
+            if verify_render_cache() if verify is None else verify:
                 for name, live, kept in (("data", mobject.data, previous.raw_data),
                                          ("outer_vert_indices", mobject.outer_vert_indices,
                                           previous.raw_indices)):

@@ -250,15 +250,16 @@ class _MeshSource:
     contour_rule: object = None
 
     @classmethod
-    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None, trusted=False):
+    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None, trusted=False, verify=None):
         """Snapshot the fill's source. ``trusted`` says the caller saw the
         same ``Mobject.revision`` as when ``previous`` was read: the snapshot
         is reused without reading the arrays, unless a custom getter or
         contour rule could depend on other state. Under MANIML_VERIFY_LEDGER=1
-        the arrays are read anyway and a stale reuse raises."""
+        (``verify``, as the caller's cache read it for the frame; None asks
+        the environment) the arrays are read anyway and a stale reuse raises."""
         if (trusted and previous is not None and previous.contour_rule is _DEFAULT_CONTOUR_METHOD
                 and _standard_mesh_getters(mobject)):
-            if verify_render_cache():
+            if verify_render_cache() if verify is None else verify:
                 fresh = cls.read(mobject, border_settings, previous=previous)
                 for name, kept, live in (("points", previous.points, fresh.points),
                                          ("fill_rgba", previous.rgba, fresh.rgba),
@@ -403,7 +404,8 @@ def _prepare_border_geometry(records, mesh_cache):
         previous = None if entry is None else entry.coverage_geometry
         source = BorderSource.read(mobject, uniforms,
                                    previous=None if previous is None else previous.source,
-                                   trusted=previous is not None and mesh_cache.trusts(mobject))
+                                   trusted=previous is not None and mesh_cache.trusts(mobject),
+                                   verify=None if mesh_cache is None else mesh_cache.verify)
         if previous is not None and previous.source == source:
             count = previous.border_vertex_count
             border = previous.vertices[-count:] if count else previous.vertices[:0]
@@ -543,6 +545,7 @@ class TriangleMeshCache:
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
 
     @property
     def stats(self):
@@ -578,7 +581,9 @@ class TriangleMeshCache:
             self._generator_key = key
         self._frame += 1
         self._projections.clear()
+        # Read once per frame: the preparation loop asks per leaf.
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         for owner_id, entry in list(self._entries.items()):
             if entry.owner() is None:
                 self._remove(owner_id)
@@ -591,7 +596,7 @@ class TriangleMeshCache:
         held = self._classes.get(owner_id)
         if (held is not None and self.policy == "revision" and held[0]() is mobject
                 and held[1] == mobject.revision):
-            if verify_render_cache():
+            if self.verify:
                 fresh = classify_source(mobject)
                 if fresh != held[2]:
                     raise RenderCacheStale(
@@ -665,7 +670,8 @@ class TriangleMeshCache:
         source = _MeshSource.read(mobject, border_settings,
                                   previous=entry.source if held else None,
                                   trusted=held and self.trusts(mobject)
-                                  and not mobject.needs_new_unit_normal)
+                                  and not mobject.needs_new_unit_normal,
+                                  verify=self.verify)
         if entry is not None:
             same_paint = entry.source.rgba is source.rgba or np.array_equal(entry.source.rgba, source.rgba)
             paint_refresh = same_paint or (len(source.rgba) > 0 and np.isfinite(source.rgba).all()

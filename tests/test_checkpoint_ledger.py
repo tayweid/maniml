@@ -8,14 +8,18 @@ catches a mutation site the counter missed, by naming the attribute.
 
 import os
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
+from maniml.constants import RED
 from maniml.mobject.geometry import Circle
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.geometry import Square
+from maniml.mobject.three_dimensions import Sphere
 from maniml.mobject.types.dot_cloud import DotCloud
 from maniml.mobject.types.vectorized_mobject import VGroup
+from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.value_tracker import ValueTracker
 from maniml.scene.checkpoints import DERIVED_DATA_KEYS
 from maniml.scene.checkpoints import ledger_stale_attribute
@@ -77,6 +81,47 @@ class RevisionBumps(unittest.TestCase):
                 if what in ("lock_data",):
                     mob.clear_updaters()   # lock_data is a no-op with updaters
                 self.assertBumps(mob, action, what)
+
+    def test_a_style_write_to_a_member_without_points_bumps_it(self):
+        # A path or group with no points keeps its style in the one-row
+        # defaults its first points copy. The family bumps reach only the
+        # members with points, so each of these once bumped nothing and
+        # the save after it reused the frozen copy with the old style.
+        cases = [
+            ("set_color", lambda m: m.set_color("#ff0000")),
+            ("set_opacity", lambda m: m.set_opacity(0.3)),
+            ("set_fill", lambda m: m.set_fill("#00ff00", 0.5)),
+            ("set_fill border_width", lambda m: m.set_fill(border_width=2)),
+            ("set_stroke width", lambda m: m.set_stroke(width=12)),
+            ("set_stroke behind", lambda m: m.set_stroke(behind=True)),
+            ("set_rgba_array", lambda m: m.set_rgba_array([1, 0, 0, 1], name="stroke_rgba")),
+        ]
+        for what, action in cases:
+            for kind, mob in (("an empty path", VMobject()), ("an empty group", VGroup())):
+                with self.subTest(what, kind=kind):
+                    self.assertBumps(mob, action, f"{what} on {kind}")
+        for kind, mob in (("an empty path", VMobject()), ("an empty group", VGroup())):
+            with self.subTest("nothing written", kind=kind):
+                mob.set_stroke(behind=False)
+                self.assertKeeps(mob, lambda m: m.set_stroke(behind=False), f"an unchanged flag on {kind}")
+                self.assertKeeps(mob, lambda m: m.set_stroke(), f"set_stroke() on {kind}")
+
+    def test_an_interpolation_that_moves_only_uniforms_bumps(self):
+        # A play of anti_alias_width alone: lock_matching_data locks every
+        # column, so no row write bumped while the uniform moved every
+        # frame; a renderer trusting the revision kept the first frame's.
+        start, end = Square(), Square().set_anti_alias_width(6)
+        steps = (("interpolate", lambda m: m.interpolate(start, end, 0.5)),
+                 ("blend_program", lambda m: m.blend_program(start, end, 0.5, defer=True)))
+        for what, step in steps:
+            with self.subTest(what):
+                mob = start.copy()
+                mob.lock_matching_data(start, end)
+                self.assertBumps(mob, step, what)
+                self.assertEqual(mob.uniforms["anti_alias_width"], 0.5 * (1.5 + 6))
+        still = start.copy()
+        still.lock_matching_data(start, start.copy())
+        self.assertKeeps(still, lambda m: m.interpolate(start, start, 0.5), "a play that moves nothing")
 
     def test_tracker_and_cloud_uniform_writes_bump(self):
         self.assertBumps(ValueTracker(1.0), lambda t: t.set_value(2.0), "ValueTracker.set_value")
@@ -187,6 +232,11 @@ class VerifyComparison(unittest.TestCase):
         live.locked_data_keys = {"point"}
         self.assertEqual(ledger_stale_attribute(live, frozen), "locked_data_keys")
 
+        live = Square()
+        frozen = live.deepcopy()
+        live.set_stroke(behind=True)
+        self.assertEqual(ledger_stale_attribute(live, frozen), "stroke_behind")
+
         live, frozen = self.frozen_pair()
         live.submobjects.pop()
         self.assertEqual(ledger_stale_attribute(live, frozen), "submobjects")
@@ -198,6 +248,12 @@ class VerifyComparison(unittest.TestCase):
         live.bounding_box = live.bounding_box + 1
         live.get_family()
         self.assertIsNone(ledger_stale_attribute(live, frozen))
+        # A surface's grid is evaluated from its net per revision when a
+        # renderer asks; the frozen copy was taken before anyone did.
+        sphere = Sphere(resolution=(5, 5))
+        frozen = sphere.deepcopy()
+        sphere.get_grid_data()
+        self.assertIsNone(ledger_stale_attribute(sphere, frozen))
 
     def test_memo_decides_submobject_identity_when_given(self):
         live, frozen = self.frozen_pair()
@@ -258,13 +314,15 @@ LEDGER_SCENE = textwrap.dedent('''\
 
 
 class LedgerSceneTest(unittest.TestCase):
+    SOURCE, SCENE_NAME = LEDGER_SCENE, 'LedgerScene'
+
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.scene_file = os.path.join(self.tmpdir.name, 'ledger_scene.py')
         with open(self.scene_file, 'w') as f:
-            f.write(LEDGER_SCENE)
+            f.write(self.SOURCE)
         module = load_scene_module(self.scene_file)
-        self.scene = module.LedgerScene(window=None)
+        self.scene = getattr(module, self.SCENE_NAME)(window=None)
         self.scene._scene_filepath = self.scene_file
         self.scene.skip_animations = True
         self.scene.setup()
@@ -394,6 +452,103 @@ class LedgerReuse(LedgerSceneTest):
         entries = self.scene.checkpoint_ledger.entries
         self.assertLessEqual(len(entries), 2 * len(live_mobjects) + 4,
                              "entries outliving their live mobjects")
+
+
+EMPTY_PATH_STYLE_SCENE = textwrap.dedent('''\
+    from maniml import *
+
+    class EmptyPathStyleScene(Scene):
+        def construct(self):
+            outline = VMobject(fill_opacity=0.5, stroke_width=4)
+            self.add(outline)
+            self.play(FadeIn(Dot()), run_time=0.05)                    # checkpoint 1
+            outline.set_stroke(RED, width=12)                          # no points yet
+            outline.set_fill(BLUE, opacity=0.7)
+            self.play(FadeIn(Dot()), run_time=0.05)                    # checkpoint 2
+            outline.set_stroke(behind=True)                            # still none
+            self.play(FadeIn(Dot()), run_time=0.05)                    # checkpoint 3
+            outline.set_points_as_corners([LEFT, UP, RIGHT, LEFT])
+            self.play(FadeIn(Dot()), run_time=0.05)                    # checkpoint 4
+''')
+
+
+class EmptyPathStyleIsCheckpointState(LedgerSceneTest):
+    """A style set on a path before it has points is what its first
+    points are made from. Each write once bumped nothing: the save after
+    it reused the frozen copy with the old style (under verify the reuse
+    raised naming '_data_defaults' or 'stroke_behind'), and a seek back
+    and a replay drew a grey, thin, unfilled path in front of its fill."""
+
+    SOURCE, SCENE_NAME = EMPTY_PATH_STYLE_SCENE, 'EmptyPathStyleScene'
+
+    def assertStyled(self, outline):
+        self.assertEqual(outline.get_stroke_color(), RED)
+        self.assertEqual(outline.get_stroke_width(), 12)
+        self.assertAlmostEqual(outline.get_fill_opacity(), 0.7, places=6)
+
+    def test_the_checkpoints_saved_after_the_writes_hold_them(self):
+        with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1"}):
+            self.run_to(3)
+        self.assertEqual(self.scene.current_animation_index, 3)
+        first, styled, behind = (self.cp(index, 'outline') for index in (1, 2, 3))
+        self.assertIsNot(first, styled)
+        self.assertEqual(first.get_stroke_width(), 4)
+        self.assertStyled(styled)
+        self.assertFalse(styled.stroke_behind)
+        self.assertIsNot(styled, behind)
+        self.assertTrue(behind.stroke_behind)
+
+    def test_a_seek_back_and_replay_draws_the_style(self):
+        with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1"}):
+            self.run_to(4)
+            self.scene._restore_checkpoint_for_display(2)
+            self.scene.run_next_animation()
+            self.scene.run_next_animation()
+        self.assertEqual(self.scene.current_animation_index, 4)
+        outline = self.scene._live_namespace['outline']
+        self.assertTrue(outline.has_points())
+        self.assertStyled(outline)
+        self.assertTrue(outline.stroke_behind)
+
+
+FOLLOW_SCENE = textwrap.dedent('''\
+    from maniml import *
+
+    class FollowScene(Scene):
+        def construct(self):
+            body = Dot(color=RED)
+            self.add(body)
+            self.play(FadeIn(Square()), run_time=0.05)               # checkpoint 1
+            tent = VGroup(Dot(), Dot().shift(RIGHT))
+            tent.follow = body                                       # assigned once, never rebound
+            self.add(tent)
+            self.play(FadeIn(Circle()), run_time=0.05)               # checkpoint 2
+            self.remove(tent)
+            self.kept = [tent]                                       # alive, outside every checkpoint
+            tent = None                                              # the name moves on
+            self.play(body.animate.set_color(BLUE), run_time=0.05)   # checkpoint 3
+''')
+
+
+class AHandedBackObjectPointsIntoTheThawedGraph(LedgerSceneTest):
+    SOURCE, SCENE_NAME = FOLLOW_SCENE, 'FollowScene'
+
+    def test_a_reference_is_the_thawed_object_it_stood_for(self):
+        # The kept tent is unchanged itself, but the body it follows was
+        # thawed into a newer copy (checkpoint 1). A thaw of checkpoint 2
+        # handed the tent back pointing at the blue body while the
+        # checkpoint's own body is red, and under verify it raised naming
+        # 'follow': a live object is handed back only when its submobjects
+        # and references are the very objects standing in for its frozen
+        # copy's.
+        with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1"}):
+            self.run_to(3)
+            self.scene._restore_checkpoint_for_display(1)
+            self.scene._restore_checkpoint_for_display(2)
+        shown = self.scene._live_namespace
+        self.assertIs(shown['tent'].follow, shown['body'])
+        self.assertEqual(shown['body'].get_color(), self.cp(2, 'body').get_color())
+        self.assertIsNot(shown['tent'], self.scene.kept[0])
 
 
 class VerifyModeCatchesABypass(unittest.TestCase):

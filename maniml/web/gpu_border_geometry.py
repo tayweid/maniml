@@ -415,6 +415,7 @@ class BorderRecipeCache:
         self.source_updates = 0
         self.assemblies = 0
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         self._validated = set()
 
     @property
@@ -423,7 +424,9 @@ class BorderRecipeCache:
 
     def begin_frame(self):
         self.frame += 1
+        # Read once per frame: ``source`` is asked per leaf.
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         self._validated = set()
 
     def _validate(self, uniforms):
@@ -483,7 +486,7 @@ class BorderRecipeCache:
             previous = None
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
-        if trusted and not verify_render_cache() and id(mobject) in self.capacities:
+        if trusted and not self.verify and id(mobject) in self.capacities:
             # Nothing in the packed curves depends on the camera; a zoom only
             # changes how many steps each curve gets, which the compute stage
             # decides for itself. All the CPU must know is whether the
@@ -497,7 +500,7 @@ class BorderRecipeCache:
         # output is fixed capacity, already sized and checked against the
         # device's buffer limits by the drivers, so the budget would only
         # turn a deep zoom into a render error.
-        source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted,
+        source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted, verify=self.verify,
                                    previous=None if previous is None else previous.source)
         rgba = np.asarray(mobject.data["fill_rgba"][0], dtype="<f4")
         self._reserve(mobject, source, frame_scale=uniforms["frame_scale"])
