@@ -118,6 +118,21 @@ jobs:
           tests.test_present_bundle
           tests.test_rail_sim
 
+      # The step above runs the serializer's pin and the retained frame's
+      # lockstep tests with the default switch, the retained frame on. The
+      # golden digests are the whole-frame path's bytes, asserted on that
+      # path here, and verify mode reads again every leaf the retained
+      # frame keeps (docs/phase_b4_plan.md, B4.5).
+      - name: Run the serializer's pin with the retained frame off
+        env:
+          MANIML_RETAINED_FRAME: "0"
+        run: uv run --locked python -m unittest tests.test_retained_frame tests.test_generated_geometry
+
+      - name: Run the serializer's pin under verification
+        env:
+          MANIML_VERIFY_LEDGER: "1"
+        run: uv run --locked python -m unittest tests.test_retained_frame tests.test_generated_geometry
+
       - name: Audit locked dependencies
         if: matrix.python == '3.14'
         run: uv audit --locked

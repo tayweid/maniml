@@ -1,16 +1,18 @@
 """The retained frame: tier 1 of Phase B4 (docs/phase_b4_plan.md).
 
-Under MANIML_RETAINED_FRAME=1 a GeometryCache keeps, per drawn leaf, the
-draws prepare_leaf made for it and what they were made under, and a frame
-prepares again only the leaves it cannot keep. The draw order is walked
-again every frame, so CE's family order, fixed-frame groups last and the
-render-group rejoin are decided exactly as prepare_triangle_frame decides
-them; coalesce_draws closes every run, with the run kind memoized on each
-draw and a run's combination memoized by its members' identities; and a
-run whose members, camera and receiver are unchanged reuses its encoded
-descriptor. The message is the one serialize_generated_frame writes for the
-same GeometryCache history, byte for byte: nothing on the wire, in the
-browser, in native capture or in a recording changes.
+A GeometryCache keeps, per drawn leaf, the draws prepare_leaf made for it
+and what they were made under, and a frame prepares again only the leaves
+it cannot keep. It is the default; MANIML_RETAINED_FRAME=0 prepares and
+encodes every frame whole (prepare_triangle_frame, serialize_generated_frame),
+the path it is held to. The draw order is walked again every frame, so
+CE's family order, fixed-frame groups last and the render-group rejoin are
+decided exactly as prepare_triangle_frame decides them; coalesce_draws
+closes every run, with the run kind memoized on each draw and a run's
+combination memoized by its members' identities; and a run whose members,
+camera and receiver are unchanged reuses its encoded descriptor. The
+message is the one serialize_generated_frame writes for the same
+GeometryCache history, byte for byte: nothing on the wire, in the browser,
+in native capture or in a recording changes.
 
 A leaf is kept while prepare_leaf would make the same draws for it. Its
 revision unchanged and the frame's camera the one its draws were made
@@ -26,7 +28,9 @@ were read from, which are not always the arrays as prepare_leaf found
 them: a cache that holds a read made at the same revision hands that back
 without reading them (cached_read), so a leaf whose rows its last entry
 cannot vouch for is not compared, and its next moved revision has it read
-in full. A camera that moved is checked through the caches' own paths:
+in full. They are the border source's own frozen copy where the frame read
+one (held_rows), and the entry's copy only where no cache holds the whole
+rows. A camera that moved is checked through the caches' own paths:
 the mesh's error bound where mesh() takes it, the border and net
 reservations as their trusted reads recompute them, and a stroke's count
 from its largest curve (geometry._stroke_verts_at); a fill mesh the cache
@@ -39,21 +43,17 @@ The walk decides what it can from each leaf as it stands before any leaf
 is read, and the reads come after, in draw order, as the frame's loop
 makes them. A read writes to the scene (a path's refresh of its derived
 columns) and reads other leaves (a program packs its endpoints' rows as
-they stand), so a kept leaf is left as its read would leave it in its own
-place in the order, and a leaf whose revision an earlier leaf's read moved
-is prepared there. What the frame's loop reads every frame and no
-revision covers is checked every frame: the depth-test and stroke-behind
-attributes, the leaf's getters (a leaf whose rows come through a getter
-of its own is prepared every frame) and a textured leaf's files, which
-are hashed again.
-
-An in-place write to a kept leaf's arrays or uniforms that bumps no
-revision stays off the screen until the revision moves, where the
-frame's loop would draw it on its next frame: the revision contract the
-checkpoint ledger already rests on, which verify mode checks at a save,
-is here a per-frame one. Under verification every leaf is prepared, so
-verify mode does not yet check the kept leaves themselves (B4.5 rebuilds
-and compares them).
+they stand), so a kept leaf is left as its read would leave it in its
+own place in the order, and a leaf whose revision an earlier leaf's read
+moved is prepared there. The only code the loop runs that is not the
+library's is a getter of a leaf's own, which may write to any mobject
+without a bump, and such a leaf is prepared: once one has run, a leaf
+the walk compared is compared again in its own place, before anything is
+written or stamped for it. What the frame's loop reads every frame and
+no revision covers is checked every frame: the depth-test and
+stroke-behind attributes, the leaf's getters (a leaf whose rows come
+through a getter of its own is prepared every frame) and a textured
+leaf's files, which are hashed again.
 
 A path that leaves the walk is retired rather than forgotten: its entry
 is parked under a digest of its content (leaf_digest), and a path the
@@ -76,9 +76,37 @@ budget, at the end of a frame: during one, what earlier frames parked
 stays while the caches fill again, as the border cache keeps the share
 the frame began with (the budget bounds what is retained between
 frames, not a peak).
+
+An in-place write to a kept leaf's arrays or uniforms that bumps no
+revision stays off the screen until the revision moves, where the
+frame's loop would draw it on its next frame: the revision contract the
+checkpoint ledger already rests on, which verify mode checks at a save,
+is here a per-frame one, and verify mode checks it every frame. Under
+MANIML_VERIFY_LEDGER=1 (the switch the caches read in begin_frame) the
+frame decides which leaves to keep as it would without it, and then
+reads each one in its place as the frame's loop would, through the same
+caches, with nothing written to the leaf or stamped on the caches for it
+first: the read refreshes the leaf itself, the caches compare what a
+stamp would have had them trust and run their own checks, and the kept
+draws are held to the read's, and so are the rows they were made from
+where a moved revision was judged by them or a surface's read hands back
+the grid cached at its revision (RetainedFrame._verify_kept). Where they
+differ it raises RenderCacheStale naming the leaf, its place in the draw
+order and what moved: as a write that bumped nothing where the keep
+rested on the revision alone, as the retained frame's own rule where it
+judged a moved revision or a camera move harmless (stale_leaf). The kept
+draws stay in the frame and the leaf's entry is made again from what the
+read left in the caches, so the next frame decides as it would without
+verification. A leaf that would adopt a retired entry is prepared
+instead (and counted so), as the frame's loop prepares a new object, and
+the entry's draws and uniform set are held to that read's, which checks
+what an adoption rests on (a fill mesh generated again at the same
+camera is the same bytes). Under MANIML_RENDER_CACHE=bytes, whose caches
+compare every array every frame, no leaf is kept, retired or adopted.
 """
 
 from collections import OrderedDict
+from dataclasses import fields
 import hashlib
 import json
 import os
@@ -93,15 +121,15 @@ from maniml.mobject.types.surface import Surface
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.types.vmobject_3d import VMobject3D
 from maniml.scene.checkpoints import DERIVED_DATA_KEYS
-from maniml.web.border_geometry import _STANDARD_SOURCE_METHODS
+from maniml.web.border_geometry import _STANDARD_SOURCE_METHODS, RenderCacheStale, _same_bytes
 from maniml.web.generated_geometry import (
     BatchRecord, MessageParts, _supersample, assemble_message, encode_draw, held_batch,
 )
 from maniml.web.geometry import _jsonable, _stroke_sqrt_area, _stroke_verts_at
 from maniml.web.gpu_net_geometry import pixels_per_unit
 from maniml.web.triangle_scene import (
-    CLASSIFY_COLUMNS, _STANDARD_MESH_GETTERS, _prepare_border_geometry, begin_triangle_frame, border_parts,
-    combine_run, draw_order, finish_triangle_frame, patch_parts, prepare_leaf, run_kind,
+    CLASSIFY_COLUMNS, _STANDARD_MESH_GETTERS, TriangleDraw, _prepare_border_geometry, begin_triangle_frame,
+    border_parts, combine_run, draw_order, finish_triangle_frame, patch_parts, prepare_leaf, run_kind,
 )
 
 RETAINED_FRAME_ENV = "MANIML_RETAINED_FRAME"
@@ -145,8 +173,13 @@ _LIBRARY_GETTER_CLASSES = {}
 
 
 def retained_frame_enabled():
-    """Whether MANIML_RETAINED_FRAME=1 asks for the retained frame."""
-    return os.environ.get(RETAINED_FRAME_ENV) == "1"
+    """Whether the serializer keeps draws across frames: unless
+    MANIML_RETAINED_FRAME=0 asks for the serializer as it stood before
+    (docs/phase_b4_plan.md). Both write the same bytes."""
+    value = os.environ.get(RETAINED_FRAME_ENV, "1")
+    if value not in ("0", "1"):
+        raise ValueError("MANIML_RETAINED_FRAME must be '0' or '1'")
+    return value == "1"
 
 
 def library_getters(sm):
@@ -370,7 +403,7 @@ def cached_read(sm, ctx):
     return False
 
 
-def held_rows(sm, cached, previous, current):
+def held_rows(sm, cached, previous, current, frozen=None):
     """The rows a leaf's draws were read from, for the entry of a leaf
     prepare_leaf has just read: its rows as the read left them, frozen, or
     ``previous.rows`` (its last entry's) where those are the same bytes.
@@ -382,16 +415,140 @@ def held_rows(sm, cached, previous, current):
     its rows) and the arrays still hold them. Any other rows (a write
     since then that bumped nothing, a read made before this object knew
     the leaf) are not known, and None: the leaf is not compared, and its
-    next moved revision has it read in full."""
+    next moved revision has it read in full.
+
+    ``frozen``: the border source's own frozen copy of the rows
+    (BorderSource.raw_data), where the frame read one for the leaf. With no
+    read cached at the revision, that read was made in this prepare_leaf,
+    from the rows after its refresh, and nothing the leaf's later reads
+    write changes a byte of them (the base points again, the same
+    values): the rows as the read left them, with no copy of the leaf's
+    own. A path the caches hold no whole rows of (a stroke, a fill read
+    from its mesh alone, a surface) is copied."""
     live, rows = sm._data, None if previous is None else previous.rows
     if ((current or not cached) and rows is not None and rows.dtype == live.dtype and rows.shape == live.shape
             and rows.tobytes() == live.tobytes()):
         return rows
     if cached:
         return None
+    if frozen is not None and frozen.dtype == live.dtype and frozen.shape == live.shape:
+        return frozen
     rows = live.copy()
     rows.flags.writeable = False
     return rows
+
+
+# The fields of a draw, every one of which the message may print.
+_DRAW_FIELDS = tuple(field.name for field in fields(TriangleDraw))
+
+
+def _text(value, texts):
+    """``value``'s JSON text, memoized in ``texts`` by identity (a leaf's
+    draws share their uniforms), or the value itself where it has none."""
+    held = texts.get(id(value), texts)
+    if held is texts:
+        try:
+            held = json.dumps(value)
+        except (TypeError, ValueError):
+            held = value
+        texts[id(value)] = held
+    return held
+
+
+def _same_value(kept, read, texts):
+    """Whether two values of a draw's field print alike: arrays by dtype,
+    shape and bytes, containers by their JSON text (1 and 1.0, 0.0 and -0.0
+    are equal and print differently), a float by its repr, which is its
+    JSON spelling, and the rest by equality."""
+    if kept is read:
+        return True
+    if isinstance(kept, np.ndarray) or isinstance(read, np.ndarray):
+        return isinstance(kept, np.ndarray) and isinstance(read, np.ndarray) and _same_bytes(kept, read)
+    if type(kept) is not type(read):
+        return False
+    if isinstance(kept, (dict, list, tuple)):
+        return _text(kept, texts) == _text(read, texts)
+    if type(kept) is float:
+        return repr(kept) == repr(read)
+    return kept == read
+
+
+def draws_differ(kept, read):
+    """Where ``read``, the LeafDraws prepare_leaf has just made of a leaf,
+    differs from ``kept``, the draws the retained frame kept or would
+    adopt for it, in anything the message is made of: None where nowhere,
+    else a few words naming the draw and its field."""
+    if len(kept.draws) != len(read.draws):
+        return f"{len(kept.draws)} draws where the read makes {len(read.draws)}"
+    texts = {}
+    for old, new in zip(kept.draws, read.draws):
+        for name in _DRAW_FIELDS:
+            if not _same_value(getattr(old, name), getattr(new, name), texts):
+                return f"its {new.pipeline} draw's {name}"
+    if kept.limitations != read.limitations:
+        return "the limitations it notes"
+    if (kept.textures or {}).keys() != (read.textures or {}).keys():
+        return "the textures it sends"
+    return None
+
+
+def moved_without_a_bump(sm, entry):
+    """What of ``sm`` stands otherwise than when ``entry``'s draws were
+    made, for a message: the columns whose bytes differ from the rows they
+    were read from (where those are known), then the uniforms whose text
+    differs from theirs."""
+    names, rows, live = [], entry.rows, sm._data
+    if rows is not None:
+        if rows.dtype != live.dtype or rows.shape != live.shape:
+            names.append("'data'")
+        else:
+            names += [f"'{name}'" for name in rows.dtype.names if rows[name].tobytes() != live[name].tobytes()]
+    if entry.text is not None:
+        before, now = dict(json.loads(entry.text)), dict(_override_items(sm))
+        names += [f"uniforms[{key!r}]" for key in (*before, *(key for key in now if key not in before))
+                  if _items_text([before.get(key)]) != _items_text([now.get(key)])]
+    return ", ".join(names)
+
+
+def rows_differ(sm, entry):
+    """Whether ``sm``'s rows, as a read has just left them, are not the
+    rows ``entry``'s draws were made from (where those are known), in
+    what the read reads: a read leaves a kept leaf's rows as they were,
+    save what a moved revision's verdict said its refresh or its base
+    points would write, which then make them. A path that neither fills
+    nor strokes is read for its classification alone, as compare_rows
+    compares it."""
+    rows, live = entry.rows, sm._data
+    if rows is None:
+        return False
+    if rows.dtype != live.dtype or rows.shape != live.shape:
+        return True
+    classes = entry.classes
+    if classes is not None and not classes[0] and not classes[4]:
+        return any(live[name].tobytes() != rows[name].tobytes() for name in CLASSIFY_COLUMNS)
+    return rows.tobytes() != live.tobytes()
+
+
+def stale_leaf(sm, entry, position, where, verdict, moved):
+    """The RenderCacheStale for a leaf the frame kept whose read under
+    verification differs from its kept draws in ``where``, for a leaf at
+    ``position`` in the draw order. Kept on its revision alone, under the
+    camera its draws were made at, the leaf changed without a bump: the
+    mutator's bug, as it is for the ledger. Kept where its revision moved
+    (``verdict``, what the retained frame judged its rows) or its camera
+    did (``moved``), the retained frame judged the move harmless and a
+    read disagrees: a bug in that rule."""
+    leaf = f"{type(sm).__name__} (leaf {position} of the draw order)"
+    changed = moved_without_a_bump(sm, entry)
+    if verdict is None and not moved:
+        return RenderCacheStale(f"{leaf} changed in {changed or 'state no revision covers'} since its last frame "
+                                f"without a revision bump: the retained frame kept draws that differ from a fresh "
+                                f"read in {where}")
+    how = " and ".join(([f"over a moved revision, its rows judged {verdict!r}"] if verdict is not None else [])
+                       + (["across a camera move"] if moved else []))
+    detail = f" (changed in {changed})" if changed else ""
+    return RenderCacheStale(f"{leaf} was kept {how}, where a fresh read differs in {where}{detail}: the retained "
+                            f"frame's own rule is at fault, not a write that bumped nothing")
 
 
 class LeafEntry:
@@ -583,13 +740,27 @@ def _fill_paint(entry):
     return False
 
 
+def _own_rows(entry):
+    """Whether ``entry.rows`` is the entry's own copy rather than its border
+    source's frozen rows, which the border cache counts (held_rows)."""
+    source_entry = entry.source_entry
+    return entry.rows is not None and (source_entry is None or entry.rows is not source_entry.source.raw_data)
+
+
 def _parked_size(entry):
-    """The bytes a retired path's entry holds: its rows, its mesh and
-    border source entries, its strokes' copied rows."""
-    size = entry.rows.nbytes
+    """The bytes a retired path's entry holds: its rows where they are its
+    own, its mesh and border source entries, the patch fill's object words
+    and paint field its draws read (which the border cache's own count of
+    a source leaves out), its strokes' copied rows."""
+    size = entry.rows.nbytes if _own_rows(entry) else 0
     for held in (entry.mesh_entry, entry.source_entry):
         if held is not None:
             size += held.nbytes
+    source_entry = entry.source_entry
+    if source_entry is not None:
+        for array in (source_entry.record, source_entry.paint if _fill_paint(entry) else None):
+            if array is not None:
+                size += array.nbytes
     for draw in entry.leaf.draws:
         if draw.pipeline.startswith("stroke"):
             size += draw.vertices.nbytes
@@ -632,7 +803,9 @@ class RetainedFrame:
         self._next_runs = {}
         # The last frame's counts: leaves kept (those among them whose
         # revision moved, whose camera moved, and those adopted) and
-        # prepared, paths retired and the store's size, runs kept and
+        # prepared, the ones read again under verification (every kept
+        # leaf, and each it would adopt, which it prepares and counts
+        # prepared), paths retired and the store's size, runs kept and
         # combined, descriptors reused and encoded.
         self.stats = {}
 
@@ -640,15 +813,20 @@ class RetainedFrame:
         """What this object keeps between frames that no cache's budget
         counts (the retired store is counted in the caches' own, _trim):
         the rows prepare_leaf copied for strokes and plain leaves,
-        each path's rows as its draws were read from them, a fill mesh the
-        mesh cache did not retain (one larger than its budget), the arrays
-        a run of several draws was combined into, and the text of the held
-        descriptors. Bounded by one frame's leaves and draws: a gauge's
-        business (geometry.retained_frame_bytes), not the budget's."""
-        arrays = {}
+        each path's rows as its draws were read from them where no border
+        source holds them, a fill mesh the mesh cache did not retain (one
+        larger than its budget), the texture payloads a textured leaf
+        carries (outside the texture read cache's bound, for as long as
+        the leaf is drawn), the arrays a run of several draws was combined
+        into, and the text of the held descriptors. Bounded by one frame's
+        leaves and draws: a gauge's business
+        (geometry.retained_frame_bytes), not the budget's."""
+        arrays, payloads = {}, {}
         for entry in self.leaves.values():
-            if entry.rows is not None:
+            if _own_rows(entry):
                 arrays[id(entry.rows)] = entry.rows.nbytes
+            if entry.leaf.textures:
+                payloads.update((key, len(payload)) for key, payload in entry.leaf.textures.items())
             for draw in entry.leaf.draws:
                 if entry.kind is PLAIN or draw.pipeline.startswith("stroke"):
                     arrays[id(draw.vertices)] = draw.vertices.nbytes
@@ -665,7 +843,8 @@ class RetainedFrame:
             for array in (draw.vertices, draw.indices, draw.border_sources, draw.fill_objects):
                 if array is not None:
                     arrays[id(array)] = array.nbytes
-        return sum(arrays.values()) + sum(len(memo.held_text or "") for memo in self.runs.values())
+        return (sum(arrays.values()) + sum(payloads.values())
+                + sum(len(memo.held_text or "") for memo in self.runs.values()))
 
     def prepare(self, scene, tessellator, **options):
         """The frame prepare_triangle_frame prepares for ``scene`` with these
@@ -694,13 +873,14 @@ class RetainedFrame:
         camera_key, followed = self._camera_key(ctx)
         sets, camera = self.uniform_sets, ctx.camera_uniforms
         # The revision policy is the promise a kept leaf rests on. The bytes
-        # policy compares every array every frame and verification every
-        # trusted read, so under either every leaf is prepared (B4.5 has
-        # verification rebuild and compare the kept leaves instead); so it
-        # is under the CPU border reference, which expands the frame's
-        # borders all at once.
-        trusting = (ctx.gpu_borders and mesh_cache is not None and mesh_cache.policy == "revision"
-                    and not mesh_cache.verify)
+        # policy compares every array every frame, so under it every leaf is
+        # prepared, and nothing is retired or adopted; so it is under the
+        # CPU border reference, which expands the frame's borders all at
+        # once. Verification, the caches' per-frame read of the switch,
+        # decides as the policy does and then reads every leaf it keeps or
+        # would adopt as well (_verify_kept, _verify_adoption).
+        trusting = ctx.gpu_borders and mesh_cache is not None and mesh_cache.policy == "revision"
+        verifying = trusting and mesh_cache.verify
         leaves, programs = self.leaves, ctx.programs
         # The walk writes nothing: it decides from each leaf as it stands,
         # before any leaf is read. Its plan, per leaf in draw order: the
@@ -746,7 +926,7 @@ class RetainedFrame:
         # Retire first, then adopt: a seek takes paths off and puts equal
         # ones on in the same frame. A leaf drawn twice counts twice, so
         # its store can miss one retirement, and one adoption with it.
-        retired = self._retire(plan, ctx) if walked < len(leaves) else 0
+        retired = self._retire(plan, ctx) if trusting and walked < len(leaves) else 0
         made_under = {}  # id(uniform set) -> what a mesh generated with it now is made under
         for index in newcomers:
             item = plan[index]
@@ -773,47 +953,72 @@ class RetainedFrame:
             ctx.borders = _prepare_border_geometry(records, mesh_cache)
         # In draw order, as the frame's own loop reads the caches: their
         # recency decides what a budget evicts.
-        kept, prepared, compared_kept, revalidated, adopted_kept = {}, 0, 0, 0, 0
-        for sm, entry, previous, uniforms, text, revision, verdict, moved, adopted in plan:
+        kept, prepared, compared_kept, revalidated, adopted_kept, verified = {}, 0, 0, 0, 0, 0
+        # Whether a getter of a leaf's own has run in this frame (such a
+        # leaf is prepared): the only code the loop runs that may write to
+        # another leaf without a bump.
+        foreign = False
+        for position, (sm, entry, previous, uniforms, text, revision, verdict, moved, adopted) in enumerate(plan):
             if entry is not None and sm.revision != revision:
                 # An earlier leaf's read moved this one after the walk saw
                 # it (a getter of its own may write to any mobject): the
                 # frame's loop reads it as it now stands.
                 entry = verdict = None
+            elif verdict is not None and foreign:
+                # Or wrote to it without a bump, after the walk compared
+                # it. Its revision moved, so the frame's loop reads its
+                # arrays and draws the write: compared again here, before
+                # the caches' reads are stamped with its revision.
+                verdict = self._verdict(sm, entry)
+                if verdict is None:
+                    entry = None
             if entry is not None and adopted:
-                self._adopt(sm, entry, verdict, ctx, revision, camera_key)
-                adopted_kept += 1
+                if verifying:
+                    entry = self._verify_adoption(sm, entry, uniforms, text, ctx, camera_key, position)
+                    verified += 1
+                    prepared += 1
+                else:
+                    self._adopt(sm, entry, verdict, ctx, revision, camera_key)
+                    adopted_kept += 1
             else:
-                if verdict is REFRESHED:
-                    # Here, in the leaf's own place, where its read would
-                    # refresh it: a leaf read before it (a program packing
-                    # its endpoints' rows) finds it unrefreshed, as in the
-                    # frame's loop, and a frame refused before it leaves
-                    # it alone.
+                # Here, in the leaf's own place, where its read would
+                # refresh it: a leaf read before it (a program packing its
+                # endpoints' rows) finds it unrefreshed, as in the frame's
+                # loop, and a frame refused before it leaves it alone.
+                # Under verification the read itself writes it, and nothing
+                # is stamped before that read (_verify_kept).
+                if verdict is REFRESHED and not verifying:
                     refresh_as_read(sm, entry)
-                elif verdict is BASED:
+                elif verdict is BASED and not verifying:
                     base_as_read(sm)
-                if entry is None or not self._keep(sm, entry, ctx, frame, revision, moved):
+                if entry is None or not self._keep(sm, entry, ctx, frame, revision, moved, stamp=not verifying):
                     cached = cached_read(sm, ctx)
                     current = previous is not None and (previous.revision == sm.revision or verdict is not None)
                     refresh = refresh_pending(sm)
                     leaf = prepare_leaf(sm, uniforms, ctx)
                     entry = self._entry(sm, leaf, uniforms, text, ctx, camera_key, refresh=refresh,
                                         cached=cached, previous=previous, current=current)
+                    foreign = foreign or not entry.standard
                     prepared += 1
                 else:
                     if verdict is not None:
-                        entry.revision = revision
                         compared_kept += 1
                     if moved:
-                        entry.camera_key = camera_key
                         revalidated += 1
+                    if verifying:
+                        entry = self._verify_kept(sm, entry, ctx, camera_key, position, verdict, moved)
+                        verified += 1
+                    else:
+                        if verdict is not None:
+                            entry.revision = revision
+                        if moved:
+                            entry.camera_key = camera_key
             kept[id(sm)] = entry
             frame.add_leaf(entry.leaf)
         self.leaves = kept
         self.stats = {"leaves_kept": len(plan) - prepared, "leaves_prepared": prepared,
                       "leaves_compared": compared_kept, "leaves_revalidated": revalidated,
-                      "leaves_adopted": adopted_kept, "leaves_retired": retired,
+                      "leaves_adopted": adopted_kept, "leaves_retired": retired, "leaves_verified": verified,
                       "runs_kept": 0, "runs_combined": 0}
         if len(sets.sets) > 2 * len(kept) + 64:
             sets.prune((*kept.values(), *self.retired.values()))
@@ -858,7 +1063,7 @@ class RetainedFrame:
         return verdict
 
     @staticmethod
-    def _keep(sm, entry, ctx, frame, revision, moved):
+    def _keep(sm, entry, ctx, frame, revision, moved, *, stamp=True):
         """Whether ``entry``'s draws stand for ``sm`` in this frame, at the
         ``revision`` the walk saw. The caches are told the leaf's entries
         were used, as prepare_leaf's reads would tell them, and must still
@@ -866,8 +1071,12 @@ class RetainedFrame:
         leaf's files are hashed again, the payloads going to the frame as
         prepare_leaf sends them. A leaf compared at another revision than
         its entry's has its entries stamped with the walk's (the one its
-        rows were compared at, never one read after other leaves ran); one
-        whose camera ``moved`` has its mesh held to its error bound, its
+        rows were compared at, and compared at again in the leaf's place
+        wherever a getter of a leaf's own ran since: a stamp is never
+        more than the comparison says, so a frame refused after it leaves
+        nothing false behind); under verification (``stamp`` False) they
+        are not, and the leaf's read compares the arrays instead. One whose
+        camera ``moved`` has its mesh held to its error bound, its
         reservations to the new zoom and its stroke count to the new frame
         scale, each as prepare_leaf's reads would decide them."""
         kind = entry.kind
@@ -875,11 +1084,11 @@ class RetainedFrame:
         if kind is ROWS:
             # The border source before the mesh, as prepare_leaf reads them:
             # a camera either refuses is refused with the same error.
-            stamp = revision if compared else None
-            source_entry, capacity = ctx.border_cache.keep(sm, revision=stamp,
+            at = revision if compared else None
+            source_entry, capacity = ctx.border_cache.keep(sm, revision=at if stamp else None,
                                                            uniforms=entry.uniforms if moved else None)
             camera = (entry.uniforms, ctx.resolution, ctx.pixel_tolerance) if moved else None
-            mesh_entry, classes = ctx.mesh_cache.keep(sm, revision=stamp, camera=camera)
+            mesh_entry, classes = ctx.mesh_cache.keep(sm, revision=at, camera=camera, stamp=stamp)
             if (mesh_entry is not entry.mesh_entry or classes is not entry.classes
                     or source_entry is not entry.source_entry or capacity != entry.capacity):
                 return False
@@ -902,6 +1111,45 @@ class RetainedFrame:
             elif ctx.net_cache.keep(sm) is not entry.net_entry:
                 return False
         return entry.textures is None or frame.texture_refs(sm) == entry.textures
+
+    def _verify_kept(self, sm, entry, ctx, camera_key, position, verdict, moved):
+        """Under verification, hold a leaf the frame keeps to what its read
+        makes of it now, and return the entry it is kept under.
+
+        The read is prepare_leaf's, through the frame's caches, with the
+        leaf's own uniforms as they stand over the camera's, in its place
+        in the order (``position``), as the frame's loop makes it. Nothing
+        was written to the leaf or stamped on the caches for it before
+        (_keep, ``stamp`` False): the read refreshes the leaf itself where
+        a moved revision's verdict said it would, and the caches compare
+        what a stamp would have had them trust, their own checks raising
+        where they trusted a read at an unchanged revision. The kept draws
+        must be the read's, and the leaf left with the rows they were made
+        from where its revision moved (the rows ``verdict`` judged) or it
+        is a plain leaf (whose cached grid the read hands back as it was
+        made); otherwise stale_leaf's RenderCacheStale. The kept draws
+        stay in the frame and the read's are a check; the entry is made
+        again from what the read left in the caches (a source packed
+        again, a classification read at the new revision), so that the
+        next frame keeps what it would have kept without verification."""
+        cached, refresh = cached_read(sm, ctx), refresh_pending(sm)
+        overrides, _ = override_text(sm)
+        read = prepare_leaf(sm, {**ctx.camera_uniforms, **overrides}, ctx)
+        where = draws_differ(entry.leaf, read)
+        if where is None and (verdict is not None or entry.kind is PLAIN) and rows_differ(sm, entry):
+            where = "the rows they were made from"
+        if where is not None:
+            raise stale_leaf(sm, entry, position, where, verdict, moved)
+        held = self._entry(sm, entry.leaf, entry.uniforms, entry.text, ctx, camera_key, refresh=refresh,
+                           cached=cached, previous=entry, current=True)
+        ends = getattr(sm, "subpath_end_indices", None)
+        if (held.ends is None and entry.ends is not None and held.rows is entry.rows and ends is not None
+                and _same_bytes(ends, entry.ends)):
+            # The read computed the subpath ends the refresh used again, as
+            # refresh_as_read would have cached the entry's.
+            held.ends = ends
+        held.sqrt_area = entry.sqrt_area
+        return held
 
     def _retire(self, plan, ctx):
         """Park the last frame's leaves that this frame's walk (``plan``)
@@ -1045,6 +1293,36 @@ class RetainedFrame:
         entry.revision = revision
         entry.camera_key = camera_key
 
+    def _verify_adoption(self, sm, entry, uniforms, text, ctx, camera_key, position):
+        """Under verification, the new leaf ``sm`` that would adopt
+        ``entry`` is prepared instead, as the frame's loop prepares an
+        object the caches hold nothing of (its fill mesh generated again,
+        its border source packed and reserved at this zoom), and the
+        entry's draws are held to that read's: an adoption stands for the
+        read only where they are the same bytes. The read draws with the
+        entry's uniform set (``uniforms``), as the adoption would, so the
+        set is first held to the leaf's own uniforms over the camera's as
+        they stand, the dict the frame's loop would draw with. Where either
+        differs, RenderCacheStale names the leaf and what differs. Returns
+        the leaf's entry from the read, which the frame keeps: the caches
+        hold what the read stored, not the entry's."""
+        leaf_name = f"{type(sm).__name__} (leaf {position} of the draw order)"
+        fresh = {**ctx.camera_uniforms, **override_text(sm)[0]}
+        if json.dumps(uniforms) != json.dumps(fresh):
+            names = [f"uniforms[{key!r}]" for key in {**uniforms, **fresh}
+                     if _items_text([uniforms.get(key)]) != _items_text([fresh.get(key)])]
+            raise RenderCacheStale(f"{leaf_name} would adopt the draws of a retired {entry.type_name} of equal "
+                                   f"content made with a uniform set other than its own over the camera's, in "
+                                   f"{', '.join(names) or 'their order'}")
+        cached, refresh = cached_read(sm, ctx), refresh_pending(sm)
+        leaf = prepare_leaf(sm, uniforms, ctx)
+        where = draws_differ(entry.leaf, leaf)
+        if where is not None:
+            raise RenderCacheStale(f"{leaf_name} would adopt the draws of a retired {entry.type_name} of equal "
+                                   f"content that differ from its own read in {where}")
+        return self._entry(sm, leaf, uniforms, text, ctx, camera_key, refresh=refresh, cached=cached,
+                           previous=None, current=False)
+
     def _trim(self, ctx, frame):
         """Hold the retired store to MAX_RETIRED entries and to what the
         mesh and border caches leave of their shared budget after the
@@ -1102,7 +1380,9 @@ class RetainedFrame:
                 # prepare_leaf read rather than what the caches kept.
                 has_fill, _, has_border, _, has_stroke = entry.classes
                 entry.shaded = has_stroke or (has_fill and (has_border or ctx.patch_fills))
-            entry.rows = held_rows(sm, cached, previous, current)
+            source_entry = entry.source_entry
+            entry.rows = held_rows(sm, cached, previous, current,
+                                   frozen=None if source_entry is None else source_entry.source.raw_data)
             if entry.rows is not None and not sm.needs_new_joint_angles and not sm.needs_new_unit_normal:
                 if (previous is not None and entry.rows is previous.rows and previous.ends is not None
                         and sm.subpath_end_indices is previous.ends):

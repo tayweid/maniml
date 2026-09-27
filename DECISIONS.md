@@ -5,6 +5,93 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The frame is retained in Python (2026-09-27)
+
+Taylor's direction for Phase B4, quoted in `docs/phase_b4_plan.md`: "maniml
+uses python to send to the gpu the bezier control points, and then the gpu
+does everything else. and it only ever directs the gpu what to change", and,
+on the way there, "keep Phase A as solid and build toward a final test point
+in Phase B." The measurement that set the order was
+`benchmarks/results/gpu_timestamps_20260926/`: a still frame of EpisodeB2's
+531-object 8.a cost ~37 ms natively, ~20 of them Python preparing and
+serializing a frame nothing had changed, ~4 GPU.
+
+So the frame is retained in Python first (tier 1, B4.0-B4.5, the default
+since this date; `web/retained_frame.py`): a `GeometryCache` keeps each drawn
+leaf's draws and what they were made under, and a frame prepares again only
+the leaves it cannot keep. A still 8.a frame serializes in ~1.7 ms against
+~19, a tick of its updaters in ~3.7 against ~31, a pan in ~3.8, a seek in ~8
+against ~100; a play where most things move costs what it did, and one
+where every leaf moves ~16% more, tier 1's bookkeeping on leaves it cannot
+keep. The flip takes that cost as measured (a `--render` of whole-scene
+moves pays it too); whether it stands is Taylor's to weigh, and the plan's
+"B4 tier 1: shipped" names the fast path that would take it back.
+`MANIML_RETAINED_FRAME=0` is the whole-frame path.
+
+**Why tier 1 before tier 2.** Tier 2, the browser owning the frame and
+Python sending deltas, is where "if nothing changes, python isn't even
+talking to the gpu" is met, and it is next (B4.6-B4.9). It comes second
+because the Python cost was the measured cost, and tier 1 removes it without
+changing anything any consumer reads: no wire format, no driver, no
+recorder, no player, no negotiation, so it could ship alone and pay for
+itself. Tier 2 also needs it: the kept leaves, their identities and the run
+memos are what a delta is computed from (`RetainedFrame.diff`, B4.8), and a
+delta against the wrong base is a new class of failure better introduced over
+a base already proven. The rejected minimal-delta design went the other way,
+moving the wire grammar, both drivers, the recorder and the player in one
+increment, and still left a seek at ~100 ms of regenerations for zero wire
+bytes.
+
+**Why byte identity is the gate.** Every tier 1 message is the one the
+whole-frame path writes for the same cache history, byte for byte, asserted
+frame by frame (the golden digests recorded before the first increment, and
+lockstep tests driving two scenes, flag on and flag off, through scripted
+histories, seeks, replays and restarts). Equal bytes are equal pixels in
+every consumer at once, so the retained frame needed no pixel test of its
+own and the default could flip without moving a Phase A pixel. The check is
+exact: a difference is a bug with a first differing byte to show, never a
+tolerance to argue. And it made every trust decision answer to what
+`prepare_leaf` would actually read, including the caches' history (recency,
+evictions, reservations), which is why the caches gained `keep` and `adopt`
+methods that mirror their reads rather than approximate them. Held to that,
+the reviews found what a looser gate would have shipped: a leaf read through
+a getter of its own, rows a cached read hands back without looking, a
+reservation whose source the budget let go; and the pin found flag-off bugs
+of its own (style written to an empty path, a thaw handing back an object
+whose references pointed outside the thawed graph, uniform-only plays that
+bumped nothing).
+
+**Digest adoption over ledger lineage.** A seek thaws copies of the
+checkpoint's objects, so almost every leaf on screen is a new object equal
+to one the last frame drew. The ledger knows which frozen copy each thawed
+object came from, and the retained frame could have followed that lineage
+back to the leaf it drew. It follows content instead: a path that leaves
+the frame is parked under a blake2b digest of its type name, the text of its
+own uniforms, its flags and its non-derived columns, and a new path of equal
+digest adopts the entry once its rows compare equal in full and the caches
+would make nothing different for it (the mesh generated at this camera, the
+first reservation at this zoom, the stroke count at this scale). Content
+covers every way an equal path comes back, not only a thaw: a watcher's
+restart rebuilds every mobject from source and adopts all of them, and an
+edit's replay does the same. It keeps the renderer's correctness off the
+checkpoint system's bookkeeping, whose hand-back of live objects depends on
+when the collector last ran and whose copies may carry derived columns and
+refresh flags the frozen copy does not; a lineage match would need the same
+full comparison anyway. The cost is ~12 µs a new leaf (its uniforms' text,
+the digest, the full comparison, its cache entries installed), about 6 of a
+seek's 8 ms at 8.a.
+
+**The trust surface**, accepted: a kept leaf skips its reads, so an
+in-place write that bumps no revision is not drawn until the revision
+moves, where the whole-frame path draws it on the next frame. Under
+`MANIML_VERIFY_LEDGER=1` the frame keeps what it keeps without it, reads
+every kept leaf again before anything is written or stamped for it, and
+raises `RenderCacheStale` naming the leaf and what moved, and whether a
+write that bumped nothing or the retained frame's own rule is to blame; it
+prepares what it would adopt and compares. `MANIML_RENDER_CACHE=bytes`
+keeps nothing. The suite runs green three ways (flag off, on, on under
+verify), and CI runs the pin all three.
+
 ## The fan closes an open subpath through its own start (2026-09-11)
 
 B1's patch fill drew every curve's fan triangle from one base point per

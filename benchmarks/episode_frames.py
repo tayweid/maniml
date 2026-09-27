@@ -19,6 +19,12 @@ the play that leads into the pausepoint (--play-frames, replayed at frame
 rate with the variants sampled mid-interpolation). The GPU pass columns
 appear under --gpu-timestamps (MANIML_GPU_TIMESTAMPS=1), an attribution run;
 the gate's completion totals come from a run without it.
+
+The variant ``retained`` is ``gpu_border`` (Phase A) with the retained frame
+(MANIML_RETAINED_FRAME=1, docs/phase_b4_plan.md); every other variant runs
+with it off, as the serializer stood before Phase B4, so ``--variants
+gpu_border retained`` measures what the retained frame changes. Its bytes are
+gpu_border's, so its pixels are too (retained_vs_gpu_border).
 """
 
 import argparse
@@ -41,13 +47,19 @@ from benchmarks.gpu_borders import GATE_SCOPE, GPU_CLOCK_CAVEAT, GPU_TIMING_SCOP
 from benchmarks.paint_retention import difference
 
 
-VARIANTS = ("patch_fill", "gpu_border", "cpu_border", "original_2d")
+VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d")
 DEFAULT_VARIANTS = ("patch_fill", "gpu_border", "original_2d")
+# gpu_borders.sample's renderer for each variant, and MANIML_RETAINED_FRAME
+# as the variant runs it.
+SAMPLED_AS = {"retained": "gpu_border"}
+RETAINED = {"retained": "1"}
 # gpu_borders.run_case's comparisons: (name, image, reference), reported
-# when both rendered the frame.
+# when both rendered the frame, and the retained frame against the frame
+# it must equal.
 PIXEL_PAIRS = (("patch_vs_gpu_border", "patch_fill", "gpu_border"), ("patch_vs_cpu", "patch_fill", "cpu_border"),
                ("patch_vs_original", "patch_fill", "original_2d"), ("gpu_vs_cpu", "gpu_border", "cpu_border"),
-               ("gpu_vs_original", "gpu_border", "original_2d"))
+               ("gpu_vs_original", "gpu_border", "original_2d"),
+               ("retained_vs_gpu_border", "retained", "gpu_border"))
 # The columns summary.json reduces, in this order; gpu_pass_* follow them.
 TIMING_KEYS = ("serialize_through_rgba_image_ms", "submit_through_full_readback_ms", "post_readback_ms",
                "prepare_ms", "render_cpu_encode_ms", "gpu_total_ms", "gpu_sum_ms", "gpu_readback_ms")
@@ -412,13 +424,29 @@ def measure(scene, indices, variants, samples, warmups, sampler, output, report,
     return report
 
 
+def sample_variant(scene, variant, cache, stages, renderer=None, queue=None):
+    """gpu_borders.sample for ``variant``: ``retained`` is gpu_border's
+    sample with MANIML_RETAINED_FRAME=1, every other variant's runs with it
+    0 (sample's own default). sample adds the gpu_ columns itself when the
+    renderer has the instrument, after its timers; a row sampled through
+    the retained frame also carries its counts (kept, prepared, adopted,
+    reused)."""
+    from benchmarks.gpu_borders import sample
+
+    row, image, header = sample(scene, SAMPLED_AS.get(variant, variant), cache, stages, renderer, queue,
+                                retained=RETAINED.get(variant, "0"))
+    retained = cache.retained_frame
+    if retained is not None:
+        row["retained_frame"] = dict(retained.stats)
+    return row, image, header
+
+
 def run(scene, indices, variants, samples, warmups, stages, output, report, *, images=False,
         tick_updaters=False, play_frames=False):
     """gpu_borders' renderer, cache and queue construction, one set for the
     whole run as a viewer session keeps one: a frame's retained geometry
     carries into the next as it does on screen."""
     from benchmarks.generated_output import QueueObserver
-    from benchmarks.gpu_borders import sample
     from maniml.web.geometry import GeometryCache
     from maniml.web.wgpu_renderer import WgpuRenderer
     from tests.winding_reference_renderer import WgpuRenderer as WindingRenderer
@@ -432,9 +460,7 @@ def run(scene, indices, variants, samples, warmups, stages, output, report, *, i
 
     def sampler(variant):
         try:
-            # sample adds the gpu_ columns itself when the renderer has
-            # the instrument, after its timers.
-            return sample(scene, variant, caches[variant], stages, renderers[variant], queues[variant])
+            return sample_variant(scene, variant, caches[variant], stages, renderers[variant], queues[variant])
         except Exception:
             # A failed submission must not turn the next packet into a
             # cache-only one the renderer cannot honor (Camera.capture).
@@ -539,6 +565,14 @@ def scope(variants, tick_updaters, play_frames):
         "gpu_timing_scope": GPU_TIMING_SCOPE, "gpu_clock_caveat": GPU_CLOCK_CAVEAT,
         "fixture_gate_scope": GATE_SCOPE,
     }
+    if "retained" in variants:
+        result["retained_scope"] = (
+            "retained is gpu_border with MANIML_RETAINED_FRAME=1 and every other variant runs with it 0; each "
+            "keeps its own cache, and its messages are the flag-off bytes of that cache's history "
+            "(retained_vs_gpu_border compares the pixels). The variants share one scene, whose reads write to it "
+            "(a path's derived columns are refreshed by the first read that finds them flagged), so a leaf the "
+            "other variant's read refreshed first is prepared once by the retained frame where, alone, it would be "
+            "compared and kept: its rows are slightly pessimistic, on ticked and play rows only.")
     if len(variants) > 2:
         result["rotation_caveat"] = (
             f"{len(variants)} renderers in rotation: most generated readbacks follow another renderer's frame "
@@ -555,7 +589,9 @@ def main(argv=None):
                         help="episode file and scene class")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(DEFAULT_VARIANTS),
-                        help="renderers to alternate per frame; two alone is the completion comparison to trust")
+                        help="renderers to alternate per frame; two alone is the completion comparison to trust. "
+                             "retained is gpu_border with the retained frame (MANIML_RETAINED_FRAME=1); every "
+                             "other variant runs with it off")
     parser.add_argument("--samples", type=int, default=12)
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--every", type=int, default=1, help="checkpoint stride for a file without pausepoints")
@@ -571,7 +607,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if min(args.samples, args.warmups, args.every, args.max_frames) < 1:
         parser.error("samples, warmups, every and max-frames must be positive")
-    scene_path = Path(args.scene[0]).resolve()
+    # Absolute, not resolved: an episode reached through a symbolic link
+    # finds its own ../_Assets beside the link, as the pin's scratch tree
+    # keeps PriceDiscovery (tests/test_retained_frame.py, MANIML_EPISODES).
+    scene_path = Path(os.path.abspath(args.scene[0]))
     if not scene_path.is_file():
         parser.error(f"no scene file at {scene_path}")
     # The renderer reads the switch when it is constructed, in run().

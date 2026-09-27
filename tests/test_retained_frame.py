@@ -6,8 +6,9 @@ through one persistent GeometryCache per case and renderer, for
 fixtures, the quality fixtures, scripted synthetic sequences and frames
 of the two course episodes, asserted against the recorded files in
 tests/goldens/retained_frame/. They are the contract every increment of
-the retained frame holds: with MANIML_RETAINED_FRAME unset the bytes may
-not move, and with it set they are the flag-off bytes.
+the retained frame holds: with MANIML_RETAINED_FRAME=0 the bytes may not
+move, and with the retained frame on, the default since B4.5, they are the
+flag-off bytes. The pin runs with whatever the run's switch is.
 
 The synthetic cases carry what the per-record loop must preserve, since
 they run everywhere (CI has no episodes): CE's z_index order within a
@@ -18,15 +19,16 @@ differently), texture payloads and their resend after a reset,
 reservations a zoom grows and the zoom back keeps, leaves skipped for
 having no points, uniforms that move with no row, and program draws.
 
-RetainedFrameLockstep (B4.2, B4.3) holds the retained frame to the flag-off
-path directly, wherever the goldens cannot reach: one scripted history
-driven on two scenes built alike, one serialized with
-MANIML_RETAINED_FRAME=1, equal messages, equal cache contents and equal
-leaf rows and refresh state asserted at every frame. Its histories never
-navigate. RetainedFrameNavigation (B4.4) does, through a scene's
-checkpoints: which thaws hand back a live object depends on when the
-collector last ran, so it runs the collector around every navigation and
-holds it off during one, and both scenes hold the same objects.
+RetainedFrameLockstep (B4.2, B4.3, B4.5) holds the retained frame to the
+flag-off path directly, wherever the goldens cannot reach: one scripted
+history driven on two scenes built alike, one serialized with
+MANIML_RETAINED_FRAME=1 and one with it 0, equal messages, equal cache
+contents and equal leaf rows and refresh state asserted at every frame.
+Its histories never navigate. RetainedFrameNavigation (B4.4) does,
+through a scene's checkpoints: which thaws hand back a live object
+depends on when the collector last ran, so it runs the collector around
+every navigation and holds it off during one, and both scenes hold the
+same objects.
 
 Record with ``python -m tests.test_retained_frame --record`` (or
 MANIML_RECORD_GOLDENS=1 under any unittest invocation); only the cases
@@ -40,6 +42,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import gc
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -553,6 +556,38 @@ class PriceDiscoveryGoldens(EpisodeGoldens, GoldenCase):
 
 
 
+class RetainedFrameSwitch(unittest.TestCase):
+    """The retained frame is the default since B4.5: MANIML_RETAINED_FRAME=0
+    turns it off, and a cache serialized without it drops it; a frame
+    serialized without a cache keeps nothing."""
+
+    def test_on_unless_turned_off(self):
+        with patch.dict(os.environ):
+            os.environ.pop("MANIML_RETAINED_FRAME", None)
+            self.assertTrue(retained_frame.retained_frame_enabled())
+            for value, enabled in (("1", True), ("0", False)):
+                os.environ["MANIML_RETAINED_FRAME"] = value
+                self.assertIs(retained_frame.retained_frame_enabled(), enabled)
+            os.environ["MANIML_RETAINED_FRAME"] = "yes"
+            with self.assertRaises(ValueError):
+                retained_frame.retained_frame_enabled()
+
+    @requires_lyon
+    def test_a_cache_keeps_draws_by_default(self):
+        scene, cache = build_scene(Square(fill_opacity=1)), GeometryCache()
+        with patch.dict(os.environ):
+            os.environ.pop("MANIML_RETAINED_FRAME", None)
+            serialize_scene(scene, cache)
+            self.assertIsInstance(cache.retained_frame, retained_frame.RetainedFrame)
+            os.environ["MANIML_RETAINED_FRAME"] = "0"
+            serialize_scene(scene, cache)
+            self.assertIsNone(cache.retained_frame)
+            os.environ.pop("MANIML_RETAINED_FRAME")
+            with patch.object(retained_frame, "RetainedFrame") as made:
+                serialize_scene(scene)
+            made.assert_not_called()
+
+
 class StrokeCountFromTheLargestCurve(unittest.TestCase):
     """A kept stroke's count after a zoom (B4.3): _stroke_verts_at over the
     largest curve's sqrt(area) is _stroke_verts over every curve, at every
@@ -620,10 +655,19 @@ MEMO_TABLES = ("generated_payloads", "generated_paints", "generated_borders", "g
                "generated_nets", "generated_rows")
 
 
-def trusting():
-    """Whether the run lets the retained frame keep a leaf at all: under
-    MANIML_VERIFY_LEDGER=1 it prepares every leaf, as B4.2 leaves it."""
-    return os.environ.get("MANIML_VERIFY_LEDGER") != "1"
+def verifying():
+    """Whether the run verifies (MANIML_VERIFY_LEDGER=1). The retained frame
+    then keeps what it keeps without it and reads each kept leaf again
+    (B4.5), but prepares a leaf it would adopt, and counts it prepared."""
+    return os.environ.get("MANIML_VERIFY_LEDGER") == "1"
+
+
+def adopting_under_verification(stats):
+    """Whether the last frame, verified, prepared a leaf it would have
+    adopted: every kept leaf is verified, so any other is one. Its counts,
+    and the meshes its caches made from scratch, are then not the ones the
+    tests expect of the run without verification."""
+    return verifying() and stats["leaves_verified"] > stats["leaves_kept"]
 
 
 def census(cache):
@@ -679,7 +723,7 @@ def difference(expected, actual):
 class Lockstep:
     """One scripted history driven twice: two copies of a scene, built alike
     and stepped alike, each serialized through its own GeometryCache, one
-    with MANIML_RETAINED_FRAME unset and one with it set. Every frame's two
+    with MANIML_RETAINED_FRAME=0 and one with it on. Every frame's two
     messages must be equal, and so must what the two caches hold after it.
 
     Two scenes rather than one serialized twice: a serializer's reads write
@@ -708,10 +752,7 @@ class Lockstep:
             action(side)
 
     def serialize(self, index, renderer, retained):
-        with patch.dict(os.environ):
-            os.environ.pop(RETAINED_ENV, None)
-            if retained:
-                os.environ[RETAINED_ENV] = "1"
+        with patch.dict(os.environ, {RETAINED_ENV: "1" if retained else "0"}):
             return serialize_scene(self.sides[index].scene, self.caches[index], renderer=renderer)
 
     def messages(self, renderer="triangles", *, retained=True):
@@ -766,9 +807,9 @@ class Lockstep:
 
     def expect(self, **counts):
         """The flag-on side's counts for the last frame, where a leaf may be
-        kept at all."""
-        if trusting():
-            stats = self.retained.stats
+        kept at all: unless verification prepared a leaf it would adopt."""
+        stats = self.retained.stats
+        if not adopting_under_verification(stats):
             self.test.assertEqual({key: stats[key] for key in counts}, counts, f"after frame {self.count}")
 
 
@@ -834,15 +875,20 @@ class DotsFromAnAttribute(DotCloud):
 class MovesAnother(Square):
     """A stroke whose read moves another mobject, once, when armed: a getter
     of its own, which the frame's loop runs in draw order, after the walk
-    and before the leaves behind it are read."""
+    and before the leaves behind it are read. ``quietly``, by a write to
+    its rows that bumps nothing."""
 
     follower = None
     armed = False
+    quietly = False
 
     def get_shader_data(self):
         if self.armed:
             self.armed = False
-            self.follower.shift(.3 * UP)
+            if self.quietly:
+                self.follower.data["point"][:, 0] += .4
+            else:
+                self.follower.shift(.3 * UP)
         return super().get_shader_data()
 
 
@@ -960,15 +1006,23 @@ class RetainedFrameLockstep(GoldenCase):
     the same camera moves; each way a moved revision can or cannot leave
     the drawn rows alone; a leaf compared and then prepared by a zoom; the
     reads that write to the scene or read other leaves (a program packing
-    a later leaf's rows, a getter moving a later leaf, a frame refused
-    before a leaf the walk found unchanged); uniforms a camera move
-    changes; a full budget evicting in the frame's order, and a mesh no
-    budget holds; the memos and the frame's own bytes bounded by one frame,
-    leaves read through getters of their own (a subclass's, an
-    instance's), a point-cloud group rewriting its members, and the writes
-    that bump no revision, which a kept leaf does not see (B4.5's verify
-    mode is proven against them) until a bump has the frame's loop read
-    them, cached reads or not.
+    a later leaf's rows, a getter moving a later leaf or writing its rows
+    without a bump, a frame refused before a leaf the walk found
+    unchanged); uniforms a camera move changes; a full budget evicting in
+    the frame's order, and a mesh no budget holds; the memos and the
+    frame's own bytes bounded by one frame, and what the retired store and
+    the gauge count; leaves read through getters of their own (a
+    subclass's, an instance's), a point-cloud group rewriting its members,
+    and the writes that bump no revision, which a kept leaf does not see
+    until a bump has the frame's loop read them, cached reads or not. Then
+    verification (B4.5): those writes refused, naming the leaf (a
+    surface's too, whose read hands its cached grid back); every kept leaf
+    read again, the frame keeping exactly what it keeps unverified, and
+    every leaf that would adopt prepared, with the bytes still the
+    flag-off bytes; and a rule that keeps or adopts a leaf its read draws
+    otherwise (a verdict, a uniform set a camera move skipped) refused as
+    the retained frame's own where, unverified, it sends the wrong draws.
+    And the bytes policy, under which nothing is kept, retired or adopted.
     """
 
     def setUp(self):
@@ -1342,25 +1396,31 @@ class RetainedFrameLockstep(GoldenCase):
         # the walk compares it and finds it unchanged, then the read moves
         # it. The frame's loop draws it moved; the retained frame prepares
         # it rather than keep what the walk vouched for, or stamp its caches
-        # with the revision the move made.
-        def build():
+        # with the revision the move made. So too where the getter writes
+        # its rows without a bump: the frame's loop reads a leaf whose
+        # revision moved from its arrays and draws the write, so the
+        # retained frame compares it again in its place once a getter of a
+        # leaf's own has run, rather than stamp the caches' old reads with
+        # its revision, which would keep them on screen until its next
+        # bump.
+        def build(quietly=False):
             driver = MovesAnother(side_length=.5, fill_opacity=0, stroke_width=3)
             follower = Circle(radius=.4, fill_color=RED, fill_opacity=1, stroke_color=BLUE,
                               stroke_width=2).shift(2 * RIGHT)
-            driver.follower = follower
+            driver.follower, driver.quietly = follower, quietly
             return SimpleNamespace(scene=build_scene(driver, follower), driver=driver, follower=follower)
 
         def arm(side):
             side.follower.shift(0 * UP)
             side.driver.armed = True
 
-        for renderer in RENDERERS:
-            with self.subTest(renderer=renderer):
-                lock = Lockstep(self, build)
+        for renderer, quietly in itertools.product(RENDERERS, (False, True)):
+            with self.subTest(renderer=renderer, quietly=quietly):
+                lock = Lockstep(self, lambda: build(quietly))
                 lock.frame("cold", renderer)
-                lock.frame("still", renderer)
+                still = lock.frame("still", renderer)
                 lock.step(arm)
-                lock.frame("the follower moved by the driver's read", renderer)
+                self.assertNotEqual(lock.frame("the follower moved by the driver's read", renderer), still)
                 # The driver, read through its own getter, is prepared every frame.
                 lock.expect(leaves_prepared=2, leaves_compared=0)
                 for index in range(3):
@@ -1424,9 +1484,8 @@ class RetainedFrameLockstep(GoldenCase):
                 lock.step(lambda side: side.scene.camera.frame.scale(1.2))
                 lock.frame("zoom out", renderer)
                 lock.expect(leaves_prepared=1, leaves_revalidated=2)
-                if trusting():
-                    self.assertGreater(lock.retained.stats["batches_encoded"], 0)
-                    self.assertGreater(lock.retained.stats["batches_reused"], 0)
+                self.assertGreater(lock.retained.stats["batches_encoded"], 0)
+                self.assertGreater(lock.retained.stats["batches_reused"], 0)
                 lock.step(lambda side: side.scene.camera.frame.scale(1 / 1.2))
                 lock.frame("zoom back", renderer)
                 lock.frame("still", renderer)
@@ -1537,6 +1596,94 @@ class RetainedFrameLockstep(GoldenCase):
                                for value in lock.caches[1].generated_payloads.values())
                 self.assertLess(retained, 64 << 10)
 
+    def test_the_retired_store_counts_what_its_entries_hold(self):
+        # A parked path's entry counts every array it keeps alive against
+        # the caches' budget (B4.4), the patch fill's object words and
+        # paint field among them, which the border cache's own count of a
+        # source leaves out: eighteen stroked circles with a gradient fill
+        # taken off at once. And the retained frame's gauge counts the
+        # texture payloads a kept textured leaf carries, which live outside
+        # the texture read cache's bound while the leaf is drawn.
+        def arrays(entry):
+            held = {}
+            reached = [entry.rows]
+            if entry.mesh_entry is not None:
+                reached += [*entry.mesh_entry.source.arrays(), *entry.mesh_entry.geometry.arrays()]
+                if entry.mesh_entry.paint_field is not None:
+                    reached.append(entry.mesh_entry.paint_field.wire())
+            source = entry.source_entry
+            if source is not None:
+                reached += [*source.source.arrays(), source.rgba, source.curves, source.record, source.paint]
+            reached += [getattr(draw, name) for draw in entry.leaf.draws
+                        for name in ("vertices", "indices", "paint", "border_sources", "fill_objects")]
+            for array in reached:
+                if isinstance(array, np.ndarray):
+                    while isinstance(array.base, np.ndarray):
+                        array = array.base
+                    held[id(array)] = array.nbytes
+            return held
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer), patch.dict(os.environ, {RETAINED_ENV: "1"}):
+                shapes = VGroup(*(Circle(radius=.3, stroke_width=2).set_fill([RED, YELLOW, BLUE, GREEN], opacity=1)
+                                  .shift((index % 6 - 2.5) * RIGHT + (index // 6 - 1) * UP) for index in range(18)))
+                scene, cache = build_scene(shapes), GeometryCache()
+                for _ in range(2):
+                    serialize_scene(scene, cache, renderer=renderer)
+                scene.mobjects.remove(shapes)
+                scene.render_groups[0].remove(shapes)
+                serialize_scene(scene, cache, renderer=renderer)
+                retained = cache.retained_frame
+                self.assertEqual(len(retained.retired), 18)
+                self.assertEqual(retained.retired_bytes,
+                                 sum(sum(arrays(entry).values()) for entry in retained.retired.values()))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {RETAINED_ENV: "1"}):
+            texture = Path(folder) / "texture.bmp"
+            write_texture(texture, 40)
+            scene = build_scene(ImageMobject(str(texture), height=1.2))
+            cache = GeometryCache()
+            held = []
+            for _ in range(3):
+                serialize_scene(scene, cache)
+                held.append(cache.retained_frame.retained_bytes())
+            self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+            self.assertEqual(held[2], held[1])
+            with patch.object(cache.retained_frame.leaves[id(scene.mobjects[0])].leaf, "textures", None):
+                self.assertEqual(held[2] - cache.retained_frame.retained_bytes(), texture.stat().st_size)
+
+    def test_a_surface_written_in_place(self):
+        # A surface's grid (Phase A) is cached per revision
+        # (Surface.get_grid_data), so a write to its rows that bumps
+        # nothing is drawn by neither path, and its read hands the cached
+        # grid back: verification (B4.5) holds a kept plain leaf to the
+        # rows its draws were made from as well, and refuses the write on
+        # the flag-on side. Under Phase B the net cache compares the rows
+        # itself, and both sides refuse it.
+        def build():
+            globe = Sphere(radius=.6, resolution=(7, 7)).shift(RIGHT)
+            return SimpleNamespace(scene=build_scene(globe), globe=globe)
+
+        def write(side):
+            side.globe.data["point"][:, 0] += .5
+
+        for renderer, verifying in itertools.product(RENDERERS, (False, True)):
+            with self.subTest(renderer=renderer, verifying=verifying), \
+                    patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verifying else "0"}):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                still = lock.frame("still", renderer)
+                lock.step(write)
+                if not verifying:
+                    self.assertEqual(lock.frame("written in place", renderer), still)
+                elif renderer == "phase_b":
+                    lock.raises("written in place", RenderCacheStale, renderer)
+                else:
+                    self.assertEqual(lock.serialize(0, renderer, False), still)
+                    with self.assertRaises(RenderCacheStale) as refused:
+                        lock.serialize(1, renderer, True)
+                    self.assertIn("Sphere (leaf 0 of the draw order) changed in 'point' since its last frame "
+                                  "without a revision bump", str(refused.exception))
+
     def test_a_leaf_read_through_its_own_getter_is_prepared_every_frame(self):
         # The frame's loop reads a stroke's and a plain leaf's shader data
         # every frame, and the caches trust a revision only for the
@@ -1603,11 +1750,13 @@ class RetainedFrameLockstep(GoldenCase):
         # In-place writes the revision contract does not cover: the frame's
         # loop reads each of these every frame, so the flag-off path draws
         # them on its next frame, while a kept leaf keeps its draws until
-        # its revision moves. Under MANIML_VERIFY_LEDGER=1 every leaf is
-        # prepared (B4.2), so the flag-on side draws them too, or raises
-        # where a cache's own check sees the write, as the flag-off side
-        # does; B4.5's verify mode rebuilds the kept leaves instead and
-        # must raise RenderCacheStale for each.
+        # its revision moves. Under MANIML_VERIFY_LEDGER=1 the retained
+        # frame reads every leaf it keeps as well (B4.5) and refuses the
+        # frame with RenderCacheStale naming the leaf, its place in the
+        # draw order and what moved; where a cache's own check sees the
+        # write first (the patch fill's border source compares every
+        # column), both sides refuse it there. Each write is run both ways,
+        # whatever the suite's switch.
         def build():
             scene, family, path, cloud, _ = synthetic_scene()
             return SimpleNamespace(scene=scene, family=family, path=path, cloud=cloud)
@@ -1625,26 +1774,37 @@ class RetainedFrameLockstep(GoldenCase):
             points = side.path.get_points()  # a stroke-only path's, which only its stroke reads
             points[:, 1] += .1
 
-        for write in (stroke_color, uniform, radius, point_view):
-            for renderer in RENDERERS:
-                with self.subTest(write=write.__name__, renderer=renderer):
-                    lock = Lockstep(self, build)
-                    lock.frame("cold", renderer)
-                    still = lock.frame("still", renderer)
-                    lock.step(write)
-                    if not trusting():
-                        try:
-                            expected = lock.serialize(0, renderer, False)
-                        except RenderCacheStale:
-                            with self.assertRaises(RenderCacheStale):
-                                lock.serialize(1, renderer, True)
-                        else:
-                            self.assertEqual(lock.serialize(1, renderer, True), expected)
-                        continue
+        # (write, the leaf the refusal names, what moved)
+        writes = ((stroke_color, "Square (leaf 0 of the draw order)", "'stroke_rgba'"),
+                  (uniform, "Square (leaf 0 of the draw order)", "uniforms['anti_alias_width']"),
+                  (radius, "DotCloud (leaf 4 of the draw order)", "'radius'"),
+                  (point_view, "VMobject (leaf 3 of the draw order)", "'point'"))
+        for (write, leaf, moved), renderer, verifying in itertools.product(writes, RENDERERS, (False, True)):
+            with self.subTest(write=write.__name__, renderer=renderer, verifying=verifying), \
+                    patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verifying else "0"}):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                still = lock.frame("still", renderer)
+                lock.step(write)
+                if not verifying:
                     off, on = lock.messages(renderer)
                     self.assertNotEqual(off, still, "the frame's loop did not see the write")
                     self.assertEqual(on, still, "a kept leaf saw a write that bumped nothing")
-                    lock.expect(leaves_prepared=0)
+                    self.assertEqual(lock.retained.stats["leaves_prepared"], 0)
+                    continue
+                try:
+                    lock.serialize(0, renderer, False)
+                except RenderCacheStale:
+                    self.assertEqual((write, renderer), (stroke_color, "phase_b"), "a cache saw the write")
+                    with self.assertRaises(RenderCacheStale):
+                        lock.serialize(1, renderer, True)
+                    continue
+                with self.assertRaises(RenderCacheStale) as refused:
+                    lock.serialize(1, renderer, True)
+                self.assertIn(leaf, str(refused.exception))
+                self.assertIn(f"changed in {moved}", str(refused.exception))
+                # A refused frame leaves the retained frame cold.
+                self.assertEqual(lock.retained.leaves, {})
 
     def test_a_bump_after_a_write_no_read_saw(self):
         # A cache that holds a read made at a leaf's revision hands it back
@@ -1693,7 +1853,7 @@ class RetainedFrameLockstep(GoldenCase):
                     lock.frame("cold", renderer)
                     lock.frame("still", renderer)
                     lock.step(write)
-                    if not trusting():
+                    if verifying():
                         # Verification compares every trusted read: the
                         # write is refused where the cache reuses the read.
                         lock.raises("written in place", RenderCacheStale, renderer)
@@ -1703,6 +1863,253 @@ class RetainedFrameLockstep(GoldenCase):
                     lock.step(bump)
                     self.assertNotEqual(lock.frame("a bump over the written rows", renderer), still)
                     lock.frame("the flag-on side's caches with the flag off", renderer, retained=False)
+
+
+    def test_verification_reads_every_leaf_it_keeps(self):
+        # Under MANIML_VERIFY_LEDGER=1 (B4.5) every leaf the frame keeps is
+        # read as well, and the frame is still the flag-off frame of the
+        # same history, and keeps exactly what it keeps without the switch:
+        # a pausepoint's updaters ticking, then the camera moves (a fill's
+        # mesh held to its error bound and read through mesh(), a border
+        # source packed again by a zoom's read). And a rule that keeps a
+        # leaf its read draws otherwise is refused at that leaf, as the
+        # retained frame's own, where without the switch the frame sends
+        # the old draws: compare_rows finding every moved path unchanged
+        # (a line an updater moves keeps its old stroke), or refreshing a
+        # path whose joint angles are locked (the read keeps the locked
+        # ones, the rule would write the refreshed ones over them). Nothing
+        # is written or stamped for a kept leaf before its read, so the
+        # read refreshes the path itself and no cache vouches for rows the
+        # rule compared.
+        def decisions(renderer, verify):
+            counts = []
+            with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verify else "0"}):
+                lock = Lockstep(self, updater_scene)
+                lock.frame("cold", renderer)
+                steps = [(f"frame {index}", tick if index > 1 else None) for index in range(8)]
+                steps += [(label, lambda side, move=move: (move(side.scene.camera.frame), tick(side)))
+                          for label, move in CAMERA_MOVES]
+                for label, step in steps:
+                    if step is not None:
+                        lock.step(step)
+                    lock.frame(label, renderer)
+                    stats = lock.retained.stats
+                    counts.append((label, *(stats[key] for key in ("leaves_kept", "leaves_prepared",
+                                                                   "leaves_compared", "leaves_revalidated"))))
+                    if verify:
+                        self.assertEqual(stats["leaves_verified"], stats["leaves_kept"], label)
+            return counts
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                verified = decisions(renderer, True)
+                self.assertEqual(verified, decisions(renderer, False))
+                self.assertEqual([kept > (5 if index else 10) for index, (_, kept, *_) in enumerate(verified[:8])],
+                                 [True] * 8)
+                self.assertTrue(all(revalidated for *_, revalidated in verified[8:]))
+
+        def build():
+            square = Square(side_length=.6, fill_color=RED, fill_opacity=1, stroke_width=2).shift(RIGHT)
+            line = Line(LEFT, ORIGIN, stroke_width=3).shift(DOWN)
+            line.add_updater(lambda m, dt: m.shift(dt * UP))
+            return SimpleNamespace(scene=build_scene(square, line))
+
+        def build_locked():
+            path = VMobject(stroke_color=WHITE, stroke_width=6, fill_opacity=0)
+            path.set_points_as_corners([[-2, -1, 0], [-.5, 1, 0], [.5, -1, 0], [2, 1, 0]])
+            return SimpleNamespace(scene=build_scene(path), path=path)
+
+        def lock_joints(side):
+            # Written and locked as lock_data leaves them, then flagged and
+            # bumped: the read refreshes nothing it may not.
+            path = side.path
+            path.data["joint_angle"][:, 0] = .3
+            path.locked_data_keys = {"joint_angle"}
+            path.refresh_joint_angles()
+            path.note_changed_data()
+
+        def ignoring_the_lock(sm, entry):
+            locked, sm.locked_data_keys = sm.locked_data_keys, set()
+            try:
+                return compare_rows(sm, entry)
+            finally:
+                sm.locked_data_keys = locked
+
+        def build_disc():
+            disc = Circle(radius=.8, fill_color=BLUE, fill_opacity=1, stroke_width=0, fill_border_width=0)
+            return SimpleNamespace(scene=build_scene(disc), disc=disc)
+
+        def unchanged(sm, entry):
+            return retained_frame.SAME
+
+        compare_rows = retained_frame.compare_rows
+        rules = (("every moved path unchanged", unchanged, build, tick,
+                  "Line (leaf 1 of the draw order) was kept over a moved revision, its rows judged 'same'", "'point'"),
+                 ("every moved fill unchanged", unchanged, build_disc, lambda side: side.disc.shift(.5 * UP),
+                  "Circle (leaf 0 of the draw order) was kept over a moved revision, its rows judged 'same'",
+                  "'point'"),
+                 ("a refresh that ignores the lock", ignoring_the_lock, build_locked, lock_joints,
+                  "VMobject (leaf 0 of the draw order) was kept over a moved revision, its rows judged 'refreshed'",
+                  "'joint_angle'"))
+        for (rule, compare, scene, step, leaf, moved), renderer, verifying in itertools.product(
+                rules, RENDERERS, (False, True)):
+            with self.subTest(renderer=renderer, verifying=verifying, rule=rule), \
+                    patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verifying else "0"}):
+                lock = Lockstep(self, scene)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(step)
+                with patch.object(retained_frame, "compare_rows", compare):
+                    if not verifying:
+                        off, on = lock.messages(renderer)
+                        self.assertNotEqual(on, off, "the rule kept no leaf its read draws otherwise")
+                        continue
+                    lock.serialize(0, renderer, False)
+                    with self.assertRaises(RenderCacheStale) as refused:
+                        lock.serialize(1, renderer, True)
+                self.assertIn(leaf, str(refused.exception))
+                self.assertIn(moved, str(refused.exception))
+                self.assertIn("the retained frame's own rule is at fault", str(refused.exception))
+                # The kept leaf was read before anything was stamped for it,
+                # so the refusal leaves no cache vouching for the rows the
+                # rule compared: with the rule mended and a client connected
+                # (every batch sent in full), the frame is the flag-off
+                # frame again.
+                for cache in lock.caches:
+                    cache.reset()
+                lock.frame("the rule mended, a client connected", renderer)
+
+    def test_verification_prepares_what_it_would_adopt(self):
+        # A path that would adopt a retired entry is prepared instead under
+        # MANIML_VERIFY_LEDGER=1, and counted prepared, and the entry's
+        # draws and uniform set are held to that read's (B4.5): the disc
+        # taken off and put back in one frame is prepared and matches; a
+        # digest that ignores the rows, with compare_rows finding them
+        # unchanged, has a wider disc adopt the narrower one's mesh; and a
+        # camera move that is not written into one uniform set has a line
+        # put back across a pan adopt draws of the old camera. Without the
+        # switch both are sent, with it refused.
+        def build():
+            disc = Circle(radius=.5, fill_color=BLUE, fill_opacity=1, stroke_width=0,
+                          fill_border_width=0).shift(LEFT)
+            square = Square(side_length=.6, fill_color=RED, fill_opacity=1, stroke_width=0).shift(RIGHT)
+            return SimpleNamespace(scene=build_scene(square, disc), disc=disc)
+
+        def replaced(radius=None):
+            # By a copy (as a thaw puts one back), or by a new disc.
+            def action(side):
+                disc = side.disc
+                remove(side, "disc")
+                add(side, "disc", disc.copy() if radius is None else
+                    Circle(radius=radius, fill_color=BLUE, fill_opacity=1, stroke_width=0,
+                           fill_border_width=0).shift(LEFT))
+            return action
+
+        with patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1"}):
+            for renderer in RENDERERS:
+                with self.subTest(renderer=renderer):
+                    lock = Lockstep(self, build)
+                    lock.frame("cold", renderer)
+                    lock.frame("still", renderer)
+                    lock.step(replaced())
+                    lock.frame("the disc replaced by its copy", renderer)
+                    self.assertEqual({key: lock.retained.stats[key] for key in
+                                      ("leaves_kept", "leaves_prepared", "leaves_adopted", "leaves_verified")},
+                                     {"leaves_kept": 1, "leaves_prepared": 1, "leaves_adopted": 0,
+                                      "leaves_verified": 2})
+
+        def rowless(type_name, text, flags, rows):
+            return hashlib.blake2b(f"{type_name} {text} {flags}".encode(), digest_size=16).digest()
+
+        with patch.object(retained_frame, "leaf_digest", rowless), \
+                patch.object(retained_frame, "compare_rows", lambda sm, entry: retained_frame.SAME):
+            for renderer, verifying in itertools.product(RENDERERS, (False, True)):
+                with self.subTest(renderer=renderer, verifying=verifying, rule="a digest without the rows"), \
+                        patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verifying else "0"}):
+                    lock = Lockstep(self, build)
+                    lock.frame("cold", renderer)
+                    lock.frame("still", renderer)
+                    lock.step(replaced(.8))
+                    if not verifying:
+                        off, on = lock.messages(renderer)
+                        self.assertEqual(lock.retained.stats["leaves_adopted"], 1)
+                        self.assertNotEqual(on, off, "the wider disc drew its own mesh")
+                        continue
+                    lock.serialize(0, renderer, False)
+                    with self.assertRaises(RenderCacheStale) as refused:
+                        lock.serialize(1, renderer, True)
+                    self.assertIn("Circle (leaf 1 of the draw order) would adopt the draws of a retired Circle",
+                                  str(refused.exception))
+
+        def build_marked():
+            square = Square(side_length=.6, fill_color=RED, fill_opacity=1, stroke_width=0).shift(RIGHT)
+            line = Line(LEFT, ORIGIN, stroke_width=3).shift(DOWN)
+            line.set_uniform(marked=1.0)  # a uniform set of its own
+            return SimpleNamespace(scene=build_scene(square, line), line=line)
+
+        def panned_and_put_back(side):
+            side.scene.camera.frame.shift(.3 * RIGHT)
+            add(side, "line", side.line.copy())
+
+        camera_moved = retained_frame.UniformSets.camera_moved
+
+        def forgets_one(sets, camera):
+            # The set of the marked line keeps the camera it was made with.
+            held = [(merged, dict(merged)) for merged, overrides in sets.sets.values() if "marked" in overrides]
+            followed = camera_moved(sets, camera)
+            for merged, before in held:
+                merged.clear()
+                merged.update(before)
+            return followed
+
+        with patch.object(retained_frame.UniformSets, "camera_moved", forgets_one):
+            for renderer, verifying in itertools.product(RENDERERS, (False, True)):
+                with self.subTest(renderer=renderer, verifying=verifying, rule="a set the camera skips"), \
+                        patch.dict(os.environ, {"MANIML_VERIFY_LEDGER": "1" if verifying else "0"}):
+                    lock = Lockstep(self, build_marked)
+                    lock.frame("cold", renderer)
+                    lock.frame("still", renderer)
+                    lock.step(lambda side: remove(side, "line"))
+                    lock.frame("the line taken off", renderer)
+                    lock.step(panned_and_put_back)
+                    if not verifying:
+                        off, on = lock.messages(renderer)
+                        self.assertEqual(lock.retained.stats["leaves_adopted"], 1)
+                        self.assertNotEqual(on, off, "the line drew under the camera it was put back under")
+                        continue
+                    lock.serialize(0, renderer, False)
+                    with self.assertRaises(RenderCacheStale) as refused:
+                        lock.serialize(1, renderer, True)
+                    self.assertIn("Line (leaf 1 of the draw order) would adopt the draws of a retired Line of equal "
+                                  "content made with a uniform set other than its own", str(refused.exception))
+
+    def test_the_bytes_policy_keeps_no_leaf(self):
+        # MANIML_RENDER_CACHE=bytes compares every array every frame: the
+        # retained frame keeps, retires and adopts nothing (B4.5), so a
+        # write that bumps no revision is drawn on the next frame, as the
+        # flag-off path draws it, and a path taken off and put back is
+        # prepared.
+        def build():
+            scene, family, path, cloud, _ = synthetic_scene()
+            return SimpleNamespace(scene=scene, family=family, path=path, cloud=cloud)
+
+        with patch.dict(os.environ, {"MANIML_RENDER_CACHE": "bytes"}):
+            for renderer in RENDERERS:
+                with self.subTest(renderer=renderer):
+                    lock = Lockstep(self, build)
+                    lock.frame("cold", renderer)
+                    still = lock.frame("still", renderer)
+                    self.assertEqual({key: lock.retained.stats[key] for key in ("leaves_kept", "leaves_prepared")},
+                                     {"leaves_kept": 0, "leaves_prepared": 6})
+                    lock.step(lambda side: side.family[0].data["stroke_rgba"].__setitem__((slice(None), 0), 0))
+                    self.assertNotEqual(lock.frame("written in place", renderer), still)
+                    lock.step(lambda side: remove(side, "path"))
+                    lock.frame("the path taken off", renderer)
+                    lock.step(lambda side: add(side, "path", side.path.copy()))
+                    lock.frame("a copy put back", renderer)
+                    self.assertEqual({key: lock.retained.stats[key] for key in ("leaves_kept", "leaves_adopted")},
+                                     {"leaves_kept": 0, "leaves_adopted": 0})
+                    self.assertEqual(len(lock.retained.retired), 0)
 
 
 @requires_lyon
@@ -1924,7 +2331,7 @@ class RetainedFrameNavigation(GoldenCase):
         before = cache_work(lock.caches[1]) if lock.caches[1].triangle_meshes is not None else 0
         message = lock.frame(label, renderer)
         lock.expect(**counts)
-        if made is not None and trusting():
+        if made is not None and not adopting_under_verification(lock.retained.stats):
             self.assertEqual(cache_work(lock.caches[1]) - before, made, f"{label}: made from scratch")
         return message
 
@@ -2067,7 +2474,7 @@ class RetainedFrameNavigation(GoldenCase):
             lock.step(seek(LAST_CHECKPOINT))
             self.frame(lock, "and back", "triangles")
             adopted.append(lock.retained.stats["leaves_adopted"])
-        if trusting():
+        if not verifying():
             self.assertLess(adopted[0], adopted[1])
 
     def test_a_mesh_no_budget_holds_is_not_parked(self):

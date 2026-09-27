@@ -238,6 +238,45 @@ Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
 formats 1–6 remain readable. These resources never enter checkpoints.
 
+**The frame is retained in Python** (`web/retained_frame.py`, Phase B4 tier 1,
+`docs/phase_b4_plan.md`; the default since 2026-09-27). A `GeometryCache`
+keeps, per drawn leaf, the draws `prepare_leaf` made and what they were made
+under (`cache.retained_frame`); each frame re-walks the draw order and prepares
+again only the leaves it cannot keep: a revision that moved over the same rows
+keeps its leaf (most updater bumps change no byte), a camera move keeps every
+leaf whose mesh, reservation and stroke count it leaves alone, coalesced runs
+and their encoded descriptors are reused by member identity, and a path that
+leaves the frame is parked under a digest of its content, so the equal path a
+seek or a restart puts back adopts it instead of a new Lyon mesh. The wire does
+not change: every message is byte-for-byte the one `MANIML_RETAINED_FRAME=0`
+(the whole-frame path, `prepare_triangle_frame` + `serialize_generated_frame`)
+writes for the same cache history, which the golden digests and the lockstep
+tests in `tests/test_retained_frame.py` assert frame by frame, so the browser,
+native capture and recordings are untouched. On EpisodeB2's 531-object 8.a a
+still frame serializes in ~1.7 ms instead of ~19 and a seek in ~8 instead of
+~100; a play where most things move costs what it did, and one where every leaf
+moves ~16% more (the bookkeeping on leaves it cannot keep; an open item, see the
+plan's "B4 tier 1: shipped"). **The trust surface
+is wider than the caches'**: a kept leaf skips classify, the mesh and border
+reads and its stroke's shader-data read, so an in-place write that bumps no
+revision (a direct `data[...]` write, a uniform written into
+`mobject.uniforms`, a write through a view of `get_points()`) is not drawn
+until the revision moves, where the whole-frame path draws it on the next
+frame. What no revision covers is checked every frame (a getter that is not the
+library's own, reassigned `depth_test`/`stroke_behind`, rewritten texture
+files). **The verify rule**: under `MANIML_VERIFY_LEDGER=1` the frame keeps
+exactly what it would keep without it, then reads each kept leaf again in its
+place through the same caches, with nothing written to the leaf or stamped on
+the caches for it first, and holds its draws (and the rows a moved revision was
+judged by) to that read's, raising `RenderCacheStale` naming the leaf, its
+place in the draw order and what moved; the message says whether a write that
+bumped nothing is to blame (the keep rested on the revision alone) or the
+retained frame's own rule (it judged a moved revision or a camera move
+harmless). A leaf that would adopt is prepared instead, and the parked draws
+and uniform set held to that read. `MANIML_RENDER_CACHE=bytes` keeps, parks and
+adopts nothing. A write that bumps nothing is the mutator's bug, as it is for
+the ledger; run the scene under verify to find it.
+
 `MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
 border generator) prepares no fill mesh at all: every filled path is a
 `patch` batch (format 7) whose fan and patch triangles the native driver

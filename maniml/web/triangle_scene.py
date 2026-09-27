@@ -770,7 +770,7 @@ class TriangleMeshCache:
         classes = held[2] if held is not None and held[0]() is mobject and held[3] == self._frame else None
         return entry, classes
 
-    def keep(self, mobject, *, revision=None, camera=None):
+    def keep(self, mobject, *, revision=None, camera=None, stamp=True):
         """Mark what the cache holds for ``mobject`` used in this frame, as
         prepare_leaf's reads of it would (the mesh entry's recency, the
         classification's stamp), for a caller that reuses the leaf's draws
@@ -785,28 +785,41 @@ class TriangleMeshCache:
         answer at the revision).
         ``camera``: (uniforms, resolution, pixel_tolerance) of a frame whose
         camera moved since the mesh was last read. The mesh is kept only
-        where mesh() would hit: its source trusted without a read and its
-        error bound, taken as mesh() takes it, within the tolerance. Where
-        it would not, only the classification is marked and (None,
+        where mesh() would hit: its source the one read at the revision
+        (the entry's, or ``revision`` on the caller's word, which covers a
+        unit normal the leaf's read would refresh to the same bytes) and
+        its error bound, taken as mesh() takes it, within the tolerance.
+        Where it would not, only the classification is marked and (None,
         classification) returned, the entry left for mesh() to replace
         when the caller prepares the leaf; the bound it memoized is the one
-        mesh() then finds."""
+        mesh() then finds. Under verification mesh() compares the arrays
+        as well, which a hit rests on no less, so the mesh is kept there
+        too, and a caller that reads the kept mesh through mesh() has it
+        checked.
+        ``stamp``: False takes ``revision`` as the caller's word for this
+        frame's decision and writes it nowhere, for a caller that reads the
+        mobject through the cache in this frame all the same and has that
+        read compare the arrays (verification) rather than trust a stamp."""
         owner_id = id(mobject)
         held = self._classes.get(owner_id)
         classes = None
+        stamped = revision if stamp else None
         if held is not None and held[0]() is mobject:
-            self._classes[owner_id] = (held[0], held[1] if revision is None else revision, held[2], self._frame)
+            self._classes[owner_id] = (held[0], held[1] if stamped is None else stamped, held[2], self._frame)
             classes = held[2]
         entry = self._entries.get(owner_id)
         if entry is None or entry.owner() is not mobject:
             return None, classes
-        if revision is not None:
-            entry.revision = revision
+        if stamped is not None:
+            entry.revision = stamped
         if camera is not None:
             uniforms, resolution, pixel_tolerance = camera
-            # mesh()'s trusted read: the snapshot reused without reading
-            # the arrays, so the hit rests on the error bound alone.
-            if (not self.trusts(mobject) or self.verify or mobject.needs_new_unit_normal
+            # mesh()'s read at the revision it was made at: the snapshot
+            # reused without a comparison, so the hit rests on the error
+            # bound alone.
+            at = entry.revision if revision is None else revision
+            if (self.policy != "revision" or at != mobject.revision
+                    or revision is None and mobject.needs_new_unit_normal
                     or entry.source.contour_rule is not _DEFAULT_CONTOUR_METHOD
                     or not _standard_mesh_getters(mobject)
                     or entry.pixel_error(entry.source, uniforms, resolution,

@@ -49,8 +49,9 @@ class GeometryCache:
         self.fill_generator = None
         self.surface_generator = None
         self.program_mode = None
-        # MANIML_RETAINED_FRAME=1 (docs/phase_b4_plan.md): the draws kept
-        # across frames, which must see every frame this cache serializes.
+        # The retained frame (docs/phase_b4_plan.md; MANIML_RETAINED_FRAME=0
+        # turns it off): the draws kept across frames, which must see every
+        # frame this cache serializes.
         self.retained_frame = None
 
     def reset(self):
@@ -227,8 +228,9 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         state.triangle_meshes = TriangleMeshCache()
     # The retained frame (docs/phase_b4_plan.md, tier 1) writes the same
     # bytes. Only one that saw every frame of this cache's history can
-    # trust its draws, so a frame serialized without it drops it.
-    if not retained_frame_enabled():
+    # trust its draws, so a frame serialized without it drops it; a frame
+    # serialized without a cache has no history to keep draws across.
+    if not retained_frame_enabled() or cache is None:
         state.retained_frame = None
     elif getattr(state, "retained_frame", None) is None:
         state.retained_frame = RetainedFrame()

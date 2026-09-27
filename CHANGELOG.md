@@ -7,23 +7,36 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
-- `MANIML_RETAINED_FRAME=1` keeps each drawn object's draws across frames
-  (docs/phase_b4_plan.md, B4.2 and B4.3): a frame prepares again only the
-  objects whose rows or own uniforms changed, whose mesh, border
-  reservation or stroke count a camera move changes, whose cache entries
-  were evicted, whose depth test or stroke-behind flag was reassigned, or
-  whose rows come through a getter of their own (a subclass's
-  `get_shader_data` or `get_points`, say), and reuses a coalesced run and
-  its encoded descriptor while its members are unchanged, across camera
-  moves too. A revision that moves over the same bytes, as most updaters'
-  do, keeps the object's draws. The message is byte-for-byte the one the
-  switch off writes for the same history, asserted frame by frame. On a
-  531-object course diagram a still frame serializes in ~1.4 ms instead
-  of ~19, a frame of its updaters ticking in ~3.5 ms instead of ~29, and
-  a pan or zoom in ~3-4 ms instead of ~20. An in-place write to an
-  object's arrays or uniforms that bumps no revision is not seen until
-  the revision moves (the switch off draws it on the next frame). Off by
-  default.
+- The serializer keeps each drawn object's draws across frames, by default
+  (docs/phase_b4_plan.md, tier 1; `MANIML_RETAINED_FRAME=0` turns it off): a
+  frame prepares again only the objects whose rows or own uniforms changed,
+  whose mesh, border reservation or stroke count a camera move changes,
+  whose cache entries were evicted, whose depth test or stroke-behind flag
+  was reassigned, or whose rows come through a getter of their own (a
+  subclass's `get_shader_data` or `get_points`, say), and reuses a coalesced
+  run and its encoded descriptor while its members are unchanged, across
+  camera moves too. A revision that moves over the same bytes, as most
+  updaters' do, keeps the object's draws, and an object that leaves the
+  frame is kept by its content, so the equal copy that a step between
+  checkpoints, a replay or a watcher's restart puts back reuses its mesh
+  rather than tessellating again. The message is byte-for-byte the one the
+  switch off writes for the same history, asserted frame by frame, so the
+  browser, native capture and recordings see nothing new. On a 531-object
+  course diagram a still frame serializes in ~1.7 ms instead of ~19, a frame
+  of its updaters ticking in ~3.7 ms instead of ~31, a pan or zoom in ~4 ms
+  instead of ~20, and a step between checkpoints in ~8 ms instead of ~100;
+  a play that moves most of the diagram costs what it did, and one that
+  moves all of it ~16% more (the bookkeeping on objects it cannot keep). An
+  in-place write to an object's arrays or uniforms that bumps no revision is
+  not seen until the revision moves (the switch off draws it on the next
+  frame): under `MANIML_VERIFY_LEDGER=1` the frame keeps what it keeps
+  without it and reads every kept object again, and such a write raises
+  `RenderCacheStale` naming the object and what moved (or, where the
+  retained frame judged a moved revision or a camera move harmless, naming
+  its own rule), and `MANIML_RENDER_CACHE=bytes` keeps nothing.
+  `benchmarks/episode_frames.py` measures it as the variant `retained`; the
+  other harnesses (`gpu_borders`, `paint_retention`, `generated_output`)
+  keep measuring the whole-frame path unless told otherwise.
 - The serializer's bytes are pinned. `tests/test_retained_frame.py` asserts
   blake2b digests of every frame's message over the renderer fixtures,
   scripted synthetic sequences (among them a real `Scene`'s render groups,

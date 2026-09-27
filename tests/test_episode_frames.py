@@ -4,16 +4,23 @@ replay runs a real headless Scene from a temp file, as
 tests.test_checkpoint_reload does."""
 
 import json
+import os
 import tempfile
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
-from benchmarks import episode_frames
+from benchmarks import episode_frames, gpu_borders
+from benchmarks.generated_output import StageObserver
 from benchmarks.gpu_borders import gpu_columns
+from maniml.web.triangle_geometry import _packaged_library
+
+requires_lyon = unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(),
+                                    "Lyon helper is neither packaged nor explicitly built")
 
 
 def checkpoints(count, stops=(), run_time=None):
@@ -117,6 +124,79 @@ class PixelPairs(unittest.TestCase):
         with_cpu = episode_frames.pixel_pairs(pictures(patch_fill=(0, 0, 0, 255), cpu_border=(0, 0, 0, 255)))
         self.assertEqual(list(with_cpu), ["patch_vs_cpu"])
         self.assertEqual(episode_frames.pixel_pairs(pictures(original_2d=(0, 0, 0, 255))), {})
+
+    def test_the_retained_frame_is_held_to_phase_a(self):
+        pairs = episode_frames.pixel_pairs(pictures(gpu_border=(0, 0, 0, 255), retained=(0, 0, 0, 255)))
+        self.assertEqual(list(pairs), ["retained_vs_gpu_border"])
+        self.assertEqual(pairs["retained_vs_gpu_border"]["fraction_pixels_rgb_over24"], 0.)
+
+
+class Variants(unittest.TestCase):
+    def test_retained_is_phase_a_with_the_retained_frame_and_the_rest_run_without_it(self):
+        # gpu_borders.sample is told the renderer and the switch; the
+        # retained frame's counts ride on its rows.
+        seen = []
+
+        def sample(scene, name, cache, stages, renderer=None, queue=None, *, retained="0"):
+            seen.append((name, retained))
+            if retained == "1":
+                cache.retained_frame = SimpleNamespace(stats={"leaves_kept": 3})
+            return {}, None, {}
+
+        with patch.object(gpu_borders, "sample", sample):
+            rows = {variant: episode_frames.sample_variant(None, variant, SimpleNamespace(retained_frame=None),
+                                                           None)[0]
+                    for variant in episode_frames.VARIANTS}
+        self.assertEqual(seen, [("patch_fill", "0"), ("gpu_border", "0"), ("gpu_border", "1"), ("cpu_border", "0"),
+                                ("original_2d", "0")])
+        self.assertEqual(rows["retained"], {"retained_frame": {"leaves_kept": 3}})
+        self.assertEqual(rows["gpu_border"], {})
+
+    @requires_lyon
+    def test_the_harnesses_measure_the_whole_frame_path_unless_told(self):
+        # The retained frame is the default (docs/phase_b4_plan.md, B4.5),
+        # and the archived runs of gpu_borders, paint_retention and
+        # generated_output measured the whole-frame path: their samplers
+        # pin MANIML_RETAINED_FRAME to 0 whatever the environment says,
+        # unless told otherwise, and hand the environment back.
+        from benchmarks import paint_retention
+        from maniml.mobject.geometry import Square
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        samplers = {"gpu_borders": lambda scene, cache, stages, retained: gpu_borders.sample(
+                        scene, "gpu_border", cache, stages, retained=retained),
+                    "paint_retention": lambda scene, cache, stages, retained: paint_retention.wire_sample(
+                        scene, "triangles", cache, stages, retained=retained)}
+        for (name, sampler), retained in ((item, retained) for item in samplers.items() for retained in ("0", "1")):
+            with self.subTest(harness=name, retained=retained), patch.dict(os.environ):
+                os.environ.pop("MANIML_RETAINED_FRAME", None)
+                stages, cache = StageObserver(), geometry.GeometryCache()
+                scene = build_scene(Square(fill_opacity=1))
+                with patch.object(geometry, "performance", stages):
+                    for _ in range(2):
+                        sampler(scene, cache, stages, retained)
+                self.assertNotIn("MANIML_RETAINED_FRAME", os.environ)
+                if retained == "0":
+                    self.assertIsNone(cache.retained_frame)
+                else:
+                    self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+
+    @requires_lyon
+    def test_the_stage_observer_stands_in_for_the_recorder(self):
+        # The harnesses put a StageObserver where the serializer reads its
+        # recorder, the retained frame's gauge among what it reads.
+        from maniml.mobject.geometry import Square
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        stages, cache = StageObserver(), geometry.GeometryCache()
+        scene = build_scene(Square(fill_opacity=1))
+        with patch.object(geometry, "performance", stages), patch.dict(os.environ, MANIML_RETAINED_FRAME="1"):
+            for _ in range(2):
+                geometry.serialize_scene(scene, cache)
+        self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+        self.assertGreater(stages.milliseconds["geometry.triangle_prepare"], 0)
 
 
 class FakeScene:
