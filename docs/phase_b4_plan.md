@@ -162,6 +162,106 @@ camera move < 1 KB; JS at rest 0; play ≤ 2 ms JS (Phase A) / ≤ 4 ms (Phase B
 show Dawn's per-draw cost above 1 ms at 911 slots). Phase B bundles wait on
 patch pipelines with a fixed stencil reference (a pixel-gated shader change).
 
+## B4 tier 1: shipped
+
+B4.0-B4.5 landed on `b4-retained-frame` (2026-09-26/27), and the retained
+frame is the default: `MANIML_RETAINED_FRAME=0` is the whole-frame path it is
+held to, byte for byte, for the same cache history. The golden pin (502
+digests) runs with whatever the run's switch is, and has not moved; the suite
+runs green with the switch off, on, and on under `MANIML_VERIFY_LEDGER=1`, and
+CI runs the pin all three ways. What each increment added: B4.0 the pin, and
+the flag-off revision gaps it found; B4.1 the seams (`prepare_leaf`,
+`run_kind`/`combine_run`, `encode_draw`/`assemble_message`); B4.2
+`RetainedFrame`, leaves kept by revision and camera, shared uniform sets keyed
+by their text, run and descriptor memos, `keep` on every cache; B4.3 a moved
+revision compared with the rows the draws were read from and a camera move
+revalidated through the caches' own paths; B4.4 retired leaves parked by
+content digest and adopted; B4.5 verification, the bytes policy keeping
+nothing, an entry's rows shared with its border source's frozen copy,
+`episode_frames.py --variants gpu_border retained`, and the flip.
+Verification keeps exactly what the frame keeps without it (a fill's mesh
+across a camera move included), then reads each kept leaf in its place with
+nothing written to the leaf or stamped on the caches for it first, so the
+read refreshes the leaf itself and the caches compare what a stamp would
+have had them trust; the kept draws, and the rows a moved revision was
+judged by, are held to that read (`_verify_kept`), and a difference raises
+`RenderCacheStale` naming the leaf, its place in the draw order and what
+moved, as a write that bumped nothing or as the retained frame's own rule.
+A leaf that would adopt is prepared instead and the parked draws and uniform
+set held to its read. Outside verification, a leaf the walk compared is
+compared again in its place once a getter of a leaf's own has run (the only
+code a frame runs that may write to another leaf without a bump), so a
+stamp never says more than a comparison did.
+
+Measured, `serialize_scene` medians in ms: flag off and flag on each through
+its own cache, alternated, messages equal at every frame (one scene for
+still, ticked, pan and zoom; two scenes loaded alike and navigated with the
+collector held for the rest). The machine was not quiet (load 3-4, the M3
+shared with other applications), so both columns run a little slower than
+B4.4's own gates did (8.a still flag off 19.3 against 18.3, on 1.65 against
+1.46); the prototype column is the Evidence table above.
+
+| Frame | Flag off | Prototype | Shipped | Gate |
+| --- | ---: | ---: | ---: | ---: |
+| EpisodeB2 8.a still (531 leaves, 444 runs) | 19.3 | 1.3 | 1.65 | ≤ 2.0 |
+| 8.a, its updaters ticking | 30.9 | 5.8 | 3.73 | ≤ 6 |
+| 8.a pan / 2% zoom | 21.8 / 20.0 | 4.0 / 4.0 | 3.80 / 4.01 | ≤ 5 |
+| 8.a seek down / up | 103.6 / 107.2 | 9.8 / 5.5 | 8.21 / 8.15 | ≤ 12 / ≤ 8, unverified |
+| 8.a landing after the play | 103.6 | – | 12.4 | ≤ 15 |
+| 8.a far jump / and back | 44.5 / 120.5 | – | 11.5 / 18.7 | |
+| 8.a restart from source (every mobject new) | 119.5 | – | 9.7 | |
+| 8.a play into it (365 of 531 move) | 89.2 | 88 | 85.9 | neutral |
+| 8.a Phase B still / ticked | 26.6 / 62.1 | 1.9 / 6.6 (patches) | 2.79 / 4.91 | |
+| 8.a Phase B seek down / up / play | 119.9 / 121.4 / 110.5 | – | 9.5 / 9.3 / 103.3 | |
+| PriceDiscovery 3.a.4 still / ticked | 5.98 / 8.12 | 0.43 / 1.25 | 0.74 / 1.02 | ticked ≤ 1.5 |
+| 3.a.4 pan / zoom | 6.24 / 6.44 | – | 1.43 / 1.65 | |
+| 3.a.4 seek down / up / play / landing | 17.1 / 17.1 / 7.9 / 21.5 | – / – / 2.7 / – | 2.63 / 2.59 / 3.08 / 8.05 | |
+| EpisodeB2 5.a's play (all 461 leaves move) | 54.6 | – | 63.5 | |
+
+Every gate is met but seek up, which is **unverified**: 8.15 ms median (7.75
+the fastest of eight rounds) against ≤ 8, at load 3-4. B4.4's commit gave
+7.73-7.89 on the quieter machine it was committed from, and 8.24 measured
+beside B4.5's first draft under another session's live viewer; the seek's
+bytes and counts are B4.4's (the navigation's frame digests are identical).
+It is not met until the navigation gate (EpisodeB2 at 307, Phase A, eight
+rounds) runs under 8 on a quiet machine. The complete native frame
+(`benchmarks/results/retained_frame_20260926/`, serialize through the full
+readback, pixels identical on every frame): 8.a still 36.9 → 21.5 ms,
+ticking 49.9 → 24.3, its play 108.9 → 108.4; every EpisodeB2 pausepoint
+19.7 → 13.3, every PriceDiscovery one 15.4 → 10.9, their plays 37.5 → 28.4
+and 23.4 → 15.3. At rest what is left is the native driver encoding 444
+batches (7.3 ms, unchanged: only the browser will learn the retained list)
+and the full readback the browser never does.
+
+The negatives. **A play where every leaf moves costs more**, and the flip
+takes that cost as measured, not the neutral the Evidence section expected:
+5.a's play prepares all 461 leaves each frame and serializes in 63.5 ms
+against 54.6 (+16%; B4.4's commit, measured the same way, 72.7 against
+62.5), 147.4 against 138.1 for the complete native frame. That is tier 1's
+bookkeeping on a leaf it prepares, ~19 µs a leaf (its entry and cache
+records, 2.5 ms a frame there; its uniform set's text, 1.8; the comparison
+that finds it moved, 1.3; the run memos and descriptors around combine and
+encode, ~2), which nothing kept pays back; 8.a's play, where a third of the
+scene holds still, is neutral, and plays over both episodes gain. The flip
+applies to `--render` too, so a render made mostly of whole-scene moves pays
+it; whether that stands is Taylor's to weigh, and a fast path for leaves
+that will be prepared (stop the comparison at the first row that differs,
+keep a leaf's override text while its uniforms are unchanged, skip the memos
+of a run whose members are all new) is the open item that would take it
+back. The prototype's per-leaf snapshot copy is gone where a cache holds the
+rows: an entry takes its border source's frozen copy (every filled path
+under Phase B, where held rows cost 0.38 ms a frame over 8.a's play against
+0.89; bordered paths under Phase A), and keeps its own copy of a stroke's or
+a mesh-only fill's rows, which no cache holds whole (Phase A's glyphs: ~0.5
+ms a frame there). The retained frame holds 0.80 MB beside the caches at
+8.a (1.08 before the frozen rows), and its retired store up to what the
+caches leave of their 64 MiB (18 MB after twelve pausepoints of EpisodeB2),
+the patch fill's object words and paint field counted. Verification costs
+what reading every leaf costs: 8.a still 36.8 ms against the flag-off path's
+27.1 under the same switch (ticked 42.8 against 31.5, PriceDiscovery ticked
+15.0 against 10.5). Tier 2 (B4.6 on) is where a frame at rest stops costing
+anything, and B5.1 where a mover costs a memcpy.
+
 ## After B4: the flips and the test point
 
 **B5.1 Rows on the wire under patches.** A mover sends its 17-float rows and

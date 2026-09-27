@@ -186,6 +186,23 @@ two against CPU-border Phase A and Original 2D), and the table prints them.
 `n`, the pixel pairs, the scene, commit, machine and the scope caveats; the
 markdown table is printed and written as `summary.md`.
 
+The variant `retained` is `gpu_border` (Phase A) with the retained frame
+(`MANIML_RETAINED_FRAME=1`, `docs/phase_b4_plan.md`); every other variant
+runs with the switch at 0, the serializer as it stood before Phase B4, so
+`--variants gpu_border retained` measures what the retained frame changes.
+The retained frame is the serializer's default, but every harness here
+measures the whole-frame path unless it names the retained variant
+(`gpu_borders.sample`, `paint_retention.wire_sample` and
+`generated_output.sample` pin the switch to 0), so their numbers keep
+meaning what the archived runs measured.
+Its bytes are `gpu_border`'s, so the pair `retained_vs_gpu_border` must read
+0%, and its rows carry the retained frame's counts (`retained_frame`: leaves
+kept, prepared, compared, adopted; batches reused). The variants share one
+scene whose reads write to it, so its ticked and play rows are slightly
+pessimistic (`retained_scope`). An episode reached through a symbolic link
+keeps the link's directory (the path is made absolute, not resolved).
+`results/retained_frame_20260926/` is the run on both episodes.
+
 The GPU pass columns above appear under `--gpu-timestamps`, an attribution
 run; by default the flag is off and the totals are the gate's. The default
 rotation of three renderers serves the pixel pairs, but for the completion

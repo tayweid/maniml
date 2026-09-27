@@ -13,15 +13,17 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
+from maniml.constants import BLUE, GREEN, LEFT, RED, RIGHT
 from maniml.mobject.geometry import Circle, Square
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.types.image_mobject import ImageMobject
 from maniml.mobject.types.surface import Surface, TexturedSurface
-from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+from maniml.web.generated_geometry import serialize_generated_frame
+from maniml.web.geometry import GeometryCache, _jsonable, parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import LyonFillTessellator, _packaged_library
 from maniml.web.triangle_scene import (
-    TriangleMeshCache, UnsupportedPrototype, _border_hull,
-    mesh_mobject, planar_coordinates, prepare_triangle_frame, projection_scale_bound,
+    LeafContext, TriangleFrame, TriangleMeshCache, UnsupportedPrototype, _border_hull, draw_order,
+    mesh_mobject, planar_coordinates, prepare_leaf, prepare_triangle_frame, projection_scale_bound,
 )
 from tests.renderer_fixtures import build_scene, closed_contours
 
@@ -317,6 +319,53 @@ class GeneratedSceneGeometry(unittest.TestCase):
             self.assertEqual(repeated, b"")
             for obj, before in zip((image, fill, texture), source):
                 np.testing.assert_array_equal(obj.get_points(), before)
+
+    def test_leaves_carry_texture_payloads_and_limitations_into_the_frame(self):
+        # A leaf prepared on its own carries what its draws add to a frame
+        # beside themselves, so a frame assembled from retained leaves
+        # (docs/phase_b4_plan.md) is the frame prepared whole. The texture
+        # bytes must reach the message from the frame: the module's read
+        # cache is bounded and may have let the file go.
+        with TemporaryDirectory() as directory:
+            filename = Path(directory) / "sample.png"
+            Image.new("RGBA", (3, 2), (31, 95, 181, 173)).save(filename)
+            raw = filename.read_bytes()
+            image = ImageMobject(str(filename), height=1)
+            gradients = [Circle(radius=1, stroke_width=0, fill_border_width=0).shift(side)
+                         for side in (LEFT, RIGHT)]
+            for gradient in gradients:
+                gradient.set_fill(color=[RED, GREEN, BLUE], opacity=[0.2, 0.6, 0.9])
+            scene = build_scene(gradients[0], image, gradients[1])
+            frame = prepare_triangle_frame(scene, self.tessellator, fill_borders=True, coalesce=False)
+            (key, payload), = frame.texture_data.items()
+            self.assertEqual(payload, raw)
+            # Two leaves carry the same note; the frame records it once.
+            self.assertEqual(len(frame.limitations), 1)
+            self.assertIn("non-affine fill paint", frame.limitations[0])
+
+            camera_uniforms = {name: _jsonable(value) for name, value in scene.camera.uniforms.items()}
+            context = LeafContext(frame.resolution, camera_uniforms, self.tessellator, fill_borders=True)
+            self.assertEqual(draw_order(scene), [gradients[0], image, gradients[1]])
+            leaves = [prepare_leaf(sm, {**camera_uniforms, **{name: _jsonable(value) for name, value
+                                                             in sm.uniforms.items()}}, context)
+                      for sm in draw_order(scene)]
+            self.assertEqual([leaf.textures for leaf in leaves], [None, {key: raw}, None])
+            self.assertEqual(leaves[1].draws[0].textures, {"Texture": key})
+            self.assertEqual([list(leaf.limitations) for leaf in leaves],
+                             [frame.limitations, [], frame.limitations])
+            assembled = TriangleFrame(frame.resolution, frame.background, frame.samples,
+                                      pixel_tolerance=frame.pixel_tolerance)
+            for leaf in leaves:
+                assembled.add_leaf(leaf)
+            self.assertEqual((assembled.limitations, assembled.texture_data, assembled.source_bytes),
+                             (frame.limitations, frame.texture_data, frame.source_bytes))
+            with patch.dict("maniml.web.geometry._TEXTURE_BY_HASH", clear=True):
+                message = serialize_generated_frame(frame, scene.camera.uniforms)
+                self.assertEqual(serialize_generated_frame(assembled, scene.camera.uniforms), message)
+            header, data = parse_geometry_message(message)
+            where = header["texture_data"][key]
+            self.assertEqual(data[where["offset"]:where["offset"] + where["nbytes"]], raw)
+            self.assertEqual(header["limitations"], frame.limitations)
 
 
 if __name__ == "__main__":

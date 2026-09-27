@@ -123,7 +123,7 @@ All of this lives in `maniml/`:
    - **Copy discipline**: `SceneState` stores direct references; isolation happens by deep-copying state+namespace *together* at save time. Anything restored for display (UP/DOWN/LEFT, undo/redo) goes through a thaw copy so on-screen mutation can never corrupt stored history; `run_next_animation` thaws the checkpoint before exec for the same reason, except at the frontier, where the live graph *is* what the checkpoint was frozen from.
    - **The ledger** (`CheckpointLedger` in `checkpoints.py`, DECISIONS.md "Checkpoints are a ledger"): a save copies only what changed. `Mobject.revision` is bumped by every mutation a checkpoint must see (`note_changed_data`, `note_changed_family`, `note_changed_state`; a child bumps its ancestors); the save pre-seeds the deep copy's memo so an unchanged mobject and everything it references reuse their previous frozen copy. Frozen graphs have no parent links and read-only arrays (`Mobject.__deepcopy__` under `copy_mode("freeze")`); a thaw (`copy_mode("thaw")`) rebuilds the links. Mutating mobject state through a path that bumps nothing makes a stale checkpoint — run with `MANIML_VERIFY_LEDGER=1` to have such a miss raise `LedgerStale` naming the attribute.
 
-4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off; navigation is the viewer's rail, and the viewer plays the recorded mp4 once every endpoint is prebuilt); `--render` → `_render_all()` headless (frames to `SceneFileWriter`); `--export-checkpoints` → the same `_render_all()` with `_render_checkpoints` on, which additionally writes one PNG per checkpoint (intermediate loop checkpoints are restored individually for their snapshots) — on its own it skips the movie (`write_to_movie=False`), and the two flags combine. Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through.
+4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off; navigation is the viewer's rail, and the viewer plays the recorded mp4 once every endpoint is prebuilt); `--render` → `_render_all()` headless (frames to `SceneFileWriter`); `--export-checkpoints` → the same `_render_all()` with `_render_checkpoints` on, which additionally writes one PNG per checkpoint (intermediate loop checkpoints are restored individually for their snapshots) — on its own it skips the movie (`write_to_movie=False`), and the two flags combine. Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through, and reads `sys.argv` only when maniml is the program, as the console script or `python -m maniml` (`cli_arguments`): a test runner's or a benchmark's flags are not maniml's (`unittest discover -t .` once gave every scene the suite built a transparent background).
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame and fixed-in-frame excluded; in present mode a press does nothing — navigation is the rail). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`). Where `drag_to_orbit` is set (`ThreeDScene`), a plain drag turns the camera instead (`_orbit`: theta and phi about the frame's centre; shift-drag pans, alt-press grabs) — a plain press cannot grab there because the bounding-box hit test lets 3D axes claim nearly every press. The orbit is a look, not an edit: the frame's orientation is checkpoint state, so every navigation path restores the authored camera. **Handles**: `Mobject.set_draggable(along=, on_drag=)` is plain state on the mobject (copied with every checkpoint, deliberately not the inherited `EVENT_DISPATCHER` listeners, which hold object identities that every thaw replaces); `_find_handle_at` searches the flagged family members first, in every mode including present, and `on_mouse_motion` reports the hovered handle's name through `WebViewer.set_hover` (a `{"type": "hover", "label"}` message, once per change; the page draws the chip and the cursor). The state message carries `draggable`, and the page then presents from the live stage instead of entering playback.
 
@@ -237,6 +237,45 @@ driver expands the per-object strip pattern from the run layout itself.
 Both drivers retire absent sources/outputs after submission and roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
 formats 1–6 remain readable. These resources never enter checkpoints.
+
+**The frame is retained in Python** (`web/retained_frame.py`, Phase B4 tier 1,
+`docs/phase_b4_plan.md`; the default since 2026-09-27). A `GeometryCache`
+keeps, per drawn leaf, the draws `prepare_leaf` made and what they were made
+under (`cache.retained_frame`); each frame re-walks the draw order and prepares
+again only the leaves it cannot keep: a revision that moved over the same rows
+keeps its leaf (most updater bumps change no byte), a camera move keeps every
+leaf whose mesh, reservation and stroke count it leaves alone, coalesced runs
+and their encoded descriptors are reused by member identity, and a path that
+leaves the frame is parked under a digest of its content, so the equal path a
+seek or a restart puts back adopts it instead of a new Lyon mesh. The wire does
+not change: every message is byte-for-byte the one `MANIML_RETAINED_FRAME=0`
+(the whole-frame path, `prepare_triangle_frame` + `serialize_generated_frame`)
+writes for the same cache history, which the golden digests and the lockstep
+tests in `tests/test_retained_frame.py` assert frame by frame, so the browser,
+native capture and recordings are untouched. On EpisodeB2's 531-object 8.a a
+still frame serializes in ~1.7 ms instead of ~19 and a seek in ~8 instead of
+~100; a play where most things move costs what it did, and one where every leaf
+moves ~16% more (the bookkeeping on leaves it cannot keep; an open item, see the
+plan's "B4 tier 1: shipped"). **The trust surface
+is wider than the caches'**: a kept leaf skips classify, the mesh and border
+reads and its stroke's shader-data read, so an in-place write that bumps no
+revision (a direct `data[...]` write, a uniform written into
+`mobject.uniforms`, a write through a view of `get_points()`) is not drawn
+until the revision moves, where the whole-frame path draws it on the next
+frame. What no revision covers is checked every frame (a getter that is not the
+library's own, reassigned `depth_test`/`stroke_behind`, rewritten texture
+files). **The verify rule**: under `MANIML_VERIFY_LEDGER=1` the frame keeps
+exactly what it would keep without it, then reads each kept leaf again in its
+place through the same caches, with nothing written to the leaf or stamped on
+the caches for it first, and holds its draws (and the rows a moved revision was
+judged by) to that read's, raising `RenderCacheStale` naming the leaf, its
+place in the draw order and what moved; the message says whether a write that
+bumped nothing is to blame (the keep rested on the revision alone) or the
+retained frame's own rule (it judged a moved revision or a camera move
+harmless). A leaf that would adopt is prepared instead, and the parked draws
+and uniform set held to that read. `MANIML_RENDER_CACHE=bytes` keeps, parks and
+adopts nothing. A write that bumps nothing is the mutator's bug, as it is for
+the ledger; run the scene under verify to find it.
 
 `MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
 border generator) prepares no fill mesh at all: every filled path is a

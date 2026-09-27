@@ -7,6 +7,48 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The serializer keeps each drawn object's draws across frames, by default
+  (docs/phase_b4_plan.md, tier 1; `MANIML_RETAINED_FRAME=0` turns it off): a
+  frame prepares again only the objects whose rows or own uniforms changed,
+  whose mesh, border reservation or stroke count a camera move changes,
+  whose cache entries were evicted, whose depth test or stroke-behind flag
+  was reassigned, or whose rows come through a getter of their own (a
+  subclass's `get_shader_data` or `get_points`, say), and reuses a coalesced
+  run and its encoded descriptor while its members are unchanged, across
+  camera moves too. A revision that moves over the same bytes, as most
+  updaters' do, keeps the object's draws, and an object that leaves the
+  frame is kept by its content, so the equal copy that a step between
+  checkpoints, a replay or a watcher's restart puts back reuses its mesh
+  rather than tessellating again. The message is byte-for-byte the one the
+  switch off writes for the same history, asserted frame by frame, so the
+  browser, native capture and recordings see nothing new. On a 531-object
+  course diagram a still frame serializes in ~1.7 ms instead of ~19, a frame
+  of its updaters ticking in ~3.7 ms instead of ~31, a pan or zoom in ~4 ms
+  instead of ~20, and a step between checkpoints in ~8 ms instead of ~100;
+  a play that moves most of the diagram costs what it did, and one that
+  moves all of it ~16% more (the bookkeeping on objects it cannot keep). An
+  in-place write to an object's arrays or uniforms that bumps no revision is
+  not seen until the revision moves (the switch off draws it on the next
+  frame): under `MANIML_VERIFY_LEDGER=1` the frame keeps what it keeps
+  without it and reads every kept object again, and such a write raises
+  `RenderCacheStale` naming the object and what moved (or, where the
+  retained frame judged a moved revision or a camera move harmless, naming
+  its own rule), and `MANIML_RENDER_CACHE=bytes` keeps nothing.
+  `benchmarks/episode_frames.py` measures it as the variant `retained`; the
+  other harnesses (`gpu_borders`, `paint_retention`, `generated_output`)
+  keep measuring the whole-frame path unless told otherwise.
+- The serializer's bytes are pinned. `tests/test_retained_frame.py` asserts
+  blake2b digests of every frame's message over the renderer fixtures,
+  scripted synthetic sequences (among them a real `Scene`'s render groups,
+  textures, a run split at its output cap, uniforms-only plays and GPU
+  program draws) and frames of two course episodes, for Phase A and
+  Phase B, through one persistent geometry cache per case, recorded
+  before the first increment of the retained frame (docs/phase_b4_plan.md,
+  B4.0). The render caches read the cache policy and the verify switch once
+  per frame rather than once per leaf.
+- A surface net cache no longer loses count of its bytes when a replaced
+  surface inherits a dead one's id between frames; the leak filled the
+  64 MiB budget until every live net was evicted each frame.
 - The native renderer can time its GPU passes. `MANIML_GPU_TIMESTAMPS=1`
   requests Metal/WebGPU timestamp queries when the adapter offers them and,
   after every frame, `WgpuRenderer.gpu_timings` gives each pass's span and
@@ -161,6 +203,31 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- A style set on a path or group that has no points yet is checkpoint
+  state: colour, opacity, stroke width, border width and `stroke_behind`
+  written there bump its revision. Only members with points were bumped,
+  so the save after such a write reused the frozen copy, and a seek back
+  and a replay drew the path grey, thin and unfilled. A `Surface`'s
+  per-revision grid cache is render state the ledger's verify mode no
+  longer names.
+- A seek back no longer hands back a live object whose references point
+  outside the restored checkpoint. A mobject kept alive off screen while
+  the one it follows (`tent.follow = body`) was restored as a newer copy
+  came back pointing at that copy's later state; the thaw now reuses a
+  live object only when its submobjects and references are the objects
+  standing in for its frozen copy's.
+- A play that moves only uniforms (`.animate.set_anti_alias_width`,
+  `set_shading`) bumps the revision every frame, as a play that moves rows
+  does.
+- `PGroup.sort_points` and `filter_out` bump the revision of every member
+  they rewrite, a member filtered down to no points included. Only the
+  group was bumped, so the save after either reused each member's old
+  frozen copy.
+- maniml parses its command line only when it is the program. The config
+  is read at import, so a host program's flags were taken as maniml's:
+  `python -m unittest discover -s tests -t .` gave every scene the suite
+  built a transparent background. `python -m maniml`, as the app and the
+  viewer launch a scene, and the `maniml` command parse the same one.
 - `Surface` accepts CE's spelling — `Surface(func, u_range, v_range,
   resolution=32, fill_color=..., fill_opacity=...)` — beside GL's (colour
   first, `uv_func` a method); CE's stroke, checkerboard and piece options

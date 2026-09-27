@@ -49,6 +49,10 @@ class GeometryCache:
         self.fill_generator = None
         self.surface_generator = None
         self.program_mode = None
+        # The retained frame (docs/phase_b4_plan.md; MANIML_RETAINED_FRAME=0
+        # turns it off): the draws kept across frames, which must see every
+        # frame this cache serializes.
+        self.retained_frame = None
 
     def reset(self):
         self.sent.clear()
@@ -84,6 +88,29 @@ def _stroke_verts(data, frame_scale) -> int:
     areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
     counts = np.round(POLYLINE_FACTOR * np.sqrt(areas) / frame_scale)
     max_steps = int(min(2 + counts.max(initial=0), MAX_STEPS))
+    return 2 * max(max_steps, 2)
+
+
+def _stroke_sqrt_area(data):
+    """The largest sqrt(area) of `data`'s curves, in _stroke_verts's own
+    arithmetic (float32 for float32 points): all _stroke_verts needs to
+    know of `data` at any other frame_scale (_stroke_verts_at)."""
+    p0 = data['point'][0::3]
+    p1 = data['point'][1::3]
+    p2 = data['point'][2::3]
+    areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+    return np.sqrt(areas).max(initial=0)
+
+
+def _stroke_verts_at(sqrt_area, frame_scale) -> int:
+    """_stroke_verts(data, frame_scale) from _stroke_sqrt_area(data), in
+    O(1): for a positive frame_scale, scaling, rounding and the cap are
+    each monotone, so the largest curve's count is the largest count, and
+    the scalar goes through the same float32 operations as the array.
+    Only for a finite positive frame_scale; any other the caller hands to
+    _stroke_verts, which refuses or answers it curve by curve."""
+    count = np.round(POLYLINE_FACTOR * sqrt_area / frame_scale)
+    max_steps = int(min(2 + count, MAX_STEPS))
     return 2 * max(max_steps, 2)
 
 
@@ -138,6 +165,9 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
     if cache is not None and cache.renderer != selected:
         cache.reset()
         cache.renderer = selected
+        # Original 2D clears the triangle caches the retained frame's
+        # draws were read from.
+        cache.retained_frame = None
     if selected == "winding":
         from maniml.web.winding_geometry import serialize_scene as serialize_winding
         return serialize_winding(scene, cache)
@@ -157,6 +187,7 @@ RENDERERS = ("triangles", "winding", "phase_b")
 def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     """One source-to-operation path for viewer, baked export and native output."""
     from maniml.web.generated_geometry import serialize_generated_frame
+    from maniml.web.retained_frame import RetainedFrame, retained_frame_enabled
     from maniml.web.triangle_geometry import LyonFillTessellator
     from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 
@@ -189,27 +220,45 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         state.fill_generator = fill_generator
         state.surface_generator = surface_generator
         state.program_mode = program_mode
+        state.retained_frame = None
         if state.triangle_meshes is not None:
             state.triangle_meshes.gpu_border_cache.clear()
     if state.triangle_tessellator is None:
         state.triangle_tessellator = LyonFillTessellator()
         state.triangle_meshes = TriangleMeshCache()
+    # The retained frame (docs/phase_b4_plan.md, tier 1) writes the same
+    # bytes. Only one that saw every frame of this cache's history can
+    # trust its draws, so a frame serialized without it drops it; a frame
+    # serialized without a cache has no history to keep draws across.
+    if not retained_frame_enabled() or cache is None:
+        state.retained_frame = None
+    elif getattr(state, "retained_frame", None) is None:
+        state.retained_frame = RetainedFrame()
+    retained = state.retained_frame
+    options = dict(mesh_cache=state.triangle_meshes, fill_borders=True,
+                   gpu_borders=border_generator == "gpu",
+                   patch_fills=fill_generator == "patches",
+                   net_surfaces=surface_generator == "nets",
+                   programs=program_mode != "off")
+    renderer = "phase_b" if phase_b else "triangles"
     with performance.stage("geometry.triangle_prepare"):
-        frame = prepare_triangle_frame(scene, state.triangle_tessellator,
-                                       mesh_cache=state.triangle_meshes, fill_borders=True,
-                                       gpu_borders=border_generator == "gpu",
-                                       patch_fills=fill_generator == "patches",
-                                       net_surfaces=surface_generator == "nets",
-                                       programs=program_mode != "off")
+        if retained is None:
+            frame = prepare_triangle_frame(scene, state.triangle_tessellator, **options)
+        else:
+            frame = retained.prepare(scene, state.triangle_tessellator, **options)
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):
-        message = serialize_generated_frame(frame, scene.camera.uniforms, cache,
-                                            renderer="phase_b" if phase_b else "triangles")
+        if retained is None:
+            message = serialize_generated_frame(frame, scene.camera.uniforms, cache, renderer=renderer)
+        else:
+            message = retained.encode(frame, scene.camera.uniforms, cache, renderer=renderer)
     performance.increment("geometry.serialize.calls")
     performance.increment("geometry.serialized_bytes", len(message))
     performance.gauge("geometry.batch_count", len(frame.draws))
     performance.gauge("geometry.triangle_retained_bytes", frame.mesh_cache_stats["retained_bytes"])
+    if retained is not None and performance.enabled:
+        performance.gauge("geometry.retained_frame_bytes", retained.retained_bytes())
     return message
 
 

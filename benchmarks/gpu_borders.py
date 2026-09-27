@@ -233,13 +233,16 @@ def gpu_columns(timings):
     return columns
 
 
-def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None):
+def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None, *, retained="0"):
     stages.reset()
     if queue is not None:
         queue.reset()
     route = "winding" if name == "original_2d" else "triangles"
+    # MANIML_RETAINED_FRAME as ``retained`` has it: by default the
+    # whole-frame path, the serializer the archived runs measured, whatever
+    # the default is; episode_frames' variant retained passes "1".
     with patch.dict("os.environ", MANIML_BORDER_GENERATOR="gpu" if name in ("gpu_border", "patch_fill") else "cpu",
-                    MANIML_FILL="patches" if name == "patch_fill" else "meshes"):
+                    MANIML_FILL="patches" if name == "patch_fill" else "meshes", MANIML_RETAINED_FRAME=retained):
         started = perf_counter()
         message = serialize_scene(scene, cache, renderer=route)
         serialized = perf_counter()

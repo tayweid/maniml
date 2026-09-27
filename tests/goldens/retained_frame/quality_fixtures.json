@@ -1,0 +1,326 @@
+{
+ "cases": {
+  "border_normal_production_default": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "15380007a940282f10c8981cb244524e",
+     "triangles": "95fca7664fb72923ccf4879fcc45b804"
+    },
+    "01 still": {
+     "phase_b": "5886c9722f260b5c999fd045d20431ee",
+     "triangles": "7245350b00cbfd540412448022aa5876"
+    },
+    "02 pan": {
+     "phase_b": "595bb39896791015d2cf302219cead0e",
+     "triangles": "7733a3b65bf560821300f6e928845d14"
+    },
+    "03 zoom out": {
+     "phase_b": "a6ca23cbb9f5e7bbf74a5d2fd773a944",
+     "triangles": "2c9d9c455f89b1bda4bbf2c20312aa2d"
+    },
+    "04 zoom back": {
+     "phase_b": "595bb39896791015d2cf302219cead0e",
+     "triangles": "7733a3b65bf560821300f6e928845d14"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "b0393cd0894c84972f1b70d1717dac0d257cd027c7b468cf4aac51245fdd5b62"
+   }
+  },
+  "border_normal_zero_for_aa": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "810e1fb790aa871d0e71db72372e2f66",
+     "triangles": "044b7257f08960d95f1c4ed762ce104d"
+    },
+    "01 still": {
+     "phase_b": "471d49782aa4abd5d5a8aedabd9ea499",
+     "triangles": "44893a9c5b256787ac9cd25e272a95b1"
+    },
+    "02 pan": {
+     "phase_b": "d8c018e5007bbcaf78be5b0aa6c83745",
+     "triangles": "491389659e4774824d98d47467382ffb"
+    },
+    "03 zoom out": {
+     "phase_b": "e9fe07d9ad25d72df7c736af1515a5b6",
+     "triangles": "6f44065e6472ec1e00c19b5f12118a03"
+    },
+    "04 zoom back": {
+     "phase_b": "d8c018e5007bbcaf78be5b0aa6c83745",
+     "triangles": "491389659e4774824d98d47467382ffb"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "72ae37ae249b9cd103dcc2d549765a22a743809985463c996293e4d7776cb1f3"
+   }
+  },
+  "hairlines_normal_production_default": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "20eb0a9beeb997a43c2c14d5320cd023",
+     "triangles": "233aca6985922512550d6d513bd5467d"
+    },
+    "01 still": {
+     "phase_b": "e60fd4f1538261f848b3d95fd14bf243",
+     "triangles": "af1f4c9dc4201a2be44b6157a5789402"
+    },
+    "02 pan": {
+     "phase_b": "c57531e634b56d0a1a005f1f43b6a345",
+     "triangles": "fd7ff95664b9f12b886af711139f37e5"
+    },
+    "03 zoom out": {
+     "phase_b": "a8ea33c20c5e06fc928dc0054720599a",
+     "triangles": "2c969d4ab5e251069b90ee4843ba333c"
+    },
+    "04 zoom back": {
+     "phase_b": "c57531e634b56d0a1a005f1f43b6a345",
+     "triangles": "fd7ff95664b9f12b886af711139f37e5"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "5bda6d64f38ab165f4a54a15c82c664c5bf97d5b9a1d41ad0a489fde7ee56ca8"
+   }
+  },
+  "hairlines_normal_zero_for_aa": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "20eb0a9beeb997a43c2c14d5320cd023",
+     "triangles": "233aca6985922512550d6d513bd5467d"
+    },
+    "01 still": {
+     "phase_b": "e60fd4f1538261f848b3d95fd14bf243",
+     "triangles": "af1f4c9dc4201a2be44b6157a5789402"
+    },
+    "02 pan": {
+     "phase_b": "c57531e634b56d0a1a005f1f43b6a345",
+     "triangles": "fd7ff95664b9f12b886af711139f37e5"
+    },
+    "03 zoom out": {
+     "phase_b": "a8ea33c20c5e06fc928dc0054720599a",
+     "triangles": "2c969d4ab5e251069b90ee4843ba333c"
+    },
+    "04 zoom back": {
+     "phase_b": "c57531e634b56d0a1a005f1f43b6a345",
+     "triangles": "fd7ff95664b9f12b886af711139f37e5"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "5bda6d64f38ab165f4a54a15c82c664c5bf97d5b9a1d41ad0a489fde7ee56ca8"
+   }
+  },
+  "perspective_normal_production_default": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "8520e398841f35356af68b48037ce16f",
+     "triangles": "caac2ef9318b7eef161081886c37a78a"
+    },
+    "01 still": {
+     "phase_b": "a6b90a41993b73add2ca9c0808f0d755",
+     "triangles": "9e5a18244174bc6910864606c6eb26b5"
+    },
+    "02 pan": {
+     "phase_b": "1b5f98f68b95add6949a5b210bf86ae9",
+     "triangles": "566b2d04cfb952ef93d5de96ce138097"
+    },
+    "03 zoom out": {
+     "phase_b": "62fb86c055527d24fe0bf121b25702e0",
+     "triangles": "99b60130ba07ad3f4cda0a38a8aa3821"
+    },
+    "04 zoom back": {
+     "phase_b": "1b5f98f68b95add6949a5b210bf86ae9",
+     "triangles": "566b2d04cfb952ef93d5de96ce138097"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "5f9ef5df14f1b05d92145827bbbafe83d5c5bf73ad2a3a3302545cd90b473d74"
+   }
+  },
+  "perspective_normal_zero_for_aa": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "d0ba1fdbe4a5471caeeec47f87ef9f9b",
+     "triangles": "311af72c8a89113f9b3d0721c0d1758f"
+    },
+    "01 still": {
+     "phase_b": "049575c0bfa1bd08d13fe5d2c1612c02",
+     "triangles": "52613e5ec2fee0c69a3bb2881ebcc4b9"
+    },
+    "02 pan": {
+     "phase_b": "16df0e7ce16fe44b511ad8c068f5333e",
+     "triangles": "bf91aeaf659e7c6c055504294bf8884f"
+    },
+    "03 zoom out": {
+     "phase_b": "1221c5d2fdaf0cc5911f13d7a5f2ae26",
+     "triangles": "7ba52300b79c442e02713bf12f29e26c"
+    },
+    "04 zoom back": {
+     "phase_b": "16df0e7ce16fe44b511ad8c068f5333e",
+     "triangles": "bf91aeaf659e7c6c055504294bf8884f"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "5e6b68874d5b19ac35890ae95fd526af1e14320371e208ed88a4257efea8e608"
+   }
+  },
+  "tex_normal_production_default": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "114b59fec880ea6585fc0ae53f71e171",
+     "triangles": "ee62b9817282c6cc58ecd416e1662bc8"
+    },
+    "01 still": {
+     "phase_b": "e4c38bf3f57594be74fe199edcc8bb96",
+     "triangles": "cea2c3767075588ee72b07e40e121bcf"
+    },
+    "02 pan": {
+     "phase_b": "893ce19c4b2d39b2bc1f5eb21441827c",
+     "triangles": "6bf8111f098993829a6f57fa02091647"
+    },
+    "03 zoom out": {
+     "phase_b": "0c23cce6fdfc6f3d2c9411d67fb3df06",
+     "triangles": "6e9b6f86dddc054b73a70b81627e111b"
+    },
+    "04 zoom back": {
+     "phase_b": "893ce19c4b2d39b2bc1f5eb21441827c",
+     "triangles": "6bf8111f098993829a6f57fa02091647"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "4a034728cf6827cdff76b55d752391a06afa22928630f8afd9a044e472b7bb61"
+   }
+  },
+  "tex_normal_zero_for_aa": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "624ffd7bc5ccffa1991ccca8528668bf",
+     "triangles": "01b92886ed6adcf63c87c5b61f1167e0"
+    },
+    "01 still": {
+     "phase_b": "fea0a2288a67fc226ae128479a550087",
+     "triangles": "9ac849f93547d9713d7100891940f053"
+    },
+    "02 pan": {
+     "phase_b": "5d785550d94e7113df84dd9bad006d10",
+     "triangles": "0b6b7cbf88e6c9546656a9123478c9b2"
+    },
+    "03 zoom out": {
+     "phase_b": "941c74fb10602b7ac16d78bae7381278",
+     "triangles": "55fb37ab2f6bdebab8875057e04b2c18"
+    },
+    "04 zoom back": {
+     "phase_b": "5d785550d94e7113df84dd9bad006d10",
+     "triangles": "0b6b7cbf88e6c9546656a9123478c9b2"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88"
+   }
+  },
+  "tex_zoom_production_default": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "5100903900092c9fde62372d6ecd391c",
+     "triangles": "13a6e2b072a3c7770e58b6d959af570b"
+    },
+    "01 still": {
+     "phase_b": "3a044c5b02c5301e4c3a86a161f1e3b3",
+     "triangles": "4fbd1c060f8469bde89136c129dc1c2d"
+    },
+    "02 pan": {
+     "phase_b": "47a4e80c9028527fd6bcf7af92150b38",
+     "triangles": "6114e55204b3aef24cb97e9f2eb1aee3"
+    },
+    "03 zoom out": {
+     "phase_b": "139dbaea1aacd560795d3abf10f35e8b",
+     "triangles": "59ec19c60b4163bbb28f207ee44c6660"
+    },
+    "04 zoom back": {
+     "phase_b": "47a4e80c9028527fd6bcf7af92150b38",
+     "triangles": "6114e55204b3aef24cb97e9f2eb1aee3"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "4a034728cf6827cdff76b55d752391a06afa22928630f8afd9a044e472b7bb61"
+   }
+  },
+  "tex_zoom_zero_for_aa": {
+   "frames": {
+    "00 cold": {
+     "phase_b": "6f0265efb213a60b2096ce4c675be208",
+     "triangles": "a6673de65773806cd2163c3d64eb4c97"
+    },
+    "01 still": {
+     "phase_b": "231e3c244c941307d8f3d6e588d3860a",
+     "triangles": "e71558362c856faff1e33c705b5b5876"
+    },
+    "02 pan": {
+     "phase_b": "456da94b8bb3309c263f52fd29826b4e",
+     "triangles": "89ff3d78171a61ee0f7441048b74422f"
+    },
+    "03 zoom out": {
+     "phase_b": "0b3b9be0e9bbc9945f8be4d99d2fb820",
+     "triangles": "5b2e61d78332077e45ded1aa716a2dee"
+    },
+    "04 zoom back": {
+     "phase_b": "456da94b8bb3309c263f52fd29826b4e",
+     "triangles": "89ff3d78171a61ee0f7441048b74422f"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "source": "f363eaeba5ca0a2467d7821c7a21442d12addc11a7f69a1f610607a70a8b4d88"
+   }
+  }
+ },
+ "format_version": 7,
+ "recorded_with": "python -m tests.test_retained_frame --record"
+}

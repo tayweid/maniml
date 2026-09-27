@@ -212,8 +212,15 @@ silent at rest, only movers cost), then the flips, then one final test point
 with the whole stack; the patch run rule becomes B5.2, conditional. The
 recording player learned the batches the same day (`geometry_recording.js`
 indexes `object_data`, `net_data` and `program_data`, and a Phase B
-`--export` plays and seeks). The paragraphs below are the
-earlier framing and remain the contracts for resources, counts and recovery.
+`--export` plays and seeks). B4's tier 1 shipped on 2026-09-27 and is the
+default (the plan's "B4 tier 1: shipped"): Python keeps the frame and prepares
+only what changed, byte-identical on the wire, and tier 2, the browser owning
+the frame (B4.6-B4.9), is next. Open from tier 1: a play where every leaf moves
+costs ~16% more (the plan names the fast path that would take it back, and
+whether the flip stands for `--render` is Taylor's call), and the 8.a seek-up
+gate (≤ 8 ms) is unverified until it runs on a quiet machine. The paragraphs
+below are the earlier framing and remain the contracts for resources, counts
+and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
 source points and supported operations live on the GPU. Map/reduce operations

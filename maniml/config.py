@@ -49,6 +49,33 @@ def initialize_manim_config() -> Dict:
     return config
 
 
+_MANIML_MODULES = ("maniml", "maniml.__main__")
+
+
+def cli_arguments() -> list[str]:
+    """maniml's own command line: ``sys.argv[1:]`` when this process was
+    started as maniml (the console script, or ``python -m maniml`` as the
+    app and the viewer launch a scene), nothing when another program
+    merely imported it. The config is parsed at import, so without this a
+    test runner's or a benchmark's flags were read as ours: ``python -m
+    unittest discover -s tests -t .`` gave every scene it built ``-t``'s
+    transparent background."""
+    if sys.argv[:1] == ["-m"]:
+        # ``python -m maniml`` imports the package, and so parses the
+        # config, before runpy has made a ``__main__`` of it: argv[0] is
+        # still "-m", and only the interpreter's own command line names
+        # the module being run.
+        interpreter = getattr(sys, "orig_argv", [])
+        module = interpreter[interpreter.index("-m") + 1] if "-m" in interpreter[:-1] else None
+        return sys.argv[1:] if module in _MANIML_MODULES else []
+    main = sys.modules.get("__main__")
+    spec = getattr(main, "__spec__", None)
+    if spec is not None:
+        return sys.argv[1:] if spec.name in _MANIML_MODULES else []
+    program = getattr(main, "__file__", None) or (sys.argv or [""])[0]
+    return sys.argv[1:] if Path(program).stem == "maniml" else []
+
+
 def parse_cli():
     try:
         parser = argparse.ArgumentParser(add_help=False)
@@ -208,7 +235,7 @@ def parse_cli():
         # Tolerate unknown flags: this parser runs at import time, and
         # maniml's own entry point (manim/__main__.py) defines its own
         # options (e.g. --present, --render) that it handles itself
-        args, _unknown = parser.parse_known_args()
+        args, _unknown = parser.parse_known_args(cli_arguments())
         args.write_file = any([args.write_file, args.open, args.finder])
         return args
     except argparse.ArgumentError as err:

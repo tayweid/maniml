@@ -66,13 +66,16 @@ class PMobject(Mobject):
         )
         return self
 
-    @Mobject.affects_data
     def filter_out(self, condition: Callable[[np.ndarray], bool]) -> Self:
         for mob in self.family_members_with_points():
             mob.data = mob.data[~np.apply_along_axis(condition, 1, mob.get_points())]
+            # Each member's rows are replaced, and affects_family_data's
+            # walk after the call would miss one filtered down to no
+            # points, so each is noted here (its parents with it).
+            mob.note_changed_data()
         return self
 
-    @Mobject.affects_data
+    @Mobject.affects_family_data
     def sort_points(self, function: Callable[[Vect3], None] = lambda p: p[0]) -> Self:
         """
         function is any map from R^3 to R

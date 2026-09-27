@@ -415,6 +415,7 @@ class BorderRecipeCache:
         self.source_updates = 0
         self.assemblies = 0
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         self._validated = set()
 
     @property
@@ -423,7 +424,9 @@ class BorderRecipeCache:
 
     def begin_frame(self):
         self.frame += 1
+        # Read once per frame: ``source`` is asked per leaf.
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         self._validated = set()
 
     def _validate(self, uniforms):
@@ -483,7 +486,7 @@ class BorderRecipeCache:
             previous = None
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
-        if trusted and not verify_render_cache() and id(mobject) in self.capacities:
+        if trusted and not self.verify and id(mobject) in self.capacities:
             # Nothing in the packed curves depends on the camera; a zoom only
             # changes how many steps each curve gets, which the compute stage
             # decides for itself. All the CPU must know is whether the
@@ -497,7 +500,7 @@ class BorderRecipeCache:
         # output is fixed capacity, already sized and checked against the
         # device's buffer limits by the drivers, so the budget would only
         # turn a deep zoom into a render error.
-        source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted,
+        source = BorderSource.read(mobject, uniforms, budget=False, trusted=trusted, verify=self.verify,
                                    previous=None if previous is None else previous.source)
         rgba = np.asarray(mobject.data["fill_rgba"][0], dtype="<f4")
         self._reserve(mobject, source, frame_scale=uniforms["frame_scale"])
@@ -574,6 +577,137 @@ class BorderRecipeCache:
             raise KeyError("no border reservation for this mobject")
         return entry[1]
 
+    def read_at(self, mobject):
+        """Whether the cache holds a source of ``mobject`` read at its
+        current revision, which the revision policy's next ``source`` read
+        hands back without reading the arrays, as TriangleMeshCache.read_at
+        asks of the mesh cache."""
+        entry = self.sources.get(id(mobject))
+        return (self.policy == "revision" and entry is not None and entry.owner() is mobject
+                and entry.revision == mobject.revision)
+
+    def held(self, mobject):
+        """(source entry, reservation) this frame read for ``mobject``, each
+        None when it read none: what a caller that keeps the leaf's draws
+        across frames (docs/phase_b4_plan.md) records beside them, to
+        compare with what ``keep`` answers on a later frame."""
+        entry = self.sources.get(id(mobject))
+        if entry is None or entry.owner() is not mobject or entry.frame != self.frame:
+            entry = None
+        reserved = self.capacities.get(id(mobject))
+        if reserved is None or reserved[0]() is not mobject or reserved[2] != self.frame:
+            return entry, None
+        return entry, reserved[1]
+
+    def keep(self, mobject, *, revision=None, uniforms=None):
+        """Mark ``mobject``'s source and reservation used in this frame, as
+        a trusted ``source`` read would, for a caller that reuses the leaf's
+        draws without preparing it. The reservation is kept as it stands:
+        the read would recompute it from the density summary, and at the
+        zoom it was made for that gives it back unchanged. Returns (source
+        entry, reservation) as ``held`` does.
+
+        ``revision``: the caller found the mobject's rows at this revision
+        byte for byte the rows the source was read from, so it stands for
+        that revision: a read at it would give back the same curves.
+        ``uniforms``: the leaf's, in a frame whose camera moved since the
+        source was read. The reservation then follows the zoom as the
+        trusted read makes it follow, from the density summary at this
+        frame scale, after the same check of the uniforms."""
+        key = id(mobject)
+        entry = self.sources.get(key)
+        if entry is not None and entry.owner() is mobject:
+            if uniforms is not None:
+                self._validate(uniforms)
+            entry.frame = self.frame
+            if revision is not None:
+                entry.revision = revision
+            self.sources.move_to_end(key)
+        else:
+            entry = None
+        reserved = self.capacities.get(key)
+        if reserved is None or reserved[0]() is not mobject:
+            return entry, None
+        if uniforms is not None:
+            return entry, self._reserve(mobject, None, frame_scale=uniforms["frame_scale"])
+        self.capacities[key] = (reserved[0], reserved[1], self.frame, reserved[3], reserved[4])
+        return entry, reserved[1]
+
+    def density(self, mobject):
+        """The density summary (the largest finite density, whether any
+        overflowed) behind the reservation this frame made for ``mobject``,
+        or None: what a first reservation at another zoom is made from
+        (first_reservation), for a caller that may adopt the source."""
+        reserved = self.capacities.get(id(mobject))
+        if reserved is None or reserved[0]() is not mobject or reserved[2] != self.frame:
+            return None
+        return reserved[3], reserved[4]
+
+    @staticmethod
+    def first_reservation(density, frame_scale):
+        """The reservation ``source`` makes for an object it holds none of,
+        from its source's ``density`` summary at ``frame_scale``: a zoom's
+        grown reservation is kept only by the object that grew it."""
+        return reserve_capacity(required_from_density(*density, frame_scale))
+
+    def adopt(self, mobject, entry, density, capacity, *, uniforms, paint=False):
+        """Hold ``entry`` (a source packed for another object whose rows were
+        the same bytes) and the reservation ``capacity``, first_reservation
+        of ``density`` at this zoom, for ``mobject``, which the cache holds
+        nothing of: what ``source`` would store for it after packing, with
+        the arrays shared rather than packed again. The entry is a new one,
+        so the other object's stays until the sweep, as it would. The
+        uniforms are checked as the read checks them; ``paint`` (the leaf
+        reads the patch fill's paint field) keeps the entry's field, which
+        the read would build. Returns the new entry."""
+        self._validate(uniforms)
+        key = id(mobject)
+        ref = weakref.ref(mobject)
+        self.capacities[key] = (ref, capacity, self.frame, *density)
+        held = _SourceEntry(ref, entry.source, entry.rgba, entry.curves, self.frame, mobject.revision,
+                            entry.every_curve, entry.record, entry.paint if paint else None, entry.checked)
+        if key in self.sources:
+            self._remove_source(key)
+        self.sources[key] = held
+        self._bytes += held.nbytes
+        self.sources.move_to_end(key)
+        self._bound()
+        return held
+
+    def patch_run_key(self, parts):
+        """The key assemble_patches retains the run of ``parts`` under."""
+        return self._patch_inputs(parts)[0]
+
+    def run_key(self, parts):
+        """The key assemble retains the run of ``parts`` under."""
+        return self._run_inputs(parts)[0]
+
+    def keep_run(self, key):
+        """Mark the run retained under ``key`` used in this frame, as
+        assembling its parts again would, for a caller that reuses the
+        assembly without asking for it. Returns the retained result, the
+        same object every frame the run is kept, or None once the budget
+        let it go (or it was never retained: its arrays were writable)."""
+        value = self.runs.get(key)
+        if value is None:
+            return None
+        self.runs[key] = (value[0], value[1], self.frame)
+        self.runs.move_to_end(key)
+        return value[1]
+
+    @staticmethod
+    def _patch_inputs(parts):
+        arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
+        capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
+        flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
+        return ("patch", *(id(a) for a in arrays), *flags), arrays, capacities, flags
+
+    @staticmethod
+    def _run_inputs(parts):
+        arrays = tuple(a for vertices, indices, curves, _ in parts for a in (vertices, indices, curves))
+        capacities = tuple(validate_capacity(capacity) for _, _, _, capacity in parts)
+        return (*(id(a) for a in arrays), *capacities), arrays, capacities
+
     def assemble_patches(self, parts):
         """One patch run: (curves, capacity, record, bordered, shareable) per
         object; ``shareable`` says the object may share a stencil count (an
@@ -586,10 +720,7 @@ class BorderRecipeCache:
         each record's run slots filled in. Nothing here depends on the
         camera.
         """
-        arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
-        capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
-        flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
-        key = ("patch", *(id(a) for a in arrays), *flags)
+        key, arrays, capacities, flags = self._patch_inputs(parts)
         cacheable = all(immutable(a) for a in arrays)
         previous = self.runs.get(key)
         if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):
@@ -636,9 +767,7 @@ class BorderRecipeCache:
         per part, from which either driver interleaves each object's border
         strip pattern after its fill at the run's capacity.
         """
-        arrays = tuple(a for vertices, indices, curves, _ in parts for a in (vertices, indices, curves))
-        capacities = tuple(validate_capacity(capacity) for _, _, _, capacity in parts)
-        key = (*(id(a) for a in arrays), *capacities)
+        key, arrays, capacities = self._run_inputs(parts)
         cacheable = all(immutable(a) for a in arrays)
         previous = self.runs.get(key)
         if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):

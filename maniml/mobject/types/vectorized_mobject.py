@@ -165,8 +165,7 @@ class VMobject(Mobject):
         if border_width is not None:
             self.border_width = border_width
             for mob in self.get_family(recurse):
-                data = mob.data if mob.has_points() > 0 else mob._data_defaults
-                data["fill_border_width"] = border_width
+                mob._style_rows()["fill_border_width"] = border_width
         return self
 
     def set_stroke(
@@ -182,7 +181,7 @@ class VMobject(Mobject):
 
         if width is not None:
             for mob in self.get_family(recurse):
-                data = mob.data if mob.get_num_points() > 0 else mob._data_defaults
+                data = mob._style_rows()
                 if isinstance(width, (float, int, np.floating)):
                     data['stroke_width'][:, 0] = width
                 else:
@@ -194,6 +193,11 @@ class VMobject(Mobject):
             for mob in self.get_family(recurse):
                 if mob.stroke_behind != behind:
                     mob.stroke_behind = behind
+                    # Draw order is checkpoint state, and a flip writes no
+                    # rows: a path or group still empty bumped nothing, and
+                    # the save after it reused the frozen copy with the old
+                    # order.
+                    mob.note_changed_state()
                     mob.refresh_shader_wrapper_id()
 
         if flat is not None:
