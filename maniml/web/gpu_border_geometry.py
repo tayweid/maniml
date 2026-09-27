@@ -577,6 +577,73 @@ class BorderRecipeCache:
             raise KeyError("no border reservation for this mobject")
         return entry[1]
 
+    def held(self, mobject):
+        """(source entry, reservation) this frame read for ``mobject``, each
+        None when it read none: what a caller that keeps the leaf's draws
+        across frames (docs/phase_b4_plan.md) records beside them, to
+        compare with what ``keep`` answers on a later frame."""
+        entry = self.sources.get(id(mobject))
+        if entry is None or entry.owner() is not mobject or entry.frame != self.frame:
+            entry = None
+        reserved = self.capacities.get(id(mobject))
+        if reserved is None or reserved[0]() is not mobject or reserved[2] != self.frame:
+            return entry, None
+        return entry, reserved[1]
+
+    def keep(self, mobject):
+        """Mark ``mobject``'s source and reservation used in this frame, as
+        a trusted ``source`` read would, for a caller that reuses the leaf's
+        draws without preparing it. The reservation is kept as it stands:
+        the read would recompute it from the density summary, and at the
+        zoom it was made for that gives it back unchanged. Returns (source
+        entry, reservation) as ``held`` does."""
+        key = id(mobject)
+        entry = self.sources.get(key)
+        if entry is not None and entry.owner() is mobject:
+            entry.frame = self.frame
+            self.sources.move_to_end(key)
+        else:
+            entry = None
+        reserved = self.capacities.get(key)
+        if reserved is None or reserved[0]() is not mobject:
+            return entry, None
+        self.capacities[key] = (reserved[0], reserved[1], self.frame, reserved[3], reserved[4])
+        return entry, reserved[1]
+
+    def patch_run_key(self, parts):
+        """The key assemble_patches retains the run of ``parts`` under."""
+        return self._patch_inputs(parts)[0]
+
+    def run_key(self, parts):
+        """The key assemble retains the run of ``parts`` under."""
+        return self._run_inputs(parts)[0]
+
+    def keep_run(self, key):
+        """Mark the run retained under ``key`` used in this frame, as
+        assembling its parts again would, for a caller that reuses the
+        assembly without asking for it. Returns the retained result, the
+        same object every frame the run is kept, or None once the budget
+        let it go (or it was never retained: its arrays were writable)."""
+        value = self.runs.get(key)
+        if value is None:
+            return None
+        self.runs[key] = (value[0], value[1], self.frame)
+        self.runs.move_to_end(key)
+        return value[1]
+
+    @staticmethod
+    def _patch_inputs(parts):
+        arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
+        capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
+        flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
+        return ("patch", *(id(a) for a in arrays), *flags), arrays, capacities, flags
+
+    @staticmethod
+    def _run_inputs(parts):
+        arrays = tuple(a for vertices, indices, curves, _ in parts for a in (vertices, indices, curves))
+        capacities = tuple(validate_capacity(capacity) for _, _, _, capacity in parts)
+        return (*(id(a) for a in arrays), *capacities), arrays, capacities
+
     def assemble_patches(self, parts):
         """One patch run: (curves, capacity, record, bordered, shareable) per
         object; ``shareable`` says the object may share a stencil count (an
@@ -589,10 +656,7 @@ class BorderRecipeCache:
         each record's run slots filled in. Nothing here depends on the
         camera.
         """
-        arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
-        capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
-        flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
-        key = ("patch", *(id(a) for a in arrays), *flags)
+        key, arrays, capacities, flags = self._patch_inputs(parts)
         cacheable = all(immutable(a) for a in arrays)
         previous = self.runs.get(key)
         if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):
@@ -639,9 +703,7 @@ class BorderRecipeCache:
         per part, from which either driver interleaves each object's border
         strip pattern after its fill at the run's capacity.
         """
-        arrays = tuple(a for vertices, indices, curves, _ in parts for a in (vertices, indices, curves))
-        capacities = tuple(validate_capacity(capacity) for _, _, _, capacity in parts)
-        key = (*(id(a) for a in arrays), *capacities)
+        key, arrays, capacities = self._run_inputs(parts)
         cacheable = all(immutable(a) for a in arrays)
         previous = self.runs.get(key)
         if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):

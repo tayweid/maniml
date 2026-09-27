@@ -13,7 +13,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from maniml.web.generated_geometry import MessageParts, assemble_message, encode_draw, serialize_generated_frame
+from maniml.web.generated_geometry import (
+    BatchRecord, MessageParts, assemble_message, encode_draw, held_batch, serialize_generated_frame,
+)
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, PAINT_HASH_PREFIX
 from maniml.web.geometry import GeometryCache, SURFACE_DTYPE, parse_geometry_message, serialize_scene
 from maniml.web.triangle_scene import TriangleDraw, TriangleFrame
@@ -154,6 +156,49 @@ class GeneratedGeometryWire(unittest.TestCase):
             self.assertEqual(message, expected)
             self.assertEqual(cache.sent, whole.sent)
             self.assertEqual(cache.generated_paints.keys(), whole.generated_paints.keys())
+
+    def test_a_reused_batch_is_carried_as_if_encoded_again(self):
+        # The retained frame (docs/phase_b4_plan.md, B4.2) reuses a batch the
+        # receiver holds without encoding it: the descriptor is held_batch of
+        # the one encode_draw wrote, joined into the message as text, and
+        # MessageParts.carry names the batch and keeps its digest memos. The
+        # message and what the receiver is recorded as holding are a full
+        # encode's, whether the batch is sent, held, held again, or encoded
+        # afresh after a reset.
+        draws = [quad(), painted_quad(), replace(quad(), count=0), painted_quad((0, 1, 0, 1))]
+        camera = {"frame_scale": 1}
+        whole, cache = GeometryCache(), GeometryCache()
+        records, batches = [None] * len(draws), [None] * len(draws)
+        for step in ("sent", "held", "held again", "reset", "held after the reset"):
+            if step == "reset":
+                whole.reset()
+                cache.reset()
+            frame = TriangleFrame((32, 16), (0, 0, 0, 0), 4, draws)
+            expected = serialize_generated_frame(frame, camera, whole)
+            parts, texts, carried = MessageParts(cache), [], 0
+            for index, draw in enumerate(draws):
+                # A draw that draws nothing names nothing: once validated, it
+                # is skipped without encoding.
+                if records[index] is not None and records[index].names <= cache.sent:
+                    if batches[index] is not None:
+                        texts.append(json.dumps(held_batch(batches[index])))
+                        parts.carry(records[index])
+                        carried += 1
+                    continue
+                records[index] = BatchRecord()
+                batches[index] = encode_draw(draw, camera, parts, record=records[index])
+                if batches[index] is not None:
+                    texts.append(json.dumps(batches[index]))
+            message = assemble_message(frame, camera, ", ".join(texts), parts)
+            parts.commit()
+            self.assertEqual(message, expected, step)
+            self.assertEqual(cache.sent, whole.sent, step)
+            self.assertEqual(carried, 0 if step in ("sent", "reset") else 3, step)
+            for name in ("generated_payloads", "generated_paints"):
+                self.assertEqual(getattr(cache, name).keys(), getattr(whole, name).keys(), f"{step}: {name}")
+        # The painted quads' immutable geometry and paint left memos, which
+        # the carried messages kept.
+        self.assertEqual((len(cache.generated_payloads), len(cache.generated_paints)), (2, 2))
 
     def test_immutable_mesh_digest_is_reused_and_absent_entries_retire(self):
         from maniml.web.triangle_scene import _readonly

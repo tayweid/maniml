@@ -135,6 +135,22 @@ def _supersample(frame):
     return supersample
 
 
+class BatchRecord:
+    """What encode_draw registered for one batch, for a caller that reuses
+    the batch in later messages without encoding it again (the retained
+    frame, docs/phase_b4_plan.md): ``names``, what the receiver holds once
+    a message carrying the batch is sent (its content hash and the
+    prefixed definition names commit records), and ``memos``, the
+    (table, key) of each digest memo the batch left for the next message.
+    MessageParts.carry registers both again."""
+
+    __slots__ = ("names", "memos")
+
+    def __init__(self):
+        self.names = set()
+        self.memos = []
+
+
 class MessageParts:
     """What one message's batches contribute beside their descriptors.
 
@@ -145,7 +161,9 @@ class MessageParts:
     assemble_message lays the definitions the receiver lacks after the
     batch bytes; commit then records on ``cache`` what the receiver holds
     and the digest memos the next message reuses. A cache of None is a
-    receiver that holds nothing, and nothing is recorded.
+    receiver that holds nothing, and nothing is recorded. A batch reused
+    from an earlier message without being encoded is named through
+    ``carry``.
     """
 
     def __init__(self, cache=None):
@@ -164,6 +182,27 @@ class MessageParts:
         self.retained_nets, self.nets = {}, {}
         self.previous_rows = getattr(cache, "generated_rows", {})
         self.retained_rows, self.row_sources = {}, {}
+        self.carried = []
+
+    def carry(self, record):
+        """Name a batch this message reuses from an earlier one, as
+        encode_draw named it then (``record``). The caller has checked
+        that the receiver holds everything the batch names, so it adds no
+        bytes and no definitions; commit records its names again, and its
+        digest memos, found in the previous message's, stay for the next.
+        Without this a batch reused frame after frame would drop out of
+        what the receiver is recorded as holding after one message."""
+        self.carried.append(record.names)
+        for table, key in record.memos:
+            previous, retained = self._memo_tables(table)
+            entry = previous.get(key)
+            if entry is not None:
+                retained[key] = entry
+
+    def _memo_tables(self, table):
+        """(previous, retained) digest memos of ``table``, a BatchRecord's
+        name for one of them."""
+        return (getattr(self, "previous_" + table), getattr(self, "retained_" + table))
 
     def held(self, key):
         """Whether the receiver holds ``key`` from the previous message."""
@@ -198,6 +237,8 @@ class MessageParts:
         cache.sent.update(f"objects:{key}" for key in self.object_tables)
         cache.sent.update(f"net:{key}" for key in self.nets)
         cache.sent.update(f"rows:{key}" for key in self.row_sources)
+        for names in self.carried:
+            cache.sent.update(names)
         cache.generated_nets = self.retained_nets
         cache.generated_rows = self.retained_rows
         cache.generated_payloads = self.retained_payloads
@@ -221,13 +262,15 @@ def serialize_generated_frame(frame, camera_uniforms, cache=None, *, renderer="t
     return message
 
 
-def encode_draw(draw, camera, parts):
+def encode_draw(draw, camera, parts, record=None):
     """One draw's batch descriptor, or None when it draws nothing.
 
     ``camera`` is the message's normalized camera uniforms, which the batch
     omits where the draw's own agree; ``parts`` is the message's
     MessageParts, which receives the draw's bytes (unless the receiver
-    holds them) and every definition the batch names.
+    holds them) and every definition the batch names. A ``record`` (a
+    BatchRecord) is told the names and digest memos the batch registers,
+    for a caller that reuses the batch later through MessageParts.carry.
     """
     base = draw.pipeline.removesuffix("_depth")
     if base not in PIPELINE_STRIDES:
@@ -263,7 +306,11 @@ def encode_draw(draw, camera, parts):
             digest = memo[1] if memo is not None and memo[0] is source else gpu_program_geometry.rows_hash(source)
             if _immutable(source):
                 parts.retained_rows[id(source)] = (source, digest)
+                if record is not None:
+                    record.memos.append(("rows", id(source)))
             parts.row_sources[digest] = source
+            if record is not None:
+                record.names.add(f"rows:{digest}")
             hashes.append(digest)
         shapes = {np.asarray(s).shape for s in source_rows}
         if len(shapes) != 1:
@@ -287,6 +334,8 @@ def encode_draw(draw, camera, parts):
             layout = validate_patch_layout(getattr(draw, "patch_layout", None), gpu_program_geometry.curve_count(rows))
             objects_hash, objects = _objects_payload(objects, layout, parts.previous_objects, parts.retained_objects)
             parts.object_tables[objects_hash] = objects
+            if record is not None:
+                _note(record, parts, "objects", f"objects:{objects_hash}", objects)
             if draw.count != patch_draw_count(layout, capacity):
                 raise ValueError("invalid patch fill draw count")
             border = True  # a curve record source exists, in the driver
@@ -308,6 +357,8 @@ def encode_draw(draw, camera, parts):
         else:
             net_hash, net = _net_payload(draw, parts.previous_nets, parts.retained_nets)
             parts.nets[net_hash] = net
+            if record is not None:
+                _note(record, parts, "nets", f"net:{net_hash}", net)
         nu, nv, channels = draw.net_shape
         if channels * 4 != PIPELINE_STRIDES[base]:
             raise ValueError("net channels do not match the pipeline's vertex layout")
@@ -330,10 +381,14 @@ def encode_draw(draw, camera, parts):
             raise ValueError("patch fill requires curve records, an object table and no vertices")
         border_hash, border = _border_payload(border, parts.previous_borders, parts.retained_borders)
         parts.borders[border_hash] = border
+        if record is not None:
+            _note(record, parts, "borders", f"border:{border_hash}", border)
         capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
         layout = validate_patch_layout(getattr(draw, "patch_layout", None), len(border))
         objects_hash, objects = _objects_payload(objects, layout, parts.previous_objects, parts.retained_objects)
         parts.object_tables[objects_hash] = objects
+        if record is not None:
+            _note(record, parts, "objects", f"objects:{objects_hash}", objects)
         if draw.count != patch_draw_count(layout, capacity):
             raise ValueError("invalid patch fill draw count")
     elif border is not None and program is None:
@@ -341,6 +396,8 @@ def encode_draw(draw, camera, parts):
             raise ValueError("GPU border recipe requires one indexed surface operation")
         border_hash, border = _border_payload(border, parts.previous_borders, parts.retained_borders)
         parts.borders[border_hash] = border
+        if record is not None:
+            _note(record, parts, "borders", f"border:{border_hash}", border)
         capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
         layout = getattr(draw, "border_layout", None)
         if layout is None:
@@ -426,6 +483,8 @@ def encode_draw(draw, camera, parts):
         content_hash = identity.hexdigest()
     if _immutable(vertices) and _immutable(indices):
         parts.retained_payloads[payload_key] = (vertices, indices, content_hash)
+        if record is not None:
+            record.memos.append(("payloads", payload_key))
     # Shared camera values appear once on the wire, while fixed-frame and
     # per-object overrides remain local to their operation. Production
     # preparation already normalized these values: avoid recursively
@@ -474,10 +533,14 @@ def encode_draw(draw, camera, parts):
                                            parts.previous_paints, parts.retained_paints)
         batch["paint_hash"] = paint_hash
         parts.paints[paint_hash] = paint
+        if record is not None:
+            _note(record, parts, "paints", f"paint:{paint_hash}", paint)
     textures = getattr(draw, "textures", None)
     if textures:
         batch["textures"] = textures
         parts.texture_hashes.update(textures.values())
+        if record is not None:
+            record.names.update(f"tex:{key}" for key in textures.values())
     if parts.held(content_hash):
         batch["cached"] = True
     else:
@@ -489,13 +552,40 @@ def encode_draw(draw, camera, parts):
         if indices is not None:
             batch["index_offset"] = parts.append(indices.tobytes())
     parts.current_hashes.add(content_hash)
+    if record is not None:
+        record.names.add(content_hash)
     return batch
+
+
+def _note(record, parts, table, name, array):
+    """Tell ``record`` the definition ``name`` a batch names and the digest
+    memo the payload helper left for ``array`` in ``table``, if it left one
+    (it keeps only immutable arrays)."""
+    record.names.add(name)
+    if id(array) in getattr(parts, "retained_" + table):
+        record.memos.append((table, id(array)))
+
+
+def held_batch(batch):
+    """The descriptor encode_draw writes for ``batch``'s draw once the
+    receiver holds its content hash, ``batch`` being either form: no bytes
+    of its own, so no offsets, and no run layout, which travelled with the
+    bytes; ``cached`` last, where encode_draw sets it."""
+    held = {key: value for key, value in batch.items() if key not in ("offset", "index_offset", "cached")}
+    border = held.get("border")
+    if border is not None and "layout" in border:
+        held["border"] = {key: value for key, value in border.items() if key != "layout"}
+    held["cached"] = True
+    return held
 
 
 def assemble_message(frame, camera, batches, parts, *, renderer="triangles"):
     """The message: header, then every batch's bytes in batch order, then
     the definitions the receiver lacks. ``batches`` are encode_draw's
-    descriptors in draw order, their bytes and definitions in ``parts``.
+    descriptors in draw order, their bytes and definitions in ``parts``;
+    or, from a caller that keeps descriptors as JSON text across messages,
+    the text json.dumps writes between their list's brackets (each
+    descriptor's own text, joined by ", "), which gives the same bytes.
     The receiver's state is untouched until ``parts.commit()``."""
     supersample = _supersample(frame)
     # Definitions follow the batch bytes in this order; the header lists
@@ -512,14 +602,22 @@ def assemble_message(frame, camera, batches, parts, *, renderer="triangles"):
             if raw is None:
                 raw = _TEXTURE_BY_HASH[key]
             texture_data[key] = {"offset": parts.append(raw), "nbytes": len(raw)}
+    joined = isinstance(batches, str)
     header = {"format_version": GEOMETRY_FORMAT_VERSION, "renderer": renderer,
               "camera": camera, "background": list(frame.background),
               "resolution": list(frame.resolution), "samples": frame.samples,
               "supersample": supersample,
-              "batches": batches, "paint_data": paint_data, "border_data": border_data,
+              "batches": [] if joined else batches, "paint_data": paint_data, "border_data": border_data,
               "object_data": object_data, "net_data": net_data, "program_data": program_data,
               "texture_data": texture_data,
               "unsupported": [], "limitations": list(frame.limitations)}
-    encoded = json.dumps(header).encode()
+    text = json.dumps(header)
+    if joined and batches:
+        # The empty list's brackets are where the texts go. Outside a
+        # string only the key can spell this: json.dumps escapes every
+        # quote inside one.
+        at = text.index('"batches": [') + len('"batches": [')
+        text = text[:at] + batches + text[at:]
+    encoded = text.encode()
     return b"".join((bytes([GEOMETRY_MESSAGE_TYPE]), struct.pack("<I", len(encoded)),
                      encoded, *parts.blobs))

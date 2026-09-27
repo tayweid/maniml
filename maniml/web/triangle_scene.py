@@ -136,6 +136,19 @@ def run_kind(draw):
     return None
 
 
+def patch_parts(run):
+    """What BorderRecipeCache.assemble_patches takes for a patch run."""
+    return [(draw.border_sources, draw.border_capacity, draw.fill_objects,
+             draw.patch_layout[0][1], draw.patch_layout[0][2])
+            for draw in run]
+
+
+def border_parts(run):
+    """What BorderRecipeCache.assemble takes for a border run."""
+    return [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
+            for draw in run]
+
+
 def combine_run(run, kind, *, border_cache=None):
     """The one draw a run of ``kind`` (from run_kind) is drawn as.
 
@@ -147,17 +160,12 @@ def combine_run(run, kind, *, border_cache=None):
     if run[0].program is not None:
         return run[0]  # evaluated by the driver; nothing to assemble
     if run[0].fill_objects is not None:
-        curves, capacity, layout, objects = border_cache.assemble_patches(
-            [(draw.border_sources, draw.border_capacity, draw.fill_objects,
-              draw.patch_layout[0][1], draw.patch_layout[0][2])
-             for draw in run])
+        curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run))
         return replace(run[0], border_sources=curves, border_capacity=capacity,
                        patch_layout=layout, fill_objects=objects,
                        count=patch_draw_count(layout, capacity))
     if run[0].border_sources is not None:
-        vertices, indices, curves, capacity, layout = border_cache.assemble(
-            [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
-             for draw in run])
+        vertices, indices, curves, capacity, layout = border_cache.assemble(border_parts(run))
         return replace(run[0], vertices=vertices, indices=indices, border_sources=curves,
                        border_capacity=capacity, border_layout=layout,
                        count=len(indices) + indices_per_curve(capacity) * len(curves))
@@ -202,10 +210,13 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
 
     for draw in draws:
         draw_kind = kind(draw)
+        # Identical uniforms are equal ones (a dict compares its values
+        # identity first); a caller that shares one dict between draws with
+        # equal uniforms skips comparing them key by key.
         compatible = (run and current is not None and draw_kind == current
                       and draw.pipeline == run[0].pipeline
                       and draw.vertices.dtype == run[0].vertices.dtype
-                      and draw.uniforms == run[0].uniforms
+                      and (draw.uniforms is run[0].uniforms or draw.uniforms == run[0].uniforms)
                       and draw.textures == run[0].textures
                       and (draw_kind not in ("border", "patch") or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
@@ -719,6 +730,42 @@ class TriangleMeshCache:
         return (self.policy == "revision" and entry is not None and entry.owner() is mobject
                 and entry.revision == mobject.revision)
 
+    def held(self, mobject):
+        """(mesh entry, classification) this frame read for ``mobject``, each
+        None when it read none: what a caller that keeps the leaf's draws
+        across frames (docs/phase_b4_plan.md) records beside them, to
+        compare with what ``keep`` answers on a later frame. An entry this
+        frame did not read is the sweep's, not the leaf's."""
+        entry = self._entries.get(id(mobject))
+        if entry is None or entry.owner() is not mobject or entry.last_frame != self._frame:
+            entry = None
+        held = self._classes.get(id(mobject))
+        classes = held[2] if held is not None and held[0]() is mobject and held[3] == self._frame else None
+        return entry, classes
+
+    def keep(self, mobject):
+        """Mark what the cache holds for ``mobject`` used in this frame, as
+        prepare_leaf's reads of it would (the mesh entry's recency, the
+        classification's stamp), for a caller that reuses the leaf's draws
+        without preparing it. Returns (mesh entry, classification) as
+        ``held`` does: unless they are what the draws were made from, the
+        cache has let something go and the caller prepares the leaf."""
+        owner_id = id(mobject)
+        held = self._classes.get(owner_id)
+        classes = None
+        if held is not None and held[0]() is mobject:
+            self._classes[owner_id] = (held[0], held[1], held[2], self._frame)
+            classes = held[2]
+        entry = self._entries.get(owner_id)
+        if entry is None or entry.owner() is not mobject:
+            return None, classes
+        entry.last_frame = self._frame
+        self._entries.move_to_end(owner_id)
+        # As mesh()'s hit: a no-op unless the budget moved since the last read.
+        while self._bytes > self.max_bytes:
+            self._remove(next(iter(self._entries)))
+        return entry, classes
+
     def finish_frame(self, before):
         for owner_id, entry in list(self._entries.items()):
             if entry.last_frame != self._frame:
@@ -1157,6 +1204,9 @@ class LeafContext:
     # The CPU border reference's expansions, prepared for the whole frame
     # at once: id(leaf) -> (source, vertices).
     borders: dict = field(default_factory=dict)
+    # The mesh cache's statistics when the frame began, which the frame's
+    # are reported against.
+    stats_before: dict | None = None
 
 
 def draw_order(scene):
@@ -1198,9 +1248,10 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
     The caches' end-of-frame sweeps drop each entry a frame did not use, so
     a caller that skips a leaf it trusts must mark that leaf's entries used
     in every cache (its mesh entry and classify memo, its border source and
-    reservation, its net entry). Otherwise the leaf's next rebuild
-    regenerates where the frame's loop would have refreshed, and its bytes
-    differ.
+    reservation, its net entry), in draw order, since recency decides what
+    a budget evicts: each cache's ``keep``, as the retained frame does.
+    Otherwise the leaf's next rebuild regenerates where the frame's loop
+    would have refreshed, and its bytes differ.
     """
     if into is None:
         into = LeafDraws()
@@ -1389,6 +1440,32 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``coalesce=False`` retains per-object draws for diagnostics. Coalesced arrays
     belong to the returned frame and are not included in retained cache bytes.
     """
+    frame, context = begin_triangle_frame(
+        scene, tessellator, pixel_tolerance=pixel_tolerance, diagnostic=diagnostic,
+        mesh_cache=mesh_cache, fill_builder=fill_builder, fill_borders=fill_borders,
+        gpu_borders=gpu_borders, patch_fills=patch_fills, net_surfaces=net_surfaces, programs=programs)
+    records = [(sm, {**context.camera_uniforms,
+                     **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
+               for sm in draw_order(scene)]
+    if mesh_cache is not None:
+        mesh_cache.bound_errors(records, frame.resolution)
+    if fill_borders and fill_builder is None and not gpu_borders:
+        context.borders = _prepare_border_geometry(records, mesh_cache)
+    for sm, uniforms in records:
+        prepare_leaf(sm, uniforms, context, frame)
+    return finish_triangle_frame(frame, context, coalesce=coalesce)
+
+
+def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic=False,
+                         mesh_cache=None, fill_builder=None, fill_borders=False, gpu_borders=False,
+                         patch_fills=False, net_surfaces=False, programs=False):
+    """The empty frame prepare_triangle_frame fills and the LeafContext its
+    leaves share, every cache begun for the frame; the options are
+    prepare_triangle_frame's. The context's ``borders`` are the caller's to
+    fill, being prepared from the frame's records. Split from
+    prepare_triangle_frame, with finish_triangle_frame, for the retained
+    frame (docs/phase_b4_plan.md), which prepares only some of the leaves
+    between the same two ends."""
     camera = scene.camera
     if not np.isfinite(pixel_tolerance) or pixel_tolerance <= 0:
         raise ValueError("pixel_tolerance must be finite and positive")
@@ -1414,29 +1491,29 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
         border_cache.begin_frame()
     camera_uniforms = {key: _jsonable(value) for key, value in camera.uniforms.items()}
-    records = [(sm, {**camera_uniforms,
-                     **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
-               for sm in draw_order(scene)]
-    if mesh_cache is not None:
-        mesh_cache.bound_errors(records, frame.resolution)
-    context = LeafContext(
+    return frame, LeafContext(
         frame.resolution, camera_uniforms, tessellator, pixel_tolerance, diagnostic=diagnostic,
         fill_builder=fill_builder, fill_borders=fill_borders, gpu_borders=gpu_borders,
         patch_fills=patch_fills, programs=programs, mesh_cache=mesh_cache,
         border_cache=border_cache, net_cache=net_cache, program_cache=program_cache,
-        borders=(_prepare_border_geometry(records, mesh_cache)
-                 if fill_borders and fill_builder is None and not gpu_borders else {}))
-    for sm, uniforms in records:
-        prepare_leaf(sm, uniforms, context, frame)
+        stats_before=cache_before)
+
+
+def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combine=combine_run):
+    """End the frame begin_triangle_frame began, once its leaves are
+    prepared: the caches' end-of-frame sweeps, the draws coalesced (by
+    coalesce_draws, with its ``kind`` and ``combine``), the caches'
+    statistics on the frame. Returns the frame."""
+    mesh_cache, border_cache, net_cache = context.mesh_cache, context.border_cache, context.net_cache
     if mesh_cache is not None:
-        frame.mesh_cache_stats = mesh_cache.finish_frame(cache_before)
+        frame.mesh_cache_stats = mesh_cache.finish_frame(context.stats_before)
     if net_cache is not None:
         net_cache.finish_frame()
         frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
                                       retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
-        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache)
-    elif gpu_borders:
+        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache, kind=kind, combine=combine)
+    elif context.gpu_borders:
         frame.draws = [coalesce_draws([draw], border_cache=border_cache)[0] for draw in frame.draws]
     if border_cache is not None:
         if mesh_cache is not None:

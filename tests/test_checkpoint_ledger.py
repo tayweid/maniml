@@ -18,6 +18,7 @@ from maniml.mobject.mobject import Mobject
 from maniml.mobject.geometry import Square
 from maniml.mobject.three_dimensions import Sphere
 from maniml.mobject.types.dot_cloud import DotCloud
+from maniml.mobject.types.point_cloud_mobject import PGroup
 from maniml.mobject.types.vectorized_mobject import VGroup
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.value_tracker import ValueTracker
@@ -128,6 +129,27 @@ class RevisionBumps(unittest.TestCase):
         self.assertBumps(ValueTracker(1.0), lambda t: t.increment_value(1.0), "ValueTracker.increment_value")
         self.assertBumps(DotCloud(), lambda d: d.set_glow_factor(0.5), "DotCloud.set_glow_factor")
         self.assertBumps(Square(), lambda s: s.set_joint_type("bevel"), "VMobject.set_joint_type")
+
+    def test_a_point_cloud_group_bumps_every_member_it_rewrites(self):
+        # filter_out and sort_points rewrite the rows of every member with
+        # points, and bumped only the group: a save reused each member's
+        # old frozen copy, and a renderer trusting the revision kept its
+        # old rows. A member filtered down to no points is bumped too,
+        # though it has left the family's members with points.
+        cases = [
+            ("sort_points", lambda group: group.sort_points(lambda p: -p[0])),
+            ("filter_out", lambda group: group.filter_out(lambda p: p[0] > 0.5)),
+        ]
+        for what, action in cases:
+            with self.subTest(what):
+                members = (DotCloud(np.array([[1.0, 0, 0], [-1, 0, 0], [0, 1, 0]])),
+                           DotCloud(np.array([[2.0, 1, 0], [3, 1, 0]])))
+                group = PGroup(*members)
+                before = [mob.revision for mob in (group, *members)]
+                action(group)
+                after = [mob.revision for mob in (group, *members)]
+                self.assertTrue(all(a > b for a, b in zip(after, before)), f"{what}: {before} -> {after}")
+        self.assertEqual(members[1].get_num_points(), 0)
 
     def test_reads_and_derived_columns_do_not_bump(self):
         sq = Square()

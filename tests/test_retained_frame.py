@@ -18,6 +18,14 @@ differently), texture payloads and their resend after a reset,
 reservations a zoom grows and the zoom back keeps, leaves skipped for
 having no points, uniforms that move with no row, and program draws.
 
+RetainedFrameLockstep (B4.2) holds the retained frame to the flag-off path
+directly, wherever the goldens cannot reach: one scripted history driven on
+two scenes built alike, one serialized with MANIML_RETAINED_FRAME=1, equal
+messages and equal cache contents asserted at every frame. Its histories
+never navigate: which thaws hand back a live object depends on when the
+collector last ran, so two scenes, or two processes, seeking alike need
+not hold the same objects (B4.4's seek proof takes that up).
+
 Record with ``python -m tests.test_retained_frame --record`` (or
 MANIML_RECORD_GOLDENS=1 under any unittest invocation); only the cases
 that ran are rewritten. A golden may move only for a reason the commit
@@ -35,6 +43,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -48,11 +57,13 @@ from maniml.mobject.geometry import Annulus, Circle, Rectangle, Square
 from maniml.mobject.three_dimensions import Sphere
 from maniml.mobject.types.dot_cloud import DotCloud
 from maniml.mobject.types.image_mobject import ImageMobject
+from maniml.mobject.types.point_cloud_mobject import PGroup
 from maniml.mobject.types.surface import TexturedSurface
 from maniml.mobject.types.vectorized_mobject import VGroup, VMobject
 from maniml.scene.scene import Scene
 from maniml.utils import programs
 from maniml.web import generated_geometry, triangle_scene
+from maniml.web.border_geometry import RenderCacheStale
 from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, GeometryCache, parse_geometry_message, serialize_scene
 from maniml.web.triangle_geometry import _packaged_library
 from tests.renderer_fixtures import build_scene, renderer_cases
@@ -531,6 +542,561 @@ class EpisodeB2Goldens(EpisodeGoldens, GoldenCase):
 @requires_lyon
 class PriceDiscoveryGoldens(EpisodeGoldens, GoldenCase):
     EPISODE = "PriceDiscovery"
+
+
+
+# The retained frame (B4.2): the flag-on serializer against the flag-off one
+# over the same history, frame by frame, wherever the episodes are absent.
+RETAINED_ENV = "MANIML_RETAINED_FRAME"
+MEMO_TABLES = ("generated_payloads", "generated_paints", "generated_borders", "generated_objects",
+               "generated_nets", "generated_rows")
+
+
+def trusting():
+    """Whether the run lets the retained frame keep a leaf at all: under
+    MANIML_VERIFY_LEDGER=1 it prepares every leaf, as B4.2 leaves it."""
+    return os.environ.get("MANIML_VERIFY_LEDGER") != "1"
+
+
+def census(cache):
+    """What a GeometryCache holds beside the bytes it wrote: the names the
+    receiver is recorded as holding, the digest memos, and what each render
+    cache retains. The retained frame must leave the same, or a later
+    frame's bytes follow another history: a budget evicts by recency, and a
+    reservation kept one frame too long stays grown."""
+    held = {"sent": set(cache.sent),
+            "memos": [len(getattr(cache, name, {})) for name in MEMO_TABLES]}
+    meshes = cache.triangle_meshes
+    if meshes is not None:
+        border, nets = meshes.gpu_border_cache, meshes.gpu_net_cache
+        held.update(meshes=(len(meshes._entries), meshes._bytes, len(meshes._classes)),
+                    border=(len(border.sources), len(border.capacities), len(border.runs), border.nbytes),
+                    nets=(len(nets.entries), nets.nbytes))
+    return held
+
+
+def difference(expected, actual):
+    """Where two geometry messages first differ, in a line or two."""
+    (header, payload), (other, other_payload) = parse_geometry_message(expected), parse_geometry_message(actual)
+    for key in header:
+        if key != "batches" and header[key] != other.get(key):
+            return f"header {key!r}: {str(header[key])[:300]} != {str(other.get(key))[:300]}"
+    if len(header["batches"]) != len(other["batches"]):
+        return f"{len(header['batches'])} batches != {len(other['batches'])}"
+    for index, (batch, mine) in enumerate(zip(header["batches"], other["batches"])):
+        if batch != mine:
+            return f"batch {index}: {json.dumps(batch)[:400]} != {json.dumps(mine)[:400]}"
+    if payload != other_payload:
+        return f"payloads of {len(payload)} and {len(other_payload)} bytes"
+    # The payloads are equal: what precedes them is the header's text.
+    text, other_text = expected[5:len(expected) - len(payload)], actual[5:len(actual) - len(payload)]
+    at = next((i for i, (a, b) in enumerate(zip(text, other_text)) if a != b), min(len(text), len(other_text)))
+    return (f"equal once parsed, spelled differently at header byte {at}: "
+            f"{text[max(0, at - 60):at + 60]!r} != {other_text[max(0, at - 60):at + 60]!r}")
+
+
+class Lockstep:
+    """One scripted history driven twice: two copies of a scene, built alike
+    and stepped alike, each serialized through its own GeometryCache, one
+    with MANIML_RETAINED_FRAME unset and one with it set. Every frame's two
+    messages must be equal, and so must what the two caches hold after it.
+
+    Two scenes rather than one serialized twice: a serializer's reads write
+    to the scene (a stroke's shader data refreshes its derived columns, a
+    data read materializes a pending program), and the retained frame skips
+    exactly the reads of the leaves it keeps. One scene serialized twice
+    would hand one side the scene as the other left it, a history neither
+    has alone, and could hide a kept leaf whose draws depend on a read it
+    skipped. Building the scene twice gives each side its own history
+    without asking the scene to survive a deep copy.
+    """
+
+    def __init__(self, test, build):
+        self.test = test
+        self.sides = (build(), build())
+        self.caches = (GeometryCache(), GeometryCache())
+        self.count = 0
+
+    @property
+    def retained(self):
+        return self.caches[1].retained_frame
+
+    def step(self, action):
+        """Apply ``action`` to each side (its scene and handles)."""
+        for side in self.sides:
+            action(side)
+
+    def serialize(self, index, renderer, retained):
+        with patch.dict(os.environ):
+            os.environ.pop(RETAINED_ENV, None)
+            if retained:
+                os.environ[RETAINED_ENV] = "1"
+            return serialize_scene(self.sides[index].scene, self.caches[index], renderer=renderer)
+
+    def messages(self, renderer="triangles", *, retained=True):
+        """This frame's two messages, flag off then flag on, uncompared.
+        ``retained=False`` serializes the flag-on side without the flag
+        too, as a run that turned it off would."""
+        self.count += 1
+        return self.serialize(0, renderer, False), self.serialize(1, renderer, retained)
+
+    def frame(self, label, renderer="triangles", *, retained=True):
+        """Both sides' messages for this frame (``messages``), compared; the
+        flag-off one is returned."""
+        messages = self.messages(renderer, retained=retained)
+        where = f"frame {self.count} ({label}, {renderer})"
+        if messages[1] != messages[0]:
+            self.test.fail(f"{where}: flag on differs from flag off: {difference(*messages)}")
+        self.test.assertEqual(census(self.caches[1]), census(self.caches[0]), f"{where}: the caches differ")
+        return messages[0]
+
+    def raises(self, label, exception, renderer="triangles"):
+        """Both sides refuse this frame with ``exception``."""
+        self.count += 1
+        for index, retained in ((0, False), (1, True)):
+            with self.test.assertRaises(exception, msg=f"frame {self.count} ({label}, {renderer})"):
+                self.serialize(index, renderer, retained)
+
+    def play(self, animations, name, renderer, alphas=(.25, .5, .75)):
+        """Each side's ``animations(side)`` driven through a play by hand, a
+        frame at its start, at each of ``alphas`` and at its landing."""
+        plays = [[prepare_animation(animation) for animation in animations(side)] for side in self.sides]
+        for animation in (animation for group in plays for animation in group):
+            animation.begin()
+        self.frame(f"{name} begins", renderer)
+        for alpha in alphas:
+            for animation in (animation for group in plays for animation in group):
+                animation.interpolate(alpha)
+            self.frame(f"{name} at {alpha}", renderer)
+        for animation in (animation for group in plays for animation in group):
+            animation.finish()
+        self.frame(f"{name} lands", renderer)
+
+    def expect(self, **counts):
+        """The flag-on side's counts for the last frame, where a leaf may be
+        kept at all."""
+        if trusting():
+            stats = self.retained.stats
+            self.test.assertEqual({key: stats[key] for key in counts}, counts, f"after frame {self.count}")
+
+
+def write_texture(path, blue):
+    """A BMP, whose bytes no encoder can vary, of a gradient with ``blue``."""
+    pixels = np.zeros((8, 16, 3), dtype=np.uint8)
+    pixels[..., 0] = np.arange(16) * 16
+    pixels[..., 1] = (np.arange(8) * 32)[:, None]
+    pixels[..., 2] = blue
+    Image.fromarray(pixels, "RGB").save(path, format="BMP")
+
+
+def lockstep_scene(texture):
+    """synthetic_scene's leaves, an image and a textured surface over one
+    texture file, and two squares whose equal uniforms are spelled 1.0 and
+    1: every pipeline, every kind of leaf the retained frame keeps by a
+    different rule, and a run that prints its first member's spelling."""
+    scene, family, path, cloud, globe = synthetic_scene()
+    image = ImageMobject(str(texture), height=1.2).shift(3 * LEFT + 1.4 * DOWN)
+    textured = TexturedSurface(Sphere(radius=.5, resolution=(9, 9)), str(texture)).shift(3 * RIGHT + 1.4 * DOWN)
+    spelled = [Square(side_length=.4, fill_color=YELLOW, fill_opacity=1, stroke_width=0)
+               .set_anti_alias_width(width).shift(x * RIGHT + 2.6 * DOWN)
+               for width, x in ((1.0, -.5), (1, .5))]
+    for mobject in (image, textured, *spelled):
+        scene.mobjects.append(mobject)
+        scene.render_groups[0].add(mobject)
+    return SimpleNamespace(scene=scene, family=family, path=path, cloud=cloud, globe=globe, image=image,
+                           spelled=spelled)
+
+
+class StrokeFromAnAttribute(Square):
+    """A stroke whose rows scale with an attribute no revision covers, as
+    tests.test_border_geometry's DynamicBorder is a border's."""
+
+    factor = 1.0
+
+    def get_shader_data(self):
+        data = super().get_shader_data().copy()
+        data["stroke_width"] *= self.factor
+        return data
+
+
+class FillFromAnAttribute(Circle):
+    """A fill whose points are offset by an attribute no revision covers."""
+
+    offset = 0.0
+
+    def get_points(self):
+        return super().get_points() + self.offset * RIGHT
+
+
+class DotsFromAnAttribute(DotCloud):
+    """A dot cloud whose radii scale with an attribute no revision covers."""
+
+    factor = 1.0
+
+    def get_shader_data(self):
+        data = super().get_shader_data().copy()
+        data["radius"] *= self.factor
+        return data
+
+
+def rows_from(mobject, state):
+    """``mobject``'s stroke rows through an instance's own getter, scaled by
+    ``state["factor"]``, which no revision covers."""
+    method = type(mobject).get_shader_data
+
+    def get_shader_data():
+        data = method(mobject).copy()
+        data["stroke_width"] *= state["factor"]
+        return data
+
+    mobject.get_shader_data = get_shader_data
+    return mobject
+
+
+def add(side, name, mobject):
+    setattr(side, name, mobject)
+    side.scene.mobjects.append(mobject)
+    side.scene.render_groups[0].add(mobject)
+
+
+def remove(side, name):
+    mobject = getattr(side, name)
+    side.scene.mobjects.remove(mobject)
+    side.scene.render_groups[0].remove(mobject)
+
+
+@requires_lyon
+class RetainedFrameLockstep(GoldenCase):
+    """The flag-on bytes are the flag-off bytes of the same history (B4.2).
+
+    The scripted sequence runs under each renderer: a cold frame, twenty
+    stills that keep every leaf and reuse every descriptor, a leaf added,
+    moved and removed, a child's z_index, a stroke moved behind (and the
+    same flag and the depth test written as plain attributes), a client's
+    connect (cache.reset()), the renderer switched and back (Phase A and
+    Phase B each way, and Original 2D, which clears the triangle caches), a
+    6x zoom and back followed by a paint-only edit (a kept leaf must keep
+    its refined mesh and grown reservation), a pan, a texture file
+    rewritten in place (no revision moves), the flag turned off for a
+    frame, a frame that raises, two plays (uniforms only; a program play,
+    drawn from GPU programs under Phase B) and a cold cache.
+
+    Beside it: a full budget evicting in the frame's order, the memos and
+    the frame's own bytes bounded by one frame, leaves read through
+    getters of their own (a subclass's, an instance's), a point-cloud
+    group rewriting its members, and the writes that bump no revision,
+    which a kept leaf does not see (B4.5's verify mode is proven against
+    them).
+    """
+
+    def setUp(self):
+        # The serializer finds texture bytes in the frame alone, as in the
+        # textures pin: a kept leaf that lost its payload must fail here.
+        self.enterContext(patch.object(generated_geometry, "_TEXTURE_BY_HASH", {}))
+        self.addCleanup(programs.set_override, None)
+
+    def test_scripted_sequence(self):
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer), tempfile.TemporaryDirectory() as tmp:
+                self.scripted_sequence(renderer, Path(tmp) / "texture.bmp")
+
+    def scripted_sequence(self, renderer, texture):
+        other = "phase_b" if renderer == "triangles" else "triangles"
+        write_texture(texture, 200)
+        lock = Lockstep(self, lambda: lockstep_scene(texture))
+        lock.frame("cold", renderer)
+        lock.expect(leaves_kept=0)
+        for index in range(20):
+            lock.frame(f"still {index}", renderer)
+            lock.expect(leaves_prepared=0, runs_combined=0, batches_encoded=0)
+
+        lock.step(lambda side: add(side, "extra", Square(side_length=.8, fill_color=YELLOW, fill_opacity=1,
+                                                         stroke_width=0).shift(2.4 * UP)))
+        lock.frame("add a square", renderer)
+        lock.expect(leaves_prepared=1)
+        lock.step(lambda side: side.extra.shift(.2 * RIGHT))
+        lock.frame("move the square", renderer)
+        lock.expect(leaves_prepared=1)
+        # Group.remove bumps every member of the group's family: each leaf
+        # is prepared again (B4.3's source compare is what keeps them).
+        lock.step(lambda side: remove(side, "path"))
+        lock.frame("remove the path", renderer)
+        lock.step(lambda side: setattr(side.family[1], "z_index", 5))
+        lock.frame("child z_index 5", renderer)
+        lock.expect(leaves_prepared=1)
+        lock.step(lambda side: setattr(side.family[1], "z_index", 0))
+        lock.frame("child z_index 0", renderer)
+        lock.step(lambda side: side.family[0].set_stroke(behind=True))
+        lock.frame("stroke behind", renderer)
+        lock.step(lambda side: side.family[0].set_stroke(behind=False))
+        lock.frame("stroke in front", renderer)
+        # The same flag, and the depth test, written as plain attributes:
+        # no revision moves, the frame's loop reads both every frame, and
+        # a kept leaf compares them.
+        for name in ("stroke_behind", "depth_test"):
+            lock.step(lambda side: setattr(side.family[0], name, True))
+            lock.frame(f"{name} set as an attribute", renderer)
+            lock.expect(leaves_prepared=1)
+            lock.step(lambda side: setattr(side.family[0], name, False))
+            lock.frame(f"{name} cleared as an attribute", renderer)
+            lock.expect(leaves_prepared=1)
+        # The square spelled 1.0 leaves the front of the run: the run now
+        # prints the square spelled 1, which one uniform set for both
+        # would print as 1.0.
+        lock.step(lambda side: setattr(side.spelled[0], "z_index", 1))
+        lock.frame("spelled 1.0 lifted", renderer)
+        lock.step(lambda side: setattr(side.spelled[0], "z_index", 0))
+        lock.frame("spelled 1.0 back", renderer)
+        # A leaf that stops reading its border source lets the caches
+        # sweep it: a kept leaf must hold only what its draws were read from.
+        lock.step(lambda side: side.family[1].set_fill(border_width=0))
+        lock.frame("border off", renderer)
+        lock.frame("still", renderer)
+        lock.step(lambda side: side.family[1].set_fill(border_width=2))
+        lock.frame("border on", renderer)
+        lock.frame("still", renderer)
+
+        for cache in lock.caches:
+            cache.reset()  # a client's connect
+        lock.frame("after a reset", renderer)
+        lock.expect(leaves_prepared=0, batches_reused=0)
+        lock.frame("still", renderer)
+        lock.expect(batches_encoded=0)
+
+        for switched in (other, "winding"):
+            lock.frame(f"switched to {switched}", switched)
+            lock.frame(f"back from {switched}", renderer)
+            lock.expect(leaves_kept=0)
+            lock.frame("still", renderer)
+            lock.expect(leaves_prepared=0, batches_encoded=0)
+
+        # A zoom in grows the disc's mesh and border reservation; the zoom
+        # back keeps them; a paint-only edit then refreshes the mesh it
+        # kept, which the kept leaf must not have let the caches sweep.
+        lock.step(lambda side: side.scene.camera.frame.scale(1 / 6))
+        lock.frame("zoom in 6x", renderer)
+        lock.step(lambda side: side.scene.camera.frame.scale(6))
+        lock.frame("zoom back", renderer)
+        lock.frame("still", renderer)
+        lock.step(lambda side: side.family[1].set_fill(YELLOW))
+        lock.frame("paint-only edit", renderer)
+        lock.expect(leaves_prepared=1)
+        lock.step(lambda side: side.scene.camera.frame.shift(.05 * RIGHT))
+        lock.frame("pan", renderer)
+        lock.frame("still", renderer)
+
+        # Rewriting the file moves its hash and bumps no revision.
+        stat = texture.stat()
+        write_texture(texture, 90)
+        os.utime(texture, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10 ** 9))
+        lock.frame("texture rewritten", renderer)
+        lock.expect(leaves_prepared=2)
+        lock.frame("still", renderer)
+
+        lock.frame("flag off", renderer, retained=False)
+        self.assertIsNone(lock.retained)
+        lock.frame("flag on again", renderer)
+        lock.expect(leaves_kept=0)
+        lock.frame("still", renderer)
+
+        # A nonplanar closed fill is refused, and a refused frame leaves
+        # the retained frame cold.
+        def bent(side):
+            add(side, "bent", VMobject(fill_color=RED, fill_opacity=1, stroke_width=0)
+                .set_points_as_corners([[0, 0, 0], [1, 0, 0], [1, 1, 1], [0, 1, 0], [0, 0, 0]]))
+
+        lock.step(bent)
+        lock.raises("a nonplanar fill", triangle_scene.UnsupportedPrototype, renderer)
+        lock.step(lambda side: remove(side, "bent"))
+        lock.frame("the nonplanar fill removed", renderer)
+        lock.expect(leaves_kept=0)
+        lock.frame("still", renderer)
+
+        lock.play(lambda side: [side.family[0].animate.set_anti_alias_width(6),
+                                side.globe.animate.set_shading(.6, .2, .4)],
+                  "a uniforms-only play", renderer)
+        programs.set_override("gpu")
+        lock.play(lambda side: [side.family.animate.shift(.3 * DOWN)], "a program play", renderer)
+        programs.set_override(None)
+        lock.frame("still", renderer)
+
+        lock.caches = (GeometryCache(), GeometryCache())
+        lock.frame("cold again", renderer)
+        lock.frame("still", renderer)
+        lock.expect(leaves_prepared=0, batches_encoded=0)
+
+    def test_a_budget_evicts_what_the_frame_would(self):
+        # The caches evict by recency, so a kept leaf must be marked used
+        # where the frame's own loop reads it, in draw order. Six discs
+        # refined by a zoom in and kept by the zoom back fill the mesh
+        # budget exactly; one grows, and its new mesh evicts the entry used
+        # longest ago, which regenerates coarser at this zoom: evicting
+        # another shows in the bytes. No fill borders, whose recipes the
+        # full budget would leave no room (every leaf would be prepared
+        # again, hiding the order), and Phase A only: Phase B's patch fills
+        # keep no meshes.
+        def build():
+            discs = [Circle(radius=.3, fill_color=GREEN, fill_opacity=1, stroke_width=0,
+                            fill_border_width=0).shift((index - 2.5) * .8 * RIGHT)
+                     for index in range(6)]
+            return SimpleNamespace(scene=build_scene(*discs), discs=discs)
+
+        lock = Lockstep(self, build)
+        lock.frame("cold")
+        lock.step(lambda side: side.scene.camera.frame.scale(1 / 4))
+        lock.frame("zoom in 4x")
+        lock.step(lambda side: side.scene.camera.frame.scale(4))
+        lock.frame("zoom back")
+        for cache in lock.caches:
+            cache.triangle_meshes.max_bytes = cache.triangle_meshes._bytes
+        lock.frame("a full budget")
+        meshes = lock.caches[0].triangle_meshes
+        evictions = meshes.stats["evictions"]
+        lock.step(lambda side: side.discs[2].scale(6))
+        lock.frame("a disc grows")
+        # Its own old entry, and at least one other's.
+        self.assertGreater(meshes.stats["evictions"], evictions + 1, "the budget evicted nothing")
+        lock.expect(leaves_prepared=2)
+        for index in range(3):
+            lock.frame(f"still {index}")
+        lock.expect(leaves_prepared=0, batches_encoded=0)
+
+    def test_memos_stay_bounded_by_one_frame(self):
+        # The digest memos hold what the last message named, reused batches
+        # included, and nothing else: the prototype merged them instead and
+        # kept every regenerated mesh alive (984 KB after sixty frames of
+        # ten moving circles). Five circles move and five stand still, so
+        # half the batches are reused every frame. What the retained frame
+        # itself holds outside the caches' budget (its gauge) is one
+        # frame's too, the same from the second frame on.
+        def build():
+            circles = [Circle(radius=.25, fill_color=BLUE, fill_opacity=1, stroke_color=WHITE, stroke_width=2,
+                              fill_border_width=1).shift((index - 4.5) * .7 * RIGHT + (index % 2) * UP)
+                       for index in range(10)]
+            return SimpleNamespace(scene=build_scene(*circles), circles=circles)
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                held = []
+                for index in range(60):
+                    lock.step(lambda side: [circle.shift(.01 * UP) for circle in side.circles[::2]])
+                    message = lock.frame(f"step {index}", renderer)
+                    held.append(lock.retained.retained_bytes())
+                self.assertEqual(set(held[1:]), {held[1]})
+                batches = len(parse_geometry_message(message)[0]["batches"])
+                for name in MEMO_TABLES:
+                    self.assertLessEqual(len(getattr(lock.caches[1], name, {})), batches, name)
+                retained = sum(value[0].nbytes + (0 if value[1] is None else value[1].nbytes)
+                               for value in lock.caches[1].generated_payloads.values())
+                self.assertLess(retained, 64 << 10)
+
+    def test_a_leaf_read_through_its_own_getter_is_prepared_every_frame(self):
+        # The frame's loop reads a stroke's and a plain leaf's shader data
+        # every frame, and the caches trust a revision only for the
+        # library's own getters: a subclass's or an instance's may read
+        # anything. Here each reads an attribute that moves between frames
+        # with no revision bump.
+        def build():
+            stroke = StrokeFromAnAttribute(side_length=1, fill_opacity=0, stroke_width=4).shift(2 * LEFT)
+            fill = FillFromAnAttribute(radius=.5, fill_color=BLUE, fill_opacity=1, stroke_width=0)
+            dots = DotsFromAnAttribute(np.array([[-1, 1.5, 0], [1, 1.5, 0]]))
+            state = {"factor": 1.0}
+            outline = rows_from(Rectangle(width=2, height=.5, fill_opacity=0, stroke_width=3), state)
+            plain = Square(side_length=.6, fill_color=RED, fill_opacity=1, stroke_width=2).shift(2 * RIGHT)
+            scene = build_scene(stroke, fill, dots, outline.shift(1.5 * DOWN), plain)
+            return SimpleNamespace(scene=scene, stroke=stroke, fill=fill, dots=dots, state=state)
+
+        def move(side, k):
+            side.stroke.factor = 1 + k
+            side.fill.offset = .1 * k
+            side.dots.factor = 1 + .5 * k
+            side.state["factor"] = 1 + k
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.expect(leaves_kept=1, leaves_prepared=4)
+                for k in range(1, 4):
+                    lock.step(lambda side: move(side, k))
+                    lock.frame(f"attributes moved {k}", renderer)
+                    lock.expect(leaves_kept=1, leaves_prepared=4)
+
+    def test_a_point_cloud_group_rewrites_every_member(self):
+        # PGroup.sort_points and filter_out rewrite each member's rows
+        # (PMobject bumps each since B4.2): a kept member would draw its
+        # old order, and the dots filtered out.
+        def build():
+            a = DotCloud(np.array([[1, 0, 0], [-1, 0, 0], [0, 1, 0]]))
+            a.set_color_by_gradient(BLUE, RED)
+            b = DotCloud(np.array([[2, 1, 0], [-2, 1, 0]]), color=RED)
+            group = PGroup(a, b)
+            return SimpleNamespace(scene=build_scene(group), group=group)
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(lambda side: side.group.sort_points(lambda p: p[0]))
+                lock.frame("sorted", renderer)
+                lock.expect(leaves_prepared=2)
+                lock.step(lambda side: side.group.filter_out(lambda p: p[0] > 1.5))
+                lock.frame("filtered", renderer)
+                lock.expect(leaves_prepared=2)
+                lock.step(lambda side: side.group.filter_out(lambda p: p[1] > .5))
+                lock.frame("one member emptied", renderer)
+                lock.frame("still", renderer)
+                lock.expect(leaves_prepared=0)
+
+    def test_writes_that_bump_no_revision(self):
+        # In-place writes the revision contract does not cover: the frame's
+        # loop reads each of these every frame, so the flag-off path draws
+        # them on its next frame, while a kept leaf keeps its draws until
+        # its revision moves. Under MANIML_VERIFY_LEDGER=1 every leaf is
+        # prepared (B4.2), so the flag-on side draws them too, or raises
+        # where a cache's own check sees the write, as the flag-off side
+        # does; B4.5's verify mode rebuilds the kept leaves instead and
+        # must raise RenderCacheStale for each.
+        def build():
+            scene, family, path, cloud, _ = synthetic_scene()
+            return SimpleNamespace(scene=scene, family=family, path=path, cloud=cloud)
+
+        def stroke_color(side):
+            side.family[0].data["stroke_rgba"][:, :2] = (1, 0)
+
+        def uniform(side):
+            side.family[0].uniforms["anti_alias_width"] = 4.0
+
+        def radius(side):
+            side.cloud.data["radius"][:] = .2
+
+        def point_view(side):
+            points = side.path.get_points()  # a stroke-only path's, which only its stroke reads
+            points[:, 1] += .1
+
+        for write in (stroke_color, uniform, radius, point_view):
+            for renderer in RENDERERS:
+                with self.subTest(write=write.__name__, renderer=renderer):
+                    lock = Lockstep(self, build)
+                    lock.frame("cold", renderer)
+                    still = lock.frame("still", renderer)
+                    lock.step(write)
+                    if not trusting():
+                        try:
+                            expected = lock.serialize(0, renderer, False)
+                        except RenderCacheStale:
+                            with self.assertRaises(RenderCacheStale):
+                                lock.serialize(1, renderer, True)
+                        else:
+                            self.assertEqual(lock.serialize(1, renderer, True), expected)
+                        continue
+                    off, on = lock.messages(renderer)
+                    self.assertNotEqual(off, still, "the frame's loop did not see the write")
+                    self.assertEqual(on, still, "a kept leaf saw a write that bumped nothing")
+                    lock.expect(leaves_prepared=0)
 
 
 if __name__ == "__main__":

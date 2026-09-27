@@ -180,6 +180,29 @@ class NetRecipeCache:
             previous = None
         return previous
 
+    def held(self, surface):
+        """The net entry this frame read for ``surface``, or None: what a
+        caller that keeps the leaf's draws across frames
+        (docs/phase_b4_plan.md) records beside them, to compare with what
+        ``keep`` answers on a later frame."""
+        entry = self.entries.get(id(surface))
+        if entry is None or entry.owner() is not surface or entry.frame != self.frame:
+            return None
+        return entry
+
+    def keep(self, surface):
+        """Mark the surface's entry used in this frame, as a trusted
+        ``source`` read would, for a caller that reuses the leaf's draws
+        without preparing it. The reservation is kept as it stands: at the
+        zoom it was made for, the read gives it back unchanged. Returns
+        the entry as ``held`` does."""
+        entry = self.entries.get(id(surface))
+        if entry is None or entry.owner() is not surface:
+            return None
+        entry.frame = self.frame
+        self.entries.move_to_end(id(surface))
+        return entry
+
     def source(self, surface, *, revision=None, pixels_per_unit, frame_scale):
         """The surface's net entry, reserved for this zoom."""
         previous = self._previous(surface)

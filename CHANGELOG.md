@@ -7,6 +7,19 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- `MANIML_RETAINED_FRAME=1` keeps each drawn object's draws across frames
+  (docs/phase_b4_plan.md, B4.2): a frame prepares again only the objects
+  whose revision or camera moved, whose cache entries were evicted, whose
+  depth test or stroke-behind flag was reassigned, or whose rows come
+  through a getter of their own (a subclass's `get_shader_data` or
+  `get_points`, say), and reuses a coalesced run and its encoded
+  descriptor while its members are unchanged. The message is
+  byte-for-byte the one the switch off writes for the same history,
+  asserted frame by frame. A still frame of a 531-object course diagram
+  serializes in ~1.4 ms instead of ~19 ms. An in-place write to an
+  object's arrays or uniforms that bumps no revision is not seen until
+  the revision moves (the switch off draws it on the next frame). Off by
+  default.
 - The serializer's bytes are pinned. `tests/test_retained_frame.py` asserts
   blake2b digests of every frame's message over the renderer fixtures,
   scripted synthetic sequences (among them a real `Scene`'s render groups,
@@ -189,6 +202,10 @@ interfaces may still change before the first public release.
 - A play that moves only uniforms (`.animate.set_anti_alias_width`,
   `set_shading`) bumps the revision every frame, as a play that moves rows
   does.
+- `PGroup.sort_points` and `filter_out` bump the revision of every member
+  they rewrite, a member filtered down to no points included. Only the
+  group was bumped, so the save after either reused each member's old
+  frozen copy.
 - maniml parses its command line only when it is the program. The config
   is read at import, so a host program's flags were taken as maniml's:
   `python -m unittest discover -s tests -t .` gave every scene the suite

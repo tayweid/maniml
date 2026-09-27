@@ -49,6 +49,9 @@ class GeometryCache:
         self.fill_generator = None
         self.surface_generator = None
         self.program_mode = None
+        # MANIML_RETAINED_FRAME=1 (docs/phase_b4_plan.md): the draws kept
+        # across frames, which must see every frame this cache serializes.
+        self.retained_frame = None
 
     def reset(self):
         self.sent.clear()
@@ -138,6 +141,9 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
     if cache is not None and cache.renderer != selected:
         cache.reset()
         cache.renderer = selected
+        # Original 2D clears the triangle caches the retained frame's
+        # draws were read from.
+        cache.retained_frame = None
     if selected == "winding":
         from maniml.web.winding_geometry import serialize_scene as serialize_winding
         return serialize_winding(scene, cache)
@@ -157,6 +163,7 @@ RENDERERS = ("triangles", "winding", "phase_b")
 def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     """One source-to-operation path for viewer, baked export and native output."""
     from maniml.web.generated_geometry import serialize_generated_frame
+    from maniml.web.retained_frame import RetainedFrame, retained_frame_enabled
     from maniml.web.triangle_geometry import LyonFillTessellator
     from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 
@@ -189,27 +196,44 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         state.fill_generator = fill_generator
         state.surface_generator = surface_generator
         state.program_mode = program_mode
+        state.retained_frame = None
         if state.triangle_meshes is not None:
             state.triangle_meshes.gpu_border_cache.clear()
     if state.triangle_tessellator is None:
         state.triangle_tessellator = LyonFillTessellator()
         state.triangle_meshes = TriangleMeshCache()
+    # The retained frame (docs/phase_b4_plan.md, tier 1) writes the same
+    # bytes. Only one that saw every frame of this cache's history can
+    # trust its draws, so a frame serialized without it drops it.
+    if not retained_frame_enabled():
+        state.retained_frame = None
+    elif getattr(state, "retained_frame", None) is None:
+        state.retained_frame = RetainedFrame()
+    retained = state.retained_frame
+    options = dict(mesh_cache=state.triangle_meshes, fill_borders=True,
+                   gpu_borders=border_generator == "gpu",
+                   patch_fills=fill_generator == "patches",
+                   net_surfaces=surface_generator == "nets",
+                   programs=program_mode != "off")
+    renderer = "phase_b" if phase_b else "triangles"
     with performance.stage("geometry.triangle_prepare"):
-        frame = prepare_triangle_frame(scene, state.triangle_tessellator,
-                                       mesh_cache=state.triangle_meshes, fill_borders=True,
-                                       gpu_borders=border_generator == "gpu",
-                                       patch_fills=fill_generator == "patches",
-                                       net_surfaces=surface_generator == "nets",
-                                       programs=program_mode != "off")
+        if retained is None:
+            frame = prepare_triangle_frame(scene, state.triangle_tessellator, **options)
+        else:
+            frame = retained.prepare(scene, state.triangle_tessellator, **options)
         frame.samples = 4
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):
-        message = serialize_generated_frame(frame, scene.camera.uniforms, cache,
-                                            renderer="phase_b" if phase_b else "triangles")
+        if retained is None:
+            message = serialize_generated_frame(frame, scene.camera.uniforms, cache, renderer=renderer)
+        else:
+            message = retained.encode(frame, scene.camera.uniforms, cache, renderer=renderer)
     performance.increment("geometry.serialize.calls")
     performance.increment("geometry.serialized_bytes", len(message))
     performance.gauge("geometry.batch_count", len(frame.draws))
     performance.gauge("geometry.triangle_retained_bytes", frame.mesh_cache_stats["retained_bytes"])
+    if retained is not None and performance.enabled:
+        performance.gauge("geometry.retained_frame_bytes", retained.retained_bytes())
     return message
 
 
