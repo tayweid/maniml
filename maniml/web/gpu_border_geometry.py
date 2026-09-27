@@ -633,6 +633,47 @@ class BorderRecipeCache:
         self.capacities[key] = (reserved[0], reserved[1], self.frame, reserved[3], reserved[4])
         return entry, reserved[1]
 
+    def density(self, mobject):
+        """The density summary (the largest finite density, whether any
+        overflowed) behind the reservation this frame made for ``mobject``,
+        or None: what a first reservation at another zoom is made from
+        (first_reservation), for a caller that may adopt the source."""
+        reserved = self.capacities.get(id(mobject))
+        if reserved is None or reserved[0]() is not mobject or reserved[2] != self.frame:
+            return None
+        return reserved[3], reserved[4]
+
+    @staticmethod
+    def first_reservation(density, frame_scale):
+        """The reservation ``source`` makes for an object it holds none of,
+        from its source's ``density`` summary at ``frame_scale``: a zoom's
+        grown reservation is kept only by the object that grew it."""
+        return reserve_capacity(required_from_density(*density, frame_scale))
+
+    def adopt(self, mobject, entry, density, capacity, *, uniforms, paint=False):
+        """Hold ``entry`` (a source packed for another object whose rows were
+        the same bytes) and the reservation ``capacity``, first_reservation
+        of ``density`` at this zoom, for ``mobject``, which the cache holds
+        nothing of: what ``source`` would store for it after packing, with
+        the arrays shared rather than packed again. The entry is a new one,
+        so the other object's stays until the sweep, as it would. The
+        uniforms are checked as the read checks them; ``paint`` (the leaf
+        reads the patch fill's paint field) keeps the entry's field, which
+        the read would build. Returns the new entry."""
+        self._validate(uniforms)
+        key = id(mobject)
+        ref = weakref.ref(mobject)
+        self.capacities[key] = (ref, capacity, self.frame, *density)
+        held = _SourceEntry(ref, entry.source, entry.rgba, entry.curves, self.frame, mobject.revision,
+                            entry.every_curve, entry.record, entry.paint if paint else None, entry.checked)
+        if key in self.sources:
+            self._remove_source(key)
+        self.sources[key] = held
+        self._bytes += held.nbytes
+        self.sources.move_to_end(key)
+        self._bound()
+        return held
+
     def patch_run_key(self, parts):
         """The key assemble_patches retains the run of ``parts`` under."""
         return self._patch_inputs(parts)[0]

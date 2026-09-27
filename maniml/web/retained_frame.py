@@ -45,16 +45,41 @@ is prepared there. What the frame's loop reads every frame and no
 revision covers is checked every frame: the depth-test and stroke-behind
 attributes, the leaf's getters (a leaf whose rows come through a getter
 of its own is prepared every frame) and a textured leaf's files, which
-are hashed again. A leaf that leaves the walk is forgotten (B4.4 adopts
-it by content). An in-place write to a kept leaf's arrays or uniforms
-that bumps no revision stays off the screen until the revision moves,
-where the frame's loop would draw it on its next frame: the revision
-contract the checkpoint ledger already rests on, which verify mode checks
-at a save, is here a per-frame one. Under verification every leaf is
-prepared, so verify mode does not yet check the kept leaves themselves
-(B4.5 rebuilds and compares them).
+are hashed again.
+
+An in-place write to a kept leaf's arrays or uniforms that bumps no
+revision stays off the screen until the revision moves, where the
+frame's loop would draw it on its next frame: the revision contract the
+checkpoint ledger already rests on, which verify mode checks at a save,
+is here a per-frame one. Under verification every leaf is prepared, so
+verify mode does not yet check the kept leaves themselves (B4.5 rebuilds
+and compares them).
+
+A path that leaves the walk is retired rather than forgotten: its entry
+is parked under a digest of its content (leaf_digest), and a path the
+frame holds no entry for adopts a parked entry of equal content, so a
+seek, which puts copies of the paths it took off back on screen, costs a
+lookup per path rather than a fill mesh made again. The frame retires
+before any path adopts, so what a seek takes off is there for what it
+puts on in the same frame. An adoption holds the new path to what
+prepare_leaf would read of it, as a moved revision holds a kept one
+(compare_rows), and to what the caches would make for an object they
+hold nothing of: a mesh generated at this very camera
+(TriangleMeshCache.made_under), the first reservation at this zoom, the
+stroke count at this frame scale. The caches are then given, in its
+place in the order, what their reads would have stored for it
+(TriangleMeshCache.adopt, BorderRecipeCache.adopt). The store is bounded
+by count and takes only what the caches leave of their budget, so it
+never costs a live entry its place and a budget evicts what the frame's
+own loop would. It is held to that where the caches settle their shared
+budget, at the end of a frame: during one, what earlier frames parked
+stays while the caches fill again, as the border cache keeps the share
+the frame began with (the budget bounds what is retained between
+frames, not a peak).
 """
 
+from collections import OrderedDict
+import hashlib
 import json
 import os
 import weakref
@@ -93,15 +118,20 @@ ROWS, NET, PROGRAM, PLAIN = "rows", "net", "program", "plain"
 # a revision for (triangle_scene._standard_mesh_getters,
 # border_geometry.standard_source_methods); a dot cloud's, surface's or
 # image's shader data is read every frame, through the rest. A path's
-# also include the two its derived columns' refresh reads through, which
-# compare_rows takes to rewrite them from the other columns alone. Any
-# other definition, a subclass's or an instance's, may read state no
-# revision covers, and its leaf is prepared every frame, as the frame's
-# loop reads it.
+# also include every method its derived columns' refresh reaches (the
+# subpath ends, and the area vector with the two it reads the anchors
+# through), which compare_rows takes to rewrite them from the other
+# columns alone, and an adoption to rewrite them as the retired path's
+# read did, whatever the class of that name was then (a restart
+# redefines the scene file's classes). Any other definition, a
+# subclass's or an instance's, may read state no revision covers, and
+# its leaf is prepared every frame, as the frame's loop reads it.
 _VMOBJECT_GETTERS = tuple((name, (method,))
                           for name, method in (*_STANDARD_SOURCE_METHODS, *_STANDARD_MESH_GETTERS,
                                                ("get_subpath_end_indices", VMobject.get_subpath_end_indices),
-                                               ("get_area_vector", VMobject.get_area_vector)))
+                                               ("get_area_vector", VMobject.get_area_vector),
+                                               ("get_anchors", VMobject.get_anchors),
+                                               ("has_points", Mobject.has_points)))
 _PLAIN_GETTERS = (
     ("get_shader_data", (Mobject.get_shader_data, Surface.get_shader_data)),
     ("get_shader_vert_indices", (Mobject.get_shader_vert_indices, Surface.get_shader_vert_indices)),
@@ -139,21 +169,31 @@ def leaf_flags(sm):
     return bool(sm.depth_test), bool(getattr(sm, "stroke_behind", False))
 
 
+def _override_items(sm):
+    # A float needs no conversion, and most uniforms are floats.
+    return [(key, value if type(value) is float else _jsonable(value)) for key, value in sm.uniforms.items()]
+
+
+def _items_text(items):
+    try:
+        return json.dumps(items)
+    except (TypeError, ValueError):
+        return None
+
+
 def override_text(sm):
     """``sm``'s own uniforms, as prepare_triangle_frame merges them over the
     camera's, and their JSON text, or None where they are not JSON: equal
     text is equal spelling, which equal values need not be (1 and 1.0)."""
-    overrides = {key: _jsonable(value) for key, value in sm.uniforms.items()}
-    try:
-        return overrides, json.dumps(list(overrides.items()))
-    except (TypeError, ValueError):
-        return overrides, None
+    items = _override_items(sm)
+    return dict(items), _items_text(items)
 
 
 # How a path's rows stand against the rows its draws were made from:
-# the same bytes, or the same once the read's refresh has rewritten the
-# derived columns (compare_rows).
-SAME, REFRESHED = "same", "refreshed"
+# the same bytes, the same once the read's refresh has rewritten the
+# derived columns, or the same once the read has written the base points
+# (compare_rows).
+SAME, REFRESHED, BASED = "same", "refreshed", "based"
 _SOURCE_COLUMNS = {}
 
 
@@ -162,6 +202,26 @@ def _source_columns(dtype):
     if names is None:
         names = _SOURCE_COLUMNS[dtype] = tuple(name for name in dtype.names if name not in DERIVED_DATA_KEYS)
     return names
+
+
+# The retired store's bound in entries. Its bytes are bounded by what the
+# caches leave of their budget (RetainedFrame._trim).
+MAX_RETIRED = 4096
+
+
+def leaf_digest(type_name, text, flags, rows):
+    """blake2b-16 of what a path's draws are made from, bar what its read
+    derives: its type's name, the text of its own uniforms, its leaf_flags
+    and its rows' other columns, byte for byte. The key a retired entry is
+    parked under and a new path looks one up by. Equal digests only name
+    a candidate: compare_rows holds the rows to the entry's in full, the
+    derived columns included."""
+    digest = hashlib.blake2b(type_name.encode(), digest_size=16)
+    digest.update(b"\0" + text.encode() + b"\0")
+    digest.update(bytes(flags))
+    for name in _source_columns(rows.dtype):
+        digest.update(rows[name].tobytes())
+    return digest.digest()
 
 
 def refresh_pending(sm):
@@ -175,9 +235,9 @@ def refresh_pending(sm):
 
 
 def compare_rows(sm, entry):
-    """How a path whose revision moved stands against ``entry.rows``, the
-    rows its draws were made from as prepare_leaf left them: SAME, REFRESHED
-    or None.
+    """How a path whose revision moved, or a new path adopting a retired
+    entry, stands against ``entry.rows``, the rows its draws were made from
+    as prepare_leaf left them: SAME, REFRESHED, BASED or None.
 
     What prepare_leaf reads of a path (its classification, fill mesh,
     border source and stroke rows) is a function of the rows as its read
@@ -194,11 +254,17 @@ def compare_rows(sm, entry):
     rewrite's own output (``entry.ends`` holds the subpath ends it used,
     and is set only then) and it must use the same ends, cached or
     computed again from the same points, and not find the joint angles
-    locked. A path that neither fills nor strokes is read for its
-    classification alone. Every other state is None, and the leaf is
-    prepared as the frame's loop prepares it, as is a leaf whose rows are
-    not known (``entry.rows`` None). Bytes, not values: 0.0 and -0.0 are
-    equal and draw different bytes."""
+    locked. With the joint angles' flag alone (a move by an updater), the
+    same, save that the refresh reads the unit normal as it stands, which
+    must then be the same bytes too. With neither flag set, the read of a
+    path's shader data still writes its base points (the even rows of
+    base_normal, its first point, on every read), which a copy made before
+    any read holds stale: BASED where that write makes ``entry.rows``. A
+    path that neither fills nor strokes is read for its classification
+    alone. Every other state is None, and the leaf is prepared as the
+    frame's loop prepares it, as is a leaf whose rows are not known
+    (``entry.rows`` None). Bytes, not values: 0.0 and -0.0 are equal and
+    draw different bytes."""
     rows, live = entry.rows, sm._data
     if rows is None or live.dtype != rows.dtype or live.shape != rows.shape:
         return None
@@ -210,15 +276,39 @@ def compare_rows(sm, entry):
         return SAME if all(live[name].tobytes() == rows[name].tobytes() for name in CLASSIFY_COLUMNS) else None
     joint, normal = sm.needs_new_joint_angles, sm.needs_new_unit_normal
     if not normal and not (joint and entry.shaded):
-        return SAME if live.tobytes() == rows.tobytes() else None
-    if (not (joint and normal) or entry.ends is None or "joint_angle" in sm.locked_data_keys
+        held = rows.tobytes()
+        if live.tobytes() == held:
+            return SAME
+        if entry.shaded and len(live) and live.flags.writeable:
+            based = live.copy()
+            _write_base_points(based)
+            if based.tobytes() == held:
+                return BASED
+        return None
+    if (not joint or entry.ends is None or "joint_angle" in sm.locked_data_keys
             or sm.subpath_end_indices is not None and sm.subpath_end_indices is not entry.ends
             or not live.flags.writeable):
         return None
-    if live.tobytes() == rows.tobytes() or all(live[name].tobytes() == rows[name].tobytes()
-                                               for name in _source_columns(live.dtype)):
+    if live.tobytes() == rows.tobytes():
         return REFRESHED
-    return None
+    if not all(live[name].tobytes() == rows[name].tobytes() for name in _source_columns(live.dtype)):
+        return None
+    if not normal and live["base_normal"][1::2].tobytes() != rows["base_normal"][1::2].tobytes():
+        # The joint angles alone are refreshed, from the unit normal as it
+        # stands, which must be the one they were refreshed from.
+        return None
+    return REFRESHED
+
+
+def _write_base_points(data):
+    # VMobject.get_shader_data's own write, made on every read.
+    data["base_normal"][0::2] = data["point"][0]
+
+
+def base_as_read(sm):
+    """Leave ``sm`` as the read of its shader data would, for a leaf
+    compare_rows found BASED: its base points written, nothing else."""
+    _write_base_points(sm._data)
 
 
 def refresh_as_read(sm, entry):
@@ -320,12 +410,17 @@ class LeafEntry:
     rows are a refresh's output; a plain leaf, its ``rows`` and the other
     ``inputs`` of its shader data (plain_inputs); a stroke, the
     ``frame_scale`` its count was made at and, from the first zoom on, its
-    largest curve's ``sqrt_area``. The flags and the cache entries are also
-    what a later increment adopts a leaf by."""
+    largest curve's ``sqrt_area``. A path retired from the walk is parked
+    under its ``digest`` (leaf_digest, of its ``type_name`` among the rest)
+    and counts ``size`` bytes there, where another path may adopt it only
+    if its rows were read through the library's getters (``standard``);
+    the ``density`` summary behind its reservation is what a new path
+    adopting its border source is reserved from."""
 
     __slots__ = ("owner", "revision", "camera_key", "uniforms", "text", "leaf", "kind", "flags",
                  "textures", "mesh_entry", "classes", "source_entry", "capacity", "net_entry",
-                 "rows", "shaded", "ends", "inputs", "frame_scale", "sqrt_area")
+                 "rows", "shaded", "ends", "inputs", "frame_scale", "sqrt_area",
+                 "type_name", "standard", "density", "digest", "size")
 
     def __init__(self, sm, camera_key, uniforms, text, leaf, kind):
         self.owner = weakref.ref(sm)
@@ -343,6 +438,10 @@ class LeafEntry:
         self.rows = self.ends = self.inputs = self.sqrt_area = None
         self.shaded = True
         self.frame_scale = uniforms.get("frame_scale")
+        self.type_name = type(sm).__name__
+        self.standard = library_getters(sm)
+        self.density = self.digest = None
+        self.size = 0
 
     def stroke_holds(self):
         """Whether this leaf's stroke count (if it has a stroke) is the one
@@ -475,6 +574,28 @@ def memoized_run_kind(draw):
         return kind
 
 
+def _fill_paint(entry):
+    """Whether a path's fill draw reads a paint field: a cache's read of a
+    new object would build it."""
+    for draw in entry.leaf.draws:
+        if draw.paint is not None and not draw.pipeline.startswith("stroke"):
+            return True
+    return False
+
+
+def _parked_size(entry):
+    """The bytes a retired path's entry holds: its rows, its mesh and
+    border source entries, its strokes' copied rows."""
+    size = entry.rows.nbytes
+    for held in (entry.mesh_entry, entry.source_entry):
+        if held is not None:
+            size += held.nbytes
+    for draw in entry.leaf.draws:
+        if draw.pipeline.startswith("stroke"):
+            size += draw.vertices.nbytes
+    return size
+
+
 def _leaf_kind(sm, draws):
     if any(draw.program is not None for draw in draws):
         return PROGRAM
@@ -500,19 +621,25 @@ class RetainedFrame:
     def clear(self):
         """Forget everything: the next frame prepares every leaf."""
         self.leaves = {}  # id(leaf) -> LeafEntry, the last frame's leaves
+        # leaf_digest -> LeafEntry, the paths retired from the walk, least
+        # recently parked first, and the bytes they hold.
+        self.retired = OrderedDict()
+        self.retired_bytes = 0
         self.runs = {}  # member ids -> RunMemo, the last frame's runs
         self.uniform_sets = UniformSets()
         self.camera_key = None
         self._frame_runs = []  # this frame's RunMemos, in draw order
         self._next_runs = {}
         # The last frame's counts: leaves kept (those among them whose
-        # revision moved, and whose camera moved) and prepared, runs kept
-        # and combined, descriptors reused and encoded.
+        # revision moved, whose camera moved, and those adopted) and
+        # prepared, paths retired and the store's size, runs kept and
+        # combined, descriptors reused and encoded.
         self.stats = {}
 
     def retained_bytes(self):
         """What this object keeps between frames that no cache's budget
-        counts: the rows prepare_leaf copied for strokes and plain leaves,
+        counts (the retired store is counted in the caches' own, _trim):
+        the rows prepare_leaf copied for strokes and plain leaves,
         each path's rows as its draws were read from them, a fill mesh the
         mesh cache did not retain (one larger than its budget), the arrays
         a run of several draws was combined into, and the text of the held
@@ -577,17 +704,21 @@ class RetainedFrame:
         leaves, programs = self.leaves, ctx.programs
         # The walk writes nothing: it decides from each leaf as it stands,
         # before any leaf is read. Its plan, per leaf in draw order: the
-        # leaf, the entry to keep if the caches still hold it (None:
-        # prepare it), the leaf's last entry, the uniforms and their text
-        # it is drawn with, the revision the walk saw, the verdict of a
-        # moved revision's comparison, and whether the camera moved under
-        # the entry.
-        plan, records = [], []
+        # leaf, the entry to keep if the caches still hold it or to adopt
+        # (None: prepare it), the leaf's last entry, the uniforms and their
+        # text it is drawn with, the revision the walk saw, the verdict of
+        # a moved revision's comparison, whether the camera moved under the
+        # entry, and whether the entry is a retired one to adopt. A leaf
+        # the last frame did not draw is decided once the leaves it no
+        # longer draws are retired.
+        plan, newcomers, walked = [], [], 0
         for sm in draw_order(scene):
             previous = leaves.get(id(sm))
             if previous is not None and previous.owner() is not sm:
                 previous = None
             entry, verdict, moved = previous, None, False
+            if previous is not None:
+                walked += 1
             if (trusting and entry is not None and entry.kind is not PROGRAM
                     and not (programs and sm._program is not None)
                     and entry.flags == leaf_flags(sm) and library_getters(sm)):
@@ -604,65 +735,92 @@ class RetainedFrame:
             else:
                 entry = None
             if entry is None:
+                if previous is None and trusting:
+                    newcomers.append(len(plan))
+                    plan.append([sm, None, None, None, None, sm.revision, None, False, False])
+                    continue
                 uniforms, text = sets.merged(sm, camera)
-                records.append((sm, uniforms))
-                plan.append((sm, None, previous, uniforms, text, sm.revision, None, False))
+                plan.append([sm, None, previous, uniforms, text, sm.revision, None, False, False])
                 continue
-            mesh_entry = entry.mesh_entry
-            if mesh_entry is not None and (moved or mesh_entry.projection_key is None):
-                # A mesh made last frame has no error bound yet, and after a
-                # camera move none has one at this camera: the frame's own
-                # loop bounds them now, stacked with every other unbounded
-                # mesh, and so are they here, in that company.
-                records.append((sm, entry.uniforms))
-            plan.append((sm, entry, previous, entry.uniforms, entry.text, sm.revision, verdict, moved))
+            plan.append([sm, entry, previous, entry.uniforms, entry.text, sm.revision, verdict, moved, False])
+        # Retire first, then adopt: a seek takes paths off and puts equal
+        # ones on in the same frame. A leaf drawn twice counts twice, so
+        # its store can miss one retirement, and one adoption with it.
+        retired = self._retire(plan, ctx) if walked < len(leaves) else 0
+        made_under = {}  # id(uniform set) -> what a mesh generated with it now is made under
+        for index in newcomers:
+            item = plan[index]
+            adoption = self._adoption(item[0], ctx, camera_key, made_under) if self.retired else None
+            if adoption is None:
+                item[3], item[4] = sets.merged(item[0], camera)
+            else:
+                entry, verdict = adoption
+                item[1], item[3], item[4], item[6], item[8] = entry, entry.uniforms, entry.text, verdict, True
+        # A mesh made last frame has no error bound yet, and after a camera
+        # move none has one at this camera: the frame's own loop bounds them
+        # now, stacked with every other unbounded mesh, and so are they
+        # here, in that company. An adopted mesh is not the cache's yet,
+        # as a mesh the frame's loop generates is not.
+        records = []
+        for sm, entry, _, uniforms, _, _, _, moved, adopted in plan:
+            if entry is None:
+                records.append((sm, uniforms))
+            elif not adopted and entry.mesh_entry is not None and (moved or entry.mesh_entry.projection_key is None):
+                records.append((sm, uniforms))
         if mesh_cache is not None:
             mesh_cache.bound_errors(records, frame.resolution)
         if ctx.fill_borders and ctx.fill_builder is None and not ctx.gpu_borders:
             ctx.borders = _prepare_border_geometry(records, mesh_cache)
         # In draw order, as the frame's own loop reads the caches: their
         # recency decides what a budget evicts.
-        kept, prepared, compared_kept, revalidated = {}, 0, 0, 0
-        for sm, entry, previous, uniforms, text, revision, verdict, moved in plan:
-            if entry is not None:
-                if sm.revision != revision:
-                    # An earlier leaf's read moved this one after the walk
-                    # saw it (a getter of its own may write to any mobject):
-                    # the frame's loop reads it as it now stands.
-                    entry = verdict = None
-                elif verdict is REFRESHED:
+        kept, prepared, compared_kept, revalidated, adopted_kept = {}, 0, 0, 0, 0
+        for sm, entry, previous, uniforms, text, revision, verdict, moved, adopted in plan:
+            if entry is not None and sm.revision != revision:
+                # An earlier leaf's read moved this one after the walk saw
+                # it (a getter of its own may write to any mobject): the
+                # frame's loop reads it as it now stands.
+                entry = verdict = None
+            if entry is not None and adopted:
+                self._adopt(sm, entry, verdict, ctx, revision, camera_key)
+                adopted_kept += 1
+            else:
+                if verdict is REFRESHED:
                     # Here, in the leaf's own place, where its read would
                     # refresh it: a leaf read before it (a program packing
                     # its endpoints' rows) finds it unrefreshed, as in the
                     # frame's loop, and a frame refused before it leaves
                     # it alone.
                     refresh_as_read(sm, entry)
-            if entry is None or not self._keep(sm, entry, ctx, frame, revision, moved):
-                cached = cached_read(sm, ctx)
-                current = previous is not None and (previous.revision == sm.revision or verdict is not None)
-                refresh = refresh_pending(sm)
-                leaf = prepare_leaf(sm, uniforms, ctx)
-                entry = self._entry(sm, leaf, uniforms, text, ctx, camera_key, refresh=refresh, cached=cached,
-                                    previous=previous, current=current)
-                prepared += 1
-            else:
-                if verdict is not None:
-                    entry.revision = revision
-                    compared_kept += 1
-                if moved:
-                    entry.camera_key = camera_key
-                    revalidated += 1
+                elif verdict is BASED:
+                    base_as_read(sm)
+                if entry is None or not self._keep(sm, entry, ctx, frame, revision, moved):
+                    cached = cached_read(sm, ctx)
+                    current = previous is not None and (previous.revision == sm.revision or verdict is not None)
+                    refresh = refresh_pending(sm)
+                    leaf = prepare_leaf(sm, uniforms, ctx)
+                    entry = self._entry(sm, leaf, uniforms, text, ctx, camera_key, refresh=refresh,
+                                        cached=cached, previous=previous, current=current)
+                    prepared += 1
+                else:
+                    if verdict is not None:
+                        entry.revision = revision
+                        compared_kept += 1
+                    if moved:
+                        entry.camera_key = camera_key
+                        revalidated += 1
             kept[id(sm)] = entry
             frame.add_leaf(entry.leaf)
         self.leaves = kept
         self.stats = {"leaves_kept": len(plan) - prepared, "leaves_prepared": prepared,
                       "leaves_compared": compared_kept, "leaves_revalidated": revalidated,
+                      "leaves_adopted": adopted_kept, "leaves_retired": retired,
                       "runs_kept": 0, "runs_combined": 0}
         if len(sets.sets) > 2 * len(kept) + 64:
-            sets.prune(kept.values())
+            sets.prune((*kept.values(), *self.retired.values()))
         self._frame_runs, self._next_runs = [], {}
         frame = finish_triangle_frame(frame, ctx, kind=memoized_run_kind, combine=self._combine)
         self.runs, self._next_runs = self._next_runs, {}
+        self._trim(ctx, frame)
         return frame
 
     def _camera_key(self, ctx):
@@ -678,22 +836,24 @@ class RetainedFrame:
         return key, self.uniform_sets.camera_moved(ctx.camera_uniforms)
 
     @staticmethod
-    def _verdict(sm, entry):
+    def _verdict(sm, entry, text=None):
         """How a leaf whose revision moved stands against what its draws
         were made from, its own uniforms included: SAME, REFRESHED (a path
         whose read's refresh would leave its rows as they were made from),
-        or None, where it is prepared. Most bumps change no byte (a zero
-        shift, an updater writing the same corners, ``become`` of an
-        unchanged target). Nothing is written here: the walk runs before
-        any leaf is read, and a REFRESHED leaf is refreshed in its own
-        place in the order. A net's rows are the net cache's to compare,
-        where the frame reads them (_keep)."""
+        BASED (one whose read's write of its base points would), or None,
+        where it is prepared. Most bumps change no byte (a zero shift, an
+        updater writing the same corners, ``become`` of an unchanged
+        target). Nothing is written here: the walk runs before any leaf is
+        read, and a REFRESHED or BASED leaf is left as its read leaves it
+        in its own place in the order. A net's rows are the net cache's to
+        compare, where the frame reads them (_keep). ``text``: the leaf's
+        override_text, where the caller has it."""
         kind = entry.kind
         if kind is ROWS:
             verdict = compare_rows(sm, entry)
         else:
             verdict = SAME if kind is NET or same_plain(sm, entry) else None
-        if verdict is None or entry.text is None or override_text(sm)[1] != entry.text:
+        if verdict is None or entry.text is None or (override_text(sm)[1] if text is None else text) != entry.text:
             return None
         return verdict
 
@@ -743,6 +903,176 @@ class RetainedFrame:
                 return False
         return entry.textures is None or frame.texture_refs(sm) == entry.textures
 
+    def _retire(self, plan, ctx):
+        """Park the last frame's leaves that this frame's walk (``plan``)
+        does not draw: a leaf taken off, or one whose object died, its id
+        another's now. Returns how many were parked."""
+        walked = {id(item[0]) for item in plan if item[2] is not None}
+        parked = 0
+        for key, entry in self.leaves.items():
+            if key not in walked and self._park(entry, ctx):
+                parked += 1
+        return parked
+
+    def _park(self, entry, ctx):
+        """Park ``entry`` in the retired store under its digest, if a path
+        could adopt it: a path's, read through the library's getters (a
+        getter of its own may have drawn anything from the same rows), its
+        rows known, its uniforms a shared set, and each cache entry its
+        draws were read from held with what a new object's reads would
+        make of it (the density its reservation came from; a paint field
+        where a draw reads one). A fill whose mesh no cache held was made
+        at a camera nothing records. The newest entry holds a digest; one
+        it displaces is dropped."""
+        classes, mesh_entry, source_entry = entry.classes, entry.mesh_entry, entry.source_entry
+        if (entry.kind is not ROWS or not entry.standard or entry.rows is None or entry.text is None
+                or classes is None):
+            return False
+        if (source_entry is not None or entry.capacity is not None) and (
+                source_entry is None or entry.capacity is None or entry.density is None):
+            # A border source, its reservation and the density behind it
+            # are parked together or not at all. A reservation whose source
+            # the budget let go in the very read that packed it (the border
+            # cache's share smaller than that one source) has nothing for
+            # a new object to adopt: its read packs a source again and
+            # reserves at this zoom, which the parked reservation, one a
+            # zoom grew least of all, does not stand for.
+            return False
+        painted = _fill_paint(entry)
+        if mesh_entry is None:
+            if classes[0] and not ctx.patch_fills:
+                return False
+        elif painted and mesh_entry.paint_field is None:
+            return False
+        if painted and source_entry is not None and source_entry.every_curve and source_entry.paint is None:
+            return False
+        digest = entry.digest
+        if digest is None:
+            digest = entry.digest = leaf_digest(entry.type_name, entry.text, entry.flags, entry.rows)
+        retired = self.retired
+        displaced = retired.pop(digest, None)
+        if displaced is not None:
+            self.retired_bytes -= displaced.size
+        if not entry.size:
+            # Measured once: an adoption shares every array it holds.
+            entry.size = _parked_size(entry)
+        retired[digest] = entry
+        self.retired_bytes += entry.size
+        if len(retired) > MAX_RETIRED:
+            self.retired_bytes -= retired.popitem(last=False)[1].size
+        return True
+
+    def _adoption(self, sm, ctx, camera_key, made_under):
+        """The retired entry the frame's new leaf ``sm`` adopts, and the
+        verdict of its rows against the entry's; None where it adopts none
+        and is prepared.
+
+        The entry of equal digest is taken from the store either way. It
+        stands for ``sm`` where prepare_leaf would make the same draws of
+        it: its rows as a moved revision is held to them (_verdict, the
+        uniforms' text included), its uniforms the set ``sm``'s text
+        names now (a set the camera no longer writes into holds another
+        camera), and nothing the caches would read for an object they
+        hold nothing of differing: the mesh one generated at this camera
+        (TriangleMeshCache.made_under, memoized per uniform set in
+        ``made_under`` for the frame) and one the cache retains, the
+        reservation the first one at this zoom, the stroke count this frame
+        scale's. Nothing is written: the caches are given the entries in
+        the leaf's place in the order (_adopt)."""
+        if not isinstance(sm, VMobject) or sm._program is not None or not library_getters(sm):
+            return None
+        text = _items_text(_override_items(sm))  # override_text's, without the dict
+        if text is None or "NaN" in text:
+            return None
+        flags = leaf_flags(sm)
+        entry = self.retired.pop(leaf_digest(type(sm).__name__, text, flags, sm._data), None)
+        if entry is None:
+            return None
+        self.retired_bytes -= entry.size
+        mesh_cache = ctx.mesh_cache
+        held = self.uniform_sets.sets.get(text)
+        if held is None or held[0] is not entry.uniforms or entry.flags != flags or mesh_cache.knows(sm):
+            return None
+        verdict = self._verdict(sm, entry, text)
+        if verdict is None:
+            return None
+        if entry.camera_key is not camera_key and not entry.stroke_holds():
+            return None
+        if entry.mesh_entry is not None:
+            key = made_under.get(id(entry.uniforms), made_under)
+            if key is made_under:
+                key = made_under[id(entry.uniforms)] = mesh_cache.made_under(
+                    entry.uniforms, ctx.resolution, ctx.pixel_tolerance)
+            if key is None or entry.mesh_entry.made_under != key:
+                return None
+            if not mesh_cache.max_entries or entry.size > mesh_cache.max_bytes:
+                # A mesh the cache would not retain is drawn from arrays
+                # made anew, which no digest memo keeps; the entry's are
+                # frozen. Its size bounds the mesh's from above.
+                return None
+        if entry.source_entry is not None:
+            try:
+                first = ctx.border_cache.first_reservation(entry.density, entry.uniforms["frame_scale"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if first != entry.capacity:
+                return None
+        return entry, verdict
+
+    @staticmethod
+    def _adopt(sm, entry, verdict, ctx, revision, camera_key):
+        """Make ``entry``, a retired path's, the new leaf ``sm``'s, in its
+        place in the order: the caches given what their reads of an object
+        they hold nothing of would store (the border source and its
+        reservation, then the classification and the mesh, as prepare_leaf
+        reads them), the leaf left as its read would leave it (a REFRESHED
+        or BASED verdict's write, after the border read's check of the
+        uniforms, which the read makes before it writes), and the entry
+        stamped with the leaf, the walk's revision and this camera."""
+        painted = _fill_paint(entry)
+        source_entry = entry.source_entry
+        if source_entry is not None:
+            entry.source_entry = ctx.border_cache.adopt(
+                sm, source_entry, entry.density, entry.capacity, uniforms=entry.uniforms,
+                paint=painted and source_entry.every_curve)
+        if verdict is REFRESHED:
+            refresh_as_read(sm, entry)
+        elif verdict is BASED:
+            base_as_read(sm)
+        entry.mesh_entry = ctx.mesh_cache.adopt(sm, entry.classes, entry.mesh_entry,
+                                                paint=painted and entry.mesh_entry is not None)
+        entry.owner = weakref.ref(sm)
+        entry.revision = revision
+        entry.camera_key = camera_key
+
+    def _trim(self, ctx, frame):
+        """Hold the retired store to MAX_RETIRED entries and to what the
+        mesh and border caches leave of their shared budget after the
+        frame's sweeps, dropping the least recently parked first: it
+        yields to them, so no live entry is ever evicted for it and the
+        caches evict exactly what the frame's own loop would. Its bytes
+        join the frame's retained ones.
+
+        Here only, where finish_triangle_frame settles the border cache's
+        share: the next frame's insertions fill the caches while the store
+        still holds what this leaves it, which only an adoption or the
+        next trim takes back. Caches and store may then pass the budget
+        within that frame by up to what the store holds, as the caches
+        alone may pass it by up to the border cache's share at the
+        frame's start."""
+        mesh_cache, border_cache = ctx.mesh_cache, ctx.border_cache
+        room = 0
+        if mesh_cache is not None and mesh_cache.max_entries:
+            room = mesh_cache.max_bytes - mesh_cache._bytes - (0 if border_cache is None else border_cache.nbytes)
+        retired = self.retired
+        while retired and (self.retired_bytes > room or len(retired) > MAX_RETIRED):
+            self.retired_bytes -= retired.popitem(last=False)[1].size
+        self.stats.update(retired=len(retired), retired_bytes=self.retired_bytes)
+        stats = frame.mesh_cache_stats
+        if stats is not None and "retained_bytes" in stats:
+            stats.update(retained_retired_bytes=self.retired_bytes,
+                         retained_bytes=stats["retained_bytes"] + self.retired_bytes)
+
     @staticmethod
     def _entry(sm, leaf, uniforms, text, ctx, camera_key, *, refresh, cached, previous, current):
         """The LeafEntry of a leaf prepare_leaf has just prepared, with the
@@ -765,6 +1095,8 @@ class RetainedFrame:
             entry.mesh_entry, entry.classes = ctx.mesh_cache.held(sm)
             if ctx.border_cache is not None:
                 entry.source_entry, entry.capacity = ctx.border_cache.held(sm)
+                if entry.capacity is not None:
+                    entry.density = ctx.border_cache.density(sm)
             if entry.classes is not None:
                 # Whether the read went through the shader data, by what
                 # prepare_leaf read rather than what the caches kept.

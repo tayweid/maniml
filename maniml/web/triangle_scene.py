@@ -546,6 +546,13 @@ class _MeshEntry:
     # Whether every fill vertex carries the source's first color (set at
     # generation and after a paint refresh), for the opaque-painter test.
     uniform_vertex_color: bool = False
+    # (projection key, pixel tolerance) of the camera the mesh was generated
+    # at: a generation is a function of the source, that camera and the
+    # cache's tessellator and refinement, so another object with the same
+    # source is given exactly this mesh there (TriangleMeshCache.made_under).
+    # None once a paint refresh has rewritten the vertex colours, which a
+    # generation takes from the tessellator instead.
+    made_under: tuple | None = None
 
     @property
     def nbytes(self):
@@ -812,6 +819,65 @@ class TriangleMeshCache:
             self._remove(next(iter(self._entries)))
         return entry, classes
 
+    def knows(self, mobject):
+        """Whether the cache holds a classification or a mesh of this very
+        mobject: a read of it would find its own entries, whatever
+        another object's say."""
+        owner_id = id(mobject)
+        held = self._classes.get(owner_id)
+        entry = self._entries.get(owner_id)
+        return (held is not None and held[0]() is mobject) or (entry is not None and entry.owner() is mobject)
+
+    def made_under(self, uniforms, resolution, pixel_tolerance):
+        """What a mesh mesh() generates now for these uniforms is made under
+        (_MeshEntry.made_under), or None where mesh() would refuse the
+        camera: an entry made under it (another object's, retired with the
+        same source) is exactly the mesh a new object is given here. For a
+        caller that adopts a retired leaf's draws (docs/phase_b4_plan.md,
+        B4.4) rather than generating them again. Never raises: a camera
+        mesh() refuses is its to refuse."""
+        try:
+            return _projection_state(uniforms, resolution, self._projections)[0], pixel_tolerance
+        except (UnsupportedPrototype, KeyError, TypeError, ValueError):
+            return None
+
+    def adopt(self, mobject, classes, entry=None, *, paint=False):
+        """Hold ``classes`` and ``entry`` (a classification and a mesh read
+        for another object whose rows were the same bytes, the mesh one
+        generated under this camera's made_under) for ``mobject``, which
+        the cache knows nothing of: what classify and mesh() would store
+        for it, with the arrays shared rather than generated again. The
+        entry is a new one, so the other object's stays where it is until
+        the sweep, as it would; the budget is kept as mesh()'s insertion
+        keeps it, a mesh it would not retain is not held (None: the caller
+        adopts none, whose draws would hold frozen arrays where mesh()'s
+        are made anew), and ``paint`` (the leaf reads a paint field) adds
+        the entry's field as paint() would build it. Returns the new
+        entry, or None without one."""
+        owner_id = id(mobject)
+        ref = weakref.ref(mobject)
+        self._classes[owner_id] = (ref, mobject.revision, classes, self._frame)
+        if entry is None:
+            return None
+        if owner_id in self._entries:
+            # mesh() replaces what a dead object left under this id.
+            self._remove(owner_id)
+        held = _MeshEntry(ref, entry.source, entry.geometry, self._frame, revision=mobject.revision,
+                          uniform_vertex_color=entry.uniform_vertex_color, made_under=entry.made_under)
+        nbytes = held.nbytes
+        if not self.max_entries or nbytes > self.max_bytes:
+            return None
+        while len(self._entries) >= self.max_entries or self._bytes + nbytes > self.max_bytes:
+            self._remove(next(iter(self._entries)))
+        self._entries[owner_id] = held
+        self._bytes += nbytes
+        if paint:
+            held.paint_field = entry.paint_field
+            self._bytes += held.paint_field.nbytes
+            while self._bytes > self.max_bytes:
+                self._remove(next(iter(self._entries)))
+        return held
+
     def finish_frame(self, before):
         for owner_id, entry in list(self._entries.items()):
             if entry.last_frame != self._frame:
@@ -855,6 +921,7 @@ class TriangleMeshCache:
                     entry.source = replace(entry.source, rgba=_readonly(source.rgba))
                     entry.paint_field = None
                     entry.uniform_vertex_color = True
+                    entry.made_under = None
                     self._bytes += entry.nbytes - old_bytes
                     self._totals["paint_updates"] += 1
                 self._totals["hits"] += 1
@@ -876,10 +943,13 @@ class TriangleMeshCache:
             while (len(self._entries) >= self.max_entries
                    or self._bytes + nbytes > self.max_bytes):
                 self._remove(next(iter(self._entries)))
+            # None for a camera mesh() refuses, which only a path too short
+            # to fill (its empty mesh never projected) gets this far with.
             entry = _MeshEntry(weakref.ref(mobject), source.frozen(),
                                geometry.frozen(), self._frame, revision=mobject.revision,
                                uniform_vertex_color=bool(len(source.rgba)) and bool(
-                                   np.all(geometry.vertices["rgba"] == source.rgba[0])))
+                                   np.all(geometry.vertices["rgba"] == source.rgba[0])),
+                               made_under=self.made_under(uniforms, resolution, pixel_tolerance))
             self._entries[owner_id] = entry
             self._bytes += entry.nbytes
             geometry = entry.geometry

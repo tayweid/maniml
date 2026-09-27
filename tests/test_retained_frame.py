@@ -23,9 +23,10 @@ path directly, wherever the goldens cannot reach: one scripted history
 driven on two scenes built alike, one serialized with
 MANIML_RETAINED_FRAME=1, equal messages, equal cache contents and equal
 leaf rows and refresh state asserted at every frame. Its histories never
-navigate: which thaws hand back a live object depends on when the
-collector last ran, so two scenes, or two processes, seeking alike need
-not hold the same objects (B4.4's seek proof takes that up).
+navigate. RetainedFrameNavigation (B4.4) does, through a scene's
+checkpoints: which thaws hand back a live object depends on when the
+collector last ran, so it runs the collector around every navigation and
+holds it off during one, and both scenes hold the same objects.
 
 Record with ``python -m tests.test_retained_frame --record`` (or
 MANIML_RECORD_GOLDENS=1 under any unittest invocation); only the cases
@@ -44,6 +45,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -52,6 +54,7 @@ import numpy as np
 from PIL import Image
 
 from maniml import config
+from maniml.__main__ import load_scene_module
 from maniml.animation.animation import prepare_animation
 from maniml.animation.transform import Transform
 from maniml.constants import BLUE, DEFAULT_RESOLUTION, DOWN, GREEN, LEFT, ORIGIN, RED, RIGHT, UL, UP, WHITE, YELLOW
@@ -64,13 +67,13 @@ from maniml.mobject.types.surface import TexturedSurface
 from maniml.mobject.types.vectorized_mobject import VGroup, VMobject
 from maniml.scene.scene import Scene
 from maniml.utils import programs
-from maniml.web import generated_geometry, triangle_scene
+from maniml.web import generated_geometry, retained_frame, triangle_scene
 from maniml.web.border_geometry import RenderCacheStale
 from maniml.web.geometry import (
-    GEOMETRY_FORMAT_VERSION, POLYLINE_FACTOR, GeometryCache, _stroke_sqrt_area, _stroke_verts, _stroke_verts_at,
-    parse_geometry_message, serialize_scene,
+    GEOMETRY_FORMAT_VERSION, POLYLINE_FACTOR, GeometryCache, _jsonable, _stroke_sqrt_area, _stroke_verts,
+    _stroke_verts_at, parse_geometry_message, serialize_scene,
 )
-from maniml.web.triangle_geometry import _packaged_library
+from maniml.web.triangle_geometry import LyonFillTessellator, _packaged_library
 from tests.renderer_fixtures import build_scene, renderer_cases
 from tests.renderer_quality_fixtures import QualityFixtureUnavailable, quality_cases
 
@@ -1198,6 +1201,13 @@ class RetainedFrameLockstep(GoldenCase):
                 mobject.note_changed_data()
             return action
 
+        def normal_written(side):
+            # Another unit normal than the points give, which the joint
+            # angles' refresh then reads.
+            side.path.data["base_normal"][1::2] = [0, 0, -1]
+            side.path.refresh_joint_angles()
+            side.path.note_changed_data()
+
         def hidden_moves(side):
             side.hidden.set_points_as_corners([[-2, -1.2, 0], [2, -.8, 0]])
 
@@ -1232,7 +1242,11 @@ class RetainedFrameLockstep(GoldenCase):
                 (unlock_joints, "unlocked", 1, 0),
                 (rewrite, "the same points once more", 0, 1),
                 (spelled, "a uniform spelled 1 where it was 1.0", 1, 0),
-                (joints_flagged("path"), "joint angles flagged alone: the stroke's read refreshes them", 1, 0),
+                (joints_flagged("path"), "joint angles flagged alone: the stroke's read refreshes them as they were",
+                 0, 1),
+                (normal_written, "and from another unit normal, which the refresh reads", 1, 0),
+                (rewrite, "the same points again, both flags", 1, 0),
+                (rewrite, "and again", 0, 1),
                 (joints_flagged("blot"), "and a fill's, which its read does not reach", 0 if phase_a else 1,
                  1 if phase_a else 0),
                 (hidden_moves, "a path that draws nothing moved", 0, 1),
@@ -1689,6 +1703,502 @@ class RetainedFrameLockstep(GoldenCase):
                     lock.step(bump)
                     self.assertNotEqual(lock.frame("a bump over the written rows", renderer), still)
                     lock.frame("the flag-on side's caches with the flag off", renderer, retained=False)
+
+
+@requires_lyon
+class AdoptionMirrorsTheRead(unittest.TestCase):
+    """TriangleMeshCache.adopt and BorderRecipeCache.adopt (B4.4) leave
+    their caches as the reads they stand in for: adopting, for an object a
+    cache holds nothing of, the entries read for another object of equal
+    content is prepare_leaf's generation and packing for it, bar the work.
+    Two caches with one history; then a frame in which a copy of one leaf
+    is read in the first and adopted in the second, the leaf it copies no
+    longer drawn. Compared right after, before the sweep hides what the
+    frame's own insertions did: the entries in their order, the bytes, the
+    evictions, the reservations, the arrays drawn. Under a budget with room
+    to spare, and one with none, where the insertions evict."""
+
+    def shapes(self):
+        # A bordered disc; a disc whose fill varies, so its read builds a
+        # paint field; a disc shaded for its first frame, whose mesh keeps
+        # the paint field that built after the shading is gone (a read of
+        # a new object builds none); and the square they leave room for.
+        return [Circle(radius=.5, fill_color=GREEN, fill_opacity=.9, stroke_width=0, fill_border_width=2),
+                Circle(radius=.4, fill_opacity=1, stroke_width=0, fill_border_width=0).set_fill([RED, BLUE])
+                .shift(1.5 * RIGHT),
+                Circle(radius=.3, fill_color=BLUE, fill_opacity=1, stroke_width=0, fill_border_width=0)
+                .set_shading(.5, .2, .1).shift(UP),
+                Square(side_length=.6, fill_color=YELLOW, fill_opacity=1, stroke_width=0).shift(1.5 * LEFT)]
+
+    def census(self, meshes):
+        border = meshes.gpu_border_cache
+        return ([(key, entry.nbytes, entry.revision, entry.last_frame, entry.made_under)
+                 for key, entry in meshes._entries.items()],
+                meshes._bytes, meshes.stats["evictions"],
+                {key: held[1:] for key, held in meshes._classes.items()},
+                [(key, entry.nbytes, entry.frame) for key, entry in border.sources.items()], border.nbytes,
+                {key: held[1:] for key, held in border.capacities.items()})
+
+    def test_adoption_is_the_read(self):
+        for spare in (None, 0):
+            for index in range(3):
+                with self.subTest(spare=spare, leaf=index):
+                    self.adoption(spare, index)
+
+    def adoption(self, spare, index):
+        tessellator = LyonFillTessellator()
+        shapes = self.shapes()
+        scene = build_scene(*shapes)
+        caches = (triangle_scene.TriangleMeshCache(), triangle_scene.TriangleMeshCache())
+        options = dict(fill_borders=True, gpu_borders=True)
+        for cache in caches:
+            triangle_scene.prepare_triangle_frame(scene, tessellator, mesh_cache=cache, **options)
+        shapes[2].set_shading(0, 0, 0)
+        for cache in caches:
+            triangle_scene.prepare_triangle_frame(scene, tessellator, mesh_cache=cache, **options)
+        self.assertIsNotNone(caches[0]._entries[id(shapes[2])].paint_field)
+        retired = shapes[index]
+        copy = retired.copy()
+        scene = build_scene(copy, shapes[3])
+        if spare is not None:
+            # The meshes' own bytes: the border sources' share is gone too.
+            for cache in caches:
+                cache.max_bytes = cache._bytes + spare
+        read, adopted = [triangle_scene.begin_triangle_frame(scene, tessellator, mesh_cache=cache, **options)
+                         for cache in caches]
+        # As prepare_triangle_frame merges them.
+        uniforms = {**read[1].camera_uniforms, **{key: _jsonable(value) for key, value in copy.uniforms.items()}}
+        drawn = triangle_scene.prepare_leaf(copy, uniforms, read[1])
+        meshes, border = caches[1], caches[1].gpu_border_cache
+        mesh_entry, classes = meshes._entries[id(retired)], meshes._classes[id(retired)][2]
+        source_entry, reservation = border.sources.get(id(retired)), border.capacities.get(id(retired))
+        painted = drawn.draws[0].paint is not None
+        if source_entry is not None:
+            density = reservation[3:5]
+            border.adopt(copy, source_entry, density, border.first_reservation(density, uniforms["frame_scale"]),
+                         uniforms=uniforms)
+        held = meshes.adopt(copy, classes, mesh_entry, paint=painted)
+        self.assertEqual(self.census(caches[1]), self.census(caches[0]))
+        fill = drawn.draws[0]
+        self.assertEqual(held.geometry.vertices.tobytes(), fill.vertices.tobytes())
+        self.assertEqual(held.geometry.indices.tobytes(), fill.indices.tobytes())
+        if painted:
+            self.assertEqual(held.paint_field.wire().tobytes(), fill.paint.tobytes())
+        for cache, (frame, context) in zip(caches, (read, adopted)):
+            triangle_scene.finish_triangle_frame(frame, context)
+        self.assertEqual(self.census(caches[1]), self.census(caches[0]))
+
+
+# B4.4: a scene with checkpoints, navigated as the viewer navigates it. The
+# group of discs moves one disc per play of the loop, so a seek between two
+# of its checkpoints thaws the whole group afresh and brings the unchanged
+# discs back as copies, with the rest of the group: an arc, a curved stroke
+# whose count a zoom changes, and a blot, a curved fill with no stroke and
+# no border, whose mesh a zoom refines; the dashed axis is eighty paths
+# frozen before any read wrote their base points; the twins are two paths
+# of equal content; the dot follows the box through an updater, so every
+# thaw copies it.
+SEEK_SCENE = textwrap.dedent('''\
+    from maniml import *
+
+    SHIFT = 0.5
+
+
+    class SeekScene(Scene):
+        def construct(self):
+            discs = VGroup(*(Circle(radius=.3, fill_color=BLUE, fill_opacity=.8, stroke_color=WHITE,
+                                    stroke_width=2, fill_border_width=1).shift(x * RIGHT) for x in range(-3, 4)),
+                           Arc(radius=.4, angle=PI, stroke_color=YELLOW, stroke_width=3).shift(3 * RIGHT + UP),
+                           Circle(radius=.25, fill_color=GREEN, fill_opacity=1, stroke_width=0,
+                                  fill_border_width=0).shift(3 * LEFT + UP))
+            axis = DashedLine(4 * LEFT, 4 * RIGHT, stroke_width=3).shift(2 * DOWN)
+            self.play(FadeIn(discs), Create(axis), run_time=.1)
+            box = Square(side_length=1, fill_color=RED, fill_opacity=.6, stroke_width=3).shift(1.5 * UP + SHIFT * RIGHT)
+            twins = VGroup(*(Triangle(fill_color=YELLOW, fill_opacity=1, stroke_width=0).scale(.3)
+                             .shift(3 * LEFT + 1.5 * UP) for _ in range(2)))
+            self.play(FadeIn(box), FadeIn(twins), run_time=.1)
+            for k in range(3):
+                self.play(discs[k].animate.shift(.5 * UP), run_time=.1)
+            badge = Rectangle(width=1, height=.4, fill_color=YELLOW, fill_opacity=.8).to_corner(UL).fix_in_frame()
+            dot = Dot(color=GREEN).add_updater(lambda m: m.move_to(box.get_center() + DOWN))
+            self.add(badge, dot)
+            self.play(box.animate.shift(RIGHT), run_time=.1)
+            self.play(Transform(box, Circle(radius=.6, fill_color=GREEN, fill_opacity=.7).shift(2 * UP)), run_time=.1)
+            self.wait(.05)
+''')
+# Checkpoints 3 and 4 are the loop's first and second plays; 8 is the
+# last, the wait's.
+LOOP_PLAYS, LAST_CHECKPOINT = (3, 4), 8
+
+
+def navigate(action):
+    """A step applying ``action`` to a side's scene with the collector run
+    before it and after it and held off in between: which live objects a
+    thaw hands back depends on which the collector has freed (B4.2's
+    note), so both sides are kept to the same ones."""
+    def step(side):
+        gc.collect()
+        gc.disable()
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                action(side.scene)
+        finally:
+            gc.collect()
+            gc.enable()
+    return step
+
+
+def seek(index):
+    """A navigation to checkpoint ``index``, as the viewer's arrow keys and
+    benchmarks.episode_frames.show_frame make it."""
+    def action(scene):
+        scene._restore_checkpoint_for_display(index)
+        scene.update_mobjects(0)
+    return navigate(action)
+
+
+def edited(old, new, line):
+    """A watcher's save of the side's scene file with ``old`` replaced by
+    ``new`` at ``line``, handled as tests.test_checkpoint_reload's save."""
+    def action(scene):
+        path = Path(scene._scene_filepath)
+        path.write_text(path.read_text().replace(old, new))
+        scene._on_file_changed({"earliest_changed_line": line})
+        scene._file_changed_flag = False
+        scene._handle_file_change()
+    return navigate(action)
+
+
+def cache_work(cache):
+    """What the flag-on side's caches made from scratch so far: fill meshes
+    generated and border sources packed. An adoption makes neither."""
+    meshes = cache.triangle_meshes
+    return meshes.stats["regenerations"] + meshes.gpu_border_cache.source_updates
+
+
+@requires_lyon
+class RetainedFrameNavigation(GoldenCase):
+    """Retired leaves and their adoption (B4.4): navigation through a
+    scene's checkpoints, flag on against flag off, frame by frame, as in
+    RetainedFrameLockstep, with the collector held to the same objects on
+    both sides. A seek back and forth inside a loop, a far jump and back,
+    a RIGHT press replaying a play (every frame of it compared) and its
+    landing, a watcher's restart from a reloaded module, which rebuilds
+    every mobject, and an edit inside construct(), which replays the last
+    unit, then a zoom whose refined meshes the seeks after it find made
+    at another camera. Beside it: a budget that leaves the store room for
+    some parked paths only, a mesh no budget holds, a path read through a
+    getter of its own and one whose class of the same name reads through
+    a helper of its own (a restart's), a reservation whose source the
+    budget let go, and the store's bound in entries."""
+
+    def setUp(self):
+        self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.names = iter(f"seek_scene_{index}" for index in range(100))
+
+    def seek_side(self):
+        """A SeekScene built as the CLI builds it, from a file of its own,
+        and run to its last checkpoint. The camera's capture stands down,
+        as it does while a client renders."""
+        name = next(self.names)
+        path = self.directory / f"{name}.py"
+        path.write_text(SEEK_SCENE)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            scene = load_scene_module(str(path)).SeekScene(window=None)
+        self.addCleanup(sys.modules.pop, name, None)
+        self.addCleanup(scene.camera.release)
+        self.enterContext(patch.object(scene.camera, "capture"))
+        scene._scene_filepath = str(path)
+        scene.skip_animations = True
+        scene.setup()
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            scene._create_checkpoint_zero()
+            scene._run_all_units()
+        self.assertEqual(len(scene.animation_checkpoints), LAST_CHECKPOINT + 1)
+        return SimpleNamespace(scene=scene)
+
+    def frame(self, lock, label, renderer, *, made=None, **counts):
+        """``lock.frame``; where the retained frame keeps leaves at all, the
+        flag-on side's ``counts`` and, given ``made``, how many meshes and
+        border sources its caches made from scratch in the frame."""
+        before = cache_work(lock.caches[1]) if lock.caches[1].triangle_meshes is not None else 0
+        message = lock.frame(label, renderer)
+        lock.expect(**counts)
+        if made is not None and trusting():
+            self.assertEqual(cache_work(lock.caches[1]) - before, made, f"{label}: made from scratch")
+        return message
+
+    def replayed(self, lock, target, renderer):
+        """A RIGHT press replaying the play that saved checkpoint ``target``
+        (benchmarks.episode_frames.replay_play): each side in turn, every
+        frame serialized as the play draws it and held to the other side's
+        (the message, the caches, the scene), then the landing."""
+        from benchmarks.episode_frames import replay_play
+        seen = ([], [])
+        for index, side in enumerate(lock.sides):
+            def on_frame(k, index=index, side=side):
+                seen[index].append((lock.serialize(index, renderer, bool(index)),
+                                    census(lock.caches[index]), leaf_states(side.scene)))
+
+            navigate(lambda scene: replay_play(scene, target, on_frame))(side)
+        self.assertEqual(len(seen[0]), len(seen[1]))
+        self.assertGreater(len(seen[0]), 1)
+        for k, (off, on) in enumerate(zip(*seen)):
+            if on[0] != off[0]:
+                self.fail(f"play into {target}, frame {k}: flag on differs from flag off: {difference(off[0], on[0])}")
+            self.assertEqual(on[1], off[1], f"play into {target}, frame {k}: the caches differ")
+            self.assertEqual(on[2], off[2], f"play into {target}, frame {k}: the scenes differ")
+        return self.frame(lock, f"landed at {target}", renderer)
+
+    def test_seeks_jumps_replays_and_restarts(self):
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                self.navigation(renderer)
+
+    def navigation(self, renderer):
+        # Under Phase B the dot's fill is read through its shader data, and
+        # its updater's move leaves the joint angles' flag alone set: rows
+        # a refresh of the joint angles alone made are of unknown
+        # derivation to a later comparison (compare_rows), so every thaw's
+        # copy of it is prepared, as a kept leaf in that state would be.
+        dot = int(renderer == "phase_b")
+        lock = Lockstep(self, self.seek_side)
+        self.frame(lock, "cold at the last checkpoint", renderer)
+        self.frame(lock, "still", renderer, leaves_prepared=0)
+        # Inside the loop every seek thaws the group of discs afresh, and
+        # its unchanged members come back as copies of what the frame
+        # before parked. The first seek there also puts back two paths no
+        # frame has drawn yet, the disc the loop's last play moves, still
+        # in place, and the box before its play; the first seek down, the
+        # disc the loop's second play moves. From then on every member a
+        # seek puts back was parked.
+        down, up = LOOP_PLAYS
+        lock.step(seek(up))
+        self.frame(lock, f"seek to {up}", renderer, leaves_prepared=2, leaves_adopted=8)
+        lock.step(seek(down))
+        self.frame(lock, "first seek down", renderer, leaves_prepared=1, leaves_adopted=8)
+        for index in range(2):
+            lock.step(seek(up))
+            self.frame(lock, f"seek up {index}", renderer, leaves_prepared=0, leaves_adopted=9, made=0)
+            lock.step(seek(down))
+            self.frame(lock, f"seek down {index}", renderer, leaves_prepared=0, leaves_adopted=9, made=0)
+        # A far jump parks the whole scene, and the jump back adopts it:
+        # all but one of the twins, whose equal twin was parked under the
+        # same digest, displacing it.
+        lock.step(seek(1))
+        self.frame(lock, "far jump", renderer)
+        lock.step(seek(LAST_CHECKPOINT))
+        self.frame(lock, "and back", renderer, leaves_prepared=1 + dot, made=1 + dot)
+        # The play into the loop's last checkpoint, replayed from the one
+        # before it: its landing thaws what the last frame of the play drew.
+        self.replayed(lock, up, renderer)
+        lock.step(seek(LAST_CHECKPOINT))
+        self.frame(lock, "back at the last checkpoint", renderer)
+        # A save outside construct() reloads the module and rebuilds every
+        # mobject: all new, all of the same content, all adopted but a twin.
+        lock.step(edited("SHIFT = 0.5", "SHIFT = 0.25 + 0.25", 3))
+        self.frame(lock, "restarted from source", renderer, leaves_prepared=1 + dot, made=1 + dot)
+        self.frame(lock, "still", renderer, leaves_prepared=0)
+        # A save of the last unit replays it from the checkpoint before.
+        line = SEEK_SCENE.splitlines().index("        self.wait(.05)") + 1
+        lock.step(edited("self.wait(.05)", "self.wait(.06)", line))
+        self.frame(lock, "the last unit replayed", renderer, leaves_prepared=dot, made=dot)
+        self.frame(lock, "still", renderer, leaves_prepared=0)
+        # A zoom refines the fills' meshes and grows the discs' border
+        # reservations (under Phase B their patch records' too, and not
+        # the blot's, whose curves need fewer steps), and a zoom back keeps
+        # both; a zoom changes the arc's count. What a frame parks under
+        # either camera is then not what the frame's loop makes for a copy
+        # under the authored camera (a mesh generated at this camera, a
+        # first reservation at this zoom, the count at this frame scale),
+        # and those copies are prepared. The disc the loop moves between
+        # the two checkpoints was last drawn in place under the authored
+        # camera, before the zoom, and adopts what that frame parked. Seeks
+        # from the zoom back, and then from the zoom.
+        blot = 1 - dot
+        lock.step(seek(up))
+        self.frame(lock, f"seek to {up}", renderer)
+        lock.step(lambda side: side.scene.camera.frame.scale(1 / 6))
+        self.frame(lock, "zoom in 6x", renderer)
+        lock.step(lambda side: side.scene.camera.frame.scale(6))
+        self.frame(lock, "zoom back", renderer)
+        lock.step(seek(down))
+        self.frame(lock, "seek down after the zoom", renderer, leaves_prepared=6 + blot, leaves_adopted=3 - blot)
+        lock.step(seek(up))
+        self.frame(lock, "seek up", renderer, leaves_prepared=1, leaves_adopted=8)
+        lock.step(lambda side: side.scene.camera.frame.scale(1 / 6))
+        self.frame(lock, "zoom in 6x again", renderer)
+        lock.step(seek(down))
+        self.frame(lock, "seek down from the zoom", renderer, leaves_prepared=7 + blot, leaves_adopted=2 - blot)
+        # The first seek back finds the moved disc's other place parked
+        # only from the zoomed frame, and prepares it too.
+        lock.step(seek(up))
+        self.frame(lock, "seek up", renderer, leaves_prepared=1, leaves_adopted=8)
+        lock.step(seek(down))
+        self.frame(lock, "seek down", renderer, leaves_prepared=0, leaves_adopted=9, made=0)
+        lock.step(seek(up))
+        self.frame(lock, "seek up", renderer, leaves_prepared=0, leaves_adopted=9, made=0)
+        self.frame(lock, "still", renderer, leaves_prepared=0)
+
+    def test_the_store_takes_what_the_budget_leaves(self):
+        # The store yields to the caches: after every frame it holds no more
+        # than the mesh and border caches leave of their shared budget, and
+        # it never costs them an entry, so the flag-off path's evictions are
+        # the flag-on path's. A far jump parks the whole scene and adopts
+        # little of it. A budget with a few KiB to spare keeps a few of the
+        # paths it parked, where the whole budget keeps them all, and the
+        # jump back adopts fewer, preparing the rest as the budget evicts in
+        # the frame's order.
+        adopted = []
+        for spare in (12 << 10, None):
+            lock = Lockstep(self, self.seek_side)
+            self.frame(lock, "cold", "triangles")
+            lock.step(seek(1))
+            self.frame(lock, "far jump", "triangles")
+            if spare is not None:
+                for cache in lock.caches:
+                    meshes = cache.triangle_meshes
+                    meshes.max_bytes = meshes._bytes + meshes.gpu_border_cache.nbytes + spare
+            for label in ("the budget set", "still"):
+                self.frame(lock, label, "triangles")
+                meshes = lock.caches[1].triangle_meshes
+                self.assertLessEqual(lock.retained.retired_bytes,
+                                     meshes.max_bytes - meshes._bytes - meshes.gpu_border_cache.nbytes)
+            lock.step(seek(LAST_CHECKPOINT))
+            self.frame(lock, "and back", "triangles")
+            adopted.append(lock.retained.stats["leaves_adopted"])
+        if trusting():
+            self.assertLess(adopted[0], adopted[1])
+
+    def test_a_mesh_no_budget_holds_is_not_parked(self):
+        # A fill mesh the cache does not retain is made again at every
+        # camera by the frame's loop, and a kept leaf's draws hold the one
+        # made last (B4.3): parked, a copy at another camera would adopt a
+        # mesh made at the zoom. A zero budget stands for one over 64 MiB.
+        lock = Lockstep(self, self.seek_side)
+        self.frame(lock, "cold", "triangles")
+        for cache in lock.caches:
+            cache.triangle_meshes.max_bytes = 0
+        for target in LOOP_PLAYS:
+            lock.step(seek(target))
+            self.frame(lock, f"seek to {target} with no budget", "triangles")
+        lock.step(lambda side: side.scene.camera.frame.scale(1 / 3))
+        self.frame(lock, "zoom in 3x", "triangles")
+        for target in LOOP_PLAYS:
+            lock.step(seek(target))
+            self.frame(lock, f"seek to {target} from the zoom", "triangles")
+
+    def test_a_path_read_through_its_own_getter_is_not_parked(self):
+        # Its draws are what its getter made of its rows, which a path of
+        # the same rows and the library's getters would not draw. Here the
+        # getter doubles the stroke, and the plain square that takes its
+        # place, of the same class and rows, is prepared.
+        def build():
+            state = {"factor": 2.0}
+            own = rows_from(Square(side_length=.8, stroke_color=WHITE, stroke_width=3), state)
+            return SimpleNamespace(scene=build_scene(own), own=own)
+
+        def replace_it(side):
+            plain = Square(side_length=.8, stroke_color=WHITE, stroke_width=3)
+            # The same digest: a candidate for the parked entry.
+            self.assertEqual(*(retained_frame.leaf_digest("Square", retained_frame.override_text(square)[1],
+                                                          retained_frame.leaf_flags(square), square._data)
+                               for square in (plain, side.own)))
+            remove(side, "own")
+            add(side, "plain", plain)
+
+        lock = Lockstep(self, build)
+        self.frame(lock, "cold", "triangles")
+        lock.step(replace_it)
+        self.frame(lock, "a plain path of the same rows in its place", "triangles",
+                   leaves_prepared=1, leaves_adopted=0)
+
+    def test_a_class_of_the_same_name_is_read_through_its_own_helpers(self):
+        # A restart redefines the scene file's classes, so a path of the new
+        # class with the rows of a parked path of the old is a candidate for
+        # its entry: the digest names a class by its name. Here the edit
+        # gave the class a helper of its own, which the refresh of the
+        # derived columns reads the anchors through, in the other order,
+        # which turns the unit normal around. The path is prepared, as any
+        # path read through a method of its own is, and left with the
+        # normal its own read writes.
+        def blob_class(flip):
+            class Blob(VMobject):
+                if flip:
+                    def get_anchors(self):
+                        return super().get_anchors()[::-1]
+            return Blob
+
+        def blob(cls):
+            path = cls(fill_color=BLUE, fill_opacity=.8, stroke_color=WHITE, stroke_width=4)
+            return path.set_points_as_corners([[-1, -.6, 0], [1.2, -.5, 0], [.8, .9, 0], [-.7, .7, 0], [-1, -.6, 0]])
+
+        def build():
+            path = blob(old)
+            return SimpleNamespace(scene=build_scene(path), blob=path)
+
+        def restart(side):
+            remove(side, "blob")
+            add(side, "blob", blob(new))
+
+        old, new = blob_class(False), blob_class(True)
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                self.frame(lock, "cold", renderer)
+                self.frame(lock, "still", renderer, leaves_prepared=0)
+                lock.step(restart)
+                self.frame(lock, "the class defined again", renderer, leaves_prepared=1, leaves_adopted=0)
+
+    def test_a_reservation_whose_source_the_budget_let_go_is_not_parked(self):
+        # A budget that leaves the border cache less room than the disc's
+        # one source: each read of the disc packs it, reserves, and lets it
+        # go. A copy's read packs it again and makes the first reservation
+        # at this zoom, which the parked entry holds no source for, and
+        # after a scale up and back (the mesh made again at the authored
+        # camera) a reservation the scale grew and the disc kept.
+        def build():
+            filler = [Square(side_length=.3, fill_color=RED, fill_opacity=1, stroke_width=0).shift(x * RIGHT + 2 * UP)
+                      for x in range(-3, 4)]
+            disc = Circle(radius=.5, fill_color=GREEN, fill_opacity=.9, stroke_width=0, fill_border_width=2)
+            return SimpleNamespace(scene=build_scene(*filler, disc), disc=disc, points=disc.get_points().copy())
+
+        def replace_it(side):
+            copy = side.disc.copy()
+            remove(side, "disc")
+            add(side, "disc", copy)
+
+        lock = Lockstep(self, build)
+        self.frame(lock, "cold", "triangles")
+        for cache in lock.caches:
+            meshes = cache.triangle_meshes
+            meshes.max_bytes = meshes._bytes + 2000
+        self.frame(lock, "the budget set", "triangles")
+        # Kept in that frame, and let go by its sweep; read in this one.
+        self.frame(lock, "still", "triangles", leaves_prepared=1)
+        border, disc = lock.caches[0].triangle_meshes.gpu_border_cache, lock.sides[0].disc
+        self.assertNotIn(id(disc), border.sources)
+        self.assertIn(id(disc), border.capacities)
+        lock.step(replace_it)
+        self.frame(lock, "a copy in its place", "triangles", leaves_prepared=1, leaves_adopted=0)
+        lock.step(lambda side: side.disc.scale(3))
+        self.frame(lock, "scaled up", "triangles")
+        lock.step(lambda side: side.disc.set_points(side.points.copy()))
+        self.frame(lock, "scaled back", "triangles")
+        grown = border.capacities[id(lock.sides[0].disc)][1]
+        lock.step(replace_it)
+        self.frame(lock, "a copy in its place again", "triangles", leaves_prepared=1, leaves_adopted=0)
+        self.assertLess(border.capacities[id(lock.sides[0].disc)][1], grown)
+
+    def test_the_store_is_bounded_in_entries(self):
+        # The least recently parked go first.
+        self.enterContext(patch.object(retained_frame, "MAX_RETIRED", 3))
+        lock = Lockstep(self, self.seek_side)
+        self.frame(lock, "cold", "triangles")
+        for target in (1, LAST_CHECKPOINT, *LOOP_PLAYS, LAST_CHECKPOINT):
+            lock.step(seek(target))
+            self.frame(lock, f"seek to {target}", "triangles")
+            self.assertLessEqual(len(lock.retained.retired), 3)
 
 
 if __name__ == "__main__":
