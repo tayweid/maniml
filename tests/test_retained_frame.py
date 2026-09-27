@@ -18,11 +18,12 @@ differently), texture payloads and their resend after a reset,
 reservations a zoom grows and the zoom back keeps, leaves skipped for
 having no points, uniforms that move with no row, and program draws.
 
-RetainedFrameLockstep (B4.2) holds the retained frame to the flag-off path
-directly, wherever the goldens cannot reach: one scripted history driven on
-two scenes built alike, one serialized with MANIML_RETAINED_FRAME=1, equal
-messages and equal cache contents asserted at every frame. Its histories
-never navigate: which thaws hand back a live object depends on when the
+RetainedFrameLockstep (B4.2, B4.3) holds the retained frame to the flag-off
+path directly, wherever the goldens cannot reach: one scripted history
+driven on two scenes built alike, one serialized with
+MANIML_RETAINED_FRAME=1, equal messages, equal cache contents and equal
+leaf rows and refresh state asserted at every frame. Its histories never
+navigate: which thaws hand back a live object depends on when the
 collector last ran, so two scenes, or two processes, seeking alike need
 not hold the same objects (B4.4's seek proof takes that up).
 
@@ -52,8 +53,9 @@ from PIL import Image
 
 from maniml import config
 from maniml.animation.animation import prepare_animation
-from maniml.constants import BLUE, DEFAULT_RESOLUTION, DOWN, GREEN, LEFT, RED, RIGHT, UL, UP, WHITE, YELLOW
-from maniml.mobject.geometry import Annulus, Circle, Rectangle, Square
+from maniml.animation.transform import Transform
+from maniml.constants import BLUE, DEFAULT_RESOLUTION, DOWN, GREEN, LEFT, ORIGIN, RED, RIGHT, UL, UP, WHITE, YELLOW
+from maniml.mobject.geometry import Annulus, Circle, Line, Rectangle, Square
 from maniml.mobject.three_dimensions import Sphere
 from maniml.mobject.types.dot_cloud import DotCloud
 from maniml.mobject.types.image_mobject import ImageMobject
@@ -64,7 +66,10 @@ from maniml.scene.scene import Scene
 from maniml.utils import programs
 from maniml.web import generated_geometry, triangle_scene
 from maniml.web.border_geometry import RenderCacheStale
-from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, GeometryCache, parse_geometry_message, serialize_scene
+from maniml.web.geometry import (
+    GEOMETRY_FORMAT_VERSION, POLYLINE_FACTOR, GeometryCache, _stroke_sqrt_area, _stroke_verts, _stroke_verts_at,
+    parse_geometry_message, serialize_scene,
+)
 from maniml.web.triangle_geometry import _packaged_library
 from tests.renderer_fixtures import build_scene, renderer_cases
 from tests.renderer_quality_fixtures import QualityFixtureUnavailable, quality_cases
@@ -545,6 +550,66 @@ class PriceDiscoveryGoldens(EpisodeGoldens, GoldenCase):
 
 
 
+class StrokeCountFromTheLargestCurve(unittest.TestCase):
+    """A kept stroke's count after a zoom (B4.3): _stroke_verts_at over the
+    largest curve's sqrt(area) is _stroke_verts over every curve, at every
+    positive frame scale, the scales that put a curve's count on a rounding
+    tie among them."""
+
+    @staticmethod
+    def outcome(count):
+        """``count()``'s value, or the kind of error it raised: a scale past
+        float32's range makes both forms divide infinity by infinity."""
+        try:
+            with np.errstate(over="ignore", invalid="ignore"):
+                return count()
+        except ValueError as error:
+            return type(error)
+
+    def test_the_count_is_stroke_verts(self):
+        rng = np.random.default_rng(3)
+        dtype = np.dtype([("point", "<f4", (3,))])
+        cases = []
+        for index in range(120):
+            curves = int(rng.integers(1, 30))
+            data = np.zeros(3 * curves, dtype=dtype)
+            data["point"] = rng.normal(size=(3 * curves, 3)) * 10 ** rng.uniform(-3, 1)
+            if index % 3 == 0:
+                data["point"][:, 2] = 0
+            cases.append(data)
+        # No curves, a degenerate one, and one whose area overflows float32.
+        cases.append(np.zeros(0, dtype=dtype))
+        cases.append(np.zeros(3, dtype=dtype))
+        huge = np.zeros(3, dtype=dtype)
+        huge["point"] = [[0, 0, 0], [1e20, 0, 0], [0, 1e20, 0]]
+        cases.append(huge)
+        checked = 0
+        for data in cases:
+            p0, p1, p2 = data["point"][0::3], data["point"][1::3], data["point"][2::3]
+            with np.errstate(over="ignore"):
+                sqrt_area = _stroke_sqrt_area(data)
+                roots = np.sqrt(0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1))
+            scales = list(10 ** np.linspace(-4, 3, 40))
+            for root in roots[:4]:
+                for steps in range(31):
+                    tie = float(POLYLINE_FACTOR * root / (steps + .5))
+                    scales += [tie, np.nextafter(tie, 0), np.nextafter(tie, np.inf)]
+            for frame_scale in scales:
+                frame_scale = float(frame_scale)
+                if not 0 < frame_scale < np.inf:
+                    continue
+                self.assertEqual(self.outcome(lambda: _stroke_verts_at(sqrt_area, frame_scale)),
+                                 self.outcome(lambda: _stroke_verts(data, frame_scale)),
+                                 f"{len(data) // 3} curves at frame scale {frame_scale!r}")
+                checked += 1
+        self.assertGreater(checked, 40_000)
+        # A NaN area is refused alike.
+        broken = np.zeros(3, dtype=dtype)
+        broken["point"] = [[0, 0, 0], [np.nan, 0, 0], [0, 1, 0]]
+        self.assertIs(self.outcome(lambda: _stroke_verts(broken, 1.0)), ValueError)
+        self.assertIs(self.outcome(lambda: _stroke_verts_at(_stroke_sqrt_area(broken), 1.0)), ValueError)
+
+
 # The retained frame (B4.2): the flag-on serializer against the flag-off one
 # over the same history, frame by frame, wherever the episodes are absent.
 RETAINED_ENV = "MANIML_RETAINED_FRAME"
@@ -573,6 +638,19 @@ def census(cache):
                     border=(len(border.sources), len(border.capacities), len(border.runs), border.nbytes),
                     nets=(len(nets.entries), nets.nbytes))
     return held
+
+
+def leaf_states(scene):
+    """What the serializer's reads may leave on each drawn leaf: its rows
+    and, on a path, the refresh flags and cached subpath ends. A kept leaf
+    whose read would have refreshed its derived columns must be left as
+    the read leaves it, or a later lock of its joint angles, or a write
+    that sets no flag, finds another scene on each side."""
+    return [(type(sm).__name__, sm._data.tobytes(),
+             *((sm.needs_new_joint_angles, sm.needs_new_unit_normal,
+                None if sm.subpath_end_indices is None else sm.subpath_end_indices.tobytes())
+               if isinstance(sm, VMobject) else ()))
+            for sm in triangle_scene.draw_order(scene)]
 
 
 def difference(expected, actual):
@@ -648,14 +726,25 @@ class Lockstep:
         if messages[1] != messages[0]:
             self.test.fail(f"{where}: flag on differs from flag off: {difference(*messages)}")
         self.test.assertEqual(census(self.caches[1]), census(self.caches[0]), f"{where}: the caches differ")
+        states = [leaf_states(side.scene) for side in self.sides]
+        if states[1] != states[0]:
+            leaf = next((index for index, (a, b) in enumerate(zip(*states)) if a != b), "count")
+            self.test.fail(f"{where}: the retained frame left another scene (leaf {leaf})")
         return messages[0]
 
     def raises(self, label, exception, renderer="triangles"):
-        """Both sides refuse this frame with ``exception``."""
+        """Both sides refuse this frame with ``exception``, and leave the
+        same scene: the leaves read before the refusal as their reads
+        leave them, the rest as they were."""
         self.count += 1
+        where = f"frame {self.count} ({label}, {renderer})"
         for index, retained in ((0, False), (1, True)):
-            with self.test.assertRaises(exception, msg=f"frame {self.count} ({label}, {renderer})"):
+            with self.test.assertRaises(exception, msg=where):
                 self.serialize(index, renderer, retained)
+        states = [leaf_states(side.scene) for side in self.sides]
+        if states[1] != states[0]:
+            leaf = next((index for index, (a, b) in enumerate(zip(*states)) if a != b), "count")
+            self.test.fail(f"{where}: the refused frame left another scene (leaf {leaf})")
 
     def play(self, animations, name, renderer, alphas=(.25, .5, .75)):
         """Each side's ``animations(side)`` driven through a play by hand, a
@@ -739,6 +828,21 @@ class DotsFromAnAttribute(DotCloud):
         return data
 
 
+class MovesAnother(Square):
+    """A stroke whose read moves another mobject, once, when armed: a getter
+    of its own, which the frame's loop runs in draw order, after the walk
+    and before the leaves behind it are read."""
+
+    follower = None
+    armed = False
+
+    def get_shader_data(self):
+        if self.armed:
+            self.armed = False
+            self.follower.shift(.3 * UP)
+        return super().get_shader_data()
+
+
 def rows_from(mobject, state):
     """``mobject``'s stroke rows through an instance's own getter, scaled by
     ``state["factor"]``, which no revision covers."""
@@ -751,6 +855,71 @@ def rows_from(mobject, state):
 
     mobject.get_shader_data = get_shader_data
     return mobject
+
+
+def updater_scene():
+    """A pausepoint whose mobjects have updaters, which the viewer ticks
+    every frame. Most bump a revision and change no byte, each its own
+    way, as at EpisodeB2's 8.a; two really move."""
+    corners = VMobject(stroke_color=YELLOW, stroke_width=4, fill_opacity=0)
+    route = [[-3, -1.8, 0], [-1.5, -1.2, 0], [0, -1.9, 0], [1.5, -1.3, 0]]
+    # The same corners every tick: both refresh flags set, the rows equal.
+    corners.add_updater(lambda m: m.set_points_as_corners(route))
+    template = Square(side_length=.9, fill_color=RED, fill_opacity=.7, stroke_color=WHITE,
+                      stroke_width=3).shift(2 * LEFT + UP)
+    framed = template.copy()
+    # An unchanged target: become() copies its derived columns, which were
+    # never refreshed, over the ones the last read refreshed.
+    framed.add_updater(lambda m: m.become(template))
+    disc = Circle(radius=.5, fill_color=GREEN, fill_opacity=.9, stroke_width=0,
+                  fill_border_width=2).shift(.5 * UP)
+    # A move to where it is: the same bytes and no flag.
+    disc.add_updater(lambda m: m.move_to(m.get_center()))
+    # A curved stroke, whose count a zoom changes (the straight ones keep
+    # theirs at every scale).
+    ring = Circle(radius=.3, stroke_color=WHITE, stroke_width=3, fill_opacity=0).shift(1.5 * RIGHT + .5 * DOWN)
+    ring.add_updater(lambda m: m.move_to(m.get_center()))
+    glyph = VMobject(fill_color=BLUE, fill_opacity=1, stroke_width=0, fill_border_width=0)
+    outline = [[2, 1, 0], [2.8, 1, 0], [2.4, 1.8, 0], [2, 1, 0]]
+    # A fill Phase A draws from its mesh alone: no read refreshes its
+    # joint angles, so its rows are never a refresh's own output, and with
+    # both flags set it is prepared every tick. Phase B reads its border
+    # source, which refreshes them, and keeps it.
+    glyph.add_updater(lambda m: m.set_points_as_corners(outline))
+    hidden = VMobject(fill_opacity=0, stroke_width=0)
+    # Nothing to fill or stroke, as a dashed line's own path under its
+    # dashes: the read looks at its classification alone.
+    hidden.add_updater(lambda m: m.set_points_as_corners(route[::-1]))
+    badge = Rectangle(width=1, height=.4, fill_color=YELLOW, fill_opacity=.8, stroke_width=1).to_corner(UL)
+    badge.fix_in_frame()
+    badge.add_updater(lambda m: m.move_to(m.get_center()))
+    spots = np.array([[-2, 1.8, 0], [-1, 1.9, 0], [0, 1.8, 0]])
+    dots = DotCloud(spots)
+    dots.add_updater(lambda m: m.set_points(spots))
+    globe = Sphere(radius=.4, resolution=(7, 7)).shift(3 * RIGHT + 1.5 * DOWN)
+    net = globe.get_points().copy()
+    # A plain leaf under Phase A, a net under Phase B.
+    globe.add_updater(lambda m: m.set_points(net))
+    mover = Square(side_length=.4, fill_color=YELLOW, fill_opacity=1, stroke_color=BLUE, stroke_width=2).shift(DOWN)
+    mover.add_updater(lambda m, dt: m.shift(.5 * dt * RIGHT))
+    spinner = Line(ORIGIN, RIGHT, stroke_width=3).shift(2 * DOWN + LEFT)
+    spinner.add_updater(lambda m, dt: m.rotate(dt))
+    mobjects = (corners, framed, disc, ring, glyph, hidden, badge, dots, globe, mover, spinner)
+    return SimpleNamespace(scene=build_scene(*mobjects))
+
+
+def tick(side, dt=1 / 60):
+    """What Scene.update_mobjects does to a fixture scene."""
+    for mobject in side.scene.mobjects:
+        mobject.update(dt)
+
+
+# The camera moves of a pausepoint's proof: six pans, four zooms in and
+# four out, each as (label, what it does to the camera frame).
+CAMERA_MOVES = (*((f"pan {index}", lambda frame, sign=(-1) ** index: frame.shift(.05 * sign * RIGHT))
+                  for index in range(6)),
+                *((f"zoom in {index}", lambda frame: frame.scale(1 / 1.3)) for index in range(4)),
+                *((f"zoom out {index}", lambda frame: frame.scale(1.3)) for index in range(4)))
 
 
 def add(side, name, mobject):
@@ -767,7 +936,8 @@ def remove(side, name):
 
 @requires_lyon
 class RetainedFrameLockstep(GoldenCase):
-    """The flag-on bytes are the flag-off bytes of the same history (B4.2).
+    """The flag-on bytes are the flag-off bytes of the same history (B4.2,
+    B4.3), and the flag-on scene is the scene the flag-off reads leave.
 
     The scripted sequence runs under each renderer: a cold frame, twenty
     stills that keep every leaf and reuse every descriptor, a leaf added,
@@ -776,17 +946,26 @@ class RetainedFrameLockstep(GoldenCase):
     connect (cache.reset()), the renderer switched and back (Phase A and
     Phase B each way, and Original 2D, which clears the triangle caches), a
     6x zoom and back followed by a paint-only edit (a kept leaf must keep
-    its refined mesh and grown reservation), a pan, a texture file
-    rewritten in place (no revision moves), the flag turned off for a
-    frame, a frame that raises, two plays (uniforms only; a program play,
-    drawn from GPU programs under Phase B) and a cold cache.
+    its refined mesh and grown reservation), a pan, six pans, four zooms in
+    and four out, a texture file rewritten in place (no revision moves),
+    the flag turned off for a frame, a frame that raises, two plays
+    (uniforms only; a program play, drawn from GPU programs under Phase B)
+    and a cold cache.
 
-    Beside it: a full budget evicting in the frame's order, the memos and
-    the frame's own bytes bounded by one frame, leaves read through
-    getters of their own (a subclass's, an instance's), a point-cloud
-    group rewriting its members, and the writes that bump no revision,
-    which a kept leaf does not see (B4.5's verify mode is proven against
-    them).
+    Beside it: a pausepoint whose updaters tick, most rewriting the same
+    bytes each its own way and two really moving, through twenty ticks and
+    the same camera moves; each way a moved revision can or cannot leave
+    the drawn rows alone; a leaf compared and then prepared by a zoom; the
+    reads that write to the scene or read other leaves (a program packing
+    a later leaf's rows, a getter moving a later leaf, a frame refused
+    before a leaf the walk found unchanged); uniforms a camera move
+    changes; a full budget evicting in the frame's order, and a mesh no
+    budget holds; the memos and the frame's own bytes bounded by one frame,
+    leaves read through getters of their own (a subclass's, an
+    instance's), a point-cloud group rewriting its members, and the writes
+    that bump no revision, which a kept leaf does not see (B4.5's verify
+    mode is proven against them) until a bump has the frame's loop read
+    them, cached reads or not.
     """
 
     def setUp(self):
@@ -817,13 +996,16 @@ class RetainedFrameLockstep(GoldenCase):
         lock.step(lambda side: side.extra.shift(.2 * RIGHT))
         lock.frame("move the square", renderer)
         lock.expect(leaves_prepared=1)
-        # Group.remove bumps every member of the group's family: each leaf
-        # is prepared again (B4.3's source compare is what keeps them).
+        # Group.remove bumps every member of the group's family and changes
+        # no row: every leaf is compared and kept.
         lock.step(lambda side: remove(side, "path"))
         lock.frame("remove the path", renderer)
+        lock.expect(leaves_prepared=0, leaves_compared=10)
+        # A z_index bumps the child's revision and changes none of its
+        # rows: the leaf is kept, and only the order moves.
         lock.step(lambda side: setattr(side.family[1], "z_index", 5))
         lock.frame("child z_index 5", renderer)
-        lock.expect(leaves_prepared=1)
+        lock.expect(leaves_prepared=0, leaves_compared=1)
         lock.step(lambda side: setattr(side.family[1], "z_index", 0))
         lock.frame("child z_index 0", renderer)
         lock.step(lambda side: side.family[0].set_stroke(behind=True))
@@ -884,6 +1066,14 @@ class RetainedFrameLockstep(GoldenCase):
         lock.step(lambda side: side.scene.camera.frame.shift(.05 * RIGHT))
         lock.frame("pan", renderer)
         lock.frame("still", renderer)
+        # A camera move keeps every leaf whose counts it leaves alone (B4.3):
+        # a pan all of them, the image and the surfaces included.
+        for label, move in CAMERA_MOVES:
+            lock.step(lambda side: move(side.scene.camera.frame))
+            lock.frame(label, renderer)
+            if label.startswith("pan"):
+                lock.expect(leaves_prepared=0, batches_encoded=0)
+        lock.frame("still", renderer)
 
         # Rewriting the file moves its hash and bumps no revision.
         stat = texture.stat()
@@ -925,6 +1115,308 @@ class RetainedFrameLockstep(GoldenCase):
         lock.frame("still", renderer)
         lock.expect(leaves_prepared=0, batches_encoded=0)
 
+    def test_a_pausepoint_with_updaters(self):
+        # The viewer ticks a pausepoint's updaters every frame (B4.3): the
+        # leaves whose updaters change no byte are kept, whatever their
+        # revision says, and the ones that move are prepared. Twenty ticks,
+        # then the six pans, four zooms in and four out with the updaters
+        # ticking, then the same moves with the scene still. Under Phase A
+        # the glyph is prepared every tick too (updater_scene says why).
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, updater_scene)
+                leaves = 11
+                moving = 3 if renderer == "triangles" else 2
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                for index in range(20):
+                    lock.step(tick)
+                    lock.frame(f"tick {index}", renderer)
+                    lock.expect(leaves_prepared=moving, leaves_compared=leaves - moving)
+                for ticking in (True, False):
+                    for label, move in CAMERA_MOVES:
+                        lock.step(lambda side: (move(side.scene.camera.frame), ticking and tick(side)))
+                        lock.frame(f"{label}{', ticking' if ticking else ''}", renderer)
+                        if label.startswith("pan"):
+                            # A pan changes no count: every leaf that is not
+                            # moving is kept across it.
+                            lock.expect(leaves_prepared=moving if ticking else 0,
+                                        leaves_revalidated=leaves - moving if ticking else leaves)
+                lock.frame("still", renderer)
+                lock.expect(leaves_prepared=0, batches_encoded=0)
+
+    def test_a_moved_revision_keeps_only_what_the_read_would_draw(self):
+        # A leaf whose revision moved is kept only where prepare_leaf would
+        # draw it as it stands (compare_rows): each step below either keeps
+        # it or prepares it, and the lockstep holds the bytes, the caches
+        # and the scene to the flag-off side's either way.
+        def build():
+            path = VMobject(stroke_color=YELLOW, stroke_width=4, fill_opacity=0)
+            path.set_points_as_corners([[-2, 0, 0], [-1, .5, 0], [0, 0, 0], [1, .5, 0]])
+            box = Square(side_length=.8, fill_color=BLUE, fill_opacity=1, stroke_color=WHITE,
+                         stroke_width=2).shift(2 * RIGHT)
+            hidden = VMobject(fill_opacity=0, stroke_width=0)
+            hidden.set_points_as_corners([[-2, -1, 0], [2, -1, 0]])
+            dots = DotCloud(np.array([[-2, 1.5, 0], [0, 1.6, 0], [2, 1.5, 0]]))
+            globe = Sphere(radius=.4, resolution=(7, 7)).shift(2.5 * LEFT + 1.2 * DOWN)
+            # A fill with no stroke and no border: under Phase A only its
+            # mesh is read, which never refreshes its joint angles.
+            blot = Circle(radius=.3, fill_color=RED, fill_opacity=1, stroke_width=0,
+                          fill_border_width=0).shift(2.5 * RIGHT + 1.2 * DOWN)
+            return SimpleNamespace(scene=build_scene(path, box, hidden, dots, globe, blot), path=path, box=box,
+                                   hidden=hidden, dots=dots, globe=globe, blot=blot)
+
+        def rewrite(side):
+            side.path.set_points(side.path.get_points().copy())
+
+        def bump(side):
+            side.path.note_changed_data()
+
+        def joint_angles(side):
+            side.path.data["joint_angle"][:, 0] = .5
+            side.path.note_changed_data()
+
+        def negative_zero(side):
+            side.path.data["point"][:, 2] = -0.0
+            side.path.note_changed_data()
+
+        def lock_joints(side):
+            side.path.lock_data(["joint_angle"])
+            rewrite(side)
+
+        def unlock_joints(side):
+            side.path.unlock_data()
+            rewrite(side)
+
+        def spelled(side):
+            side.path.set_anti_alias_width(int(side.path.get_anti_alias_width()))
+
+        def joints_flagged(name):
+            def action(side):
+                mobject = getattr(side, name)
+                mobject.refresh_joint_angles()
+                mobject.note_changed_data()
+            return action
+
+        def hidden_moves(side):
+            side.hidden.set_points_as_corners([[-2, -1.2, 0], [2, -.8, 0]])
+
+        def hidden_stroked(side):
+            side.hidden.set_stroke(WHITE, width=2)
+
+        def same_points(name):
+            def action(side):
+                mobject = getattr(side, name)
+                mobject.set_points(mobject.get_points().copy())
+            return action
+
+        def shifted(name):
+            return lambda side: getattr(side, name).shift(.1 * UP)
+
+        def sorted_faces(side):
+            side.globe.sort_faces_back_to_front(RIGHT)
+
+        def steps(renderer):
+            # (step, what it does, prepared, compared). Phase B reads the
+            # blot's border source, through its shader data, and draws the
+            # globe from its net.
+            phase_a = renderer == "triangles"
+            return (
+                (rewrite, "the same points set again: both flags, the rows the refresh makes", 0, 1),
+                (bump, "a bump alone", 0, 1),
+                (joint_angles, "joint angles written, no flag: the read draws them", 1, 0),
+                (rewrite, "the same points again, over rows no refresh made", 1, 0),
+                (rewrite, "and again, over the rows that refresh made", 0, 1),
+                (negative_zero, "0.0 written as -0.0: equal values, other bytes", 1, 0),
+                (lock_joints, "the joint angles locked: the refresh leaves them", 1, 0),
+                (unlock_joints, "unlocked", 1, 0),
+                (rewrite, "the same points once more", 0, 1),
+                (spelled, "a uniform spelled 1 where it was 1.0", 1, 0),
+                (joints_flagged("path"), "joint angles flagged alone: the stroke's read refreshes them", 1, 0),
+                (joints_flagged("blot"), "and a fill's, which its read does not reach", 0 if phase_a else 1,
+                 1 if phase_a else 0),
+                (hidden_moves, "a path that draws nothing moved", 0, 1),
+                (hidden_stroked, "and stroked", 1, 0),
+                (same_points("dots"), "a dot cloud set to its own points", 0, 1),
+                (shifted("dots"), "and shifted", 1, 0),
+                (same_points("globe"), "a surface set to its own points", 0, 1),
+                (shifted("globe"), "and shifted", 1, 0),
+                # Its rows unchanged, its triangles reordered in place: a
+                # grid draws them in the new order, a net draws no triangles.
+                (sorted_faces, "its faces sorted", 1 if phase_a else 0, 0 if phase_a else 1),
+            )
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                for action, label, prepared, compared in steps(renderer):
+                    lock.step(action)
+                    lock.frame(label, renderer)
+                    lock.expect(leaves_prepared=prepared, leaves_compared=compared)
+
+    def test_a_leaf_compared_and_then_prepared_is_compared_again(self):
+        # A zoom that changes a curved stroke's count, in the frame its
+        # revision moved over the same bytes: the walk compares it and the
+        # camera check prepares it, with its caches stamped at the revision
+        # the rows were compared at. They are the rows its new draws are
+        # read from, so the next such bump keeps it.
+        def build():
+            ring = Circle(radius=.3, stroke_color=WHITE, stroke_width=3, fill_opacity=0)
+            return SimpleNamespace(scene=build_scene(ring), ring=ring)
+
+        def still_move(side):
+            side.ring.move_to(side.ring.get_center())
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(lambda side: (still_move(side), side.scene.camera.frame.scale(1 / 2)))
+                lock.frame("a zero move and a zoom in", renderer)
+                lock.expect(leaves_prepared=1, leaves_compared=0)
+                lock.step(still_move)
+                lock.frame("a zero move", renderer)
+                lock.expect(leaves_prepared=0, leaves_compared=1)
+
+    def test_a_program_reads_a_later_leaf_as_the_frame_leaves_it(self):
+        # A program packs its endpoints' rows as they stand when its own
+        # leaf is read. Here a Transform's target is a drawn leaf after the
+        # start (aligned with it, so the play blends straight to it), whose
+        # updater's become() copies in derived columns no read refreshed:
+        # the frame's loop packs them unrefreshed, before the target's own
+        # read refreshes them, and so must the retained frame, which keeps
+        # the target by comparison and refreshes it in its own place.
+        def build():
+            template = Square(side_length=1, fill_color=RED, fill_opacity=.7, stroke_color=WHITE,
+                              stroke_width=3).shift(2 * RIGHT)
+            start = Square(side_length=1, fill_color=BLUE, fill_opacity=.7, stroke_color=WHITE,
+                           stroke_width=3).shift(2 * LEFT)
+            target = template.copy()
+            target.add_updater(lambda m: m.become(template))
+            return SimpleNamespace(scene=build_scene(start, target), start=start, target=target)
+
+        programs.set_override("gpu")
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                for index in range(2):
+                    lock.step(tick)
+                    lock.frame(f"tick {index}", renderer)
+                    lock.expect(leaves_prepared=0, leaves_compared=1)
+                plays = [prepare_animation(Transform(side.start, side.target)) for side in lock.sides]
+                for play, side in zip(plays, lock.sides):
+                    play.begin()
+                    self.assertIs(play.target_copy, side.target)
+                for alpha in (0, .25, .5, .75):
+                    lock.step(tick)
+                    for play in plays:
+                        play.interpolate(alpha)
+                    lock.frame(f"play at {alpha}", renderer)
+                    lock.expect(leaves_compared=1)
+                for play in plays:
+                    play.finish()
+                lock.frame("lands", renderer)
+
+    def test_a_read_that_moves_a_later_leaf(self):
+        # The walk decides from each leaf as it stands, and the reads come
+        # after it, in draw order. Here a leaf's own getter moves a later
+        # leaf in the frame that leaf's revision moved over the same bytes:
+        # the walk compares it and finds it unchanged, then the read moves
+        # it. The frame's loop draws it moved; the retained frame prepares
+        # it rather than keep what the walk vouched for, or stamp its caches
+        # with the revision the move made.
+        def build():
+            driver = MovesAnother(side_length=.5, fill_opacity=0, stroke_width=3)
+            follower = Circle(radius=.4, fill_color=RED, fill_opacity=1, stroke_color=BLUE,
+                              stroke_width=2).shift(2 * RIGHT)
+            driver.follower = follower
+            return SimpleNamespace(scene=build_scene(driver, follower), driver=driver, follower=follower)
+
+        def arm(side):
+            side.follower.shift(0 * UP)
+            side.driver.armed = True
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(arm)
+                lock.frame("the follower moved by the driver's read", renderer)
+                # The driver, read through its own getter, is prepared every frame.
+                lock.expect(leaves_prepared=2, leaves_compared=0)
+                for index in range(3):
+                    lock.frame(f"still {index}", renderer)
+                    lock.expect(leaves_prepared=1)
+
+    def test_a_refused_frame_leaves_the_later_leaves_alone(self):
+        # A frame refused at a leaf has read the leaves before it and none
+        # after. Here the leaf after the refused one is kept by comparison
+        # (become() of an unchanged target), and its refresh must wait for
+        # its own place in the order, which the refused frame never
+        # reaches: Lockstep.raises holds the two scenes equal, and a lock
+        # of its joint angles before the next frame keeps whatever rows
+        # each side left.
+        flat = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]]
+        bent = [[0, 0, 0], [1, 0, 0], [1, 1, 1], [0, 1, 0], [0, 0, 0]]
+
+        def build():
+            refused = VMobject(fill_color=RED, fill_opacity=1, stroke_width=0).set_points_as_corners(flat)
+            template = Square(side_length=.9, fill_color=RED, fill_opacity=.7, stroke_color=WHITE, stroke_width=3)
+            framed = template.copy()
+            return SimpleNamespace(scene=build_scene(refused.shift(3 * LEFT), framed), refused=refused,
+                                   template=template, framed=framed)
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(lambda side: side.framed.become(side.template))
+                lock.frame("become", renderer)
+                lock.expect(leaves_prepared=0, leaves_compared=1)
+                lock.step(lambda side: (side.framed.become(side.template), side.refused.set_points_as_corners(bent)))
+                lock.raises("a nonplanar fill before it", triangle_scene.UnsupportedPrototype, renderer)
+                lock.step(lambda side: (side.framed.lock_data(["joint_angle"]),
+                                        side.refused.set_points_as_corners(flat).shift(3 * LEFT)))
+                lock.frame("the joint angles locked", renderer)
+
+    def test_uniforms_a_camera_move_changes(self):
+        # A batch prints its draw's uniforms where they differ from the
+        # camera's. One whose leaf sets a camera uniform of its own prints
+        # it only while the two differ, so its descriptor is encoded again
+        # after a camera move, where the others are reused; and a leaf
+        # whose own uniforms hold a NaN draws with a dict of its own, which
+        # no camera move is written into, so it is prepared again.
+        def build():
+            plain = Square(side_length=.6, fill_color=BLUE, fill_opacity=1, stroke_width=2).shift(2 * LEFT)
+            named = Square(side_length=.6, fill_color=RED, fill_opacity=1, stroke_width=2)
+            odd = Square(side_length=.6, fill_color=GREEN, fill_opacity=1, stroke_width=2).shift(2 * RIGHT)
+            scene = build_scene(plain, named, odd)
+            scene.camera.refresh_uniforms()
+            named.set_uniform(frame_scale=scene.camera.uniforms["frame_scale"])
+            odd.set_uniform(unused=float("nan"))
+            return SimpleNamespace(scene=scene)
+
+        for renderer in RENDERERS:
+            with self.subTest(renderer=renderer):
+                lock = Lockstep(self, build)
+                lock.frame("cold", renderer)
+                lock.frame("still", renderer)
+                lock.step(lambda side: side.scene.camera.frame.scale(1.2))
+                lock.frame("zoom out", renderer)
+                lock.expect(leaves_prepared=1, leaves_revalidated=2)
+                if trusting():
+                    self.assertGreater(lock.retained.stats["batches_encoded"], 0)
+                    self.assertGreater(lock.retained.stats["batches_reused"], 0)
+                lock.step(lambda side: side.scene.camera.frame.scale(1 / 1.2))
+                lock.frame("zoom back", renderer)
+                lock.frame("still", renderer)
+
     def test_a_budget_evicts_what_the_frame_would(self):
         # The caches evict by recency, so a kept leaf must be marked used
         # where the frame's own loop reads it, in draw order. Six discs
@@ -960,6 +1452,46 @@ class RetainedFrameLockstep(GoldenCase):
         for index in range(3):
             lock.frame(f"still {index}")
         lock.expect(leaves_prepared=0, batches_encoded=0)
+
+    def test_a_mesh_the_cache_does_not_hold_is_made_at_every_camera(self):
+        # A fill mesh larger than the mesh cache's budget is drawn and not
+        # retained, so the frame's loop makes it again every frame, at that
+        # frame's camera. A kept leaf's draws hold the mesh made last: the
+        # same bytes while the camera stands, a coarser one after a zoom in,
+        # so on a camera move the leaf is prepared. A zero budget stands for
+        # a mesh over 64 MiB. The retained frame then holds meshes no cache
+        # counts, which its gauge does. Phase A only: patch fills keep no
+        # meshes.
+        def build():
+            discs = [Circle(radius=radius, fill_color=color, fill_opacity=1, stroke_width=0,
+                            fill_border_width=0).shift(x * RIGHT)
+                     for radius, color, x in ((1.5, RED, 0), (.2, BLUE, 3))]
+            return SimpleNamespace(scene=build_scene(*discs))
+
+        def mesh_bytes():
+            return sum(draw.vertices.nbytes + draw.indices.nbytes
+                       for entry in lock.retained.leaves.values() for draw in entry.leaf.draws)
+
+        lock = Lockstep(self, build)
+        lock.frame("cold")
+        lock.frame("still")
+        held = lock.retained.retained_bytes()
+        for cache in lock.caches:
+            cache.triangle_meshes.max_bytes = 0
+        # The first read evicts both entries, the second disc's before it
+        # is read; the first disc's goes the frame after.
+        lock.frame("the budget emptied")
+        lock.frame("still")
+        lock.frame("still")
+        lock.expect(leaves_prepared=0, batches_encoded=0)
+        self.assertEqual(lock.retained.retained_bytes() - held, mesh_bytes())
+        for index in range(3):
+            lock.step(lambda side: side.scene.camera.frame.scale(1 / 3))
+            lock.frame(f"zoom in {index}")
+            lock.expect(leaves_prepared=2)
+        lock.step(lambda side: side.scene.camera.frame.shift(.2 * RIGHT))
+        lock.frame("a pan")
+        lock.expect(leaves_prepared=2)
 
     def test_memos_stay_bounded_by_one_frame(self):
         # The digest memos hold what the last message named, reused batches
@@ -1043,9 +1575,11 @@ class RetainedFrameLockstep(GoldenCase):
                 lock.step(lambda side: side.group.sort_points(lambda p: p[0]))
                 lock.frame("sorted", renderer)
                 lock.expect(leaves_prepared=2)
+                # Only the second member has a dot past 1.5: the first is
+                # bumped with its rows unchanged, and kept.
                 lock.step(lambda side: side.group.filter_out(lambda p: p[0] > 1.5))
                 lock.frame("filtered", renderer)
-                lock.expect(leaves_prepared=2)
+                lock.expect(leaves_prepared=1, leaves_compared=1)
                 lock.step(lambda side: side.group.filter_out(lambda p: p[1] > .5))
                 lock.frame("one member emptied", renderer)
                 lock.frame("still", renderer)
@@ -1097,6 +1631,64 @@ class RetainedFrameLockstep(GoldenCase):
                     self.assertNotEqual(off, still, "the frame's loop did not see the write")
                     self.assertEqual(on, still, "a kept leaf saw a write that bumped nothing")
                     lock.expect(leaves_prepared=0)
+
+    def test_a_bump_after_a_write_no_read_saw(self):
+        # A cache that holds a read made at a leaf's revision hands it back
+        # without reading the arrays: a fill's mesh or border source, a
+        # surface's grid or net. So a write that bumps nothing goes unseen
+        # with the flag off too while the revision stands, even through a
+        # frame that prepares the leaf again (stroke_behind set as an
+        # attribute, a zoom that refines the mesh, a retained frame made
+        # anew over warm caches), whose draws are made from the rows the
+        # cached read was made from, not the arrays. The bump after it has
+        # the frame's loop read the arrays and draw the write. A kept leaf
+        # held to the written rows would find them unchanged and keep the
+        # old draws, and stamp the caches' old reads with the new revision,
+        # so that the flag-off path on the same caches would trust them
+        # too: the last frame serializes the flag-on side's caches with the
+        # flag off.
+        def build():
+            disc = Circle(radius=.5, fill_color=RED, fill_opacity=1, stroke_width=0, fill_border_width=0)
+            globe = Sphere(radius=.4, resolution=(7, 7)).shift(2 * RIGHT)
+            return SimpleNamespace(scene=build_scene(disc, globe), disc=disc, globe=globe)
+
+        def write(side):
+            for mobject in (side.disc, side.globe):
+                mobject.data["point"][:, 0] += .5
+
+        def behind(lock, renderer):
+            lock.step(lambda side: [setattr(mobject, "stroke_behind", True) for mobject in (side.disc, side.globe)])
+            lock.frame("stroke_behind set as an attribute", renderer)
+
+        def zoom(lock, renderer):
+            lock.step(lambda side: side.scene.camera.frame.scale(1 / 6))
+            lock.frame("a zoom in", renderer)
+
+        def anew(lock, renderer):
+            lock.frame("the flag off", renderer, retained=False)
+            lock.frame("the flag on again", renderer)
+
+        def bump(side):
+            for mobject in (side.disc, side.globe):
+                mobject.note_changed_data()
+
+        for renderer in RENDERERS:
+            for trigger in (behind, zoom, anew):
+                with self.subTest(renderer=renderer, trigger=trigger.__name__):
+                    lock = Lockstep(self, build)
+                    lock.frame("cold", renderer)
+                    lock.frame("still", renderer)
+                    lock.step(write)
+                    if not trusting():
+                        # Verification compares every trusted read: the
+                        # write is refused where the cache reuses the read.
+                        lock.raises("written in place", RenderCacheStale, renderer)
+                        continue
+                    still = lock.frame("written in place", renderer)
+                    trigger(lock, renderer)
+                    lock.step(bump)
+                    self.assertNotEqual(lock.frame("a bump over the written rows", renderer), still)
+                    lock.frame("the flag-on side's caches with the flag off", renderer, retained=False)
 
 
 if __name__ == "__main__":

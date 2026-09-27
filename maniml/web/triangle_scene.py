@@ -51,6 +51,10 @@ def _standard_mesh_getters(mobject):
     return standard and not (_STANDARD_MESH_NAMES & mobject.__dict__.keys())
 
 
+# The columns classify_source reads.
+CLASSIFY_COLUMNS = ("fill_rgba", "fill_border_width", "stroke_width", "stroke_rgba")
+
+
 def classify_source(mobject):
     """The per-object style facts frame preparation branches on, read from the
     public arrays: (has fill, uniform fill color, has fill border, opaque fill
@@ -730,6 +734,22 @@ class TriangleMeshCache:
         return (self.policy == "revision" and entry is not None and entry.owner() is mobject
                 and entry.revision == mobject.revision)
 
+    def read_at(self, mobject):
+        """Whether the cache holds a read of ``mobject`` made at its current
+        revision, its classification or its fill mesh's source, which the
+        revision policy's next read hands back without reading the arrays:
+        that read gives what they held when it was made. For a caller that
+        keeps the leaf's draws across frames (docs/phase_b4_plan.md) and
+        must know what they were made from."""
+        if self.policy != "revision":
+            return False
+        owner_id, revision = id(mobject), mobject.revision
+        held = self._classes.get(owner_id)
+        if held is not None and held[0]() is mobject and held[1] == revision:
+            return True
+        entry = self._entries.get(owner_id)
+        return entry is not None and entry.owner() is mobject and entry.revision == revision
+
     def held(self, mobject):
         """(mesh entry, classification) this frame read for ``mobject``, each
         None when it read none: what a caller that keeps the leaf's draws
@@ -743,22 +763,48 @@ class TriangleMeshCache:
         classes = held[2] if held is not None and held[0]() is mobject and held[3] == self._frame else None
         return entry, classes
 
-    def keep(self, mobject):
+    def keep(self, mobject, *, revision=None, camera=None):
         """Mark what the cache holds for ``mobject`` used in this frame, as
         prepare_leaf's reads of it would (the mesh entry's recency, the
         classification's stamp), for a caller that reuses the leaf's draws
         without preparing it. Returns (mesh entry, classification) as
         ``held`` does: unless they are what the draws were made from, the
-        cache has let something go and the caller prepares the leaf."""
+        cache has let something go and the caller prepares the leaf.
+
+        ``revision``: the caller found the mobject's rows at this revision
+        byte for byte the rows the entry and the classification were read
+        from, so both stand for it, as the reads that would have compared
+        them leave them (mesh()'s hit stamps the entry, classify stores its
+        answer at the revision).
+        ``camera``: (uniforms, resolution, pixel_tolerance) of a frame whose
+        camera moved since the mesh was last read. The mesh is kept only
+        where mesh() would hit: its source trusted without a read and its
+        error bound, taken as mesh() takes it, within the tolerance. Where
+        it would not, only the classification is marked and (None,
+        classification) returned, the entry left for mesh() to replace
+        when the caller prepares the leaf; the bound it memoized is the one
+        mesh() then finds."""
         owner_id = id(mobject)
         held = self._classes.get(owner_id)
         classes = None
         if held is not None and held[0]() is mobject:
-            self._classes[owner_id] = (held[0], held[1], held[2], self._frame)
+            self._classes[owner_id] = (held[0], held[1] if revision is None else revision, held[2], self._frame)
             classes = held[2]
         entry = self._entries.get(owner_id)
         if entry is None or entry.owner() is not mobject:
             return None, classes
+        if revision is not None:
+            entry.revision = revision
+        if camera is not None:
+            uniforms, resolution, pixel_tolerance = camera
+            # mesh()'s trusted read: the snapshot reused without reading
+            # the arrays, so the hit rests on the error bound alone.
+            if (not self.trusts(mobject) or self.verify or mobject.needs_new_unit_normal
+                    or entry.source.contour_rule is not _DEFAULT_CONTOUR_METHOD
+                    or not _standard_mesh_getters(mobject)
+                    or entry.pixel_error(entry.source, uniforms, resolution,
+                                         projection_cache=self._projections) > pixel_tolerance):
+                return None, classes
         entry.last_frame = self._frame
         self._entries.move_to_end(owner_id)
         # As mesh()'s hit: a no-op unless the budget moved since the last read.

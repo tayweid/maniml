@@ -90,6 +90,29 @@ def _stroke_verts(data, frame_scale) -> int:
     return 2 * max(max_steps, 2)
 
 
+def _stroke_sqrt_area(data):
+    """The largest sqrt(area) of `data`'s curves, in _stroke_verts's own
+    arithmetic (float32 for float32 points): all _stroke_verts needs to
+    know of `data` at any other frame_scale (_stroke_verts_at)."""
+    p0 = data['point'][0::3]
+    p1 = data['point'][1::3]
+    p2 = data['point'][2::3]
+    areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+    return np.sqrt(areas).max(initial=0)
+
+
+def _stroke_verts_at(sqrt_area, frame_scale) -> int:
+    """_stroke_verts(data, frame_scale) from _stroke_sqrt_area(data), in
+    O(1): for a positive frame_scale, scaling, rounding and the cap are
+    each monotone, so the largest curve's count is the largest count, and
+    the scalar goes through the same float32 operations as the array.
+    Only for a finite positive frame_scale; any other the caller hands to
+    _stroke_verts, which refuses or answers it curve by curve."""
+    count = np.round(POLYLINE_FACTOR * sqrt_area / frame_scale)
+    max_steps = int(min(2 + count, MAX_STEPS))
+    return 2 * max(max_steps, 2)
+
+
 def _texture_refs(sm, payloads=None):
     """Sampler-name -> texture content hash for a textured mobject,
     reading each file once (module-level cache)."""

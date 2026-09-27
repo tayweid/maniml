@@ -8,15 +8,19 @@ interfaces may still change before the first public release.
 ### Shared renderer
 
 - `MANIML_RETAINED_FRAME=1` keeps each drawn object's draws across frames
-  (docs/phase_b4_plan.md, B4.2): a frame prepares again only the objects
-  whose revision or camera moved, whose cache entries were evicted, whose
-  depth test or stroke-behind flag was reassigned, or whose rows come
-  through a getter of their own (a subclass's `get_shader_data` or
-  `get_points`, say), and reuses a coalesced run and its encoded
-  descriptor while its members are unchanged. The message is
-  byte-for-byte the one the switch off writes for the same history,
-  asserted frame by frame. A still frame of a 531-object course diagram
-  serializes in ~1.4 ms instead of ~19 ms. An in-place write to an
+  (docs/phase_b4_plan.md, B4.2 and B4.3): a frame prepares again only the
+  objects whose rows or own uniforms changed, whose mesh, border
+  reservation or stroke count a camera move changes, whose cache entries
+  were evicted, whose depth test or stroke-behind flag was reassigned, or
+  whose rows come through a getter of their own (a subclass's
+  `get_shader_data` or `get_points`, say), and reuses a coalesced run and
+  its encoded descriptor while its members are unchanged, across camera
+  moves too. A revision that moves over the same bytes, as most updaters'
+  do, keeps the object's draws. The message is byte-for-byte the one the
+  switch off writes for the same history, asserted frame by frame. On a
+  531-object course diagram a still frame serializes in ~1.4 ms instead
+  of ~19, a frame of its updaters ticking in ~3.5 ms instead of ~29, and
+  a pan or zoom in ~3-4 ms instead of ~20. An in-place write to an
   object's arrays or uniforms that bumps no revision is not seen until
   the revision moves (the switch off draws it on the next frame). Off by
   default.

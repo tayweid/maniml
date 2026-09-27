@@ -577,6 +577,15 @@ class BorderRecipeCache:
             raise KeyError("no border reservation for this mobject")
         return entry[1]
 
+    def read_at(self, mobject):
+        """Whether the cache holds a source of ``mobject`` read at its
+        current revision, which the revision policy's next ``source`` read
+        hands back without reading the arrays, as TriangleMeshCache.read_at
+        asks of the mesh cache."""
+        entry = self.sources.get(id(mobject))
+        return (self.policy == "revision" and entry is not None and entry.owner() is mobject
+                and entry.revision == mobject.revision)
+
     def held(self, mobject):
         """(source entry, reservation) this frame read for ``mobject``, each
         None when it read none: what a caller that keeps the leaf's draws
@@ -590,23 +599,37 @@ class BorderRecipeCache:
             return entry, None
         return entry, reserved[1]
 
-    def keep(self, mobject):
+    def keep(self, mobject, *, revision=None, uniforms=None):
         """Mark ``mobject``'s source and reservation used in this frame, as
         a trusted ``source`` read would, for a caller that reuses the leaf's
         draws without preparing it. The reservation is kept as it stands:
         the read would recompute it from the density summary, and at the
         zoom it was made for that gives it back unchanged. Returns (source
-        entry, reservation) as ``held`` does."""
+        entry, reservation) as ``held`` does.
+
+        ``revision``: the caller found the mobject's rows at this revision
+        byte for byte the rows the source was read from, so it stands for
+        that revision: a read at it would give back the same curves.
+        ``uniforms``: the leaf's, in a frame whose camera moved since the
+        source was read. The reservation then follows the zoom as the
+        trusted read makes it follow, from the density summary at this
+        frame scale, after the same check of the uniforms."""
         key = id(mobject)
         entry = self.sources.get(key)
         if entry is not None and entry.owner() is mobject:
+            if uniforms is not None:
+                self._validate(uniforms)
             entry.frame = self.frame
+            if revision is not None:
+                entry.revision = revision
             self.sources.move_to_end(key)
         else:
             entry = None
         reserved = self.capacities.get(key)
         if reserved is None or reserved[0]() is not mobject:
             return entry, None
+        if uniforms is not None:
+            return entry, self._reserve(mobject, None, frame_scale=uniforms["frame_scale"])
         self.capacities[key] = (reserved[0], reserved[1], self.frame, reserved[3], reserved[4])
         return entry, reserved[1]
 
