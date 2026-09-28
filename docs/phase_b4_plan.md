@@ -785,6 +785,269 @@ dispatch per kernel over a frame's programs and rows, in both drivers.
 Until then strokes saves Python and costs the GPU, more than it saves in
 the complete native frame on every play measured; no default flips.
 
+## The flips
+
+B5.4 (2026-09-28, on `b4-integration`). First the flips were made
+expressible without losing Phase A, then each was measured on its gate in
+the plan's order, and a default flipped only where its gate passed. The
+gates were set with the increment: nets on pixels against grids and the
+complete frame within 5% of grids; patches on Taylor's gate (confirmed
+2026-09-27), the browser-side complete frame at or below Phase A's on both
+episodes, per class, and pixels within 0.5% of Phase A; programs on the
+program pixel gates, Python ms per play frame lower than without programs
+on the episodes' plays, and play-frame pixels within 0.5% of the CPU path.
+
+**Four renderer names.** `geometry.RENDERERS` is `triangles`, `phase_a`,
+`phase_b` and `winding`. `triangles` is the **default** stack: the Phase A
+driver fed what the generators' defaults select (`geometry.DEFAULT_FILL`,
+`geometry.DEFAULT_SURFACE`, `programs.DEFAULT_MODE`), each overridden by its
+environment flag, as before; native capture and the export recorder draw
+it, so a flip reaches them. `phase_a` forces Phase A (meshes, grids,
+programs off) and `phase_b` the whole Phase B stack (patches, nets, GPU
+programs), whatever the defaults or the environment say
+(`geometry.FORCED_STACKS`); `winding` is Original 2D. The viewer's selector
+reads Default / Phase A / Phase B / Original 2D, and a forced selection
+sets the program override its plays need (`off` or `gpu`); the default
+follows the environment.
+
+**The pin holds the forced names.** `tests/test_retained_frame.py` pins
+`phase_a` and `phase_b`, so no flip can move a pinned byte. Phase A's frames
+are stamped `triangles` in their header, the bytes Phase A always wrote:
+its 251 digests, recorded under the key `triangles`, are unchanged, and the
+goldens' key was renamed `phase_a` (a rename checked to leave every digest
+as it was, not a re-recording); every recording names no other renderer
+either. The pin also states the program mode its plays were recorded under
+(`MANIML_PROGRAMS=off`) instead of inheriting the default, since an
+animation decides at its begin whether it writes programs, and a flipped
+`programs.DEFAULT_MODE` would otherwise have its plays record them. The
+price of the stamp is in the page's selection, which drops another
+selection's frames by the header's name: Phase A reads the frames stamped
+`triangles` (`FRAMES_OF` in `renderer_selection.js`), so a frame of the
+default still in flight across a switch to Phase A, or back, is drawn once
+before the switch's full frame (a new epoch) replaces it; the default
+differs from Phase A only by flips gated on pixels. `phase_b` keeps its own
+stamp. Every harness variant keeps meaning what it measured whatever the
+defaults are: `gpu_border` and `cpu_border` (`gpu_borders`,
+`episode_frames`) and `browser_frames`' `phase_a` serialize `phase_a`;
+`patch_fill` pins patches alone (grids, programs off, records); the new
+`nets` (`episode_frames`) and `phase_a_nets` / `phase_a_patches`
+(`browser_frames`) are Phase A with one flip; `episode_frames` runs its
+plays with programs off (all its variants draw none) and `play_frames` pins
+its stack as before. Proof: the golden pin (with PriceDiscovery through the
+tree of links), `test_renderer_selection` (Phase A's stack and bytes under a
+flipped environment and flipped defaults, the default following both, the
+override set and cleared), `renderer_selection.cjs` (four modes, three one
+driver: Phase A draws `triangles` frames only, Phase B its own),
+`renderer_negotiation.cjs` (the shipped page adopts and chooses Phase A),
+`test_web_viewer.DeltaStreamE2E` (a switch to Phase A is a full frame of a
+new epoch stamped `triangles`) and `test_episode_frames` (each variant's
+stack under flipped defaults).
+
+**The instrument.** `benchmarks/flip_gates.py` (new, with
+`tests/test_flip_gates.py`) measures what the fill and surface flips are
+judged on: its `serialize` command times the two stacks as a viewer's cache
+pays them (format 7 and a negotiated format 8 stream, the four serializers
+taking turns as first readers of what moved), and `complete` adds, per frame,
+`browser_frames`' `page_ms` and the median `gpu_total_ms` of two pooled
+`episode_frames` attribution runs, charging a format 8 frame the stream did
+not send its serialize alone. `episode_frames --camera-moves` gives a camera
+move GPU rows of its own (rounds of `browser_frames`' pan, 2% zoom and the
+camera put back), which the nets flip needed: a net is re-evaluated when the
+frame scale or the pixels per unit change, that is on a zoom, never on a pan
+or an orbit, and borrowing the still redraw's GPU for a move would have hidden
+exactly that cost. `tests/surface_fixtures.py` collects the scenes that draw
+a Surface (the renderer and quality fixtures draw none), and
+`play_frames --every-play` measures every play of an episode for the
+programs flip, so no survey chooses them. The recipe is in
+`benchmarks/README.md`, "Flip gates"; every run is archived in
+`benchmarks/results/phase_b_flips_20260927/`.
+
+Three corrections from the increment's review are in the instrument and the
+numbers below. **A play's pixels were its landing.** `episode_frames`
+compared a play's last sampled frame, and a play of 15 frames or fewer is
+sampled to its end, the landing, which is the pausepoint's own picture: on
+these scenes 47 of the 50 plays compared were compared there, so beyond the
+orbit demo's two plays and one of EpisodeB2's, nothing moving had been held
+to Phase A. A play's pair is now
+the worst over every frame of its sampled window strictly inside it
+(`pixel_frames`, the warmups included), and `complete` counts each frame
+once. **The programs verdict leaned on the turn order.** `play_frames` opened
+every play with programs off, and the first replay of a play is the first to
+run it after the play before; the reduction treated the plays that record no
+program as running the same code in both modes and read their ratio as the
+harness's bias, but under `strokes` every animation's begin still walks its
+families to decide (`programs.begin`) and every frame notes their revisions
+(`programs.stamp`). Run the other way round, the order effect was half a
+percent on EpisodeB2 and of the opposite sign on PriceDiscovery. The opening
+mode now alternates play by play, and the gate reads the order-balanced
+ratio (the geometric mean of the ratio over the plays each mode opened, with
+a 95% interval from resampling them). **The stamps overstate a stack of
+more passes.** The complete frame takes its GPU from the attribution runs,
+as Taylor's gate says, while the measuring contract takes gate numbers from
+runs without the flag, since each stamped pass costs ~30 µs; where a flip
+makes an object a pass of its own (a net, a program) the two disagree, and
+`complete` now quotes beside the verdict the same frames with the GPU part
+the flag-off wall clock from the submit through the full readback
+(`flag_off_check`), which has no stamps but dilutes every ratio with the
+readback both stacks pay. The verdict is read on the gate as written, and
+where the check would change it, that is said.
+
+**The verdicts.** No default flipped: the Default renderer draws Phase A's
+stack, as before, and Phase A, Phase B and Original 2D stay selectable.
+
+| Flip | Gate | Measured | Verdict |
+| --- | --- | --- | --- |
+| B2 nets (`MANIML_SURFACE`) | pixels ≤ 0.5% over 24/255 against grids on every Surface fixture and every measured frame that draws one; complete frame ≤ 1.05× grids | pixels ≤ 0.28% (fixtures), ≤ 0.31% (271 episode frames, 245 of them inside plays); format 8 stills, ticks and plays ≤ 1.05× but the orbit demo's 0.17 ms still (1.055×); camera moves 1.25-1.34× in all three scenes (1.13-1.33× with the GPU part flag off) | **fails**: `grids` stays |
+| B1 patches (`MANIML_FILL`, records packed) | complete frame ≤ Phase A's per class on both episodes; pixels ≤ 0.5% | pixels Phase A's but two pixels (287 frames, 263 inside plays); format 8 plays 1.15× (EpisodeB2) and 1.48× (PriceDiscovery), ticked 1.14× and 1.10× (plays 1.16× and 1.30× with the GPU part flag off) | **fails**: `meshes` stays |
+| B3 programs, as `strokes` (patches did not flip) | the program pixel gates; Python ms per play frame lower than programs off on the episodes' plays; play pixels ≤ 0.5% against the CPU path | pixel tests pass; 4,004 play frames within 1/255; Python per play frame, order-balanced, -0.03% (EpisodeB2, format 8; -0.30% to +0.20%), +0.05% (format 7), +0.32% (PriceDiscovery, format 8; +0.08% to +0.53%) and +0.08% (format 7); the native complete frame +1.8% and +1.4% | **not met**: not lower in three of four; `off` stays |
+
+**B2 nets: the gate fails, on camera moves; grids stay the default.** The
+pixels pass everywhere: every Surface fixture within 0.28% of pixels over
+24/255 of grids (`tests/surface_fixtures.py`, 13 fixtures; the worst is the
+70-sphere orb grid, then the default sphere at 64×, 0.17%, where the net is
+the more correct of the two), and every frame compared in the three scenes
+that draw a surface within 0.31%: 271 frames, the 26 measured pausepoints
+and 245 frames strictly inside their plays (EpisodeB3 0.026%, at a
+pausepoint; B4 0.023%, mid-play; the orbit demo 0.31%, mid-play, largest
+channel 50/255, whose last sampled frame, the only one compared before,
+read 0%). The complete frame in format 8, the stream the shipped page
+negotiates, is within 5% of grids on every still, ticked
+and play class but the orbit demo's still (0.17 → 0.18 ms, a still that
+sends nothing), and a third cheaper on the orbit demo's plays, where a
+moving surface costs grids a CPU evaluation nets do not need (serialize
+4.50 → 1.48 ms); in format 7 EpisodeB3's still and ticked frames and B4's
+still and plays read over too. It is 23-34% dearer on camera moves in all three
+scenes, both formats, by the gate's GPU part; by the flag-off check, 13-33%
+(format 8: the orbit demo 1.267, EpisodeB3 1.331, B4 1.132):
+
+| Complete frame, flip / grids (format 8; format 7) | pausepoint | ticked | camera | play |
+| --- | ---: | ---: | ---: | ---: |
+| Orbit demo (2 frames, no updaters) | 1.055 (0.17 → 0.18 ms); 0.989 | – | **1.311; 1.295** | 0.676; 0.670 |
+| EpisodeB3 (12 frames, 7-61 spheres) | 0.989; 1.339 ¹ | 1.011; 1.059 ¹ | **1.335; 1.334** | 1.038; 1.008 |
+| B4 (12 frames, up to 479 spheres) | 1.025; 1.069 ¹ | 1.018; 0.986 | **1.245; 1.231** | 1.038; **1.063** |
+| The same, flag-off check (the three scenes) | 1.055, 0.989, 1.025; 0.928, 1.027, 1.003 | 1.011, 1.018; 1.006, 0.992 | **1.267, 1.331, 1.132; 1.256, 1.326, 1.132** | 0.791, 1.018, 1.043; 0.787, 0.999, **1.055** |
+
+¹ The GPU medians differ where the minima agree (EpisodeB3's still 0.994
+and ticked 1.011 by each frame's minimum, B4's still 0.923): the GPU clock,
+not the nets; the flag-off check reads them within the limit too. B4's
+format 7 plays are over (1.063; 1.055 by the check), their serialize 21.8 →
+22.8 ms.
+
+The camera cost is the zoom, and it is the GPU's. A net is re-evaluated when
+the frame scale or the pixels per unit change (its evaluation state in both
+drivers), so a pan or an orbit costs it nothing and a 2% zoom re-evaluates
+every net on screen, each in a compute pass of its own: on EpisodeB3 a zoom
+adds ~1.8 ms of `nets` passes (GPU 7.7 against 5.0-5.4 ms, median, both
+attribution runs), and on B4's heaviest frames (checkpoints 114, 133 and
+174, up to 479 spheres) the attribution runs read 23-24 ms more GPU (31.3
+against 8.2 ms at checkpoint 114), which overstates it: each stamped pass
+costs ~30 µs, and the flag-off wall clock from the submit through the full
+readback, which holds that GPU work and the readback besides, is 27.9
+against 10.2 ms there. By flag-off wall clock a zoom costs nets 16-19 ms
+more on those frames (both flag-off runs), still 2.4-3.2 times Phase A's
+zoom there. The gate as Taylor set it takes its GPU part from the
+attribution run, and the measuring contract takes gate numbers from runs
+without the flag; for a flip that changes the pass count the two disagree,
+which is why both are quoted, and the camera class fails by either. Most of
+that work produces what is already there: `net_compute.wgsl` depends on the
+camera only through a net's integer step count (`ceil(sqrt(density ×
+pixels_per_unit / frame_scale))`, at least 2, at most the capacity), which a
+2% zoom rarely moves. The levers, for the increment that takes nets up
+again: key a net's evaluation on its step count rather than on the camera,
+so a zoom that moves no step count evaluates nothing; and evaluate a
+frame's nets in one dispatch, the fix B5.1's rows and B5.3's programs
+already wait on. The orbit demo's format 8 still costs nets 0.01 ms more
+to serialize, in both runs alike, for a frame that sends nothing: over the
+limit, below any frame's noise, and not what holds the flip.
+
+**B1 patches: the gate fails on both episodes; meshes stay the default.**
+Measured with the records packed (`MANIML_PATCH_SOURCE=records`): the
+increment put rows on the wire only if B5.1 had passed its gate, and B5.1
+missed it (a mover at the cost of a memcpy: 51.6 ms against the 2.65 ms
+floor), so rows were not measured here. Pixels are Phase A's over the 24
+measured pausepoints and the 263 frames strictly inside their plays: two
+pixels in all are more than 24/255 off, one of PriceDiscovery's checkpoint
+130 (27/255, at the pausepoint and the first frame of its play) and one of
+a frame inside EpisodeB2's play into 8.a (30/255), each 0.00004% of its
+frame. The complete frame is not (the flag-off check fails every class the
+gate fails in format 8, and PriceDiscovery's camera moves besides, 1.056;
+in format 7 it passes PriceDiscovery's still and ticked frames, 0.999 and
+0.991):
+
+| Complete frame, patches / Phase A (format 8; format 7) | pausepoint | ticked | camera | play |
+| --- | ---: | ---: | ---: | ---: |
+| EpisodeB2 (10 still, 2 ticked; 114 play frames) | **1.014; 1.114** | **1.138; 1.391** | **1.072; 1.080** | **1.148; 1.151** |
+| PriceDiscovery (1 still, 11 ticked; 100 play frames) | 0.982; **1.380** | **1.104; 1.174** | 0.964; 0.969 | **1.477; 1.433** |
+
+The plays are the serialize's: 7.61 → 10.34 ms (EpisodeB2) and 3.58 →
+6.28 ms (PriceDiscovery) a play frame at the median, a mover's curve records
+packed every frame it moves, while the page's JavaScript is the same (0.71
+→ 0.55, 0.19 → 0.19 ms) and the GPU nearly so (4.15 → 4.51 ms; 3.90 → 3.02).
+EpisodeB2's two ticked frames (3.i and 8.a) send nothing in format 8
+either way and pay the serialize alone (3.35 → 3.82 ms, their median; 8.a's
+5.45 → 6.19), and its stills, which send nothing either, 0.70 → 0.71 ms.
+Camera moves go both ways: patches have no mesh to
+revalidate at a zoom (serialize 2.06 → 1.31 ms on EpisodeB2) but cost
+EpisodeB2's GPU more (4.50 → 5.71). Format 7's stills are the GPU's (the
+page redraws the frame, and a patch frame's passes cost 3.24 → 4.29 ms on
+EpisodeB2). B5.1's rows halve the 8.a play's serialize at ~10 ms more GPU a
+frame; whether they close the play gap is the measurement to take once one
+dispatch finalizes a frame's rows.
+
+**B3 programs, as `strokes`: the gate is not met; programs stay off.** The
+gate named `gpu`, which needs the patch fill; with patches not flipped,
+`strokes` (B5.3), the one program Phase A draws, was evaluated in its place.
+Its pixels pass: the program pixel gates (`LibraryPixels`,
+`ProgramPixels` under `MANIML_TEST_GPU=1`, 5 tests OK), and every frame of
+every play of both episodes drawn natively under strokes against programs
+off, 2,598 + 1,406 frames, largest channel difference 1, no pixel over
+24/255. Its Python is not lower. Python ms per play frame
+(`play_frames --every-play`: each frame's `serialize_ms` plus the scene's
+own Python since the frame before, over every frame of all 223 plays of
+EpisodeB2 and 106 of PriceDiscovery, four replays a mode in format 8, two
+in format 7, the modes taking turns replay by replay and the mode that
+opens a play alternating play by play), read order-balanced (the geometric
+mean of the ratio over the plays each mode opened; 95% intervals from
+resampling them), over every play, over the plays where strokes records a
+program and over the rest:
+
+| Python ms per play frame, off → strokes | every play (plain) | order-balanced (95%) | each opener: off first; strokes first | plays recording a program | the rest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| EpisodeB2, format 8 | 15.355 → 15.350 (-0.03%) | -0.03% (-0.30% to +0.20%) | -0.39%; +0.34% | -0.13% (-1.03% to +0.67%), 67 plays | +0.04% (-0.16% to +0.23%), 156 plays |
+| EpisodeB2, format 7 | 15.382 → 15.388 (+0.04%) | +0.05% (-0.44% to +0.55%) | -0.60%; +0.70% | -0.51% (-1.68% to +0.42%) | +0.21% (-0.29% to +0.74%) |
+| PriceDiscovery, format 8 | 9.385 → 9.416 (+0.33%) | **+0.32% (+0.08% to +0.53%)** | +0.23%; +0.41% | +0.30% (+0.04% to +0.55%), 61 plays | +0.38% (-0.02% to +0.72%), 45 plays |
+| PriceDiscovery, format 7 | 9.505 → 9.518 (+0.13%) | +0.08% (-0.85% to +0.98%) | -0.27%; +0.44% | +0.01% (-1.08% to +0.67%) | +0.13% (-1.42% to +1.49%) |
+
+Strokes is lower in one of the four, EpisodeB2 in format 8, by 0.03% with
+an interval on both sides of zero, and higher in the other three, on
+PriceDiscovery in format 8 measurably. The mode that opens a play reads
+dearer in all four, by 0.1-0.65% (half the gap between the two openers'
+ratios; the play's first replay is the first to run it after the play
+before), which is why the order-balanced ratio is the one read:
+the first pass opened every play with programs off and read every total
+lower by 0.07-0.68%, and read the plays that record no program as running
+the same code in both modes, which they do not (under strokes every
+animation's begin walks its families to decide, `programs.begin`, and every
+frame notes their revisions, `programs.stamp`; balanced, that costs the
+rest of the plays +0.04% to +0.38%, no interval clear of zero but
+PriceDiscovery's in format 8 nearly). The review's own rerun (format 7,
+every play opened by strokes, paired with the first pass's run) read
+EpisodeB2 -0.26% (-0.55% to -0.02%) and PriceDiscovery -0.25% (-0.70% to
++0.17%) balanced; this re-take reads +0.05% and +0.08%. Both put the
+programs' effect on these episodes' Python within about half a percent of
+nothing: a program saves Python where a play is mostly strokes (the
+bumper, -22% in B5.3), and the 67 and 61 plays that record one are mostly
+glyphs and fills, where a stroke's saving is lost in the frame and its
+entry costs more (the entries' total +1.1% and +0.6% in format 8). The
+cost B5.3 measured stands, now over every play and order-balanced: the
+native complete frame (`serialize_scene` + `render()`, one replay a mode)
+is 1.8% dearer on EpisodeB2's plays (+0.9% to +3.2%) and 1.4% on
+PriceDiscovery's (+0.4% to +2.3%), 6.4% and 2.4% on the plays that record a
+program, the bumper's `render()` 11.2 → 42.0 ms a frame on average (7.1 →
+38.9 at the median after its entry), each program a compute pass of its own. The levers are B5.3's: one dispatch per kernel over a
+frame's programs, and a program run that keeps its descriptor with its
+scalars an op.
+
 ## After B4: the flips and the test point
 
 **B5.1 Rows on the wire under patches.** A mover sends its 17-float rows and
@@ -808,7 +1071,8 @@ flip.
 
 **B5.4 The flips.** B2 nets first (independent of B1; pixel gate on
 PriceDiscovery); then B1 patches; then B3 gpu programs; each on its gate,
-each reversible from the selector, Phase A always selectable.
+each reversible from the selector, Phase A always selectable. Measured
+2026-09-28: "The flips" above.
 
 **B6 The final test point.** Both episodes through `episode_frames.py
 --tick-updaters --play-frames` with variants `[gpu_border, retained,
@@ -829,6 +1093,12 @@ GPU — from B4.6's harness and the live viewer's measure, with the native
 harness kept for pixels and GPU attribution. This is the one B4 decision
 that is Taylor's rather than engineering, and B4 itself does not depend on
 it.
+
+Settled on 2026-09-27: Taylor confirmed the browser-side complete frame
+(Python `serialize_ms` + the page's JavaScript from `browser_frames.py` +
+GPU total from the timestamp attribution run) at or below Phase A's on both
+episodes, per class (pausepoint, ticked, play), with pixels within 0.5% of
+Phase A. B5.4 measured it (`benchmarks/flip_gates.py`, "The flips" above).
 
 ## What to watch
 

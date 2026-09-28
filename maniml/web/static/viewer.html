@@ -477,7 +477,8 @@
 
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
       <select id="renderer-select" aria-label="Scene renderer" disabled>
-        <option value="triangles" selected>Phase A</option>
+        <option value="triangles" selected>Default</option>
+        <option value="phase_a">Phase A</option>
         <option value="phase_b">Phase B</option>
         <option value="winding">Original 2D</option>
       </select>
@@ -778,11 +779,13 @@ async function handleFrame(blob) {
 const glWarn = document.getElementById("glwarn");
 const rendererSelect = document.getElementById("renderer-select");
 const rendererOrigin = crypto.randomUUID();
-// Phase B is the same driver as Phase A fed the whole Phase B stack by the
-// engine (patch fills, net surfaces, GPU programs); the frames say which
-// selection produced them, so a switch drops the other's frames as usual.
+// Default, Phase A and Phase B are one driver fed three stacks by the
+// engine: the defaults, Phase A forced and the whole Phase B stack forced
+// (patch fills, net surfaces, GPU programs); the frames say which
+// selection produced them, so a switch drops the other's frames as usual
+// (renderer_selection.js has the one exception, Phase A's).
 const rendererSession = new ManimlRendererSelection(canvas, {
-  triangles: ManimlWGPU, phase_b: ManimlWGPU, winding: ManimlWindingWGPU,
+  triangles: ManimlWGPU, phase_a: ManimlWGPU, phase_b: ManimlWGPU, winding: ManimlWindingWGPU,
 });
 for (const driver of Object.values(rendererSession.drivers)) {
   driver.onCacheMiss = () => send({ type: "geometry_reset" });

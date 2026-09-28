@@ -66,7 +66,9 @@ async function main(directory, realm) {
     const began = performance.now();
     try { return await d.renderer.render(bytes); } finally { js_ms = performance.now() - began; }
   }};
-  const page = selection(realm, {triangles: timed, phase_b: timed});
+  // The viewer's modes that feed this driver; a stream's frames name the
+  // default's ("triangles", Phase A's too) or Phase B's.
+  const page = selection(realm, {triangles: timed, phase_a: timed, phase_b: timed});
   const headerOf = bytes => JSON.parse(new TextDecoder().decode(
     new Uint8Array(bytes, 5, new DataView(bytes, 1, 4).getUint32(0, true))));
   await page.select(headerOf(frames.find(bytes => bytes !== null)).renderer);

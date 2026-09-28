@@ -2,13 +2,18 @@
 
 blake2b digests of ``serialize_scene``'s message bytes, frame by frame
 through one persistent GeometryCache per case and renderer, for
-``renderer="triangles"`` (Phase A) and ``"phase_b"``, over the renderer
-fixtures, the quality fixtures, scripted synthetic sequences and frames
-of the two course episodes, asserted against the recorded files in
-tests/goldens/retained_frame/. They are the contract every increment of
-the retained frame holds: with MANIML_RETAINED_FRAME=0 the bytes may not
-move, and with the retained frame on, the default since B4.5, they are the
-flag-off bytes. The pin runs with whatever the run's switch is.
+``renderer="phase_a"`` (Phase A forced) and ``"phase_b"`` (the Phase B
+stack forced), over the renderer fixtures, the quality fixtures, scripted
+synthetic sequences and frames of the two course episodes, asserted
+against the recorded files in tests/goldens/retained_frame/. They are the
+contract every increment of the retained frame holds: with
+MANIML_RETAINED_FRAME=0 the bytes may not move, and with the retained
+frame on, the default since B4.5, they are the flag-off bytes. The pin
+runs with whatever the run's switch is. It pins the two forced names, not
+the default ("triangles"), so a default that flips (docs/phase_b4_plan.md,
+"The flips") moves no pinned byte; Phase A's frames are the bytes the
+default wrote before the flips (they were recorded as "triangles", and
+renamed "phase_a" in B5.4 with every digest unchanged).
 
 The synthetic cases carry what the per-record loop must preserve, since
 they run everywhere (CI has no episodes): CE's z_index order within a
@@ -87,10 +92,13 @@ from tests.renderer_quality_fixtures import QualityFixtureUnavailable, quality_c
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "goldens" / "retained_frame"
 RECORD_ENV = "MANIML_RECORD_GOLDENS"
-RENDERERS = ("triangles", "phase_b")
-# The Phase B switches and the cache policy select other bytes on purpose;
-# the pin is the default configuration. MANIML_RETAINED_FRAME and
-# MANIML_VERIFY_LEDGER stay as the run has them: neither may change a byte.
+RENDERERS = ("phase_a", "phase_b")
+# The switches the forced renderers still read (the border generator, the
+# patch source) and the cache policy select other bytes on purpose, and the
+# pin is their defaults; the stack's own (fill, surface, programs) the
+# forced names ignore, and are cleared all the same. MANIML_RETAINED_FRAME
+# and MANIML_VERIFY_LEDGER stay as the run has them: neither may change a
+# byte.
 PINNED_ENV = ("MANIML_BORDER_GENERATOR", "MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
               "MANIML_PATCH_SOURCE", "MANIML_RENDER_CACHE", "MANIML_RENDERER")
 # The course episodes the plan's gates are measured on, with the checkpoint
@@ -293,6 +301,11 @@ class GoldenCase(unittest.TestCase):
         cls.enterClassContext(patch.dict(os.environ))
         for name in PINNED_ENV:
             os.environ.pop(name, None)
+        # The plays were recorded with their animations writing no program,
+        # the default then: stated, so that a default that flips
+        # (programs.DEFAULT_MODE, docs/phase_b4_plan.md "The flips") moves
+        # no pinned byte. The forced renderers never read it.
+        os.environ["MANIML_PROGRAMS"] = "off"
         # An episode sets the CE config for itself (EpisodeB2 is 2:1, both
         # are 60 fps on #212121) and the process keeps it, so every class
         # starts from the import-time default resolution the fixtures were
@@ -822,14 +835,14 @@ class Lockstep:
         with patch.dict(os.environ, {RETAINED_ENV: "1" if retained else "0"}):
             return serialize_scene(self.sides[index].scene, self.caches[index], renderer=renderer)
 
-    def messages(self, renderer="triangles", *, retained=True):
+    def messages(self, renderer="phase_a", *, retained=True):
         """This frame's two messages, flag off then flag on, uncompared.
         ``retained=False`` serializes the flag-on side without the flag
         too, as a run that turned it off would."""
         self.count += 1
         return self.serialize(0, renderer, False), self.serialize(1, renderer, retained)
 
-    def frame(self, label, renderer="triangles", *, retained=True):
+    def frame(self, label, renderer="phase_a", *, retained=True):
         """Both sides' messages for this frame (``messages``), compared; the
         flag-off one is returned."""
         messages = self.messages(renderer, retained=retained)
@@ -843,7 +856,7 @@ class Lockstep:
             self.test.fail(f"{where}: the retained frame left another scene (leaf {leaf})")
         return messages[0]
 
-    def raises(self, label, exception, renderer="triangles"):
+    def raises(self, label, exception, renderer="phase_a"):
         """Both sides refuse this frame with ``exception``, and leave the
         same scene: the leaves read before the refusal as their reads
         leave them, the rest as they were."""
@@ -1112,7 +1125,7 @@ class RetainedFrameLockstep(GoldenCase):
                 self.scripted_sequence(renderer, Path(tmp) / "texture.bmp", deltas=True)
 
     def scripted_sequence(self, renderer, texture, deltas=False):
-        other = "phase_b" if renderer == "triangles" else "triangles"
+        other = "phase_b" if renderer == "phase_a" else "phase_a"
         write_texture(texture, 200)
         lock = Lockstep(self, lambda: lockstep_scene(texture), deltas=deltas)
         lock.frame("cold", renderer)
@@ -1258,7 +1271,7 @@ class RetainedFrameLockstep(GoldenCase):
             with self.subTest(renderer=renderer):
                 lock = Lockstep(self, updater_scene)
                 leaves = 11
-                moving = 3 if renderer == "triangles" else 2
+                moving = 3 if renderer == "phase_a" else 2
                 lock.frame("cold", renderer)
                 lock.frame("still", renderer)
                 for index in range(20):
@@ -1359,7 +1372,7 @@ class RetainedFrameLockstep(GoldenCase):
             # (step, what it does, prepared, compared). Phase B reads the
             # blot's border source, through its shader data, and draws the
             # globe from its net.
-            phase_a = renderer == "triangles"
+            phase_a = renderer == "phase_a"
             return (
                 (rewrite, "the same points set again: both flags, the rows the refresh makes", 0, 1),
                 (bump, "a bump alone", 0, 1),
@@ -2228,28 +2241,30 @@ class StrokeProgramsLockstep(GoldenCase):
             add(side, "dashes", DashedLine(3 * LEFT + 2.2 * DOWN, 3 * RIGHT + 2.2 * DOWN, stroke_width=3))
             return side
 
-        lock = Lockstep(self, build, deltas=deltas)
-        lock.frame("cold")
-        lock.frame("still")
+        # The default stack, which the environment's strokes governs: Phase
+        # A forced ("phase_a") draws no programs.
+        lock, renderer = Lockstep(self, build, deltas=deltas), "triangles"
+        lock.frame("cold", renderer)
+        lock.frame("still", renderer)
         lock.expect(leaves_prepared=0)
         plays = [[prepare_animation(animation) for animation in (
             ShowCreation(side.path), Rotate(side.ring, 1.0), FadeIn(side.dashes), side.family[0].animate.shift(.3 * UP))]
             for side in lock.sides]
         for animation in (animation for group in plays for animation in group):
             animation.begin()
-        lock.frame("the play begins")
+        lock.frame("the play begins", renderer)
         headers = []
         for alpha in (.25, .5, .75):
             for animation in (animation for group in plays for animation in group):
                 animation.interpolate(alpha)
-            message = lock.frame(f"the play at {alpha}")
+            message = lock.frame(f"the play at {alpha}", renderer)
             headers.append(parse_geometry_message(message)[0])
             # The path, the ring and every dash, and nothing filled.
             self.assertEqual(lock.retained.stats["leaves_prepared"], 2 + len(lock.sides[1].dashes) + 1)
         for animation in (animation for group in plays for animation in group):
             animation.finish()
-        lock.frame("the play lands")
-        lock.frame("still")
+        lock.frame("the play lands", renderer)
+        lock.frame("still", renderer)
         lock.expect(leaves_prepared=0)
         if deltas:
             self.assertTrue(all(header["scalars"] for header in headers[1:]))
@@ -2607,20 +2622,20 @@ class RetainedFrameNavigation(GoldenCase):
         adopted = []
         for spare in (12 << 10, None):
             lock = Lockstep(self, self.seek_side)
-            self.frame(lock, "cold", "triangles")
+            self.frame(lock, "cold", "phase_a")
             lock.step(seek(1))
-            self.frame(lock, "far jump", "triangles")
+            self.frame(lock, "far jump", "phase_a")
             if spare is not None:
                 for cache in lock.caches:
                     meshes = cache.triangle_meshes
                     meshes.max_bytes = meshes._bytes + meshes.gpu_border_cache.nbytes + spare
             for label in ("the budget set", "still"):
-                self.frame(lock, label, "triangles")
+                self.frame(lock, label, "phase_a")
                 meshes = lock.caches[1].triangle_meshes
                 self.assertLessEqual(lock.retained.retired_bytes,
                                      meshes.max_bytes - meshes._bytes - meshes.gpu_border_cache.nbytes)
             lock.step(seek(LAST_CHECKPOINT))
-            self.frame(lock, "and back", "triangles")
+            self.frame(lock, "and back", "phase_a")
             adopted.append(lock.retained.stats["leaves_adopted"])
         if not verifying():
             self.assertLess(adopted[0], adopted[1])
@@ -2631,17 +2646,17 @@ class RetainedFrameNavigation(GoldenCase):
         # made last (B4.3): parked, a copy at another camera would adopt a
         # mesh made at the zoom. A zero budget stands for one over 64 MiB.
         lock = Lockstep(self, self.seek_side)
-        self.frame(lock, "cold", "triangles")
+        self.frame(lock, "cold", "phase_a")
         for cache in lock.caches:
             cache.triangle_meshes.max_bytes = 0
         for target in LOOP_PLAYS:
             lock.step(seek(target))
-            self.frame(lock, f"seek to {target} with no budget", "triangles")
+            self.frame(lock, f"seek to {target} with no budget", "phase_a")
         lock.step(lambda side: side.scene.camera.frame.scale(1 / 3))
-        self.frame(lock, "zoom in 3x", "triangles")
+        self.frame(lock, "zoom in 3x", "phase_a")
         for target in LOOP_PLAYS:
             lock.step(seek(target))
-            self.frame(lock, f"seek to {target} from the zoom", "triangles")
+            self.frame(lock, f"seek to {target} from the zoom", "phase_a")
 
     def test_a_path_read_through_its_own_getter_is_not_parked(self):
         # Its draws are what its getter made of its rows, which a path of
@@ -2663,9 +2678,9 @@ class RetainedFrameNavigation(GoldenCase):
             add(side, "plain", plain)
 
         lock = Lockstep(self, build)
-        self.frame(lock, "cold", "triangles")
+        self.frame(lock, "cold", "phase_a")
         lock.step(replace_it)
-        self.frame(lock, "a plain path of the same rows in its place", "triangles",
+        self.frame(lock, "a plain path of the same rows in its place", "phase_a",
                    leaves_prepared=1, leaves_adopted=0)
 
     def test_a_class_of_the_same_name_is_read_through_its_own_helpers(self):
@@ -2724,35 +2739,35 @@ class RetainedFrameNavigation(GoldenCase):
             add(side, "disc", copy)
 
         lock = Lockstep(self, build)
-        self.frame(lock, "cold", "triangles")
+        self.frame(lock, "cold", "phase_a")
         for cache in lock.caches:
             meshes = cache.triangle_meshes
             meshes.max_bytes = meshes._bytes + 2000
-        self.frame(lock, "the budget set", "triangles")
+        self.frame(lock, "the budget set", "phase_a")
         # Kept in that frame, and let go by its sweep; read in this one.
-        self.frame(lock, "still", "triangles", leaves_prepared=1)
+        self.frame(lock, "still", "phase_a", leaves_prepared=1)
         border, disc = lock.caches[0].triangle_meshes.gpu_border_cache, lock.sides[0].disc
         self.assertNotIn(id(disc), border.sources)
         self.assertIn(id(disc), border.capacities)
         lock.step(replace_it)
-        self.frame(lock, "a copy in its place", "triangles", leaves_prepared=1, leaves_adopted=0)
+        self.frame(lock, "a copy in its place", "phase_a", leaves_prepared=1, leaves_adopted=0)
         lock.step(lambda side: side.disc.scale(3))
-        self.frame(lock, "scaled up", "triangles")
+        self.frame(lock, "scaled up", "phase_a")
         lock.step(lambda side: side.disc.set_points(side.points.copy()))
-        self.frame(lock, "scaled back", "triangles")
+        self.frame(lock, "scaled back", "phase_a")
         grown = border.capacities[id(lock.sides[0].disc)][1]
         lock.step(replace_it)
-        self.frame(lock, "a copy in its place again", "triangles", leaves_prepared=1, leaves_adopted=0)
+        self.frame(lock, "a copy in its place again", "phase_a", leaves_prepared=1, leaves_adopted=0)
         self.assertLess(border.capacities[id(lock.sides[0].disc)][1], grown)
 
     def test_the_store_is_bounded_in_entries(self):
         # The least recently parked go first.
         self.enterContext(patch.object(retained_frame, "MAX_RETIRED", 3))
         lock = Lockstep(self, self.seek_side)
-        self.frame(lock, "cold", "triangles")
+        self.frame(lock, "cold", "phase_a")
         for target in (1, LAST_CHECKPOINT, *LOOP_PLAYS, LAST_CHECKPOINT):
             lock.step(seek(target))
-            self.frame(lock, f"seek to {target}", "triangles")
+            self.frame(lock, f"seek to {target}", "phase_a")
             self.assertLessEqual(len(lock.retained.retired), 3)
 
 

@@ -148,7 +148,7 @@ class Variants(unittest.TestCase):
                                                            None)[0]
                     for variant in episode_frames.VARIANTS}
         self.assertEqual(seen, [("patch_fill", "0"), ("gpu_border", "0"), ("gpu_border", "1"), ("cpu_border", "0"),
-                                ("original_2d", "0")])
+                                ("original_2d", "0"), ("nets", "0")])
         self.assertEqual(rows["retained"], {"retained_frame": {"leaves_kept": 3}})
         self.assertEqual(rows["gpu_border"], {})
 
@@ -181,6 +181,32 @@ class Variants(unittest.TestCase):
                     self.assertIsNone(cache.retained_frame)
                 else:
                     self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+
+    @requires_lyon
+    def test_each_variant_draws_its_stack_whatever_the_defaults(self):
+        # B5.4 (docs/phase_b4_plan.md, "The flips"): a default that flips
+        # moves no variant. gpu_border and cpu_border are Phase A forced;
+        # patch_fill is the patches alone and nets the net surfaces alone,
+        # their other switches pinned, whatever the defaults or the
+        # environment say.
+        from maniml.mobject.geometry import Square
+        from maniml.utils import programs
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        expected = {"gpu_border": ("gpu", "meshes", "grids", "off"), "cpu_border": ("cpu", "meshes", "grids", "off"),
+                    "patch_fill": ("gpu", "patches", "grids", "off"), "nets": ("gpu", "meshes", "nets", "off")}
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu"), \
+                patch.multiple(geometry, DEFAULT_FILL="patches", DEFAULT_SURFACE="nets"), \
+                patch.object(programs, "DEFAULT_MODE", "gpu"):
+            for variant, stack in expected.items():
+                with self.subTest(variant=variant):
+                    stages, cache = StageObserver(), geometry.GeometryCache()
+                    with patch.object(geometry, "performance", stages):
+                        _, _, header = gpu_borders.sample(build_scene(Square(fill_opacity=1)), variant, cache, stages)
+                    self.assertEqual((cache.border_generator, cache.fill_generator, cache.surface_generator,
+                                      cache.program_mode), stack)
+                    self.assertEqual(header["renderer"], "triangles")
 
     @requires_lyon
     def test_the_stage_observer_stands_in_for_the_recorder(self):
@@ -399,6 +425,9 @@ class PlayFrames(unittest.TestCase):
         self.assertTrue(all(0 < alpha <= 1 for alpha in first["measured_alphas"] + second["measured_alphas"]))
         self.assertEqual(set(first["variants"]), set(self.variants))
         self.assertEqual(list(second["pixels"]), ["patch_vs_gpu_border"])
+        # Every frame of the window is inside these plays, the warmup too.
+        start = (frames - 3) // 2
+        self.assertEqual(second["pixel_frames"], [start, start + 1, start + 2])
         for variant in self.variants:
             rows = report["variants"][variant]["samples"]
             plays = [row for row in rows if row["phase"] == "play"]
@@ -423,6 +452,75 @@ class PlayFrames(unittest.TestCase):
         low, high = first["measured_alphas"][0], first["measured_alphas"][-1]
         self.assertIn(f"play α {low:.2f}–{high:.2f}", table)
         self.assertIn("| all |  |  |  | plays |", table)
+
+    def test_a_plays_pixels_are_its_worst_frame_strictly_inside_it(self):
+        # A window as long as the play reaches its landing (alpha past 1 at
+        # 24 fps over 0.2 s), the pausepoint's own picture: it is left out.
+        # patch_fill drifts one more pixel from gpu_border every call, so the
+        # worst frame is the last compared.
+        scene = self.scene
+        drift = []
+
+        def sampler(variant):
+            picture = Image.new("RGBA", (64, 36), (0, 0, 0, 255))
+            if variant == "patch_fill":
+                drift.append(1)
+                for x in range(len(drift)):
+                    picture.putpixel((x, 0), (255, 255, 255, 255))
+            row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                   "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+            return row, picture, {"resolution": [64, 36]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = episode_frames.measure(scene, [2], self.variants, samples=8, warmups=1, sampler=sampler,
+                                            output=Path(tmp), report={"variants_in_rotation": list(self.variants)},
+                                            play_frames=True)
+        frame = report["frames"][0]
+        play = frame["play"]
+        frames = episode_frames.play_frame_count(scene.camera.fps, .2)
+        self.assertEqual(play["frames"], frames)
+        self.assertGreaterEqual(frames / scene.camera.fps / .2, 1, "the window's last frame is the landing")
+        self.assertEqual(play["pixel_frames"], list(range(frames - 1)))
+        worst = play["pixels"]["patch_vs_gpu_border"]
+        self.assertEqual(worst["play_frame"], frames - 2)
+        self.assertAlmostEqual(worst["fraction_pixels_rgb_over24"], (9 + frames - 1) / (64 * 36))
+        self.assertLess(worst["fraction_pixels_rgb_over24"], (9 + frames) / (64 * 36), "not the landing's")
+
+    def test_camera_moves_are_rounds_of_a_pan_a_zoom_and_the_camera_put_back(self):
+        # browser_frames' moves, as rounds: one rotation of the variants per
+        # move, the warmup rounds left out, and the camera as it was after.
+        scene = self.scene
+        seen = []
+
+        def sampler(variant):
+            seen.append((variant, tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width()))
+            row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                   "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+            return row, Image.new("RGBA", (64, 36), (0, 0, 0, 255)), {"resolution": [64, 36]}
+
+        episode_frames.show_frame(scene, 2)
+        before = (tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width())
+        with tempfile.TemporaryDirectory() as tmp:
+            report = episode_frames.measure(scene, [2], self.variants, samples=2, warmups=1, sampler=sampler,
+                                            output=Path(tmp), report={"variants_in_rotation": list(self.variants)},
+                                            camera_moves=True)
+        self.assertEqual((tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width()), before)
+        moved = seen[2 * 3:]
+        self.assertEqual(len(moved), 2 * 3 * 3, "three rounds of three moves, two variants each")
+        width = before[1]
+        self.assertEqual([round(w / width, 4) for _, _, w in moved[:6:2]], [1, 1.02, 1])
+        self.assertAlmostEqual(moved[0][1][0] - before[0][0], .05 * width)
+        for variant in self.variants:
+            rows = [row for row in report["variants"][variant]["samples"] if row["phase"] == "camera"]
+            self.assertEqual([row["move"] for row in rows], ["pan", "zoom", "back"] * 2)
+            self.assertEqual({row["iteration"] for row in rows}, {1, 2})
+            self.assertEqual(report["variants"][variant]["camera_timing_ms"]["prepare_ms"]["n"], 6)
+            self.assertEqual(report["frames"][0]["camera"][variant]["prepare_ms"]["n"], 6)
+        summary = episode_frames.summary_of(report)
+        self.assertEqual(set(summary["camera_variants"]), set(self.variants))
+        table = episode_frames.markdown_table(summary)
+        self.assertIn("| camera moves |", table)
+        self.assertEqual(sum("camera moves" in line for line in table.splitlines()), 2)
 
 
 if __name__ == "__main__":

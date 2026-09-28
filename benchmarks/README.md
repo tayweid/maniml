@@ -173,6 +173,13 @@ a row for each:
   `camera.fps`, and its middle frames are sampled in turn, one rotation of
   the variants per frame with the scene mid-interpolation. The scene
   changes between rows as it does on screen.
+- **Camera moves** (`--camera-moves`): after a frame's pausepoint rounds,
+  rounds of `browser_frames`' moves (a pan of 5% of the frame's width, a 2%
+  zoom out and the camera put back, `move_camera`), warmups then samples,
+  one rotation of the variants per move: what a move costs where it
+  re-evaluates something (a surface net's density follows the zoom; a pan
+  or an orbit re-evaluates nothing). Rows of phase `camera`, reduced as
+  `camera_timing_ms`.
 
 The first row after each restore is kept per frame as `cold` and excluded;
 a seek is what cold rows feel like, and they are perturbed by the flag
@@ -187,6 +194,11 @@ two against CPU-border Phase A and Original 2D), and the table prints them.
 `n`, the pixel pairs, the scene, commit, machine and the scope caveats; the
 markdown table is printed and written as `summary.md`.
 
+`gpu_border` and `cpu_border` are Phase A forced (the renderer `phase_a`)
+and `patch_fill` the default renderer with the fills as patches alone
+(grids, programs off, records), whatever the defaults are; `nets` is Phase
+A with the surfaces as nets, B5.4's other flip, compared by
+`nets_vs_gpu_border` (`docs/phase_b4_plan.md`, "The flips").
 The variant `retained` is `gpu_border` (Phase A) with the retained frame
 (`MANIML_RETAINED_FRAME=1`, `docs/phase_b4_plan.md`); every other variant
 runs with the switch at 0, the serializer as it stood before Phase B4, so
@@ -218,7 +230,10 @@ for attribution; the report's `gate_scope` names what none of them measures
 fails on a frame (an unsupported prototype, a singular camera) is recorded
 under that frame's `errors` and the frame keeps the rest. Pass the episode by
 absolute path (its own `../_Assets` imports resolve from it); TeX is needed;
-nothing is written beside the episode.
+nothing is written beside the episode. Every variant draws programs off, so
+the harness sets `MANIML_PROGRAMS=off` for the run: a play's animations
+decide at their begin whether they write programs, and a default that flips
+must not change what a play here records.
 
 ## Browser frames
 
@@ -235,14 +250,19 @@ message serialized as the viewer sends it, one `GeometryCache` per stream
 and never reset, so every message is a delta against the one before it:
 the first message after a restore re-sends what the cache no longer holds,
 as a seek does, and the rest are cached batches with the camera. Two
-streams of the same frames are the variants: `phase_a` from the default
-renderer and `phase_b` from the whole Phase B stack (`MANIML_FILL=patches
-MANIML_SURFACE=nets MANIML_PROGRAMS=gpu`, its records packed:
-`MANIML_PATCH_SOURCE=records`) through the same driver; `--variants` may
-also name `phase_b_rows`, the same stack with its paths sent as rows
-(`MANIML_PATCH_SOURCE=rows`, `docs/phase_b4_plan.md` B5.1), and
-`phase_a_strokes`, Phase A with its paths without fill animated as GPU
-programs (`MANIML_PROGRAMS=strokes`, B5.3). Each is
+streams of the same frames are the variants: `phase_a` from Phase A forced
+(the renderer `phase_a`, whatever the defaults are) and `phase_b` from the
+whole Phase B stack (`MANIML_FILL=patches MANIML_SURFACE=nets
+MANIML_PROGRAMS=gpu`, its records packed: `MANIML_PATCH_SOURCE=records`)
+through the same driver; `--variants` may also name `phase_b_rows`, the
+same stack with its paths sent as rows (`MANIML_PATCH_SOURCE=rows`,
+`docs/phase_b4_plan.md` B5.1), `phase_a_strokes`, Phase A with its paths
+without fill animated as GPU programs (`MANIML_PROGRAMS=strokes`, B5.3),
+and `phase_a_nets` and `phase_a_patches`, Phase A with one of B5.4's flips
+(the surfaces as nets, or the fills as patches with their records packed;
+the plan's "The flips"). Every variant but `phase_a` is the default
+renderer (`triangles`) under its switches, since a recording names no
+other. Each is
 written under `<dir>/<variant>/` in the export recorder's format
 (`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
 it, `scene.json`'s frame entries also say what each frame is, and its
@@ -373,6 +393,100 @@ the calls, the median over the frames after the entry, the entry apart.
 `report.json` holds the per-frame medians, `summary.json` the reductions
 with the scene, commit, machine and source hashes, `summary.md` the table.
 `results/b53_strokes_20260927/` is the B5.3 run on both episodes.
+`--every-play` in place of `--plays` measures every checkpoint that saved a
+play, in order: the programs flip's gate (below) reads them all.
+
+## Flip gates
+
+`python -m benchmarks.flip_gates` holds the default flips of
+`docs/phase_b4_plan.md` ("The flips", B5.4) to their gates. A flip of the
+fill or the surface is judged on the **browser-side complete frame**, the
+gate Taylor set for the patch fill (confirmed 2026-09-27): per frame,
+Python's `serialize_ms`, the page's JavaScript (`browser_frames`' `page_ms`)
+and the GPU (`gpu_total_ms` from `episode_frames`' attribution run), summed,
+then reduced per class (pausepoint, ticked, camera, play) for the flip and
+for Phase A, in both wire formats. Each part comes from the harness that
+measures it, over the same frames (all three choose them with
+`episode_frames.select_frames` and sample a play's middle window alike), so
+a gate run on one episode is six commands, one at a time on a quiet GPU:
+
+```bash
+S=(/abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2)
+F=(--tick-updaters --play-frames --camera-moves)
+python -m benchmarks.episode_frames --scene $S --variants patch_fill gpu_border $F --output <d>/frames
+python -m benchmarks.episode_frames --scene $S --variants patch_fill gpu_border $F --gpu-timestamps --output <d>/gpu1
+python -m benchmarks.browser_frames --scene $S --variants phase_a phase_a_patches $F --deltas --realm main --rounds 5 --output <d>/browser
+python -m benchmarks.flip_gates serialize --flip patches --scene $S $F --output <d>/serialize
+python -m benchmarks.episode_frames --scene $S --variants patch_fill gpu_border $F --gpu-timestamps --output <d>/gpu2
+python -m benchmarks.flip_gates complete --flip patches --serialize <d>/serialize --browser <d>/browser \
+    --gpu <d>/gpu1 <d>/gpu2 --pixels <d>/frames --limit 1.0 --output <d>/complete
+```
+
+(`--flip nets` with the variants `nets gpu_border` and `phase_a phase_a_nets`.)
+`serialize` measures the Python part itself: Phase A forced and the flip's
+stack (`browser_frames`' variant's environment on the default renderer),
+each as format 7 full frames and as a negotiated format 8 stream, through a
+cache of its own, the retained frame on and programs off. The four take
+turns so that each is the first reader of what moved, as the viewer's one
+cache is (a read refreshes a path's derived columns, so a second reader of
+the same change pays less): on a still frame round by round in rotated
+order, on a ticked frame one serializer per tick, after each camera move in
+rotated order, in a play one per replay, replay by replay. `complete` adds
+the parts per frame (a format 8 frame the stream did not send costs its
+serialize alone: the page and the GPU do nothing), takes the median over a
+class's frames (each measured play frame one value, with its play's page
+and GPU medians), and judges flip / Phase A per class and format against
+`--limit`; the GPU minimum's ratio is beside it, since the GPU clock
+follows the machine's load. Two attribution runs pooled halve that noise.
+`--pixels` adds the flip's worst pixel pair against Phase A
+(`<flip>_vs_gpu_border`, ≤ 0.5%) from the flag-off run: every measured
+pausepoint, and every frame of a play's sampled window strictly inside the
+play (`episode_frames`' `pixel_frames`, the warmups included; a short
+play's window reaches its landing, which is the pausepoint's own picture),
+each frame counted once. `fixtures` draws every Surface fixture
+(`tests/surface_fixtures.py`) natively from Phase A's grids and from nets
+and writes the pairs, the nets flip's other pixel gate (held in
+`tests/test_surface_net.py` under `MANIML_TEST_GPU=1`).
+
+**The gate's GPU part and the measuring contract disagree where a flip
+changes the pass count.** Taylor's gate takes the GPU from the attribution
+run, while the contract above ("GPU pass timestamps") takes every gate
+number from a run without the flag, because the stamps cost each pass
+~30 µs of wall clock. For most frames the two agree; where the flip makes
+an object a pass of its own (a surface net, a program), the stamped GPU
+charges the stack with more passes that cost per pass: on B4's 479-sphere
+zoom, nets read 31.3 ms of stamped GPU against 27.9 ms of flag-off wall
+clock from the submit through the full readback, which contains that GPU
+work and the readback besides. So `complete` also reports, from the
+`--pixels` runs, the same frames with the GPU part their flag-off
+`submit_through_full_readback_ms` (`flag_off_check`, the table's last
+column): it has no stamps, but its readback (the same in both stacks)
+dilutes every ratio, so the two ratios bracket the flip's. The verdict is
+read on Taylor's gate as written, and the check is quoted beside it.
+
+A flip of the programs' default is judged on Python and pixels instead:
+`play_frames --every-play --modes off strokes` in both formats (four
+replays a mode in format 8, two in format 7) and once with `--render
+--format 7 --replays 1` for the pixels and the native complete frame, then
+`flip_gates programs --plays <the runs> --render <the render runs>`: per
+episode and format, each play frame's `serialize_ms` plus `scene_ms` (the
+scene's own Python since the frame before; a play's entry counts its
+serialize alone), totalled over every frame of every play and divided by
+the frames, the plays where the candidate is dearer, and the worst frame's
+pixels against the CPU path. The modes take turns replay by replay, and
+the mode that opens a play alternates play by play, since a play's first
+replay is the first to run it after the play before (a turn that was
+measured to move the ratio by up to half a percent, either way). The gate
+reads the **order-balanced** ratio: the geometric mean of the ratio over
+the plays the reference opened and the ratio over those the candidate
+opened, which holds no constant share of that turn, with a 95% interval
+from resampling the plays of each opener (seeded); the same over the plays
+where the candidate recorded a program and over the rest (where it records
+none but still decides at each animation's begin and notes revisions each
+frame), and over the render runs' native complete frame. A run whose plays
+one mode opened throughout (`play_frames` before B5.4's fix pass) is
+refused. `results/phase_b_flips_20260927/` is the B5.4 run of all three
+gates.
 
 ## Point reads by kind and phase
 

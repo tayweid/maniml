@@ -90,4 +90,22 @@ function fixture() {
   assert(!failure.selection.ready);
   await failure.selection.select('winding');
   assert.deepEqual(failure.calls,['destroy:triangles','init:winding']);
+
+  // The viewer's four modes, three of them one driver. Phase A draws the
+  // frames the engine stamps "triangles" (its bytes are the ones Phase A
+  // always wrote, which the golden pin holds); Phase B draws only its own,
+  // and the default none of Phase B's.
+  const stacks = fixture();
+  const shared = stacks.drivers.triangles;
+  const four = new Selection({}, {triangles: shared, phase_a: shared, phase_b: shared, winding: stacks.drivers.winding});
+  await four.select('phase_a');
+  assert.notEqual(await four.render(payload('triangles')), null);
+  for (const other of ['phase_a', 'phase_b', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  await four.select('phase_b');
+  assert.notEqual(await four.render(payload('phase_b')), null);
+  for (const other of ['triangles', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  await four.select('triangles');
+  assert.notEqual(await four.render(payload('triangles')), null);
+  for (const other of ['phase_b', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  assert.equal(stacks.calls.filter(x => x === 'render:triangles').length, 3);
 })().catch(error => { console.error(error); process.exitCode=1; });

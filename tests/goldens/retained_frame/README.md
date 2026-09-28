@@ -2,15 +2,22 @@
 
 blake2b-128 digests of the bytes `maniml.web.geometry.serialize_scene`
 produces, frame by frame through one persistent `GeometryCache` per case
-and renderer, for `renderer="triangles"` (Phase A) and `"phase_b"`. They
-were recorded from the serializer as it stood before Phase B4's first
-increment (docs/phase_b4_plan.md, B4.0) and are the contract every
-increment of the retained frame holds: with `MANIML_RETAINED_FRAME=0` the
-bytes may not move, and with the retained frame on, the default since
-B4.5, they are the flag-off bytes. The pin runs with the run's switch; CI
-runs it with the default, with the switch at 0 and under
-`MANIML_VERIFY_LEDGER=1` (`.github/workflows/ci.yml`), and so should a
-local proof of a change to the serializer.
+and renderer, for `renderer="phase_a"` (Phase A forced) and `"phase_b"`
+(the Phase B stack forced). They were recorded from the serializer as it
+stood before Phase B4's first increment (docs/phase_b4_plan.md, B4.0) and
+are the contract every increment of the retained frame holds: with
+`MANIML_RETAINED_FRAME=0` the bytes may not move, and with the retained
+frame on, the default since B4.5, they are the flag-off bytes. The pin
+holds the two forced renderers, not the default (`"triangles"`), so no
+default that flips (docs/phase_b4_plan.md, "The flips") can move a pinned
+byte. Phase A's digests were recorded under the name `"triangles"`, when
+that was Phase A; B5.4 renamed the key to `"phase_a"`, every digest
+unchanged, since `"phase_a"` writes those bytes, its header included. The
+plays were recorded with their animations writing no program, and the pin
+states it (`MANIML_PROGRAMS=off`) rather than inheriting the default. The
+pin runs with the run's switch; CI runs it with the default, with the
+switch at 0 and under `MANIML_VERIFY_LEDGER=1` (`.github/workflows/ci.yml`),
+and so should a local proof of a change to the serializer.
 `tests/test_retained_frame.py` asserts them and describes each case. Every
 case records the frame contract its bytes assume (the CE config's pixel
 resolution and frame height) as part of its `input`; a case whose input

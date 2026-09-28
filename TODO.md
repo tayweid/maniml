@@ -247,8 +247,28 @@ its own, encoded every frame, and a compute pass with two dispatches in
 each driver, which makes the complete native frame dearer on every play
 measured (~31 ms on the bumper, the GPU ~13 ms) and the page's JavaScript
 on the bumper 0.1 → 0.9 ms under format 7, 0.5 under format 8 (the same
-one-dispatch fix; `benchmarks/play_frames.py` measures it). The
-paragraphs below are the earlier framing and remain the contracts for
+one-dispatch fix; `benchmarks/play_frames.py` measures it). B5.4 (the
+plan's "The flips", 2026-09-28) made the flips expressible without losing
+Phase A (renderers `triangles` = the default stack, `phase_a` and `phase_b`
+forced, `winding`; the viewer's Default / Phase A / Phase B / Original 2D;
+the golden pin holds the forced names) and measured each on its gate
+(`benchmarks/flip_gates.py`, archive `benchmarks/results/phase_b_flips_20260927/`).
+None flipped. Nets pass their pixels but cost 23-34% more on camera moves
+(13-33% with the GPU part from flag-off wall clock, since the stamps
+overstate a frame of many passes): a zoom re-evaluates every net in a pass
+of its own (16-19 ms of flag-off wall clock on B4's heaviest frames, up to
+479 spheres) though the kernel's output moves only with a net's step count,
+so keying the evaluation on the step count, and one dispatch for a frame's
+nets, are the open items. Patches fail Taylor's complete-frame gate on
+both episodes' plays (1.15× and 1.48×, the serialize's) and ticked frames.
+Strokes, evaluated in place of `gpu` since patches did not flip, pass
+their pixels, but their Python per play frame, order-balanced, is no lower
+than programs off (-0.03% on EpisodeB2 in format 8, +0.05% to +0.32% in the
+other three runs, PriceDiscovery's format 8 measurably higher), while the
+native complete frame is 1.4-1.8% dearer over every play and 2.4-6.4% on
+the plays that record a program. The one-dispatch fix now stands in front
+of all three: rows, programs and nets.
+The paragraphs below are the earlier framing and remain the contracts for
 resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):

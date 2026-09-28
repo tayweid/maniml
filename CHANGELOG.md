@@ -7,6 +7,32 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The viewer's **Scene renderer** selector offers **Default**, **Phase A**,
+  **Phase B** and **Original 2D** (docs/phase_b4_plan.md, "The flips").
+  Default is the default stack, whatever the generators' defaults are and
+  what `MANIML_FILL`, `MANIML_SURFACE` and `MANIML_PROGRAMS` say, and it is
+  what `--render`, checkpoint stills and `--export` draw; Phase A and
+  Phase B force the two ends whatever the defaults or the environment say,
+  so Phase A stays selectable whichever way a default goes. `MANIML_RENDERER`
+  and the viewer take the names `triangles` (the default), `phase_a`,
+  `phase_b` and `winding`. Phase A's frames are byte for byte what Phase A
+  always sent, and the serializer's golden digests pin Phase A and Phase B
+  by these forced names, so a default that flips moves none of them.
+  The three flips were then measured against their gates (2026-09-28) and
+  none passed, so the defaults are unchanged: surfaces as nets match the
+  grids' pixels but cost 23-34% more of the page's complete frame on camera
+  moves (13-33% with the GPU timed without per-pass timestamps, which
+  overstate a frame of many passes), since a zoom evaluates every net on
+  screen again, each in a pass of its own;
+  fills as patches cost 15-48% more on the course episodes' plays; and
+  strokes animated as GPU programs make those plays' Python no cheaper
+  (within half a percent either way) while costing the GPU a pass a
+  program. `python -m
+  benchmarks.flip_gates` measures the browser-side complete frame a flip is
+  judged on (Python, the page's JavaScript and the GPU of the same frames),
+  `benchmarks/episode_frames.py --camera-moves` gives a camera move GPU
+  rows of its own, and `benchmarks/play_frames.py --every-play` measures
+  every play of an episode.
 - The viewer sends the browser only what changed (docs/phase_b4_plan.md,
   B4.8, geometry format 8). A page announces format 8 in its mode message;
   once every tab connected has, each geometry message after the first is a

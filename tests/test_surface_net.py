@@ -217,6 +217,25 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
                 self.assertLessEqual(smooth, .005)
                 self.assertGreater(header["batches"][0]["net"]["capacity"], 4)
 
+    def test_every_surface_fixture_is_within_the_flip_gate(self):
+        """B5.4's nets gate (docs/phase_b4_plan.md, "The flips"): every
+        Surface fixture drawn from nets is within 0.5% of pixels over 24/255
+        of Phase A's grids, each drawing its surfaces as nets there and as
+        grids here."""
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.surface_fixtures import PIXEL_LIMIT, SURFACE_FIXTURES, nets_against_grids
+
+        nets = WgpuRenderer()
+        try:
+            for name in SURFACE_FIXTURES:
+                with self.subTest(fixture=name):
+                    result = nets_against_grids(name, self.driver, nets)
+                    self.assertGreater(result["grid_batches"], 0)
+                    self.assertGreater(result["net_batches"], 0)
+                    self.assertLessEqual(result["fraction_pixels_rgb_over24"], PIXEL_LIMIT)
+        finally:
+            nets.close()
+
     def test_camera_changes_resend_nothing_and_a_zoom_grows_the_reservation(self):
         from maniml.web.geometry import GeometryCache
         from maniml.web.triangle_scene import TriangleMeshCache

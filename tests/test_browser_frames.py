@@ -59,6 +59,18 @@ def messages_of(stream):
     return parsed
 
 
+class Variants(unittest.TestCase):
+    def test_every_stream_pins_its_stack_whatever_the_defaults(self):
+        # B5.4 (docs/phase_b4_plan.md, "The flips"): phase_a is Phase A
+        # forced; every other variant is the default renderer under its
+        # switches, and names all three, so a default that flips moves no
+        # stream.
+        self.assertEqual(browser_frames.RENDERERS, {"phase_a": "phase_a"})
+        for variant, environment in browser_frames.ENVIRONMENTS.items():
+            with self.subTest(variant=variant):
+                self.assertLessEqual({"MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS"}, set(environment))
+
+
 @unittest.skipIf(shutil.which("node") is None, "node not available")
 @unittest.skipUnless(_lyon(), "the Lyon helper is the frame preparer's tessellator")
 class BrowserFrames(unittest.TestCase):

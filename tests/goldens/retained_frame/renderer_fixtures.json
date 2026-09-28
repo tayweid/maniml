@@ -3,24 +3,24 @@
   "annulus_hole": {
    "frames": {
     "00 cold": {
-     "phase_b": "1cc2f5c77b35f97520a7fcd42ca606c7",
-     "triangles": "d879873ffb03a3c4a87e4fe4146a6a77"
+     "phase_a": "d879873ffb03a3c4a87e4fe4146a6a77",
+     "phase_b": "1cc2f5c77b35f97520a7fcd42ca606c7"
     },
     "01 still": {
-     "phase_b": "2d34c208401d08fda563821b4b7c8ab7",
-     "triangles": "be35177b57d05f4d33c36276e17b8f32"
+     "phase_a": "be35177b57d05f4d33c36276e17b8f32",
+     "phase_b": "2d34c208401d08fda563821b4b7c8ab7"
     },
     "02 pan": {
-     "phase_b": "8800c49174a2b6fa6fc6bbf2132c0cea",
-     "triangles": "2ac04f0be015ed75bc4e00fc413380c2"
+     "phase_a": "2ac04f0be015ed75bc4e00fc413380c2",
+     "phase_b": "8800c49174a2b6fa6fc6bbf2132c0cea"
     },
     "03 zoom out": {
-     "phase_b": "66ba26e2229b4b4139c54f4d6fafc8d3",
-     "triangles": "5e11f46813651513f0cd83fb97609c17"
+     "phase_a": "5e11f46813651513f0cd83fb97609c17",
+     "phase_b": "66ba26e2229b4b4139c54f4d6fafc8d3"
     },
     "04 zoom back": {
-     "phase_b": "8800c49174a2b6fa6fc6bbf2132c0cea",
-     "triangles": "2ac04f0be015ed75bc4e00fc413380c2"
+     "phase_a": "2ac04f0be015ed75bc4e00fc413380c2",
+     "phase_b": "8800c49174a2b6fa6fc6bbf2132c0cea"
     }
    },
    "input": {
@@ -34,24 +34,24 @@
   "curved_fill": {
    "frames": {
     "00 cold": {
-     "phase_b": "dfbd7e925886471bf6d7c75ac07e9c5c",
-     "triangles": "5406520af055575e1e266e25ee8d68dd"
+     "phase_a": "5406520af055575e1e266e25ee8d68dd",
+     "phase_b": "dfbd7e925886471bf6d7c75ac07e9c5c"
     },
     "01 still": {
-     "phase_b": "535d3ec262a133f4861bf2d799616277",
-     "triangles": "743274bc06bc5db07badb467c1b137fb"
+     "phase_a": "743274bc06bc5db07badb467c1b137fb",
+     "phase_b": "535d3ec262a133f4861bf2d799616277"
     },
     "02 pan": {
-     "phase_b": "2ed42c7fe1ec59331d241643d501d90d",
-     "triangles": "67b1cde026c6de2a23d0cd02b55e714a"
+     "phase_a": "67b1cde026c6de2a23d0cd02b55e714a",
+     "phase_b": "2ed42c7fe1ec59331d241643d501d90d"
     },
     "03 zoom out": {
-     "phase_b": "08267e27de854c3066e42981c0815fee",
-     "triangles": "45714f4a26df19478b438bb154a75246"
+     "phase_a": "45714f4a26df19478b438bb154a75246",
+     "phase_b": "08267e27de854c3066e42981c0815fee"
     },
     "04 zoom back": {
-     "phase_b": "2ed42c7fe1ec59331d241643d501d90d",
-     "triangles": "67b1cde026c6de2a23d0cd02b55e714a"
+     "phase_a": "67b1cde026c6de2a23d0cd02b55e714a",
+     "phase_b": "2ed42c7fe1ec59331d241643d501d90d"
     }
    },
    "input": {
@@ -65,24 +65,24 @@
   "fill_border_default": {
    "frames": {
     "00 cold": {
-     "phase_b": "e4114cb9bce209110f38d167dd104516",
-     "triangles": "36d271958fb5ff318a8526f6bfbf0232"
+     "phase_a": "36d271958fb5ff318a8526f6bfbf0232",
+     "phase_b": "e4114cb9bce209110f38d167dd104516"
     },
     "01 still": {
-     "phase_b": "c189fbed78319bf18d5dc086870de792",
-     "triangles": "1204a9832c918f459263fe1f7418fda9"
+     "phase_a": "1204a9832c918f459263fe1f7418fda9",
+     "phase_b": "c189fbed78319bf18d5dc086870de792"
     },
     "02 pan": {
-     "phase_b": "d1228445b3e0e26f6a111b1f6d82b85a",
-     "triangles": "65d120e99e9ab7ce53cc1fe6f3b79105"
+     "phase_a": "65d120e99e9ab7ce53cc1fe6f3b79105",
+     "phase_b": "d1228445b3e0e26f6a111b1f6d82b85a"
     },
     "03 zoom out": {
-     "phase_b": "c78b6487172db54a664f0e110debfc3b",
-     "triangles": "58af91dcba36bdb5e833f8fa0049518e"
+     "phase_a": "58af91dcba36bdb5e833f8fa0049518e",
+     "phase_b": "c78b6487172db54a664f0e110debfc3b"
     },
     "04 zoom back": {
-     "phase_b": "d1228445b3e0e26f6a111b1f6d82b85a",
-     "triangles": "65d120e99e9ab7ce53cc1fe6f3b79105"
+     "phase_a": "65d120e99e9ab7ce53cc1fe6f3b79105",
+     "phase_b": "d1228445b3e0e26f6a111b1f6d82b85a"
     }
    },
    "input": {
@@ -96,24 +96,24 @@
   "fill_border_wide": {
    "frames": {
     "00 cold": {
-     "phase_b": "353c845752cc54a994e2ce620225e6f4",
-     "triangles": "f6afbbea9fe04229993777a1cf80abef"
+     "phase_a": "f6afbbea9fe04229993777a1cf80abef",
+     "phase_b": "353c845752cc54a994e2ce620225e6f4"
     },
     "01 still": {
-     "phase_b": "5810ec6b7ebb296011490cededdd2758",
-     "triangles": "c38bf1bc6e63d280b543554bf0e12732"
+     "phase_a": "c38bf1bc6e63d280b543554bf0e12732",
+     "phase_b": "5810ec6b7ebb296011490cededdd2758"
     },
     "02 pan": {
-     "phase_b": "6cefd579a37f15a93e026ce7b3a98587",
-     "triangles": "63947eac94899109d900b0eb00db3581"
+     "phase_a": "63947eac94899109d900b0eb00db3581",
+     "phase_b": "6cefd579a37f15a93e026ce7b3a98587"
     },
     "03 zoom out": {
-     "phase_b": "74b39ebf7b2b66c2b5679ab75a73452e",
-     "triangles": "9e6ae4eba4457fe198103e212d804fc8"
+     "phase_a": "9e6ae4eba4457fe198103e212d804fc8",
+     "phase_b": "74b39ebf7b2b66c2b5679ab75a73452e"
     },
     "04 zoom back": {
-     "phase_b": "6cefd579a37f15a93e026ce7b3a98587",
-     "triangles": "63947eac94899109d900b0eb00db3581"
+     "phase_a": "63947eac94899109d900b0eb00db3581",
+     "phase_b": "6cefd579a37f15a93e026ce7b3a98587"
     }
    },
    "input": {
@@ -127,24 +127,24 @@
   "gradient_curve": {
    "frames": {
     "00 cold": {
-     "phase_b": "0a645480f9e9e7462fc8958e0aa92779",
-     "triangles": "2eaa85cc6c3adec6bba99a1916cc9566"
+     "phase_a": "2eaa85cc6c3adec6bba99a1916cc9566",
+     "phase_b": "0a645480f9e9e7462fc8958e0aa92779"
     },
     "01 still": {
-     "phase_b": "d0edd7df2212bd0f44d068ef08d4b331",
-     "triangles": "c14123275c90ffdc1caaade4e3600ed4"
+     "phase_a": "c14123275c90ffdc1caaade4e3600ed4",
+     "phase_b": "d0edd7df2212bd0f44d068ef08d4b331"
     },
     "02 pan": {
-     "phase_b": "2ed95fc55bf7c2cf3791fa7198e00fba",
-     "triangles": "325dfd034b7c8fa6a597d3600110d9c1"
+     "phase_a": "325dfd034b7c8fa6a597d3600110d9c1",
+     "phase_b": "2ed95fc55bf7c2cf3791fa7198e00fba"
     },
     "03 zoom out": {
-     "phase_b": "154ca90210d7311cd3bcaf3c50b38eb6",
-     "triangles": "b43d5f232f0ec3a123681a2f370b3cd8"
+     "phase_a": "b43d5f232f0ec3a123681a2f370b3cd8",
+     "phase_b": "154ca90210d7311cd3bcaf3c50b38eb6"
     },
     "04 zoom back": {
-     "phase_b": "2ed95fc55bf7c2cf3791fa7198e00fba",
-     "triangles": "325dfd034b7c8fa6a597d3600110d9c1"
+     "phase_a": "325dfd034b7c8fa6a597d3600110d9c1",
+     "phase_b": "2ed95fc55bf7c2cf3791fa7198e00fba"
     }
    },
    "input": {
@@ -158,24 +158,24 @@
   "mixed_depth": {
    "frames": {
     "00 cold": {
-     "phase_b": "ece45d6b26c9d133434d38db6447d2c2",
-     "triangles": "6748ff40442840054ca3b243ce34c9ed"
+     "phase_a": "6748ff40442840054ca3b243ce34c9ed",
+     "phase_b": "ece45d6b26c9d133434d38db6447d2c2"
     },
     "01 still": {
-     "phase_b": "37924bb923aee84b57ad22bda63daf5b",
-     "triangles": "bde5b1c6462e9e4e59116cd9719769fc"
+     "phase_a": "bde5b1c6462e9e4e59116cd9719769fc",
+     "phase_b": "37924bb923aee84b57ad22bda63daf5b"
     },
     "02 pan": {
-     "phase_b": "ccfbd607e1c7b5bec34a12796ca539bd",
-     "triangles": "caddd3cd9466f23045adbba0918f90c9"
+     "phase_a": "caddd3cd9466f23045adbba0918f90c9",
+     "phase_b": "ccfbd607e1c7b5bec34a12796ca539bd"
     },
     "03 zoom out": {
-     "phase_b": "02b43d240725c246edbf4fd709893066",
-     "triangles": "7013b557b056cb94b22a85734379adf8"
+     "phase_a": "7013b557b056cb94b22a85734379adf8",
+     "phase_b": "02b43d240725c246edbf4fd709893066"
     },
     "04 zoom back": {
-     "phase_b": "ccfbd607e1c7b5bec34a12796ca539bd",
-     "triangles": "caddd3cd9466f23045adbba0918f90c9"
+     "phase_a": "caddd3cd9466f23045adbba0918f90c9",
+     "phase_b": "ccfbd607e1c7b5bec34a12796ca539bd"
     }
    },
    "input": {
@@ -189,24 +189,24 @@
   "nested_contours": {
    "frames": {
     "00 cold": {
-     "phase_b": "b97c86060cd4eacecec649b5cef8c610",
-     "triangles": "0998b01c95344f23f46530c8fcea51bc"
+     "phase_a": "0998b01c95344f23f46530c8fcea51bc",
+     "phase_b": "b97c86060cd4eacecec649b5cef8c610"
     },
     "01 still": {
-     "phase_b": "8ef4f87ed5c8518f273d6455e4d6fc13",
-     "triangles": "ad3e9470f2aeea3b1dd61f6bc21c4543"
+     "phase_a": "ad3e9470f2aeea3b1dd61f6bc21c4543",
+     "phase_b": "8ef4f87ed5c8518f273d6455e4d6fc13"
     },
     "02 pan": {
-     "phase_b": "62c0587845ee04da1c9b3c2ec1a46b71",
-     "triangles": "00cb567db4abfd626eff7040bea2924b"
+     "phase_a": "00cb567db4abfd626eff7040bea2924b",
+     "phase_b": "62c0587845ee04da1c9b3c2ec1a46b71"
     },
     "03 zoom out": {
-     "phase_b": "ec9eeea753b4d154ea2b007720a0e96b",
-     "triangles": "8a95eac35c97d6c1ebf2a8268672a372"
+     "phase_a": "8a95eac35c97d6c1ebf2a8268672a372",
+     "phase_b": "ec9eeea753b4d154ea2b007720a0e96b"
     },
     "04 zoom back": {
-     "phase_b": "62c0587845ee04da1c9b3c2ec1a46b71",
-     "triangles": "00cb567db4abfd626eff7040bea2924b"
+     "phase_a": "00cb567db4abfd626eff7040bea2924b",
+     "phase_b": "62c0587845ee04da1c9b3c2ec1a46b71"
     }
    },
    "input": {
@@ -220,24 +220,24 @@
   "quad_after_flip": {
    "frames": {
     "00 cold": {
-     "phase_b": "1ab191e0cb8c4607889581d475ce4cf0",
-     "triangles": "d02f020ebcefc5cbb7980468371ce0ff"
+     "phase_a": "d02f020ebcefc5cbb7980468371ce0ff",
+     "phase_b": "1ab191e0cb8c4607889581d475ce4cf0"
     },
     "01 still": {
-     "phase_b": "81e5dc702da248dac4c81533fddfdcae",
-     "triangles": "e0f9a728aaf5056a7ca70c625f0b187e"
+     "phase_a": "e0f9a728aaf5056a7ca70c625f0b187e",
+     "phase_b": "81e5dc702da248dac4c81533fddfdcae"
     },
     "02 pan": {
-     "phase_b": "884e2655d4227f993f7e336abf7f6984",
-     "triangles": "05c0626eaa432c2e8c675ca9f0095c44"
+     "phase_a": "05c0626eaa432c2e8c675ca9f0095c44",
+     "phase_b": "884e2655d4227f993f7e336abf7f6984"
     },
     "03 zoom out": {
-     "phase_b": "2cb1ccfb9d1f1e8e7ea65a4ba6b753b4",
-     "triangles": "a451e61afb19cfa5e64d29b3f7391a04"
+     "phase_a": "a451e61afb19cfa5e64d29b3f7391a04",
+     "phase_b": "2cb1ccfb9d1f1e8e7ea65a4ba6b753b4"
     },
     "04 zoom back": {
-     "phase_b": "884e2655d4227f993f7e336abf7f6984",
-     "triangles": "05c0626eaa432c2e8c675ca9f0095c44"
+     "phase_a": "05c0626eaa432c2e8c675ca9f0095c44",
+     "phase_b": "884e2655d4227f993f7e336abf7f6984"
     }
    },
    "input": {
@@ -251,24 +251,24 @@
   "quad_before_flip": {
    "frames": {
     "00 cold": {
-     "phase_b": "6f3397d8f2ff35fe47b8d43e32d35202",
-     "triangles": "69ff5445a8140c0152b46af8dcfa7763"
+     "phase_a": "69ff5445a8140c0152b46af8dcfa7763",
+     "phase_b": "6f3397d8f2ff35fe47b8d43e32d35202"
     },
     "01 still": {
-     "phase_b": "3a20bf3e4eb39b949e98537438cd9bf3",
-     "triangles": "171cfcafa3edf719195c5fbe56dba0ab"
+     "phase_a": "171cfcafa3edf719195c5fbe56dba0ab",
+     "phase_b": "3a20bf3e4eb39b949e98537438cd9bf3"
     },
     "02 pan": {
-     "phase_b": "e0c244371e74a2e42321c91e83e87e37",
-     "triangles": "8bb4ddd3096a5c324824ffe55eb072f9"
+     "phase_a": "8bb4ddd3096a5c324824ffe55eb072f9",
+     "phase_b": "e0c244371e74a2e42321c91e83e87e37"
     },
     "03 zoom out": {
-     "phase_b": "2aab31fb152f3c8c4ed3e1ec76a738ac",
-     "triangles": "ae06497056f465b32e3878d35d84f7eb"
+     "phase_a": "ae06497056f465b32e3878d35d84f7eb",
+     "phase_b": "2aab31fb152f3c8c4ed3e1ec76a738ac"
     },
     "04 zoom back": {
-     "phase_b": "e0c244371e74a2e42321c91e83e87e37",
-     "triangles": "8bb4ddd3096a5c324824ffe55eb072f9"
+     "phase_a": "8bb4ddd3096a5c324824ffe55eb072f9",
+     "phase_b": "e0c244371e74a2e42321c91e83e87e37"
     }
    },
    "input": {
@@ -282,24 +282,24 @@
   "quad_concave": {
    "frames": {
     "00 cold": {
-     "phase_b": "79a186afef17f4bef758c0a3038d099c",
-     "triangles": "1c94055b77edc57e7864e319d8446dee"
+     "phase_a": "1c94055b77edc57e7864e319d8446dee",
+     "phase_b": "79a186afef17f4bef758c0a3038d099c"
     },
     "01 still": {
-     "phase_b": "7fc36fa2f5d5d2a0278450febc506193",
-     "triangles": "41fe53b1f0963567911dea7225bdb1ed"
+     "phase_a": "41fe53b1f0963567911dea7225bdb1ed",
+     "phase_b": "7fc36fa2f5d5d2a0278450febc506193"
     },
     "02 pan": {
-     "phase_b": "4a1e344ee8fd627741c7debf1eaf5a5b",
-     "triangles": "eef547c9f61bf9dd7ca8f504286f89e0"
+     "phase_a": "eef547c9f61bf9dd7ca8f504286f89e0",
+     "phase_b": "4a1e344ee8fd627741c7debf1eaf5a5b"
     },
     "03 zoom out": {
-     "phase_b": "146c7ef065498d1a0b533a5715f6f0a9",
-     "triangles": "f8f29788b14aa2ccb647923bb7af3a89"
+     "phase_a": "f8f29788b14aa2ccb647923bb7af3a89",
+     "phase_b": "146c7ef065498d1a0b533a5715f6f0a9"
     },
     "04 zoom back": {
-     "phase_b": "4a1e344ee8fd627741c7debf1eaf5a5b",
-     "triangles": "eef547c9f61bf9dd7ca8f504286f89e0"
+     "phase_a": "eef547c9f61bf9dd7ca8f504286f89e0",
+     "phase_b": "4a1e344ee8fd627741c7debf1eaf5a5b"
     }
    },
    "input": {
@@ -313,24 +313,24 @@
   "quad_convex": {
    "frames": {
     "00 cold": {
-     "phase_b": "f19fb245d284609286f20d4edc466298",
-     "triangles": "e30d0a0c3623170ab365cd61e22254f9"
+     "phase_a": "e30d0a0c3623170ab365cd61e22254f9",
+     "phase_b": "f19fb245d284609286f20d4edc466298"
     },
     "01 still": {
-     "phase_b": "1d280ff00de0fef9b3b500425f2de553",
-     "triangles": "a122e787671df359d41031e5c0b51c7b"
+     "phase_a": "a122e787671df359d41031e5c0b51c7b",
+     "phase_b": "1d280ff00de0fef9b3b500425f2de553"
     },
     "02 pan": {
-     "phase_b": "94ebcc29c01cdb36010dbfae15bf75b7",
-     "triangles": "79cffe4208eabebd35851a289c5a674b"
+     "phase_a": "79cffe4208eabebd35851a289c5a674b",
+     "phase_b": "94ebcc29c01cdb36010dbfae15bf75b7"
     },
     "03 zoom out": {
-     "phase_b": "9ddbe77ca81ed88853eb8f9225291adf",
-     "triangles": "0d7f05d357cefa2d0cedd505b45131b8"
+     "phase_a": "0d7f05d357cefa2d0cedd505b45131b8",
+     "phase_b": "9ddbe77ca81ed88853eb8f9225291adf"
     },
     "04 zoom back": {
-     "phase_b": "94ebcc29c01cdb36010dbfae15bf75b7",
-     "triangles": "79cffe4208eabebd35851a289c5a674b"
+     "phase_a": "79cffe4208eabebd35851a289c5a674b",
+     "phase_b": "94ebcc29c01cdb36010dbfae15bf75b7"
     }
    },
    "input": {
@@ -344,24 +344,24 @@
   "repeated_winding": {
    "frames": {
     "00 cold": {
-     "phase_b": "c331832d21fdcda807e73d9df8d4763a",
-     "triangles": "79e7af4c1c71a589819b0aa3cdf13cf5"
+     "phase_a": "79e7af4c1c71a589819b0aa3cdf13cf5",
+     "phase_b": "c331832d21fdcda807e73d9df8d4763a"
     },
     "01 still": {
-     "phase_b": "99080cb88ebb36a4642c8890d41c1c6f",
-     "triangles": "c4b7687a33fac19df16309ab34bd191b"
+     "phase_a": "c4b7687a33fac19df16309ab34bd191b",
+     "phase_b": "99080cb88ebb36a4642c8890d41c1c6f"
     },
     "02 pan": {
-     "phase_b": "a03f696d4bb624ffa043654a35c892b6",
-     "triangles": "cf149e8b03d8083d00077c949bb4767d"
+     "phase_a": "cf149e8b03d8083d00077c949bb4767d",
+     "phase_b": "a03f696d4bb624ffa043654a35c892b6"
     },
     "03 zoom out": {
-     "phase_b": "08de01323a768551a8d5d8c999af9434",
-     "triangles": "bfe6bbd5531ec1e1185011a0678c3b60"
+     "phase_a": "bfe6bbd5531ec1e1185011a0678c3b60",
+     "phase_b": "08de01323a768551a8d5d8c999af9434"
     },
     "04 zoom back": {
-     "phase_b": "a03f696d4bb624ffa043654a35c892b6",
-     "triangles": "cf149e8b03d8083d00077c949bb4767d"
+     "phase_a": "cf149e8b03d8083d00077c949bb4767d",
+     "phase_b": "a03f696d4bb624ffa043654a35c892b6"
     }
    },
    "input": {
@@ -375,24 +375,24 @@
   "reversed_winding": {
    "frames": {
     "00 cold": {
-     "phase_b": "fb772fcbf75c612c0bad96623f1de90e",
-     "triangles": "01646530bf1d4044dd828dd5a4994768"
+     "phase_a": "01646530bf1d4044dd828dd5a4994768",
+     "phase_b": "fb772fcbf75c612c0bad96623f1de90e"
     },
     "01 still": {
-     "phase_b": "7654b90653ea7d6c5d4a179a9bb28554",
-     "triangles": "52d5a4644a372545e755eff6f9bd45ef"
+     "phase_a": "52d5a4644a372545e755eff6f9bd45ef",
+     "phase_b": "7654b90653ea7d6c5d4a179a9bb28554"
     },
     "02 pan": {
-     "phase_b": "cf51c7ad3727109850e6ce8e3f0a2462",
-     "triangles": "45d441c31b64cba50f300632841a5e47"
+     "phase_a": "45d441c31b64cba50f300632841a5e47",
+     "phase_b": "cf51c7ad3727109850e6ce8e3f0a2462"
     },
     "03 zoom out": {
-     "phase_b": "5168bd7cfb5c978445bfdc11b5238e86",
-     "triangles": "a25660aedf88a8517b059f86d4925e5a"
+     "phase_a": "a25660aedf88a8517b059f86d4925e5a",
+     "phase_b": "5168bd7cfb5c978445bfdc11b5238e86"
     },
     "04 zoom back": {
-     "phase_b": "cf51c7ad3727109850e6ce8e3f0a2462",
-     "triangles": "45d441c31b64cba50f300632841a5e47"
+     "phase_a": "45d441c31b64cba50f300632841a5e47",
+     "phase_b": "cf51c7ad3727109850e6ce8e3f0a2462"
     }
    },
    "input": {
@@ -406,24 +406,24 @@
   "rotated_plane": {
    "frames": {
     "00 cold": {
-     "phase_b": "0d8aad9ac4ed9a289769712908f0d19d",
-     "triangles": "34c712ce117e31198263354afa46bab9"
+     "phase_a": "34c712ce117e31198263354afa46bab9",
+     "phase_b": "0d8aad9ac4ed9a289769712908f0d19d"
     },
     "01 still": {
-     "phase_b": "60debff8ff78f40058f9d552fda79f97",
-     "triangles": "d416182646bb7f3b8d75b9d173009131"
+     "phase_a": "d416182646bb7f3b8d75b9d173009131",
+     "phase_b": "60debff8ff78f40058f9d552fda79f97"
     },
     "02 pan": {
-     "phase_b": "555ab4dc1fe3c7a6b0939541d0ba6017",
-     "triangles": "ee6afa63f0e0d5c45d0f9adf1c35f2d7"
+     "phase_a": "ee6afa63f0e0d5c45d0f9adf1c35f2d7",
+     "phase_b": "555ab4dc1fe3c7a6b0939541d0ba6017"
     },
     "03 zoom out": {
-     "phase_b": "f6a630c7bd0b9b4c3e20e5914961e47a",
-     "triangles": "706c5f4c69bdee3f2988f610ddccb1c0"
+     "phase_a": "706c5f4c69bdee3f2988f610ddccb1c0",
+     "phase_b": "f6a630c7bd0b9b4c3e20e5914961e47a"
     },
     "04 zoom back": {
-     "phase_b": "555ab4dc1fe3c7a6b0939541d0ba6017",
-     "triangles": "ee6afa63f0e0d5c45d0f9adf1c35f2d7"
+     "phase_a": "ee6afa63f0e0d5c45d0f9adf1c35f2d7",
+     "phase_b": "555ab4dc1fe3c7a6b0939541d0ba6017"
     }
    },
    "input": {
@@ -437,24 +437,24 @@
   "stroke_behind_overlap": {
    "frames": {
     "00 cold": {
-     "phase_b": "7c0831bce137470ecacefed0174e0979",
-     "triangles": "5cd934ce8d106058b2d4052e5dcadc01"
+     "phase_a": "5cd934ce8d106058b2d4052e5dcadc01",
+     "phase_b": "7c0831bce137470ecacefed0174e0979"
     },
     "01 still": {
-     "phase_b": "eda14753631a2a2f058c618b9c8e984a",
-     "triangles": "de09c1e67b820818cfabcc6fffef5b35"
+     "phase_a": "de09c1e67b820818cfabcc6fffef5b35",
+     "phase_b": "eda14753631a2a2f058c618b9c8e984a"
     },
     "02 pan": {
-     "phase_b": "fa09f27603850ef4656ebcd2fec10c56",
-     "triangles": "359c163389ca403d7f3a16cbd80f35ef"
+     "phase_a": "359c163389ca403d7f3a16cbd80f35ef",
+     "phase_b": "fa09f27603850ef4656ebcd2fec10c56"
     },
     "03 zoom out": {
-     "phase_b": "22293e481bfbb19d66de03449895490e",
-     "triangles": "b76f153b2f8d6b733295440e604feaf1"
+     "phase_a": "b76f153b2f8d6b733295440e604feaf1",
+     "phase_b": "22293e481bfbb19d66de03449895490e"
     },
     "04 zoom back": {
-     "phase_b": "fa09f27603850ef4656ebcd2fec10c56",
-     "triangles": "359c163389ca403d7f3a16cbd80f35ef"
+     "phase_a": "359c163389ca403d7f3a16cbd80f35ef",
+     "phase_b": "fa09f27603850ef4656ebcd2fec10c56"
     }
    },
    "input": {
@@ -468,24 +468,24 @@
   "tapered_stroke": {
    "frames": {
     "00 cold": {
-     "phase_b": "e0bcba9601b13cdf9f9f45eebdbb87cd",
-     "triangles": "9acb7fbde4223cdb6982a22b224f0c33"
+     "phase_a": "9acb7fbde4223cdb6982a22b224f0c33",
+     "phase_b": "e0bcba9601b13cdf9f9f45eebdbb87cd"
     },
     "01 still": {
-     "phase_b": "e37a7197963fac01b84690d37b9d3edc",
-     "triangles": "43d58837c9b05a7c38266fe7dec57fe0"
+     "phase_a": "43d58837c9b05a7c38266fe7dec57fe0",
+     "phase_b": "e37a7197963fac01b84690d37b9d3edc"
     },
     "02 pan": {
-     "phase_b": "24ced13725b6fe30e074d8a797e5757f",
-     "triangles": "009e0e65864c9313d0092d9bd8bc9249"
+     "phase_a": "009e0e65864c9313d0092d9bd8bc9249",
+     "phase_b": "24ced13725b6fe30e074d8a797e5757f"
     },
     "03 zoom out": {
-     "phase_b": "7e445e502d49873e71fa14814d144519",
-     "triangles": "0adac55c2ef701fe0197aa0e0830f7c2"
+     "phase_a": "0adac55c2ef701fe0197aa0e0830f7c2",
+     "phase_b": "7e445e502d49873e71fa14814d144519"
     },
     "04 zoom back": {
-     "phase_b": "24ced13725b6fe30e074d8a797e5757f",
-     "triangles": "009e0e65864c9313d0092d9bd8bc9249"
+     "phase_a": "009e0e65864c9313d0092d9bd8bc9249",
+     "phase_b": "24ced13725b6fe30e074d8a797e5757f"
     }
    },
    "input": {
@@ -499,24 +499,24 @@
   "translucent_overlaps": {
    "frames": {
     "00 cold": {
-     "phase_b": "790f49481e8bae0ed16d47f00b5b6b5c",
-     "triangles": "98c4102228097f14e64e7494d5b26058"
+     "phase_a": "98c4102228097f14e64e7494d5b26058",
+     "phase_b": "790f49481e8bae0ed16d47f00b5b6b5c"
     },
     "01 still": {
-     "phase_b": "07b3c325ea531a187c737ddab250e4fd",
-     "triangles": "ddf7fea4eeae9316e18d2bb945eb5351"
+     "phase_a": "ddf7fea4eeae9316e18d2bb945eb5351",
+     "phase_b": "07b3c325ea531a187c737ddab250e4fd"
     },
     "02 pan": {
-     "phase_b": "6480c2640a57adff62750db734f5d78e",
-     "triangles": "e687fb8969f5ce3584d10c84563ca2d2"
+     "phase_a": "e687fb8969f5ce3584d10c84563ca2d2",
+     "phase_b": "6480c2640a57adff62750db734f5d78e"
     },
     "03 zoom out": {
-     "phase_b": "ae5259e4f6e7046a7ba82def0c1efbaf",
-     "triangles": "22eb04b5902a2278bd08dd36ac9e0598"
+     "phase_a": "22eb04b5902a2278bd08dd36ac9e0598",
+     "phase_b": "ae5259e4f6e7046a7ba82def0c1efbaf"
     },
     "04 zoom back": {
-     "phase_b": "6480c2640a57adff62750db734f5d78e",
-     "triangles": "e687fb8969f5ce3584d10c84563ca2d2"
+     "phase_a": "e687fb8969f5ce3584d10c84563ca2d2",
+     "phase_b": "6480c2640a57adff62750db734f5d78e"
     }
    },
    "input": {
@@ -530,24 +530,24 @@
   "transparent_target": {
    "frames": {
     "00 cold": {
-     "phase_b": "bae52619faacd1627788fe35eaa94493",
-     "triangles": "259499f98f660895075a1baad3a19383"
+     "phase_a": "259499f98f660895075a1baad3a19383",
+     "phase_b": "bae52619faacd1627788fe35eaa94493"
     },
     "01 still": {
-     "phase_b": "72f27f7f8035143e2e2755cded232cff",
-     "triangles": "65edb17dd7f4d23757444071728ab0c4"
+     "phase_a": "65edb17dd7f4d23757444071728ab0c4",
+     "phase_b": "72f27f7f8035143e2e2755cded232cff"
     },
     "02 pan": {
-     "phase_b": "fcec01e6051691e50d42793ebd64aefd",
-     "triangles": "ddd87d3f227bb194e50e7ff35fbdac6f"
+     "phase_a": "ddd87d3f227bb194e50e7ff35fbdac6f",
+     "phase_b": "fcec01e6051691e50d42793ebd64aefd"
     },
     "03 zoom out": {
-     "phase_b": "527581cda4f438dc8d70fa24447506a4",
-     "triangles": "3e73cdc14f6169815eea26546e13d3a5"
+     "phase_a": "3e73cdc14f6169815eea26546e13d3a5",
+     "phase_b": "527581cda4f438dc8d70fa24447506a4"
     },
     "04 zoom back": {
-     "phase_b": "fcec01e6051691e50d42793ebd64aefd",
-     "triangles": "ddd87d3f227bb194e50e7ff35fbdac6f"
+     "phase_a": "ddd87d3f227bb194e50e7ff35fbdac6f",
+     "phase_b": "fcec01e6051691e50d42793ebd64aefd"
     }
    },
    "input": {
@@ -561,24 +561,24 @@
   "uniform_color": {
    "frames": {
     "00 cold": {
-     "phase_b": "ce8823ecaad69c62020a46be87222849",
-     "triangles": "c26eb381bd661c3c733584cd6c7247a8"
+     "phase_a": "c26eb381bd661c3c733584cd6c7247a8",
+     "phase_b": "ce8823ecaad69c62020a46be87222849"
     },
     "01 still": {
-     "phase_b": "ce0739d60d3305f2fb7f34a0612a4d17",
-     "triangles": "b688f66c489c19a5809fda7d7c395c1e"
+     "phase_a": "b688f66c489c19a5809fda7d7c395c1e",
+     "phase_b": "ce0739d60d3305f2fb7f34a0612a4d17"
     },
     "02 pan": {
-     "phase_b": "9e79a77ffa314c0e6560411eb551f03f",
-     "triangles": "580e46e9fa949745cb0593132ad0005c"
+     "phase_a": "580e46e9fa949745cb0593132ad0005c",
+     "phase_b": "9e79a77ffa314c0e6560411eb551f03f"
     },
     "03 zoom out": {
-     "phase_b": "ed1919549696af8ed88a4bc46a05a897",
-     "triangles": "b45d96987aaef795f34566d9babf5358"
+     "phase_a": "b45d96987aaef795f34566d9babf5358",
+     "phase_b": "ed1919549696af8ed88a4bc46a05a897"
     },
     "04 zoom back": {
-     "phase_b": "9e79a77ffa314c0e6560411eb551f03f",
-     "triangles": "580e46e9fa949745cb0593132ad0005c"
+     "phase_a": "580e46e9fa949745cb0593132ad0005c",
+     "phase_b": "9e79a77ffa314c0e6560411eb551f03f"
     }
    },
    "input": {
@@ -592,24 +592,24 @@
   "uniform_opacity": {
    "frames": {
     "00 cold": {
-     "phase_b": "77bb4a7a356692b5f0f5e57ff893f1a5",
-     "triangles": "6cc9d5f10f8d097d9b81aceb4273247e"
+     "phase_a": "6cc9d5f10f8d097d9b81aceb4273247e",
+     "phase_b": "77bb4a7a356692b5f0f5e57ff893f1a5"
     },
     "01 still": {
-     "phase_b": "0d6c85fb8a11235c877fd373d53c5643",
-     "triangles": "8920ff90d50e9a914f8e418e4a7b6cd9"
+     "phase_a": "8920ff90d50e9a914f8e418e4a7b6cd9",
+     "phase_b": "0d6c85fb8a11235c877fd373d53c5643"
     },
     "02 pan": {
-     "phase_b": "b24e6b10c845619beb93419e7b810302",
-     "triangles": "480210307a6001f33bd867710b19ac42"
+     "phase_a": "480210307a6001f33bd867710b19ac42",
+     "phase_b": "b24e6b10c845619beb93419e7b810302"
     },
     "03 zoom out": {
-     "phase_b": "4442bfab0469051881e6bdd5d61c5080",
-     "triangles": "172ad2a61ddfa4ef2d47c8c5cd45e5ed"
+     "phase_a": "172ad2a61ddfa4ef2d47c8c5cd45e5ed",
+     "phase_b": "4442bfab0469051881e6bdd5d61c5080"
     },
     "04 zoom back": {
-     "phase_b": "b24e6b10c845619beb93419e7b810302",
-     "triangles": "480210307a6001f33bd867710b19ac42"
+     "phase_a": "480210307a6001f33bd867710b19ac42",
+     "phase_b": "b24e6b10c845619beb93419e7b810302"
     }
    },
    "input": {

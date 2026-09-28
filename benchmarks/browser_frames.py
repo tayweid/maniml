@@ -23,9 +23,9 @@ milliseconds around the driver's render and around the page's (the
 selection's routing included) and every WebGPU call the driver made. Under
 --play-edges the stream then carries, per play, the frames the play window
 leaves out: the play's first frame and its landing. The variants are
-streams of the same frames: phase_a from the default renderer, phase_b from
-the whole Phase B stack (patch fills, net surfaces, GPU programs) through
-the same driver.
+streams of the same frames: phase_a from Phase A forced (the renderer
+"phase_a", whatever the defaults are), phase_b from the whole Phase B stack
+(patch fills, net surfaces, GPU programs) through the same driver.
 """
 
 import argparse
@@ -45,8 +45,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from benchmarks.episode_frames import (ROOT, family, git_state, load_episode, play_before, play_frame_count,
-                                       replay_play, select_frames, show_frame)
+from benchmarks.episode_frames import (ROOT, family, git_state, load_episode, move_camera, play_before,
+                                       play_frame_count, replay_play, select_frames, show_frame)
 
 
 VARIANTS = ("phase_a", "phase_b")
@@ -55,8 +55,10 @@ VARIANTS = ("phase_a", "phase_b")
 # caller's environment says. phase_b_rows is phase_b with the patch fill's
 # records sent as rows (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
 # B5.1), and phase_a_strokes phase_a with its paths without fill animated
-# as GPU programs (MANIML_PROGRAMS=strokes, B5.3), each recorded when
-# --variants names it.
+# as GPU programs (MANIML_PROGRAMS=strokes, B5.3); phase_a_nets and
+# phase_a_patches are phase_a with one of B5.4's flips, the surfaces as
+# nets (B2) or the fills as patches (B1, records packed). Each is recorded
+# when --variants names it.
 ENVIRONMENTS = {
     "phase_a": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
                 "MANIML_BORDER_GENERATOR": "gpu"},
@@ -66,7 +68,16 @@ ENVIRONMENTS = {
                      "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "rows"},
     "phase_a_strokes": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "strokes",
                         "MANIML_BORDER_GENERATOR": "gpu"},
+    "phase_a_nets": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "off",
+                     "MANIML_BORDER_GENERATOR": "gpu"},
+    "phase_a_patches": {"MANIML_FILL": "patches", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
+                        "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
 }
+# The renderer a variant's stream is serialized as: Phase A forced for
+# phase_a, else the default stack under the variant's switches. Phase B
+# goes through "triangles" too, since a recording names no other
+# (player.js).
+RENDERERS = {"phase_a": "phase_a"}
 # The kinds of row, as the viewer draws them: the still redraw of a
 # pausepoint, the same with its updaters ticking, a frame of a play, and
 # the first message after a restore, delta-encoded against the previous
@@ -122,7 +133,7 @@ def summarize(rows):
 
 
 def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play_frames=False, play_edges=False,
-                  camera_moves=False, delta_stream=None):
+                  camera_moves=False, delta_stream=None, renderer="triangles"):
     """Serialize the chosen frames as the viewer would send them: per frame
     the pausepoint's rounds (warmups then samples; under ``tick_updaters``
     the scene's updaters tick 1/fps before every round on a frame that has
@@ -153,13 +164,13 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
 
     def take(fields, segment):
         started = perf_counter()
-        message = serialize_scene(scene, cache, renderer="triangles")
+        message = serialize_scene(scene, cache, renderer=renderer)
         entries.append({"len": len(message), "segment": segment, **fields,
                         "serialize_ms": 1000 * (perf_counter() - started)})
         messages.append(message)
         if delta_stream is not None:
             started = perf_counter()
-            message = serialize_scene(scene, stream, renderer="triangles")
+            message = serialize_scene(scene, stream, renderer=renderer)
             delta_stream.append((message, 1000 * (perf_counter() - started)))
 
     for position, index in enumerate(indices):
@@ -195,14 +206,9 @@ def record_stream(scene, indices, samples, warmups, *, tick_updaters=False, play
 def record_camera_moves(scene, take, fields, segment):
     """A pan of 5% of the frame's width, a 2% zoom out, and the camera put
     back as it was, after a frame's pausepoint rounds, one message each
-    (class ``camera``), as a viewer's drag and wheel move it."""
-    frame = scene.camera.frame
-    frame.save_state()
-    pan = .05 * frame.get_width() * np.array([1., 0., 0.])
-    for move, apply in (("pan", lambda: frame.shift(pan)), ("zoom", lambda: frame.scale(1.02)),
-                        ("back", frame.restore)):
-        apply()
-        scene.camera.refresh_uniforms()
+    (class ``camera``), as a viewer's drag and wheel move it
+    (episode_frames.move_camera, whose GPU rows are the same moves')."""
+    for move in move_camera(scene):
         take(dict(fields, phase="camera", move=move, iteration=0, warmup=False, cold=False,
                   updaters_ticked=False), segment)
 
@@ -489,7 +495,8 @@ def scope(tick_updaters, play_frames, realm="sandbox", play_edges=False, camera_
                "class.")),
         "stream_scope": (
             "Every round is one geometry message serialized as the viewer sends it (serialize_scene, renderer "
-            "triangles, the variant's MANIML_* switches in the environment), one GeometryCache per stream and never "
+            "phase_a for phase_a and triangles for the others, the variant's MANIML_* switches in the "
+            "environment), one GeometryCache per stream and never "
             "reset, so every message is a delta against the one before it: the first message after a restore "
             "re-sends what the cache no longer holds (cached_batches says how much it still held) and the rest carry "
             "cached batches with the camera and uniforms. Per frame the stream is that first message, the stills, "
@@ -630,7 +637,8 @@ def main(argv=None):
             messages, entries, frames = record_stream(scene, indices, args.samples, args.warmups,
                                                       tick_updaters=args.tick_updaters, play_frames=args.play_frames,
                                                       play_edges=args.play_edges, camera_moves=args.camera_moves,
-                                                      delta_stream=delta_stream)
+                                                      delta_stream=delta_stream,
+                                                      renderer=RENDERERS.get(variant, "triangles"))
         recorded = [(variant, messages, entries)]
         if delta_stream is not None:
             recorded.append((variant + DELTA, [message for message, _ in delta_stream],

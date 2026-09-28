@@ -33,6 +33,15 @@ from tests.renderer_quality_fixtures import _configure_camera, build_quality_fra
 
 
 VARIANTS = ("gpu_border", "cpu_border", "original_2d", "native_gl", "patch_fill")
+# What sample serializes for a variant: the renderer, and the switches it
+# pins for the default stack ("triangles"), so a variant means what it
+# measured whatever the defaults are (docs/phase_b4_plan.md, "The flips").
+# Phase A is the forced "phase_a"; the patch fill is patches alone (grids,
+# programs off, records packed); episode_frames' nets is Phase A's meshes
+# with the surfaces as nets (B2). Original 2D is "winding".
+ROUTES = {"gpu_border": "phase_a", "cpu_border": "phase_a", "original_2d": "winding"}
+SWITCHES = {"patch_fill": {"MANIML_FILL": "patches", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off"},
+            "nets": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "off"}}
 CASES = ("b0_static", "tex_static", "tex_pan", "tex_zoom5", "tex_zoom4_cycle",
          "tex_tilt", "tex_resize", "changing_paths")
 MOTIONS = {
@@ -237,13 +246,12 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     stages.reset()
     if queue is not None:
         queue.reset()
-    route = "winding" if name == "original_2d" else "triangles"
+    route = ROUTES.get(name, "triangles")
     # MANIML_RETAINED_FRAME as ``retained`` has it: by default the
     # whole-frame path, the serializer the archived runs measured, whatever
     # the default is; episode_frames' variant retained passes "1".
-    with patch.dict("os.environ", MANIML_BORDER_GENERATOR="gpu" if name in ("gpu_border", "patch_fill") else "cpu",
-                    MANIML_FILL="patches" if name == "patch_fill" else "meshes", MANIML_PATCH_SOURCE="records",
-                    MANIML_RETAINED_FRAME=retained):
+    with patch.dict("os.environ", MANIML_BORDER_GENERATOR="cpu" if name == "cpu_border" else "gpu",
+                    MANIML_PATCH_SOURCE="records", MANIML_RETAINED_FRAME=retained, **SWITCHES.get(name, {})):
         started = perf_counter()
         message = serialize_scene(scene, cache, renderer=route)
         serialized = perf_counter()
@@ -259,9 +267,9 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     image = renderer.render(header, payload) if renderer is not None else None
     completed = perf_counter()
     stage = stages.milliseconds
-    row = dict(prepare_ms=stage["geometry.triangle_prepare"] if route == "triangles" else sum(
+    row = dict(prepare_ms=stage["geometry.triangle_prepare"] if route != "winding" else sum(
         stage[key] for key in ("geometry.camera_uniforms", "geometry.collect_shader_data", "geometry.merge_batches", "geometry.fill_bounds")),
-        wire_encode_ms=stage["geometry.triangle_encode"] if route == "triangles" else sum(
+        wire_encode_ms=stage["geometry.triangle_encode"] if route != "winding" else sum(
             stage[key] for key in ("geometry.pack_and_hash", "geometry.json_and_join")),
         serialize_ms=1000 * (serialized - started), parse_ms=1000 * (parsed - before_parse),
         **wire_metadata(message, header, payload),

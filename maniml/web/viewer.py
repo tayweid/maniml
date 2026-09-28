@@ -701,9 +701,11 @@ class WebViewer:
                 self._renderer_mode = requested
                 self._geometry_cache.reset()
                 self._last_state = None
-                # Phase B is the whole stack: the plays that follow write
-                # GPU programs (B3) as well as drawing patches and nets
-                programs.set_override("gpu" if requested == "phase_b" else None)
+                # A forced renderer's plays write what it draws: none of
+                # the GPU programs (B3) under Phase A, all of them under
+                # Phase B; the default follows the environment
+                forced = geometry.FORCED_STACKS.get(requested)
+                programs.set_override(forced[2] if forced else None)
             # Explicit selections need an acknowledgment even when another
             # tab has already selected the same mode. Readiness carries no
             # renderer/request and must not create an acknowledgment loop.

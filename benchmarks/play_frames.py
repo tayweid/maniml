@@ -5,6 +5,9 @@ turns replay by replay.
         --scene /abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2 --plays 1 14 15 22 279 \\
         --modes off strokes --replays 6 --format 8 --output /private/tmp/plays-b2
 
+--every-play in place of --plays measures every checkpoint that saved a
+play (B5.4's programs gate, benchmarks/flip_gates.py programs).
+
 episode_frames.py and browser_frames.py sample the middle of the play into
 a pausepoint, their variants rotating frame by frame. A MANIML_PROGRAMS
 mode cannot rotate frame by frame: an animation decides at its begin
@@ -13,9 +16,14 @@ under one mode from its first frame to its last. Here each replay of a
 play runs under one mode, the modes taking turns replay by replay (off,
 strokes, off, strokes, ...), each through a GeometryCache of its own kept
 across its replays as a viewer's is, and every frame of the play is
-measured (docs/phase_b4_plan.md, B5.3). Phase A, the retained frame on,
-the patch fill's records packed: ENVIRONMENT, whatever the caller's
-environment says of those switches.
+measured (docs/phase_b4_plan.md, B5.3). The mode that opens a play
+alternates play by play (the first play measured opens with the first
+mode, the second with the second, ...; report.json's opened_by): the
+first replay of a play is the first to run it after the play before, and
+a reduction that splits the plays by their opener cancels what that turn
+costs or saves (benchmarks/flip_gates.py programs). Phase A, the retained
+frame on, the patch fill's records packed: ENVIRONMENT, whatever the
+caller's environment says of those switches.
 
 Per frame: serialize_scene's milliseconds, the message's bytes and the
 scene's own Python since the frame before (the interpolation and the
@@ -164,10 +172,12 @@ def reduce(replays):
     return per_frame, summary
 
 
-def measure_play(scene, target, modes, replays, fmt, render):
+def measure_play(scene, target, modes, replays, fmt, render, opener=0):
     """The play into checkpoint ``target``, each mode ``replays`` times,
-    the modes taking turns: per mode the reduction, the per-frame medians,
-    the first replay's carried counts and the middle frame's movers."""
+    the modes taking turns from ``modes[opener]``: per mode the reduction,
+    the per-frame medians, the first replay's carried counts and the middle
+    frame's movers; under ``render`` each mode's pixels against the first
+    mode's, whichever opened."""
     from maniml.utils import programs
     from maniml.web.geometry import GeometryCache
 
@@ -182,7 +192,7 @@ def measure_play(scene, target, modes, replays, fmt, render):
     pictures = {mode: [] for mode in modes} if render else {}
     try:
         for index in range(replays * len(modes)):
-            mode = modes[index % len(modes)]
+            mode = modes[(opener + index) % len(modes)]
             os.environ["MANIML_PROGRAMS"] = mode
             assert programs.mode() == mode
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -286,8 +296,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scene", nargs=2, metavar=("FILE", "SCENE"), required=True,
                         help="episode file and scene class")
-    parser.add_argument("--plays", nargs="+", type=int, required=True,
+    chosen = parser.add_mutually_exclusive_group(required=True)
+    chosen.add_argument("--plays", nargs="+", type=int,
                         help="the checkpoints the plays saved (a checkpoint with a run_time)")
+    chosen.add_argument("--every-play", action="store_true",
+                        help="every checkpoint that saved a play, in order")
     parser.add_argument("--modes", nargs="+", default=["off", "strokes"], help="MANIML_PROGRAMS values, in turn")
     parser.add_argument("--replays", type=int, default=6, help="replays of each play under each mode")
     parser.add_argument("--format", type=int, choices=(7, 8), default=8,
@@ -322,6 +335,9 @@ def main(argv=None):
     if error is not None:
         raise RuntimeError(f"construct() stopped at checkpoint {error['checkpoint_reached']}: {error['error']}")
     checkpoints = scene.animation_checkpoints
+    if args.every_play:
+        args.plays = [target for target in range(1, len(checkpoints))
+                      if checkpoints[target].get("run_time") is not None]
     for target in args.plays:
         if not 0 < target < len(checkpoints) or checkpoints[target].get("run_time") is None:
             parser.error(f"checkpoint {target} saved no play")
@@ -341,13 +357,15 @@ def main(argv=None):
         "replays": args.replays, "format": args.format, "render": args.render, "browser": args.browser,
         "rounds": args.rounds if args.browser else None, "source_files_sha256": hashes, "plays": [],
     }
-    for target in args.plays:
+    for ordinal, target in enumerate(args.plays):
         checkpoint = checkpoints[target]
         started = perf_counter()
+        opener = ordinal % len(args.modes)
         play = {"play": target, "line": checkpoint["line_number"], "name": checkpoint.get("name"),
                 "run_time": checkpoint["run_time"],
                 "frames": play_frame_count(scene.camera.fps, checkpoint["run_time"]),
-                "modes": measure_play(scene, target, args.modes, args.replays, args.format, args.render)}
+                "opened_by": args.modes[opener],
+                "modes": measure_play(scene, target, args.modes, args.replays, args.format, args.render, opener)}
         if args.browser:
             folders = record_browser(scene, target, args.modes, args.output)
             replayed = replay_rounds(list(folders.values()), args.rounds, realm="main")

@@ -1,8 +1,8 @@
 """benchmarks.play_frames on a small headless scene: each mode replays the
-whole play, the modes taking turns, with what the messages carry and the
-movers at the middle frame; the browser streams replay in Node. No
-episode, no TeX, no GPU. The scene runs from a temp file, as
-tests.test_episode_frames runs its own."""
+whole play, the modes taking turns from the opener's, with what the
+messages carry and the movers at the middle frame; the browser streams
+replay in Node. No episode, no TeX, no GPU. The scene runs from a temp
+file, as tests.test_episode_frames runs its own."""
 
 import os
 import shutil
@@ -73,6 +73,20 @@ class PlayFrames(unittest.TestCase):
                     # ring's program holds its place and sends its scalars.
                     self.assertFalse(any(row.get("scalars_ops") for row in off))
                     self.assertTrue(all(row["scalars_ops"] == 1 for row in strokes[1:]))
+
+    def test_the_opener_takes_the_first_turn(self):
+        # main alternates the opener play by play; within a play the modes
+        # still take turns replay by replay.
+        turns, replay = [], play_frames.replay
+
+        def noted(*args, **kwargs):
+            turns.append(os.environ["MANIML_PROGRAMS"])
+            return replay(*args, **kwargs)
+
+        with patch.object(play_frames, "replay", noted):
+            for opener in (0, 1):
+                play_frames.measure_play(self.scene, 1, ["off", "strokes"], 2, 8, render=False, opener=opener)
+        self.assertEqual(turns, ["off", "strokes", "off", "strokes", "strokes", "off", "strokes", "off"])
 
     @unittest.skipUnless(shutil.which("node"), "node plays the streams")
     def test_browser_streams_replay_in_both_formats(self):

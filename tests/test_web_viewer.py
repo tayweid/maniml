@@ -1416,12 +1416,20 @@ class StreamDemo(Scene):
             switched = frames[0][0]
             self.assertEqual(switched["renderer"], "phase_b")
             self.assertFull(switched, epoch_after=delta["epoch"])
+            # Phase A forced: a full frame of a new epoch, stamped as the
+            # bytes Phase A always wrote ("triangles").
+            ws.send(json.dumps({**self.NEGOTIATED, "renderer": "phase_a"}))
+            frames = self.geometry(ws, 1.2)
+            self.assertEqual(len(frames), 1)
+            forced = frames[0][0]
+            self.assertEqual(forced["renderer"], "triangles")
+            self.assertFull(forced, epoch_after=switched["epoch"])
             # A client's geometry_reset: a full frame, every batch sent whole.
             ws.send(json.dumps({"type": "geometry_reset"}))
             frames = self.geometry(ws, 1)
             self.assertEqual(len(frames), 1)
             reset = frames[0][0]
-            self.assertFull(reset, epoch_after=switched["epoch"])
+            self.assertFull(reset, epoch_after=forced["epoch"])
             self.assertFalse(any(batch.get("cached") for batch in reset["batches"]))
 
     def test_a_tab_that_has_not_negotiated_has_both_sent_full_frames(self):

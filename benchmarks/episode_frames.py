@@ -16,7 +16,12 @@ static redraw of a pausepoint (always; a camera change, nothing
 regenerated), the pausepoint with its updaters ticking (--tick-updaters,
 what the idle loop does while any mobject has updaters) and the frames of
 the play that leads into the pausepoint (--play-frames, replayed at frame
-rate with the variants sampled mid-interpolation). The GPU pass columns
+rate with the variants sampled mid-interpolation). --camera-moves adds, after
+each pausepoint's rounds, rounds of browser_frames' camera moves (a pan, a 2%
+zoom and the camera put back), one rotation of the variants per move: what a
+move costs the GPU where it re-evaluates something (a surface net follows the
+zoom).
+The GPU pass columns
 appear under --gpu-timestamps (MANIML_GPU_TIMESTAMPS=1), an attribution run;
 the gate's completion totals come from a run without it.
 
@@ -24,7 +29,12 @@ The variant ``retained`` is ``gpu_border`` (Phase A) with the retained frame
 (MANIML_RETAINED_FRAME=1, docs/phase_b4_plan.md); every other variant runs
 with it off, as the serializer stood before Phase B4, so ``--variants
 gpu_border retained`` measures what the retained frame changes. Its bytes are
-gpu_border's, so its pixels are too (retained_vs_gpu_border).
+gpu_border's, so its pixels are too (retained_vs_gpu_border). ``gpu_border``
+is Phase A forced (the renderer "phase_a") whatever the defaults are;
+``patch_fill`` is the fills as patches alone and ``nets`` Phase A with the
+surfaces as nets (B2), the two flips B5.4 gates (docs/phase_b4_plan.md,
+"The flips"), each against gpu_border (patch_vs_gpu_border,
+nets_vs_gpu_border).
 """
 
 import argparse
@@ -47,7 +57,7 @@ from benchmarks.gpu_borders import GATE_SCOPE, GPU_CLOCK_CAVEAT, GPU_TIMING_SCOP
 from benchmarks.paint_retention import difference
 
 
-VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d")
+VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d", "nets")
 DEFAULT_VARIANTS = ("patch_fill", "gpu_border", "original_2d")
 # gpu_borders.sample's renderer for each variant, and MANIML_RETAINED_FRAME
 # as the variant runs it.
@@ -59,7 +69,7 @@ RETAINED = {"retained": "1"}
 PIXEL_PAIRS = (("patch_vs_gpu_border", "patch_fill", "gpu_border"), ("patch_vs_cpu", "patch_fill", "cpu_border"),
                ("patch_vs_original", "patch_fill", "original_2d"), ("gpu_vs_cpu", "gpu_border", "cpu_border"),
                ("gpu_vs_original", "gpu_border", "original_2d"),
-               ("retained_vs_gpu_border", "retained", "gpu_border"))
+               ("retained_vs_gpu_border", "retained", "gpu_border"), ("nets_vs_gpu_border", "nets", "gpu_border"))
 # The columns summary.json reduces, in this order; gpu_pass_* follow them.
 TIMING_KEYS = ("serialize_through_rgba_image_ms", "submit_through_full_readback_ms", "post_readback_ms",
                "prepare_ms", "render_cpu_encode_ms", "gpu_total_ms", "gpu_sum_ms", "gpu_readback_ms")
@@ -120,13 +130,27 @@ def pixel_pairs(pictures):
             for name, image, reference in PIXEL_PAIRS if image in pictures and reference in pictures}
 
 
+def worst_pixel_pairs(frames):
+    """pixel_pairs over each (play frame, pictures) of ``frames``, the worst
+    of each pair (by its share of pixels over 24/255, then its largest
+    channel) with the play frame it came from."""
+    worst = {}
+    for k, pictures in frames:
+        for name, pair in pixel_pairs(pictures).items():
+            held = worst.get(name)
+            if held is None or ((pair["fraction_pixels_rgb_over24"], pair["max_rgba"])
+                                > (held["fraction_pixels_rgb_over24"], held["max_rgba"])):
+                worst[name] = {**pair, "play_frame": k}
+    return worst
+
+
 def _cell(stats, key):
     return f"{stats[key]['p50']:.2f}" if key in stats else "–"
 
 
 def markdown_table(summary):
-    """One line per frame and phase (the pausepoint, and its play when
-    measured): each variant's median total, submit-through-readback and
+    """One line per frame and phase (the pausepoint, its camera moves and
+    its play when measured): each variant's median total, submit-through-readback and
     GPU total in ms, then the pixel pairs present; closing lines over
     every measured row of each phase."""
     variants = summary["variants_in_rotation"]
@@ -153,11 +177,15 @@ def markdown_table(summary):
         cells = [str(frame["frame"]), str(frame["checkpoint"]), str(frame["line"]), frame.get("name") or ""]
         phase = "pausepoint" + (", updaters ticking" if frame.get("updaters_ticked") else "")
         line([*cells, phase], frame["variants"], frame.get("pixels", {}))
+        if frame.get("camera"):
+            line([*cells, "camera moves"], frame["camera"], {})
         play = frame.get("play")
         if play and play.get("variants"):
             alphas = play["measured_alphas"]
             line([*cells, f"play α {alphas[0]:.2f}–{alphas[-1]:.2f}"], play["variants"], play.get("pixels", {}))
     line(["all", "", "", "", "pausepoints"], summary["variants"], {})
+    if summary.get("camera_variants"):
+        line(["all", "", "", "", "camera moves"], summary["camera_variants"], {})
     if summary.get("play_variants"):
         line(["all", "", "", "", "plays"], summary["play_variants"], {})
     return "\n".join(lines)
@@ -200,6 +228,21 @@ def show_frame(scene, index):
         scene.ambient_rotation_active = False
     scene.update_mobjects(0)
     scene.camera.refresh_uniforms()
+
+
+def move_camera(scene):
+    """A pan of 5% of the frame's width, a 2% zoom out and the camera put
+    back as it was, as a viewer's drag and wheel move it: yields each move's
+    name with the camera moved and its uniforms refreshed. browser_frames
+    records a message per move, this harness a rotation of the variants."""
+    frame = scene.camera.frame
+    frame.save_state()
+    pan = .05 * frame.get_width() * np.array([1., 0., 0.])
+    for move, apply in (("pan", lambda: frame.shift(pan)), ("zoom", lambda: frame.scale(1.02)),
+                        ("back", frame.restore)):
+        apply()
+        scene.camera.refresh_uniforms()
+        yield move
 
 
 def family(scene):
@@ -312,12 +355,16 @@ def measure_play(scene, index, variants, samples, warmups, sampler, counter, fie
     ones (fewer when the play is shorter), each frame one rotation of the
     variants over the scene mid-interpolation. The scene changes between
     rows as it does on screen, so the rows carry regeneration rather than
-    revision-cache hits. Returns the frame's play block and the measured
-    rows per variant."""
+    revision-cache hits. The pixel pairs are the worst over the window's
+    frames strictly inside the play (alpha below 1, warmups included, the
+    pixels being outside every timer; ``pixel_frames`` lists them): a
+    short play's window reaches its landing, which is the pausepoint's own
+    picture, compared already. Returns the frame's play block, the
+    measured rows per variant and the last frame's pictures."""
     checkpoints = scene.animation_checkpoints
     target = play_before(checkpoints, index)
     play = {"checkpoint": target, "line": None, "run_time": None, "frames": 0, "measured_alphas": [],
-            "errors": {}, "variants": {}, "pixels": {}}
+            "errors": {}, "variants": {}, "pixels": {}, "pixel_frames": []}
     rows = {variant: [] for variant in variants}
     if target is None:
         return play, rows, {}
@@ -326,7 +373,7 @@ def measure_play(scene, index, variants, samples, warmups, sampler, counter, fie
     play.update(line=checkpoints[target]["line_number"], run_time=run_time, frames=frames)
     window = min(frames, warmups + samples)
     first, warm = (frames - window) // 2, min(warmups, max(window - 1, 0))
-    failed, pictures = set(), {}
+    failed, pictures, inside = set(), {}, []
 
     def on_frame(k):
         if not first <= k < first + window:
@@ -339,6 +386,10 @@ def measure_play(scene, index, variants, samples, warmups, sampler, counter, fie
             dict(fields, phase="play", play_checkpoint=target, play_frame=k, alpha=alpha,
                  iteration=local, warmup=local < warm))
         pictures.update(round_pictures)
+        # Compared after the play, so no round waits on a comparison; the
+        # landing (alpha 1 to float error, or past it) is left out.
+        if alpha < 1 - 1e-9:
+            inside.append((k, round_pictures))
         if local >= warm:
             play["measured_alphas"].append(alpha)
             for variant, row in round_rows.items():
@@ -346,18 +397,21 @@ def measure_play(scene, index, variants, samples, warmups, sampler, counter, fie
 
     replay_play(scene, target, on_frame)
     play["variants"] = {variant: summarize(measured) for variant, measured in rows.items() if measured}
-    play["pixels"] = pixel_pairs(pictures)
+    play["pixels"] = worst_pixel_pairs(inside)
+    play["pixel_frames"] = [k for k, _ in inside]
     return play, rows, pictures
 
 
 def measure(scene, indices, variants, samples, warmups, sampler, output, report, *, images=False,
-            tick_updaters=False, play_frames=False):
+            tick_updaters=False, play_frames=False, camera_moves=False):
     """Sample every variant on every chosen frame; ``sampler(variant)``
     returns gpu_borders.sample's (row, image, header) for the scene as it
     stands. Per frame: the pausepoint's rounds (warmups then samples, one
     rotation of the variants each; under ``tick_updaters`` the scene's
     updaters tick 1/fps before every round on a frame that has any, as the
-    idle loop ticks them), then under ``play_frames`` the rounds on
+    idle loop ticks them), under ``camera_moves`` rounds of the camera
+    moves (move_camera; warmups then samples, one rotation per move), then
+    under ``play_frames`` the rounds on
     consecutive frames of the play that leads into it. report.json is
     rewritten after each frame so an interrupted run keeps the frames it
     finished."""
@@ -366,6 +420,7 @@ def measure(scene, indices, variants, samples, warmups, sampler, output, report,
     variants = tuple(variants)
     report["frames"] = []
     rows, play_rows, counter = {variant: [] for variant in variants}, {variant: [] for variant in variants}, count()
+    camera_rows = {variant: [] for variant in variants}
     for position, index in enumerate(indices):
         checkpoint = scene.animation_checkpoints[index]
         show_frame(scene, index)
@@ -401,6 +456,21 @@ def measure(scene, indices, variants, samples, warmups, sampler, output, report,
         if images:
             for variant, picture in pictures.items():
                 picture.save(output / f"frame_{index:03}_{variant}.png")
+        if camera_moves:
+            # The moves as rounds are: warmups then samples, each the three
+            # moves with one rotation of the variants per move, so a
+            # frame's camera rows are as many as its GPU clock needs.
+            moved = {variant: [] for variant in variants}
+            for local in range(warmups + samples):
+                for move in move_camera(scene):
+                    round_rows, _ = sample_round(scene, rotation(variants, next(counter)), sampler, failed,
+                                                 frame["errors"], dict(fields, phase="camera", move=move,
+                                                                       iteration=local, warmup=local < warmups))
+                    if local >= warmups:
+                        for variant, row in round_rows.items():
+                            moved[variant].append(row)
+                            camera_rows[variant].append(row)
+            frame["camera"] = {variant: summarize(moved_rows) for variant, moved_rows in moved.items() if moved_rows}
         if play_frames:
             frame["play"], measured, play_pictures = measure_play(scene, index, variants, samples, warmups,
                                                                   sampler, counter, fields)
@@ -414,7 +484,9 @@ def measure(scene, indices, variants, samples, warmups, sampler, output, report,
         for variant in variants:
             if rows[variant] or play_rows[variant]:
                 data = {"timing_ms": summarize(rows[variant]) if rows[variant] else {},
-                        "samples": rows[variant] + play_rows[variant]}
+                        "samples": rows[variant] + camera_rows[variant] + play_rows[variant]}
+                if camera_rows[variant]:
+                    data["camera_timing_ms"] = summarize(camera_rows[variant])
                 if play_rows[variant]:
                     data["play_timing_ms"] = summarize(play_rows[variant])
                 report["variants"][variant] = data
@@ -442,7 +514,7 @@ def sample_variant(scene, variant, cache, stages, renderer=None, queue=None):
 
 
 def run(scene, indices, variants, samples, warmups, stages, output, report, *, images=False,
-        tick_updaters=False, play_frames=False):
+        tick_updaters=False, play_frames=False, camera_moves=False):
     """gpu_borders' renderer, cache and queue construction, one set for the
     whole run as a viewer session keeps one: a frame's retained geometry
     carries into the next as it does on screen."""
@@ -469,7 +541,7 @@ def run(scene, indices, variants, samples, warmups, stages, output, report, *, i
 
     try:
         return measure(scene, indices, variants, samples, warmups, sampler, output, report, images=images,
-                       tick_updaters=tick_updaters, play_frames=play_frames)
+                       tick_updaters=tick_updaters, play_frames=play_frames, camera_moves=camera_moves)
     finally:
         for queue in queues.values():
             queue.close()
@@ -500,6 +572,8 @@ def summary_of(report):
         summary["scene"] = {key: value for key, value in summary["scene"].items() if key != "checkpoints"}
     variants = report.get("variants", {})
     summary["variants"] = {variant: data["timing_ms"] for variant, data in variants.items()}
+    summary["camera_variants"] = {variant: data["camera_timing_ms"] for variant, data in variants.items()
+                                  if "camera_timing_ms" in data}
     summary["play_variants"] = {variant: data["play_timing_ms"] for variant, data in variants.items()
                                 if "play_timing_ms" in data}
     summary["frames"] = [{key: value for key, value in frame.items() if key != "cold"}
@@ -507,7 +581,7 @@ def summary_of(report):
     return summary
 
 
-def scope(variants, tick_updaters, play_frames):
+def scope(variants, tick_updaters, play_frames, camera_moves=False):
     """The report's own caveats, worded for the run's switches; the gpu_
     column and GPU clock notes come from gpu_borders."""
     result = {
@@ -535,6 +609,11 @@ def scope(variants, tick_updaters, play_frames):
                "On a frame with updaters (should_update_mobjects) every round is preceded by "
                "scene.update_mobjects(1/fps), as the idle loop ticks it, so its rows carry the regeneration the "
                "updaters cause (updaters_ticked); frames without updaters are static redraws.")
+            + (" Camera rows (--camera-moves): after a frame's pausepoint rounds, rounds of a pan of 5% of the "
+               "frame's width, a 2% zoom out and the camera put back (move_camera, browser_frames' moves), "
+               "warmups then samples, one rotation of the variants per move: a zoom re-evaluates what follows "
+               "it (a surface net's density), a pan does not."
+               if camera_moves else "")
             + (" Play rows: consecutive frames of the play leading into the pausepoint, warmups then samples "
                "centred on its middle, each one rotation of the variants over the scene mid-interpolation; the "
                "scene changes between rows as it does on screen." if play_frames else "")
@@ -551,9 +630,13 @@ def scope(variants, tick_updaters, play_frames):
             "Each frame's last measured render per variant, compared outside timing in gpu_borders.run_case's "
             "pairs: <a>_vs_<b>'s fraction_pixels_rgb_over24 is the share of <a>'s pixels more than 24/255 from "
             "<b>'s in some RGB channel, <b> the reference (patch_vs_gpu_border, patch_vs_cpu when cpu_border is "
-            "in rotation, patch_vs_original, gpu_vs_cpu, gpu_vs_original). The B1 gate's pixel measure is "
-            "patch_vs_cpu and patch_vs_original at most 0.5% (docs/phase_b_plan.md), reported, not enforced; a "
-            "play's pixels are its last sampled frame."),
+            "in rotation, patch_vs_original, gpu_vs_cpu, gpu_vs_original, nets_vs_gpu_border). The B1 gate's "
+            "pixel measure is patch_vs_cpu and patch_vs_original at most 0.5% (docs/phase_b_plan.md), and B5.4's "
+            "flips patch_vs_gpu_border and nets_vs_gpu_border at most 0.5% (docs/phase_b4_plan.md, \"The "
+            "flips\"), reported, not enforced. A pausepoint's pixels are its last round; a play's are the worst "
+            "of each pair over the frames of its sampled window strictly inside it (alpha below 1, warmups "
+            "included; pixel_frames lists them, play_frame names the worst), since a short play's window reaches "
+            "its landing, the pausepoint's own picture."),
         "gate_scope": (
             "What this run answers for the B1 gate's one course episode: completion of the phases measured, in "
             "the rotation named in variants_in_rotation (the completion comparison is a two-variant run with the "
@@ -601,6 +684,9 @@ def main(argv=None):
                         help="tick a pausepoint's updaters 1/fps before every round, as the idle loop does")
     parser.add_argument("--play-frames", action="store_true",
                         help="also sample consecutive frames of the play leading into each pausepoint")
+    parser.add_argument("--camera-moves", action="store_true",
+                        help="after each pausepoint's rounds, rounds of camera moves (a pan, a 2%% zoom and the "
+                             "camera put back), one rotation of the variants per move")
     parser.add_argument("--gpu-timestamps", action="store_true",
                         help="per-pass GPU timestamps on the generated renderers (MANIML_GPU_TIMESTAMPS=1): "
                              "an attribution run, not the gate's totals")
@@ -616,6 +702,10 @@ def main(argv=None):
     # The renderer reads the switch when it is constructed, in run().
     if args.gpu_timestamps:
         os.environ["MANIML_GPU_TIMESTAMPS"] = "1"
+    # Every variant draws programs off, and a play's animations decide at
+    # their begin whether they write programs (maniml/utils/programs.py):
+    # stated, so no default that flips changes what a play here records.
+    os.environ["MANIML_PROGRAMS"] = "off"
     args.output.mkdir(parents=True, exist_ok=True)
 
     import wgpu
@@ -647,17 +737,18 @@ def main(argv=None):
         "samples": args.samples, "warmups": args.warmups, "every": args.every, "max_frames": args.max_frames,
         "variants_in_rotation": list(args.variants),
         "gpu_timestamps": os.environ.get("MANIML_GPU_TIMESTAMPS") == "1",
-        "tick_updaters": args.tick_updaters, "play_frames": args.play_frames,
+        "tick_updaters": args.tick_updaters, "play_frames": args.play_frames, "camera_moves": args.camera_moves,
         "environment": {key: value for key, value in os.environ.items() if key.startswith("MANIML_")},
         "source_files_sha256": hashes,
-        **scope(args.variants, args.tick_updaters, args.play_frames),
+        **scope(args.variants, args.tick_updaters, args.play_frames, args.camera_moves),
     }
     stages = StageObserver()
     with ExitStack() as stack:
         stack.enter_context(patch.object(geometry, "performance", stages))
         stack.enter_context(patch.object(winding_geometry, "performance", stages))
         run(scene, indices, args.variants, args.samples, args.warmups, stages, args.output, report,
-            images=args.images, tick_updaters=args.tick_updaters, play_frames=args.play_frames)
+            images=args.images, tick_updaters=args.tick_updaters, play_frames=args.play_frames,
+            camera_moves=args.camera_moves)
     report["gpu_timestamps_present"] = {variant: any("gpu_total_ms" in row for row in data["samples"])
                                         for variant, data in report["variants"].items()}
     report["source_files_unchanged_during_run"] = all(

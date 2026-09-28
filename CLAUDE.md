@@ -204,19 +204,38 @@ resources belong to the reference camera, not mobjects or checkpoints. Frozen
 GL and winding implementations under `tests/` remain independent comparison
 references and are excluded from wheels.
 
-The viewer's **Scene renderer** selector retains **Original 2D** for dogfood
-comparisons. It uses `winding_geometry.py`, `static/winding_webgpu.js` and
-`static/winding_wgsl/`. Mode changes reset transport state and preserve the
-scene/checkpoint; native and baked exports explicitly choose Phase A. Do not
-remove this comparison option without Taylor's direction. The selector's
-**Phase B** (renderer name `phase_b`, `geometry.RENDERERS`) is the Phase A
-driver fed the whole Phase B stack: `_serialize_triangle_scene(phase_b=True)`
-forces patches + nets + GPU programs and stamps the header `phase_b`, and the
-viewer sets `programs.set_override("gpu")` while it is selected so the plays
-write programs too. The environment flags keep governing Phase A
-(`programs.env_mode()`), so an export made while Phase B is on screen is
-unaffected. The flips of the defaults are decided on measurements, not by
-this switch (TODO.md, "After").
+The viewer's **Scene renderer** selector offers **Default**, **Phase A**,
+**Phase B** and **Original 2D** (renderer names `triangles`, `phase_a`,
+`phase_b`, `winding`; `geometry.RENDERERS`, B5.4 in
+`docs/phase_b4_plan.md`, "The flips"). The first three are one driver fed
+three stacks. `triangles` is the default stack: whatever the generators'
+defaults are (`geometry.DEFAULT_FILL`, `geometry.DEFAULT_SURFACE`,
+`programs.DEFAULT_MODE`), each overridden by its environment flag
+(`MANIML_FILL`, `MANIML_SURFACE`, `MANIML_PROGRAMS`); native capture and the
+export recorder draw it, so a default that flips flips there too. `phase_a`
+forces Phase A (meshes, grids, programs off) and `phase_b` the whole Phase
+B stack (patches, nets, GPU programs), whatever the defaults or the
+environment say (`geometry.FORCED_STACKS`), so both ends stay selectable
+whichever way a default goes, and the viewer sets
+`programs.set_override("off")` or `("gpu")` while one is selected so its
+plays write what it draws; the default follows the environment
+(`programs.env_mode()`), so an export made while a forced renderer is on
+screen is unaffected. The golden pin (`tests/test_retained_frame.py`) holds
+`phase_a` and `phase_b`, so no flip can move a pinned byte. A frame's
+header names the selection that made it, so the page's selection drops
+another's frames across a switch, with one exception: Phase A's frames are
+stamped `triangles`, the bytes Phase A always wrote (the pin's digests,
+and every recording names no other), and `renderer_selection.js` reads
+them as Phase A's (`FRAMES_OF`); a default frame still in flight across a
+switch to Phase A is drawn once before the switch's full frame replaces
+it. Original 2D uses `winding_geometry.py`, `static/winding_webgpu.js` and
+`static/winding_wgsl/` for dogfood comparisons. Mode changes reset
+transport state and preserve the scene/checkpoint. Do not remove Original
+2D or Phase A without Taylor's direction. The flips of the defaults are
+decided on measured gates (the plan's "The flips"), not by this switch; on
+2026-09-28 none passed (nets on camera moves, patches on plays and ticked
+frames, strokes on Python no lower than programs off), so the default is
+Phase A's stack.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -335,7 +354,12 @@ high bit, and covers once per sample. Nothing about it depends on zoom, and a
 morph uploads only control points. Both drivers draw it (the browser mirror
 in `webgpu.js`, command-tested on real frames in
 `tests/generated_webgpu_commands.cjs` and pixel-matched live against the
-native render); it is measured, not the default, which stays `meshes`.
+native render); it is measured, not the default, which stays `meshes`:
+B5.4's gate (Taylor's browser-side complete frame at or below Phase A's
+per class on both episodes; `docs/phase_b4_plan.md`, "The flips") failed on
+both episodes' plays (1.15× and 1.48× Phase A in format 8, the serialize's:
+a mover's records packed every frame) and ticked frames, its pixels
+Phase A's but two pixels over 287 frames, 263 of them inside plays.
 
 `MANIML_PATCH_SOURCE=rows` (B5.1, `docs/phase_b4_plan.md`; it sources
 patches, so it applies wherever they are drawn, Phase B included, and
@@ -380,7 +404,16 @@ two steps per patch, which is the sample grid to a float32 ulp
 instead and the native driver evaluates it at screen density
 (`net_compute.wgsl`, capacity reserved from the second difference with the
 border stage's headroom, capped per object); a zoomed sphere then shows no
-facets. Both drivers evaluate nets; the default stays `grids`. Recordings
+facets. Both drivers evaluate nets; the default stays `grids`: B5.4's gate
+(`docs/phase_b4_plan.md`, "The flips") passed its pixels and its still,
+ticked and play frames, and failed on camera moves (1.23-1.34× grids'
+complete frame with the GPU part from the attribution runs, as the gate
+reads it; 1.13-1.33× with it from the flag-off wall clock, which the
+attribution runs overstate for a stack of more passes), because a zoom
+changes a net's evaluation state (frame scale, pixels per unit) and
+re-evaluates every net on screen, each in a compute pass of its own (16-19
+ms of flag-off wall clock on B4's heaviest frames, up to 479 spheres),
+though the kernel's output moves only with a net's integer step count. Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -423,6 +456,23 @@ panel. The driver runs in a vm sandbox there unless `--realm main`, and the
 sandbox makes every global lookup an interceptor call: read its
 milliseconds against its own past, and the main realm's `page_ms` for what
 a page pays.
+`benchmarks/flip_gates.py` holds a default flip to its gate (the plan's
+"The flips"): `serialize` times Phase A forced and the flip's stack as a
+viewer's cache pays them (format 7 and a negotiated format 8 stream, the
+four serializers taking turns as first readers of what moved), `complete`
+adds per frame `browser_frames`' `page_ms` and the GPU from
+`episode_frames`' attribution runs (`--camera-moves` gives a camera move GPU
+rows of its own) into the browser-side complete frame per class, with the
+flip's pixels over the pausepoints and the frames strictly inside their
+plays, and beside it the same frames with the GPU part the flag-off runs'
+wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
+flip changes the pass count, as nets and programs do, the attribution run
+overstates the stack with more passes; the gate's text and the measuring
+contract disagree there, and both are quoted), `fixtures` draws every
+Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
+`programs` reduces `play_frames --every-play` runs (the opening mode
+alternating play by play) to Python ms per play frame, order-balanced, and
+play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
 
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a
@@ -478,7 +528,17 @@ that tip in float32, a pixel or two from the CPU's (up to 12/255 on two
 pixels in the tests; 17 under Phase B, whose kernel it is). The default
 stays `off`; it saves Python where a play is strokes and costs the GPU a
 compute pass a program (`benchmarks/play_frames.py`,
-`benchmarks/results/b53_strokes_20260927/`).
+`benchmarks/results/b53_strokes_20260927/`). B5.4 measured it as the default
+over every play of both episodes (`docs/phase_b4_plan.md`, "The flips"):
+pixels within 1/255 on every play frame, but Python ms per play frame,
+order-balanced (the mode that opens a play alternating, since the turn
+order alone moves the ratio by up to half a percent), no lower than
+programs off: -0.03% on
+EpisodeB2 in format 8 and +0.05% to +0.32% in the other three runs, each
+within about half a percent of nothing (on these episodes the plays that
+record a program are mostly glyphs and fills), against a native complete
+frame 1.4-1.8% dearer over every play (2.4-6.4% on the plays that record
+one); not flipped.
 
 ## Delivery: one artifact, local only
 

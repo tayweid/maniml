@@ -215,20 +215,31 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
     if selected == "winding":
         from maniml.web.winding_geometry import serialize_scene as serialize_winding
         return serialize_winding(scene, cache)
-    return _serialize_triangle_scene(scene, cache, phase_b=selected == "phase_b")
+    return _serialize_triangle_scene(scene, cache, renderer=selected)
 
 
 # The renderer names the viewer's selector and MANIML_RENDERER speak.
-# "triangles" is Phase A; "phase_b" is the same driver fed the whole
-# Phase B stack (docs/phase_b_plan.md) — patch fills, net surfaces and
-# GPU programs — regardless of the MANIML_FILL / MANIML_SURFACE /
-# MANIML_PROGRAMS environment, which keeps governing Phase A. It exists
-# so the stack can be compared on a real scene from the dropdown; the
-# default flips are decided on those numbers, not by the switch.
-RENDERERS = ("triangles", "winding", "phase_b")
+# "triangles" is the default stack: the Phase A driver fed what the
+# generators' defaults select (DEFAULT_FILL, DEFAULT_SURFACE and
+# programs.DEFAULT_MODE), each overridden by its environment flag
+# (MANIML_FILL, MANIML_SURFACE, MANIML_PROGRAMS). Native capture and the
+# export recorder draw it, so a default that flips flips there too
+# (docs/phase_b4_plan.md, "The flips"). "phase_a" and "phase_b" force the
+# two ends whatever the defaults or the environment say — Phase A (meshes,
+# grids, programs off) and the whole Phase B stack (patch fills, net
+# surfaces, GPU programs; docs/phase_b_plan.md) — so both stay selectable
+# from the dropdown, and the golden pin holds them
+# (tests/test_retained_frame.py): no flip can move a pinned byte.
+# "winding" is Original 2D.
+RENDERERS = ("triangles", "phase_a", "phase_b", "winding")
+# What a forced renderer draws: (fill, surface, programs).
+FORCED_STACKS = {"phase_a": ("meshes", "grids", "off"), "phase_b": ("patches", "nets", "gpu")}
+# The generators "triangles" draws where no environment flag says otherwise.
+DEFAULT_FILL = "meshes"
+DEFAULT_SURFACE = "grids"
 
 
-def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
+def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
     """One source-to-operation path for viewer, baked export and native output."""
     from maniml.web.generated_geometry import serialize_generated_frame
     from maniml.web.retained_frame import RetainedFrame, retained_frame_enabled
@@ -239,10 +250,11 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     border_generator = os.environ.get("MANIML_BORDER_GENERATOR", "gpu")
     if border_generator not in ("cpu", "gpu"):
         raise ValueError("MANIML_BORDER_GENERATOR must be 'cpu' or 'gpu'")
-    # Phase A's CPU fill meshes stay the default while the patch fill
-    # (docs/phase_b1_plan.md) is measured; it draws from the GPU border
-    # stage's curve records, so it needs the GPU border generator.
-    fill_generator = "patches" if phase_b else os.environ.get("MANIML_FILL", "meshes")
+    # Phase A's CPU fill meshes or the patch fill (docs/phase_b1_plan.md),
+    # which draws from the GPU border stage's curve records, so it needs the
+    # GPU border generator.
+    forced = FORCED_STACKS.get(renderer)
+    fill_generator = forced[0] if forced else os.environ.get("MANIML_FILL", DEFAULT_FILL)
     if fill_generator not in ("meshes", "patches"):
         raise ValueError("MANIML_FILL must be 'meshes' or 'patches'")
     if fill_generator == "patches" and border_generator != "gpu":
@@ -257,8 +269,8 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     if fill_generator != "patches":
         patch_source = "records"
     # Phase B2 (docs/phase_b2_plan.md): surfaces as control nets the GPU
-    # evaluates at screen density; the CPU-evaluated grid stays the default.
-    surface_generator = "nets" if phase_b else os.environ.get("MANIML_SURFACE", "grids")
+    # evaluates at screen density, or the grid the CPU evaluates from them.
+    surface_generator = forced[1] if forced else os.environ.get("MANIML_SURFACE", DEFAULT_SURFACE)
     if surface_generator not in ("grids", "nets"):
         raise ValueError("MANIML_SURFACE must be 'grids' or 'nets'")
     # Phase B3 (docs/phase_b3_plan.md): a supported animation's frames as a
@@ -266,7 +278,7 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     # patch fill. Under strokes (B5.3, docs/phase_b4_plan.md) only a path
     # without fill is a program, whose stroke Phase A draws from the
     # program's rows, so it needs no patch fill.
-    program_mode = "gpu" if phase_b else programs.env_mode()
+    program_mode = forced[2] if forced else programs.env_mode()
     if program_mode in ("shadow", "gpu") and fill_generator != "patches":
         raise ValueError("MANIML_PROGRAMS=shadow or gpu requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
@@ -299,7 +311,11 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
                    patch_rows=patch_source == "rows",
                    net_surfaces=surface_generator == "nets",
                    programs=program_mode != "off")
-    renderer = "phase_b" if phase_b else "triangles"
+    # The header names the selection that made the frame, so the page's
+    # selection drops another's frames across a switch, except that Phase
+    # A's frames say "triangles": they are the bytes Phase A has always
+    # written, which the golden pin holds and every recording names.
+    stamp = "phase_b" if renderer == "phase_b" else "triangles"
     with performance.stage("geometry.triangle_prepare"):
         if retained is None:
             frame = prepare_triangle_frame(scene, state.triangle_tessellator, **options)
@@ -309,9 +325,9 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         frame.supersample = 2
     with performance.stage("geometry.triangle_encode"):
         if retained is None:
-            message = serialize_generated_frame(frame, scene.camera.uniforms, cache, renderer=renderer)
+            message = serialize_generated_frame(frame, scene.camera.uniforms, cache, renderer=stamp)
         else:
-            message = retained.encode(frame, scene.camera.uniforms, cache, renderer=renderer)
+            message = retained.encode(frame, scene.camera.uniforms, cache, renderer=stamp)
     performance.increment("geometry.serialize.calls")
     if message is not None:
         performance.increment("geometry.serialized_bytes", len(message))

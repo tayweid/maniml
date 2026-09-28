@@ -24,17 +24,21 @@ import os
 import numpy as np
 
 MODES = ("off", "shadow", "gpu", "strokes")
+# The mode where MANIML_PROGRAMS says nothing: what the default renderer
+# ("triangles", maniml/web/geometry.py) and the animations under it use.
+DEFAULT_MODE = "off"
 
-# Set by the viewer while its Phase B renderer is selected, so the plays
-# that follow write programs; None defers to the environment. The
-# animations read mode() at their begin, the serializer reads what the
-# selected renderer asks for (env_mode() for Phase A, so an export or a
-# checkpoint still made while Phase B is on screen keeps its own rules).
+# Set by the viewer while a forced renderer is selected ("off" for Phase
+# A, "gpu" for Phase B), so the plays that follow write what it draws;
+# None defers to the environment and the default. The animations read
+# mode() at their begin, the serializer reads what the selected renderer
+# asks for (env_mode() for the default, so an export or a checkpoint still
+# made while a forced renderer is on screen keeps its own rules).
 _override: str | None = None
 
 
 def env_mode() -> str:
-    value = os.environ.get("MANIML_PROGRAMS", "off")
+    value = os.environ.get("MANIML_PROGRAMS", DEFAULT_MODE)
     if value not in MODES:
         raise ValueError("MANIML_PROGRAMS must be 'off', 'shadow', 'gpu' or 'strokes'")
     return value
