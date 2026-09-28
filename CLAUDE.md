@@ -337,6 +337,39 @@ in `webgpu.js`, command-tested on real frames in
 `tests/generated_webgpu_commands.cjs` and pixel-matched live against the
 native render); it is measured, not the default, which stays `meshes`.
 
+`MANIML_PATCH_SOURCE=rows` (B5.1, `docs/phase_b4_plan.md`; it sources
+patches, so it applies wherever they are drawn, Phase B included, and
+nowhere else) sends a path's rows in place of its fill's curve records and
+its stroke's instances: VMobject's seventeen float32 columns as the read of
+its shader data leaves them (unit normal, joint angles and base points
+refreshed), copied once, in `program_data` by content hash, which a patch
+or stroke batch names in its `rows` (a patch run's border hash is
+`gpu_program_geometry.rows_key` of them). Each driver finalizes each rows
+once (`row_finalize.wgsl`, B3's kernel) into curve records and stroke
+instances, shared by every batch that names the rows; a run of several
+objects copies its objects' outputs into a buffer of its own; the border
+stage, the patch fill and the stroke pipeline read them as they read a
+program's. Python keeps what the draw counts need (the active curves, the
+reservation's density summary, the stroke's count), the validation and
+the planar refusal (unchanged; a path whose points share one z is not
+fitted, since it lies in that plane), and the object record, whose base
+words stay zero (nothing reads them) and whose winding sign is computed
+only for an object that may share a stencil count. A path whose rows
+cannot stand for its records (a getter of its own, another dtype, an edited
+outer-vertex pattern) keeps its records, and closes the rows run around it
+(`run_kind`'s `patch_rows` and `stroke_rows` never join a records run), so
+the draw counts are the records' only where every path is row-sourced. A
+stroke's rows are compared every frame, as its shader data is read every
+frame on the records' side; a fill's are trusted at an unchanged revision,
+as its records are. Pixels are the records' (identical on both episodes'
+pausepoints and plays); the default stays `records`, and the golden pin
+clears the switch, so Phase B as measured stays reproducible. What it
+costs the GPU: each driver finalizes every changed rows with a dispatch of
+its own in one compute pass, and on the 8.a play (~360 a frame) that is ~10
+ms more GPU and ~15 ms more native `render()` against ~52 ms less
+serialize; one dispatch for a frame's rows is the open fix (the plan's
+B5.1, "The negatives").
+
 A `Surface`'s points are a biquadratic Bézier net (Phase B2,
 `docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
 the net's size (rounded up to odd), `uv_func` is sampled once into the net

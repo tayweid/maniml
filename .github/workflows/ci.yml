@@ -84,6 +84,7 @@ jobs:
           tests.test_border_compute
           tests.test_gpu_border_quality
           tests.test_patch_fill
+          tests.test_patch_rows
           tests.test_gpu_timestamps
           tests.test_bezier_net
           tests.test_surface_net

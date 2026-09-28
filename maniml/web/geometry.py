@@ -69,6 +69,7 @@ class GeometryCache:
         self.generated_nets = {}
         self.border_generator = None
         self.fill_generator = None
+        self.patch_source = None
         self.surface_generator = None
         self.program_mode = None
         # The retained frame (docs/phase_b4_plan.md; MANIML_RETAINED_FRAME=0
@@ -246,6 +247,15 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
         raise ValueError("MANIML_FILL must be 'meshes' or 'patches'")
     if fill_generator == "patches" and border_generator != "gpu":
         raise ValueError("MANIML_FILL=patches requires MANIML_BORDER_GENERATOR=gpu")
+    # B5.1 (docs/phase_b4_plan.md): what a patch fill's curve records and its
+    # path's stroke instances are sent as. "records" (the default) packs
+    # them on the CPU; "rows" sends the path's rows and each driver finalizes
+    # them (row_finalize.wgsl). Without patches there is nothing to source.
+    patch_source = os.environ.get("MANIML_PATCH_SOURCE", "records")
+    if patch_source not in ("records", "rows"):
+        raise ValueError("MANIML_PATCH_SOURCE must be 'records' or 'rows'")
+    if fill_generator != "patches":
+        patch_source = "records"
     # Phase B2 (docs/phase_b2_plan.md): surfaces as control nets the GPU
     # evaluates at screen density; the CPU-evaluated grid stays the default.
     surface_generator = "nets" if phase_b else os.environ.get("MANIML_SURFACE", "grids")
@@ -257,10 +267,12 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     if program_mode != "off" and fill_generator != "patches":
         raise ValueError("MANIML_PROGRAMS requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
-            or state.surface_generator != surface_generator or state.program_mode != program_mode):
+            or state.patch_source != patch_source or state.surface_generator != surface_generator
+            or state.program_mode != program_mode):
         state.reset()
         state.border_generator = border_generator
         state.fill_generator = fill_generator
+        state.patch_source = patch_source
         state.surface_generator = surface_generator
         state.program_mode = program_mode
         state.retained_frame = None
@@ -281,6 +293,7 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     options = dict(mesh_cache=state.triangle_meshes, fill_borders=True,
                    gpu_borders=border_generator == "gpu",
                    patch_fills=fill_generator == "patches",
+                   patch_rows=patch_source == "rows",
                    net_surfaces=surface_generator == "nets",
                    programs=program_mode != "off")
     renderer = "phase_b" if phase_b else "triangles"

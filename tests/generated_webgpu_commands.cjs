@@ -865,6 +865,90 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
+  // Real row-sourced frames (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
+  // B5.1) beside the records' frame of the same scene: the rows finalized
+  // once each, a run of several objects copied from its objects' outputs,
+  // and the draws the records' frame makes, call for call. Then the same
+  // frame again, which makes nothing, and one square moved.
+  async rowsWire() {
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const [recordsFile, first, again, moved] = process.argv.slice(3);
+    const header = file => { const bytes = fs.readFileSync(file); return JSON.parse(bytes.subarray(5, 5 + bytes.readUInt32LE(1)).toString()); };
+    const draws = passes => sceneDraws(passes).map(draw => [draw.pipeline.descriptor.vertex.entryPoint,
+      draw.pipeline.descriptor.vertex.buffers.length, draw.stencil, ...draw.args].join(":"));
+    const reference = await driver();
+    const expected = await reference.renderBytes(load(recordsFile));
+    await reference.destroy();
+    const d = await driver();
+    const passes = await d.renderBytes(load(first));
+    assert.deepEqual(draws(passes), draws(expected), "the records' draws, call for call");
+    const sent = header(first), keys = Object.keys(sent.program_data);
+    const finalizing = computePasses(passes, "FinalizeParams");
+    assert.equal(finalizing.length, 1, "one pass finalizes every rows");
+    assert.equal(finalizing[0].draws.length, keys.length, "once per rows, fill and stroke alike");
+    // Each rows' outputs, found by the bytes the finalize read.
+    const bytes = fs.readFileSync(first), payload = bytes.subarray(5 + bytes.readUInt32LE(1));
+    const outputs = finalizing[0].draws.map(draw => {
+      const [rows, records, strokes] = draw.bindings.get(1).entries.map(entry => entry.resource.buffer);
+      return {rows: Buffer.from(rows.bytes), records, strokes};
+    });
+    const byKey = key => {
+      const {offset, nbytes} = sent.program_data[key];
+      return outputs.find(output => output.rows.equals(payload.subarray(offset, offset + nbytes)));
+    };
+    // A run of several objects copies their records in order into its own
+    // buffer, which the border stage and the patch draws read; a stroke
+    // draws its object's finalized instances.
+    const copies = passes.filter(pass => pass.copy).map(pass => pass.copy);
+    const runs = sent.batches.filter(batch => batch.rows.length > 1);
+    assert.ok(runs.length, "the frame has a run of several objects");
+    assert.equal(copies.length, runs.reduce((total, batch) => total + batch.rows.length, 0));
+    const border = computePasses(passes, "BorderParams");
+    const patches = sent.batches.filter(batch => batch.pipeline === "patch");
+    assert.equal(border.length, patches.length);
+    let copy = 0;
+    patches.forEach((batch, index) => {
+      const read = border[index].draws[0].bindings.get(1).entries[0].resource.buffer;
+      if (batch.rows.length === 1) {
+        assert.equal(read, byKey(batch.rows[0]).records, "one object's run reads its own records");
+        return;
+      }
+      let offset = 0;
+      for (const key of batch.rows) {
+        const [source, from, target, to, size] = copies[copy++];
+        assert.deepEqual([source, from, target, to], [byKey(key).records, 0, read, offset]);
+        offset += size;
+      }
+      assert.equal(offset, batch.border.num_curves * 176);
+    });
+    const strokes = sceneDraws(passes).filter(draw => draw.pipeline.descriptor.vertex.buffers[0]?.arrayStride === 204);
+    const strokeBatches = sent.batches.filter(batch => batch.pipeline === "stroke");
+    assert.equal(strokes.length, strokeBatches.length);
+    strokeBatches.forEach((batch, index) => {
+      if (batch.rows.length === 1) assert.equal(strokes[index].vertices[0], byKey(batch.rows[0]).strokes);
+    });
+    // The same frame again makes nothing; a moved square finalizes its rows
+    // and copies its run again, and the rows no batch names retire.
+    const still = await d.renderBytes(load(again));
+    assert.equal(still.filter(pass => pass.compute || pass.copy).length, 0);
+    const created = d.counts().buffers_created;
+    const next = await d.renderBytes(load(moved));
+    assert.equal(computePasses(next, "FinalizeParams")[0].draws.length, 1);
+    assert.equal(next.filter(pass => pass.copy).length, runs[0].rows.length);
+    assert.equal(computePasses(next, "BorderParams").length, 1);
+    // Its rows and their records and instances, then the run's geometry
+    // and strip pattern (a new batch, as on the records' side); its object
+    // table stands, and so do its run buffer and the finalize's parameters
+    // for a count of curves already finalized.
+    assert.equal(d.counts().buffers_created - created, 5);
+    assert.equal(d.cacheMisses(), 0);
+    const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
+    const before = resident();
+    await d.render([], {format_version: 7});
+    assert.ok(resident() < before - 2 * keys.length, "rows, records and strokes retire");
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
   // One frame with every row program (docs/phase_b3_plan.md, B3b): a
   // rotation, a fade and a partial path, each finalized and drawn.
   async programKindsWire() {

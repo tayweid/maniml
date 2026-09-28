@@ -171,6 +171,16 @@ const ManimlWGPU = (() => {
   const programSources = new Map(), programPipelines = new Map();
   // kind -> [sources, scalars on the wire]
   const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
+  // Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1): a
+  // patch or stroke batch names its objects' rows, which travel as program
+  // sources; each rows is finalized once into curve records and stroke
+  // instances (row_finalize.wgsl), shared by the slots that name it, and a
+  // run of several objects copies its objects' into a buffer of its own.
+  const ROW_BYTES = 4 * ROW_FLOATS, RECORD_BYTES = 176;
+  const finalizedRows = new Map();
+  // The finalize's parameters are its curve count alone: one uniform
+  // buffer and binding per count, kept while the device lives.
+  const finalizeParams = new Map();
   // The explicit layouts every patch pipeline shares, and the pipelines of
   // a patch run by sample count, depth and paint.
   let patchLayouts = null;
@@ -569,10 +579,10 @@ const ManimlWGPU = (() => {
       retired.push(...entry.buffers);
     }
     slot.holds = [];
-    for (const output of [slot.border, slot.net, slot.program]) {
+    for (const output of [slot.border, slot.net, slot.program, slot.rowsRun]) {
       if (output && output.owner === slot) retired.push(...output.buffers);
     }
-    slot.border = slot.net = slot.program = null;
+    slot.border = slot.net = slot.program = slot.rowsRun = null;
   }
 
   function destroyRetired() {
@@ -914,9 +924,43 @@ const ManimlWGPU = (() => {
     }
   }
 
+  // A batch's row sources, each rows checked as the finalize reads it (an
+  // odd count of seventeen-float rows, whose outputs fit a storage
+  // binding; a patch's fill border widths nonnegative): [{key, bytes,
+  // curves}], or null when a definition is neither in the message nor held.
+  function resolveRows(batch, incoming) {
+    const keys = batch.rows, patch = batch.pipeline === "patch" || batch.pipeline === "patch_depth";
+    if ((incoming.header.format_version ?? 0) < 7 || !isArray(keys) || !keys.length || !keys.every(validHash)
+        || !(patch || batch.pipeline === "stroke" || batch.pipeline === "stroke_depth")
+        || batch.program !== undefined || batch.net !== undefined) {
+      throw new Error("invalid row sources");
+    }
+    const members = [];
+    for (const key of keys) {
+      const source = programSources.get(key), bytes = source ? source.bytes : incoming.programs.get(key);
+      if (!bytes) return null;
+      const rows = bytes.length / ROW_BYTES, curves = Math.floor((rows - 1) / 2);
+      if (!Number.isInteger(rows) || rows < 3 || rows % 2 === 0 || bytes.length > incoming.maxStorage
+          || curves * INSTANCE_STRIDE > incoming.maxStorage) {
+        throw new Error("invalid row source");
+      }
+      if (patch) validateRowWidths(bytes);
+      members.push({ key, bytes, curves });
+    }
+    return members;
+  }
+
+  function validateRowWidths(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let offset = 64; offset < bytes.byteLength; offset += ROW_BYTES) {
+      if (view.getFloat32(offset, true) < 0) throw new Error("fill border widths must be nonnegative");
+    }
+  }
+
   // A border batch's layout, checked as the border stage has always checked
-  // it; null when its run layout, object table or curves are not held.
-  function resolveBorder(batch, payload, incoming, patch, program) {
+  // it; null when its run layout, object table or curves are not held. A
+  // program's or a run of row sources' curves are finalized, not sent.
+  function resolveBorder(batch, payload, incoming, patch, program, rows = null) {
     const border = batch.border, format = incoming.header.format_version ?? 0;
     if (format < 5 || border === null || typeof border !== "object" || Array.isArray(border)) {
       throw new Error("GPU border requires a format 5 border descriptor");
@@ -976,6 +1020,12 @@ const ManimlWGPU = (() => {
         throw new Error("a program's curve records do not match its patch batch");
       }
       length = count * 176;
+    } else if (rows) {
+      // So are its objects' rows, one object each, in the layout's order.
+      if (!patch || rows.length !== runLayout.length || rows.some((member, i) => member.curves !== runLayout[i][0])) {
+        throw new Error("row sources do not match their patch run");
+      }
+      length = count * RECORD_BYTES;
     } else {
       const source = borderSources.get(key);
       definition = source ? source.bytes : incoming.borders.get(key);
@@ -1128,7 +1178,8 @@ const ManimlWGPU = (() => {
   // over the slot it replaces: its pipeline, coverage and stages.
   function shapeOf(batch) {
     return batch.pipeline + (batch.coverage ? ":coverage" : ":") + ("border" in batch ? ":border" : ":")
-      + (batch.net !== undefined ? ":net" : ":") + (batch.program !== undefined ? ":program" : ":");
+      + (batch.net !== undefined ? ":net" : ":") + (batch.program !== undefined ? ":program" : ":")
+      + (batch.rows !== undefined ? ":rows" : ":");
   }
 
   // Batches that resolve to the same slot: equal in every field a slot is
@@ -1149,6 +1200,7 @@ const ManimlWGPU = (() => {
       && a.indexed === b.indexed && a.index_count === b.index_count && a.fill_num_verts === b.fill_num_verts
       && a.coverage === b.coverage && a.paint_hash === b.paint_hash
       && sameValue(a.uniforms, b.uniforms) && sameValue(a.textures, b.textures) && sameValue(a.paint, b.paint)
+      && sameValue(a.rows, b.rows)
       && sameFields(a.border, b.border, BORDER_FIELDS) && sameFields(a.objects, b.objects, OBJECT_FIELDS)
       && sameFields(a.net, b.net, NET_FIELDS) && sameFields(a.program, b.program, PROGRAM_FIELDS);
   }
@@ -1204,7 +1256,8 @@ const ManimlWGPU = (() => {
       coverage: !!batch.coverage, patch, count: batch.count, instances: batch.instances,
       set: null, geometry: null, paint: null, indexBuffer: null, draws: [], patchDraw: null,
       border: null, net: null, program: null, programKey: null, sources: null, strokes: false,
-      borderSource: null, netSource: null, table: null, programOutput: null, programState: null };
+      borderSource: null, netSource: null, table: null, programOutput: null, programState: null,
+      rows: null, rowsKey: null, rowsRun: null, rowBuffer: null, rowStrokes: null };
     incoming.created.push(slot);
     const name = "generated_" + batch.pipeline + (batch.coverage ? "_coverage" : "");
     const depthOnly = batch.coverage && typeof batch.pipeline === "string" && batch.pipeline.endsWith("_depth")
@@ -1228,9 +1281,19 @@ const ManimlWGPU = (() => {
         if (bytes.length !== rowBytes) throw new Error("program source does not match the descriptor's rows");
       }
     }
+    let rows = null;
+    if (batch.rows !== undefined) {
+      rows = resolveRows(batch, incoming);
+      if (!rows) return miss(slot);
+      const curves = rows.reduce((total, member) => total + member.curves, 0);
+      if (!patch && (batch.instances !== curves || batch.num_verts !== 3 * curves || batch.fill_num_verts !== 0
+          || batch.indexed !== false || batch.stride !== VERTEX_STRIDE || "border" in batch)) {
+        throw new Error("row sources do not match their stroke");
+      }
+    }
     let border = null;
     if ("border" in batch) {
-      border = resolveBorder(batch, payload, incoming, patch, program);
+      border = resolveBorder(batch, payload, incoming, patch, program, rows);
       if (!border) return miss(slot);
     }
     let net = null;
@@ -1272,8 +1335,38 @@ const ManimlWGPU = (() => {
         inherit(slot, "program", predecessor.program, incoming);
       }
     }
+    if (rows) {
+      // Each rows finalized once, into outputs the slots naming it share;
+      // a run of several objects draws a buffer of its own, copied from
+      // theirs in order (prepareCompute), which it hands over as a border
+      // output is handed over.
+      slot.rows = rows.map(({key, bytes, curves}) => ({ curves,
+        source: holdStorage(slot, programSources, key, bytes),
+        output: hold(slot, finalizedRows, key, () => makeFinalizedRows(curves)) }));
+      slot.rowsKey = batch.rows.join(",");
+      const name = patch ? "records" : "strokes";
+      if (rows.length === 1) {
+        slot.rowBuffer = slot.rows[0].output[name];
+      } else {
+        const curves = rows.reduce((total, member) => total + member.curves, 0);
+        const size = curves * (patch ? RECORD_BYTES : INSTANCE_STRIDE);
+        const shape = name + ":" + size;
+        if (predecessor && predecessor.rowsRun && predecessor.rowsRun.shape === shape) {
+          inherit(slot, "rowsRun", predecessor.rowsRun, incoming);
+        } else {
+          if (size > (patch ? incoming.maxStorage : incoming.maxBuffer)) {
+            throw new Error("row sources exceed device buffer limits");
+          }
+          const buffer = device.createBuffer({size,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+          slot.rowsRun = { shape, name, buffer, owner: slot, state: null, buffers: [buffer] };
+        }
+        slot.rowBuffer = slot.rowsRun.buffer;
+      }
+      if (!patch) slot.rowStrokes = slot.rowBuffer;
+    }
     if (border) {
-      if (!program) slot.borderSource = holdStorage(slot, borderSources, border.key, border.definition);
+      if (!program && !rows) slot.borderSource = holdStorage(slot, borderSources, border.key, border.definition);
       if (patch) slot.table = holdStorage(slot, objectTables, border.tableKey, border.tableBytes);
       computeUniforms(slot.set, incoming);
       if (!borderPipeline) borderPipeline = device.createComputePipeline({layout: "auto",
@@ -1478,7 +1571,7 @@ const ManimlWGPU = (() => {
         slots[i] = makeSlot(batches[i], payload, incoming, list && list.length ? list.shift() : null);
       }
     }
-    incoming.programSlots = []; incoming.borderSlots = []; incoming.netSlots = [];
+    incoming.programSlots = []; incoming.borderSlots = []; incoming.netSlots = []; incoming.rowSlots = [];
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i], batch = batches[i];
       if (slot.missing) continue;
@@ -1495,12 +1588,14 @@ const ManimlWGPU = (() => {
           }
         }
         if (slot.border && (!batch.cached || "layout" in batch.border)) {
-          const border = resolveBorder(batch, payload, incoming, slot.patch, slot.programKey ? batch.program : null);
+          const border = resolveBorder(batch, payload, incoming, slot.patch, slot.programKey ? batch.program : null,
+                                       slot.rows);
           if (border && geometryDescriptor(batch, border.runLayout) !== slot.geometry.descriptor) {
             throw new Error("cached generated geometry layout changed");
           }
         }
       }
+      if (slot.rows) incoming.rowSlots.push(i);
       if (slot.programKey) incoming.programSlots.push(i);
       if (slot.border) incoming.borderSlots.push(i);
       if (slot.net) incoming.netSlots.push(i);
@@ -1610,6 +1705,15 @@ const ManimlWGPU = (() => {
     return output;
   }
 
+  // A row source's finalized curve records and stroke instances, made by
+  // the first slot that names the rows and finalized once (prepareCompute).
+  function makeFinalizedRows(curves) {
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC;
+    const records = device.createBuffer({size: curves * RECORD_BYTES, usage});
+    const strokes = device.createBuffer({size: curves * INSTANCE_STRIDE, usage});
+    return { records, strokes, curves, finalized: false, buffers: [records, strokes] };
+  }
+
   // Blend the rows (one float per invocation, over two sources) or map one
   // source (one row per invocation), then finalize VMobject rows into curve
   // records and stroke instances. The kernel's parameters are rewritten in
@@ -1687,6 +1791,52 @@ const ManimlWGPU = (() => {
   // each only where its state moved. States are recorded after the submit.
   function prepareCompute(incoming, slots, encoder, completed) {
     const batches = incoming.header.batches;
+    // Row sources: every rows not yet finalized, in one pass, then each run
+    // of several objects copied from its objects' outputs where it holds
+    // other rows. A rows' outputs never change (it is named by content).
+    let finalizing = null;
+    for (const i of incoming.rowSlots) {
+      for (const member of slots[i].rows) {
+        if (member.output.finalized) continue;
+        if (!finalizing) finalizing = new Map();
+        finalizing.set(member.output, member.source);
+      }
+    }
+    if (finalizing) {
+      const pipeline = programPipeline("row_finalize");
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(pipeline);
+      for (const [output, source] of finalizing) {
+        let params = finalizeParams.get(output.curves);
+        if (!params) {
+          const data = new ArrayBuffer(16), view = new DataView(data);
+          view.setUint32(0, output.curves, true); view.setUint32(4, ROW_FLOATS, true);
+          const buffer = makeBuffer(data, GPUBufferUsage.UNIFORM);
+          params = { buffer, binding: device.createBindGroup({layout: pipeline.getBindGroupLayout(0), entries: [
+            {binding: 0, resource: {buffer, size: 16}}]}) };
+          finalizeParams.set(output.curves, params);
+        }
+        compute.setBindGroup(0, params.binding);
+        compute.setBindGroup(1, device.createBindGroup({layout: pipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: source.buffer, size: source.bytes.length}},
+          {binding: 1, resource: {buffer: output.records, size: output.curves * RECORD_BYTES}},
+          {binding: 2, resource: {buffer: output.strokes, size: output.curves * INSTANCE_STRIDE}}]}));
+        compute.dispatchWorkgroups(Math.ceil(output.curves / 64));
+        completed.push([output, { finalized: true }]);
+      }
+      compute.end();
+    }
+    for (const i of incoming.rowSlots) {
+      const slot = slots[i], run = slot.rowsRun;
+      if (!run || run.state === slot.rowsKey) continue;
+      const size = run.name === "records" ? RECORD_BYTES : INSTANCE_STRIDE;
+      let offset = 0;
+      for (const member of slot.rows) {
+        encoder.copyBufferToBuffer(member.output[run.name], 0, run.buffer, offset, member.curves * size);
+        offset += member.curves * size;
+      }
+      completed.push([run, { state: slot.rowsKey }]);
+    }
     // The slots whose program is at the same state share one evaluation (an
     // object's fill and stroke, or objects moving alike), in the output of
     // a slot that already holds that state, or else of one that has an
@@ -1713,9 +1863,12 @@ const ManimlWGPU = (() => {
     for (const i of incoming.borderSlots) {
       const slot = slots[i], output = slot.border, uniforms = slot.set.compute;
       if (!uniforms.borderValid) throw new Error("invalid GPU border generation uniforms");
-      // A program-fed run reads the records of this frame's evaluation.
-      const source = slot.programKey ? slot.programOutput.records : slot.borderSource.buffer;
-      const state = slot.programKey ? uniforms.borderState + ";" + slot.programState : uniforms.borderState;
+      // A program-fed run reads the records of this frame's evaluation, a
+      // run of row sources the records finalized from its rows.
+      const source = slot.programKey ? slot.programOutput.records : slot.rows ? slot.rowBuffer
+        : slot.borderSource.buffer;
+      const state = slot.programKey ? uniforms.borderState + ";" + slot.programState
+        : slot.rows ? uniforms.borderState + ";" + slot.rowsKey : uniforms.borderState;
       if (output.bound !== source || output.table !== slot.table) {
         output.binding = device.createBindGroup({layout: borderPipeline.getBindGroupLayout(1), entries: [
           {binding: 0, resource: {buffer: source, size: output.sourceBytes}},
@@ -1880,10 +2033,11 @@ const ManimlWGPU = (() => {
   function encodeSlot(pass, bound, slot) {
     if (slot.patch) { encodePatch(pass, bound, slot); return; }
     // A program's stroke draws the instances it finalized, three rows per
-    // curve; a net or border draws its evaluated output.
-    const vertex = slot.strokes ? slot.programOutput.strokes : slot.net ? slot.net.buffer
-      : slot.border ? slot.border.buffer : slot.geometry.vertex;
-    const index = slot.strokes ? null : slot.indexBuffer;
+    // curve, as a stroke of row sources draws theirs; a net or border draws
+    // its evaluated output.
+    const vertex = slot.strokes ? slot.programOutput.strokes : slot.rowStrokes ? slot.rowStrokes
+      : slot.net ? slot.net.buffer : slot.border ? slot.border.buffer : slot.geometry.vertex;
+    const index = slot.strokes || slot.rowStrokes ? null : slot.indexBuffer;
     for (const draw of slot.draws) {
       usePipeline(pass, bound, draw.pipeline);
       useGroup(pass, bound, 0, draw.uniform);
@@ -2092,7 +2246,7 @@ const ManimlWGPU = (() => {
       maxDispatch: limits.maxComputeWorkgroupsPerDimension ?? 65535,
       vertexAlignment: 40 * alignment / gcd(40, alignment),
       paints: null, programs: null, borders: null, tables: null, nets: null,
-      created: [], inherited: [], programSlots: [], borderSlots: [], netSlots: [] };
+      created: [], inherited: [], programSlots: [], borderSlots: [], netSlots: [], rowSlots: [] };
     let submitted = false;
     try {
       incoming.paints = paintDefinitions(header, vertexBytes);
@@ -2148,10 +2302,13 @@ const ManimlWGPU = (() => {
         // Every shared resource went with the slots that held it; anything
         // left is destroyed with the device.
         for (const cache of [generatedGeometry, indexPatterns, uniformSets, generatedPaints, paintBindings,
-                             textureBindings, borderSources, objectTables, netSources, programSources]) {
+                             textureBindings, borderSources, objectTables, netSources, programSources,
+                             finalizedRows]) {
           for (const entry of cache.values()) for (const buffer of entry.buffers) buffer.destroy();
           cache.clear();
         }
+        for (const params of finalizeParams.values()) params.buffer.destroy();
+        finalizeParams.clear();
         programPipelines.clear();
         borderPipeline = netPipeline = null;
         patchLayouts = null;

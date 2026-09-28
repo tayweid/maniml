@@ -11,8 +11,10 @@ import weakref
 
 import numpy as np
 
+from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.web.border_geometry import (
-    BorderSource, _BORDER_DTYPE, render_cache_policy, verify_render_cache,
+    BorderSource, RenderCacheStale, _BORDER_DTYPE, _readonly, _same_bytes, render_cache_policy,
+    standard_source_methods, verify_render_cache,
 )
 
 
@@ -117,6 +119,23 @@ def fill_record(curves):
     return readonly(record)
 
 
+def rows_record(source, sign=True):
+    """The patch fill's object words for a RowsSource: its winding sign
+    where ``sign`` asks for it (rows_winding_sign) and 0 otherwise, which
+    draws it alone, and the run slots the assembly fills in. The base words
+    stay zero: nothing reads them since the fan took each curve's own base
+    (patch_fill.wgsl), so a path's table does not change as it moves."""
+    if not sign:
+        return _UNSIGNED_RECORD
+    record = np.zeros((1, OBJECT_WORDS), dtype="<f4")
+    record[0, 6] = rows_winding_sign(source.rows)
+    return readonly(record)
+
+
+_UNSIGNED_RECORD = readonly(np.zeros((1, OBJECT_WORDS), dtype="<f4"))
+_NO_RGBA = readonly(np.zeros(0, dtype="<f4"))
+
+
 # Beyond this many curves the sign test is skipped and the object draws on
 # its own; the test is quadratic in a contour's samples.
 MAX_SIGN_TEST_CURVES = 4096
@@ -136,17 +155,15 @@ def canonical_normal(normal):
     return normal
 
 
-def _contour_polygons(curves):
-    """The sampled polygon of each subpath: anchor and midpoint per curve, in
-    the plane of the object's canonical normal. A subpath ends, as
+def _contour_polygons(p0, p1, p2, normal):
+    """The sampled polygon of each subpath: anchor and midpoint per curve
+    (``p0``, ``p1``, ``p2``, each curve's control points in float64), in
+    the plane of the object's canonical ``normal``. A subpath ends, as
     ``VMobject.get_subpath_end_indices_from_points`` says, at a curve whose
     handle sits on its anchor and whose next anchor is elsewhere (the
     kernel draws nothing for it). Returns None when a subpath is not closed,
     since its winding is then undefined."""
-    p0 = curves[:, 0:3].astype(float)
-    p1 = curves[:, 12:15].astype(float)
-    p2 = curves[:, 24:27].astype(float)
-    normal = canonical_normal(curves[0, 21:24])  # record 1's normal; record 0 holds the base point
+    normal = canonical_normal(normal)
     helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
     u = np.cross(normal, helper)
     u /= np.linalg.norm(u)
@@ -154,7 +171,7 @@ def _contour_polygons(curves):
     ends = np.all(p0 == p1, axis=1) & np.any(np.abs(p1 - p2) > 1e-4, axis=1)
     polygons, start = [], 0
     scale = max(float(np.abs(p0).max()), 1.0)
-    for end in [*np.flatnonzero(ends), len(curves)]:
+    for end in [*np.flatnonzero(ends), len(p0)]:
         if end > start:
             a0, h, a1 = p0[start:end], p1[start:end], p2[start:end]
             if np.linalg.norm(a1[-1] - a0[0]) > 1e-6 * scale:
@@ -195,7 +212,24 @@ def winding_sign(curves):
     curves = np.asarray(curves)
     if len(curves) > MAX_SIGN_TEST_CURVES:
         return 0
-    polygons = _contour_polygons(curves)
+    # Record 1's normal; record 0 holds the base point.
+    return _winding_sign(curves[:, 0:3].astype(float), curves[:, 12:15].astype(float),
+                         curves[:, 24:27].astype(float), curves[0, 21:24])
+
+
+def rows_winding_sign(rows):
+    """winding_sign of the curve records row_finalize.wgsl makes of a
+    path's ``rows``, read from the rows themselves: the same control
+    points, and the unit normal on the first odd row, record 1's."""
+    curves = (len(rows) - 1) // 2
+    if curves > MAX_SIGN_TEST_CURVES:
+        return 0
+    points = np.asarray(rows)[:2 * curves + 1, :3].astype(float)
+    return _winding_sign(points[0:-2:2], points[1:-1:2], points[2::2], rows[1, 13:16])
+
+
+def _winding_sign(p0, p1, p2, normal):
+    polygons = _contour_polygons(p0, p1, p2, normal)
     if polygons is None:
         return 0
     areas = [0.5 * float(np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1]))
@@ -298,6 +332,8 @@ def required_capacity(source):
 def density_summary(source):
     """What a later zoom needs to know about a source: its largest finite
     density and whether any active curve's density overflowed to +inf."""
+    if isinstance(source, RowsSource):
+        return source.max_density, source.capped
     density = source.density[source.active]
     if not len(density):
         return 0.0, False
@@ -344,6 +380,143 @@ def border_indices(curve_count, vertex_base=0, capacity=MAX_VERTICES_PER_CURVE):
 
 # Sources are 176 bytes per curve and must fit one portable storage binding.
 MAX_BORDER_CURVES = MAX_RUN_OUTPUT_BYTES // CURVE_BYTES
+
+# MANIML_PATCH_SOURCE=rows (docs/phase_b4_plan.md, B5.1): a path's rows,
+# VMobject's own seventeen float32 columns, travel in place of its curve
+# records and stroke instances, which each driver makes of them on the GPU
+# with row_finalize.wgsl, as it does for a program's evaluated rows.
+ROW_DTYPE = VMobject.data_dtype
+ROW_FLOATS = ROW_DTYPE.itemsize // 4
+STROKE_INSTANCE_BYTES = 3 * ROW_DTYPE.itemsize
+_OUTER_PATTERNS = {}
+
+
+def _outer_pattern(curves):
+    """VMobject.get_outer_vert_indices's pattern for ``curves`` curves:
+    (0, 1, 2, 2, 3, 4, ...), the rows of curve i being 2i, 2i + 1, 2i + 2."""
+    pattern = _OUTER_PATTERNS.get(curves)
+    if pattern is None:
+        if len(_OUTER_PATTERNS) > 4096:
+            _OUTER_PATTERNS.clear()
+        pattern = _OUTER_PATTERNS[curves] = (np.arange(1, 3 * curves + 1) * 2) // 3
+    return pattern
+
+
+def row_source_ready(mobject):
+    """Whether ``mobject``'s rows can stand for its curve records and stroke
+    instances: VMobject's own columns, contiguous, an odd count of at least
+    three (every row a curve's), read through the library's getters
+    (border_geometry.standard_source_methods), whose shader data gathers
+    them by the outer-vertex pattern. Anything else keeps its records.
+    Reads counts and dtypes only, so a pending program stays pending."""
+    data = mobject._data
+    return (data.dtype == ROW_DTYPE and len(data) >= 3 and len(data) % 2 == 1 and data.flags.c_contiguous
+            and standard_source_methods(mobject))
+
+
+def _curve_areas(points):
+    """Half the norm of (p1 - p0) x (p2 - p0) per curve of an odd count of
+    float32 ``points``: _border_density's area in its own float32 arithmetic
+    (numpy's cross product, then its norm), without their dispatch."""
+    p0, p1, p2 = points[0:-2:2], points[1:-1:2], points[2::2]
+    a, b = p1 - p0, p2 - p0
+    cross = np.empty((len(a), 3), dtype=points.dtype)
+    np.subtract(a[:, 1] * b[:, 2], a[:, 2] * b[:, 1], out=cross[:, 0])
+    np.subtract(a[:, 2] * b[:, 0], a[:, 0] * b[:, 2], out=cross[:, 1])
+    np.subtract(a[:, 0] * b[:, 1], a[:, 1] * b[:, 0], out=cross[:, 2])
+    return .5 * np.sqrt(np.add.reduce(cross * cross, axis=1))
+
+
+def rows_sqrt_area(rows):
+    """_stroke_sqrt_area of the stroke instances row_finalize.wgsl makes of
+    a path's float32 ``rows``, from the rows themselves."""
+    return np.sqrt(_curve_areas(rows[:, 0:3])).max()
+
+
+@dataclass(eq=False)
+class RowsSource:
+    """A path's rows as the patch fill sends them (MANIML_PATCH_SOURCE=rows):
+    its data as the read of its shader data leaves it, frozen once
+    (``raw_data``, and ``rows``, the same bytes as float32 rows), and what
+    the draws need to know of them beside: the ``curves``, whether any
+    curve's border is active (``bordered``: a visible fill, a handle off its
+    anchor and a width, as BorderSource marks it), whether every fill
+    border width is nonnegative, the density summary a reservation follows
+    (the largest finite active density, whether one overflowed) and the
+    largest curve's sqrt(area), a stroke's count. The curve records and
+    stroke instances are the driver's to make."""
+
+    raw_data: np.ndarray
+    rows: np.ndarray
+    curves: int
+    bordered: bool
+    widths_valid: bool
+    max_density: float
+    capped: bool
+    sqrt_area: np.float32
+
+    @classmethod
+    def read(cls, mobject, *, previous=None, trusted=False, verify=None):
+        """BorderSource.read for rows: the previous read is reused on the
+        caller's word that the revision is unchanged (and, under
+        MANIML_VERIFY_LEDGER=1, held to the live rows), or where the rows
+        are its bytes and nothing is left to refresh. Otherwise the rows are
+        refreshed as get_shader_data refreshes them (the unit normal, the
+        joint angles, the base points), and copied once: that copy is what
+        a changed path costs. None where the path's shader data would not
+        gather its rows by the outer-vertex pattern (an edit of its derived
+        indices), which only its records can stand for."""
+        current = (previous is not None and not mobject.needs_new_joint_angles
+                   and not mobject.needs_new_unit_normal)
+        if current and trusted:
+            if verify_render_cache() if verify is None else verify:
+                for name, live, kept in (("data", mobject.data, previous.raw_data),
+                                         ("outer_vert_indices", mobject.outer_vert_indices,
+                                          _outer_pattern(previous.curves))):
+                    if not _same_bytes(live, kept):
+                        raise RenderCacheStale(
+                            f"{type(mobject).__name__} changed in '{name}' since its last "
+                            f"frame without a revision bump")
+            return previous
+        curves = (len(mobject._data) - 1) // 2
+        if not _same_bytes(mobject.get_outer_vert_indices(), _outer_pattern(curves)):
+            return None
+        if current and _same_bytes(mobject.data, previous.raw_data):
+            return previous
+        if mobject.needs_new_unit_normal:
+            mobject.get_unit_normal()
+        mobject.get_joint_angles()
+        data = mobject.data
+        data["base_normal"][0::2] = data["point"][0]
+        raw = _readonly(data)
+        rows = raw.view(np.float32).reshape(len(raw), ROW_FLOATS)
+        if not np.isfinite(rows).all():
+            raise ValueError("patch source rows must be finite")
+        points = rows[:, 0:3]
+        root = np.sqrt(_curve_areas(points))
+        if np.isnan(root).any():
+            # An area overflowed both ways (inf - inf): pack_source refuses it.
+            raise ValueError("border density must be nonnegative and not NaN")
+        # BorderSource's active curves: a visible fill and a width on one of
+        # its three rows, and a handle off its anchor.
+        marks = rows[:, (12, 16)] != 0
+        marks = marks[0:-2:2] | marks[1:-1:2] | marks[2::2]
+        active = marks[:, 0] & marks[:, 1] & np.any(points[0:-2:2] != points[1:-1:2], axis=1)
+        # Its density summary: finite rows make a finite or overflowed area.
+        density = 100 * root[active]
+        top = density.max() if len(density) else np.float32(0)
+        capped = not np.isfinite(top)
+        if capped:
+            density = density[np.isfinite(density)]
+            top = density.max() if len(density) else np.float32(0)
+        return cls(raw, rows, curves, bool(active.any()), bool(rows[:, 16].min() >= 0),
+                   float(top), capped, root.max())
+
+    def arrays(self):
+        return (self.raw_data,)
+
+    def frozen(self):
+        return self
 
 
 def validate_layout(layout, fill_indices, fill_vertices, curve_count):
@@ -393,10 +566,16 @@ class _SourceEntry:
     record: np.ndarray | None = None
     paint: np.ndarray | None = None
     checked: bool = False
+    # A RowsSource (MANIML_PATCH_SOURCE=rows), whose ``curves`` are its rows,
+    # and whether its record carries the winding sign.
+    from_rows: bool = False
+    signed: bool = False
 
     @property
     def nbytes(self):
-        return sum(a.nbytes for a in self.source.arrays()) + self.rgba.nbytes + self.curves.nbytes
+        # A rows source's curves are a view of its raw data.
+        curves = 0 if self.from_rows else self.curves.nbytes
+        return sum(a.nbytes for a in self.source.arrays()) + self.rgba.nbytes + curves
 
 
 class BorderRecipeCache:
@@ -450,7 +629,8 @@ class BorderRecipeCache:
     def _remove_run(self, key):
         value = self.runs.pop(key)
         result = value[1]
-        retained = (result[0], result[2]) if key[0] == "patch" else result[:3]
+        retained = ((result[0], result[2]) if key[0] == "patch" else (result[2],) if key[0] == "patch_rows"
+                    else result[:3])
         self._bytes -= sum(a.nbytes for a in (*value[0], *retained))
 
     def _bound(self):
@@ -481,7 +661,7 @@ class BorderRecipeCache:
         ``every_curve`` is the patch fill's packing (see ``pack_source``)."""
         self._validate(uniforms)
         previous = self.sources.get(id(mobject))
-        if previous is not None and (previous.owner() is not mobject
+        if previous is not None and (previous.owner() is not mobject or previous.from_rows
                                      or previous.every_curve != every_curve):
             previous = None
         trusted = (self.policy == "revision" and revision is not None
@@ -527,6 +707,46 @@ class BorderRecipeCache:
         self._bound()
         return curves
 
+    def rows(self, mobject, uniforms, *, revision=None):
+        """The patch fill's RowsSource for ``mobject`` under
+        MANIML_PATCH_SOURCE=rows, or None where its rows cannot stand for
+        its records (RowsSource.read) and ``source`` must pack them. What
+        ``source`` is to the curve records it packs: the same entries,
+        reservations and trust of an unchanged revision, the entry's
+        ``curves`` being the rows, which the driver finalizes. Its record
+        is made when fill_record first asks."""
+        self._validate(uniforms)
+        key = id(mobject)
+        previous = self.sources.get(key)
+        if previous is not None and (previous.owner() is not mobject or not previous.from_rows):
+            previous = None
+        trusted = (self.policy == "revision" and revision is not None
+                   and previous is not None and previous.revision == revision)
+        if trusted and not self.verify and key in self.capacities:
+            self._reserve(mobject, None, frame_scale=uniforms["frame_scale"])
+            previous.frame = self.frame
+            self.sources.move_to_end(key)
+            return previous.source
+        source = RowsSource.read(mobject, trusted=trusted, verify=self.verify,
+                                 previous=None if previous is None else previous.source)
+        if source is None:
+            return None
+        self._reserve(mobject, source, frame_scale=uniforms["frame_scale"])
+        if previous is not None and source is previous.source:
+            previous.frame = self.frame
+            self.sources.move_to_end(key)
+            return source
+        entry = _SourceEntry(weakref.ref(mobject), source, _NO_RGBA, source.rows, self.frame, revision,
+                             True, from_rows=True)
+        self.source_updates += 1
+        if key in self.sources:
+            self._remove_source(key)
+        self.sources[key] = entry
+        self._bytes += entry.nbytes
+        self.sources.move_to_end(key)
+        self._bound()
+        return source
+
     def _reserve(self, mobject, source, *, frame_scale):
         """Reserve for ``source`` at this zoom, or for the retained density
         summary when ``source`` is None (a trusted frame)."""
@@ -548,11 +768,16 @@ class BorderRecipeCache:
             raise KeyError("no patch fill source for this mobject")
         return entry
 
-    def fill_record(self, mobject, check=None):
+    def fill_record(self, mobject, check=None, *, sign=True):
         """The patch fill's object words for ``mobject``'s current source.
         ``check`` runs once per packing, before the record is first handed
-        out: the caller's planar refusal."""
+        out: the caller's planar refusal. A rows source's record is made
+        here, with its winding sign where ``sign`` asks for one (an object
+        that may share a stencil count, the only kind the sign groups) and
+        0 otherwise (rows_record)."""
         entry = self._entry(mobject)
+        if entry.from_rows and (entry.record is None or sign and not entry.signed):
+            entry.record, entry.signed = rows_record(entry.source, sign), sign
         if entry.record is None:
             raise KeyError("no patch fill source for this mobject")
         if not entry.checked:
@@ -665,7 +890,8 @@ class BorderRecipeCache:
         ref = weakref.ref(mobject)
         self.capacities[key] = (ref, capacity, self.frame, *density)
         held = _SourceEntry(ref, entry.source, entry.rgba, entry.curves, self.frame, mobject.revision,
-                            entry.every_curve, entry.record, entry.paint if paint else None, entry.checked)
+                            entry.every_curve, entry.record, entry.paint if paint else None, entry.checked,
+                            entry.from_rows, entry.signed)
         if key in self.sources:
             self._remove_source(key)
         self.sources[key] = held
@@ -674,9 +900,9 @@ class BorderRecipeCache:
         self._bound()
         return held
 
-    def patch_run_key(self, parts):
+    def patch_run_key(self, parts, *, rows=False):
         """The key assemble_patches retains the run of ``parts`` under."""
-        return self._patch_inputs(parts)[0]
+        return self._patch_inputs(parts, rows)[0]
 
     def run_key(self, parts):
         """The key assemble retains the run of ``parts`` under."""
@@ -696,11 +922,11 @@ class BorderRecipeCache:
         return value[1]
 
     @staticmethod
-    def _patch_inputs(parts):
+    def _patch_inputs(parts, rows=False):
         arrays = tuple(a for curves, _, record, _, _ in parts for a in (curves, record))
         capacities = tuple(validate_capacity(capacity) for _, capacity, _, _, _ in parts)
         flags = tuple((bool(bordered), bool(shareable)) for _, _, _, bordered, shareable in parts)
-        return ("patch", *(id(a) for a in arrays), *flags), arrays, capacities, flags
+        return ("patch_rows" if rows else "patch", *(id(a) for a in arrays), *flags), arrays, capacities, flags
 
     @staticmethod
     def _run_inputs(parts):
@@ -708,7 +934,7 @@ class BorderRecipeCache:
         capacities = tuple(validate_capacity(capacity) for _, _, _, capacity in parts)
         return (*(id(a) for a in arrays), *capacities), arrays, capacities
 
-    def assemble_patches(self, parts):
+    def assemble_patches(self, parts, *, rows=False):
         """One patch run: (curves, capacity, record, bordered, shareable) per
         object; ``shareable`` says the object may share a stencil count (an
         opaque, uniform, unshaded painter object; the record's winding sign
@@ -718,9 +944,11 @@ class BorderRecipeCache:
         concatenated in draw order, the largest reservation, the layout of
         (curve count, bordered, group) per object, and the object table with
         each record's run slots filled in. Nothing here depends on the
-        camera.
+        camera. Under ``rows`` each object's curves are its rows (RowsSource),
+        which are not joined: the run's curves are the tuple of them, which
+        the driver finalizes into one run of records.
         """
-        key, arrays, capacities, flags = self._patch_inputs(parts)
+        key, arrays, capacities, flags = self._patch_inputs(parts, rows)
         cacheable = all(immutable(a) for a in arrays)
         previous = self.runs.get(key)
         if previous is not None and all(a is b for a, b in zip(arrays, previous[0])):
@@ -728,32 +956,37 @@ class BorderRecipeCache:
             self.runs.move_to_end(key)
             curves, layout, objects = previous[1]
             return curves, max(capacities), layout, objects
-        curves = readonly(np.concatenate([c for c, _, _, _, _ in parts]))
+        sources = [c for c, _, _, _, _ in parts]
+        curves = tuple(sources) if rows else readonly(np.concatenate(sources))
         objects = np.zeros((len(parts), OBJECT_WORDS), dtype="<f4")
         layout, offset, group, previous = [], 0, -1, None
         for index, ((source, _, record, _, _), (bordered, shareable)) in enumerate(zip(parts, flags)):
+            # A record's colour and plane: the first row's fill and the
+            # first odd row's normal are its first curve's words 40-43 and
+            # 21-23, which the driver's finalize writes from them.
+            count, colour, normal = ((len(source) - 1) // 2, source[0, 9:13], source[1, 13:16]) if rows else (
+                len(source), source[0, 40:44], source[0, 21:24])
             objects[index] = record[0]
-            objects[index, 3:6] = (offset, len(source), int(bordered))
+            objects[index, 3:6] = (offset, count, int(bordered))
             # Consecutive shareable objects of one winding sign and one
             # colour share a group; anything else is a group of its own.
             sign = int(record[0, 6])
             # The normal is compared to three decimals: coplanar objects'
             # normals differ in the last bits (a -0.0 differs from 0.0 in
             # bytes, hence the + 0.0).
-            identity = ((sign, source[0, 40:44].tobytes(),
-                         (np.round(canonical_normal(source[0, 21:24]), 3) + 0.0).tobytes())
+            identity = ((sign, colour.tobytes(), (np.round(canonical_normal(normal), 3) + 0.0).tobytes())
                         if shareable and sign else None)
             if identity is None or identity != previous:
                 group += 1
             previous = identity
-            layout.append((len(source), int(bordered), group))
-            offset += len(source)
+            layout.append((count, int(bordered), group))
+            offset += count
         objects = readonly(objects)
         result = (curves, tuple(layout), objects)
         self.assemblies += 1
         if cacheable:
             self.runs[key] = (arrays, result, self.frame)
-            self._bytes += sum(a.nbytes for a in (*arrays, curves, objects))
+            self._bytes += sum(a.nbytes for a in (*arrays, *((objects,) if rows else (curves, objects))))
             self._bound()
         return curves, max(capacities), tuple(layout), objects
 

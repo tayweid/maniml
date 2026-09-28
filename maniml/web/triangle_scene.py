@@ -17,7 +17,7 @@ from maniml.mobject.types.image_mobject import ImageMobject
 from maniml.mobject.types.surface import Surface, TexturedSurface
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.types.vectorized_mobject import VMobject
-from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _texture_refs
+from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _stroke_verts_at, _texture_refs
 from maniml.web.triangle_geometry import TessellationError
 from maniml.web.border_geometry import (
     BorderSource, MAX_BORDER_TRIANGLES, RenderCacheStale, emit_border_triangles,
@@ -25,8 +25,8 @@ from maniml.web.border_geometry import (
 )
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 from maniml.web.gpu_border_geometry import (
-    BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
-    patch_draw_count,
+    BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, ROW_DTYPE, STROKE_INSTANCE_BYTES,
+    indices_per_curve, patch_draw_count, row_source_ready,
 )
 from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
 from maniml.web import gpu_program_geometry
@@ -106,6 +106,11 @@ class TriangleDraw:
     # "scalars": [...]}; the draw's records, strokes or net come from the
     # driver's evaluation of it.
     program: dict | None = None
+    # Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1):
+    # the rows of each of the draw's objects, in order, which the driver
+    # finalizes into the patch run's curve records or the stroke's
+    # instances; such a draw has no vertices and no curve records of its own.
+    rows: tuple | None = None
 
 
 def run_kind(draw):
@@ -118,6 +123,12 @@ def run_kind(draw):
         return None  # one evaluated program per draw
     if draw.net is not None:
         return None  # one evaluated net per draw
+    if draw.rows is not None:
+        # A run of row sources, whose records or instances the driver
+        # finalizes into one buffer; a painted patch stays a run of its own.
+        if draw.fill_objects is not None:
+            return "patch_rows" if draw.paint is None else None
+        return "stroke_rows"
     if draw.fill_objects is not None:
         # A material run binds one paint field, so a painted patch
         # draw stays a run of its own.
@@ -141,10 +152,19 @@ def run_kind(draw):
 
 
 def patch_parts(run):
-    """What BorderRecipeCache.assemble_patches takes for a patch run."""
-    return [(draw.border_sources, draw.border_capacity, draw.fill_objects,
-             draw.patch_layout[0][1], draw.patch_layout[0][2])
+    """What BorderRecipeCache.assemble_patches takes for a patch run: under
+    row sources, each object's rows in place of its curve records."""
+    return [(draw.border_sources if draw.rows is None else draw.rows[0], draw.border_capacity,
+             draw.fill_objects, draw.patch_layout[0][1], draw.patch_layout[0][2])
             for draw in run]
+
+
+def draw_curves(draw):
+    """The curves a border or patch draw's records cover: its own records',
+    or under row sources its objects'."""
+    if draw.border_sources is not None:
+        return len(draw.border_sources)
+    return sum(curves for curves, _, _ in draw.patch_layout)
 
 
 def border_parts(run):
@@ -164,10 +184,18 @@ def combine_run(run, kind, *, border_cache=None):
     if run[0].program is not None:
         return run[0]  # evaluated by the driver; nothing to assemble
     if run[0].fill_objects is not None:
-        curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run))
-        return replace(run[0], border_sources=curves, border_capacity=capacity,
-                       patch_layout=layout, fill_objects=objects,
-                       count=patch_draw_count(layout, capacity))
+        rows = run[0].rows is not None
+        curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run), rows=rows)
+        return replace(run[0], border_capacity=capacity, patch_layout=layout, fill_objects=objects,
+                       count=patch_draw_count(layout, capacity),
+                       **({"rows": curves} if rows else {"border_sources": curves}))
+    if run[0].rows is not None:
+        # A stroke's instances: the driver finalizes each object's rows into
+        # the run's buffer, so nothing is joined here.
+        if len(run) == 1:
+            return run[0]
+        return replace(run[0], rows=tuple(rows for draw in run for rows in draw.rows),
+                       count=max(draw.count for draw in run), instances=sum(draw.instances for draw in run))
     if run[0].border_sources is not None:
         vertices, indices, curves, capacity, layout = border_cache.assemble(border_parts(run))
         return replace(run[0], vertices=vertices, indices=indices, border_sources=curves,
@@ -209,7 +237,7 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
     def border_run_bytes(draw):
         # A run reserves its largest member's capacity for every curve.
         capacity = max(run_capacity, draw.border_capacity)
-        curves = curve_count + len(draw.border_sources)
+        curves = curve_count + draw_curves(draw)
         return (vertex_count + len(draw.vertices) + capacity * curves) * 40
 
     for draw in draws:
@@ -222,7 +250,10 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
                       and draw.vertices.dtype == run[0].vertices.dtype
                       and (draw.uniforms is run[0].uniforms or draw.uniforms == run[0].uniforms)
                       and draw.textures == run[0].textures
-                      and (draw_kind not in ("border", "patch") or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind not in ("border", "patch", "patch_rows")
+                           or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind != "stroke_rows"
+                           or (curve_count + draw.instances) * STROKE_INSTANCE_BYTES <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
@@ -233,9 +264,11 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
         run.append(draw)
         current = draw_kind
         vertex_count += len(draw.vertices)
-        if draw.border_sources is not None:
-            curve_count += len(draw.border_sources)
+        if draw.border_sources is not None or draw_kind == "patch_rows":
+            curve_count += draw_curves(draw)
             run_capacity = max(run_capacity, draw.border_capacity)
+        elif draw_kind == "stroke_rows":
+            curve_count += draw.instances
     if run:
         result.append(combine(run, current, border_cache=border_cache))
     return result
@@ -322,6 +355,7 @@ def _readonly(array):
 
 # A patch fill draw owns no vertices; every one shares this empty array.
 _NO_VERTICES = _readonly(np.zeros(0, dtype=SURFACE_DTYPE))
+_NO_ROWS = _readonly(np.zeros(0, dtype=ROW_DTYPE))
 
 
 @dataclass
@@ -1325,6 +1359,7 @@ class LeafContext:
     fill_borders: bool = False
     gpu_borders: bool = False
     patch_fills: bool = False
+    patch_rows: bool = False
     programs: bool = False
     mesh_cache: TriangleMeshCache | None = None
     border_cache: BorderRecipeCache | None = None
@@ -1443,7 +1478,31 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
     border_source, border_vertices = ctx.borders.get(id(sm), (None, None))
     has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
         mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
-    if has_fill and ctx.patch_fills:
+    # Under row sources (MANIML_PATCH_SOURCE=rows) a path's rows stand for
+    # its fill's curve records and its stroke's instances, which the driver
+    # makes of them (docs/phase_b4_plan.md, B5.1): what changes in a moved
+    # path is one copy of its rows. A stroke's rows are compared every
+    # frame, as its shader data is read every frame on the records' side;
+    # a fill's alone are trusted at an unchanged revision, as its records are.
+    rows = (border_cache.rows(sm, uniforms, revision=None if has_stroke else sm.revision)
+            if ctx.patch_rows and (has_fill or has_stroke) and row_source_ready(sm) else None)
+    if has_fill and rows is not None:
+        if not rows.widths_valid:
+            raise ValueError("fill border widths must be nonnegative")
+        material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+        # The winding sign groups only an object that may share a stencil
+        # count (below), so only such an object's record carries one.
+        shareable = int(not material and opaque_alpha and not sm.depth_test)
+        record = border_cache.fill_record(sm, lambda: _refuse_nonplanar(sm.get_points()), sign=bool(shareable))
+        paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                 if material else None)
+        _note_paint_cost(into, paint)
+        capacity = border_cache.capacity(sm)
+        layout = ((rows.curves, int(has_border and rows.bordered), shareable),)
+        fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
+                            paint=paint, border_capacity=capacity, fill_objects=record, patch_layout=layout,
+                            rows=(rows.rows,))
+    elif has_fill and ctx.patch_fills:
         material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
         curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
         if len(curves):
@@ -1517,7 +1576,13 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
                                                      if ctx.gpu_borders and coverage
                                                      else MAX_VERTICES_PER_CURVE))
     stroke = None
-    if has_stroke:
+    if has_stroke and rows is not None:
+        # The rows read validated the frame scale (its reservation), so the
+        # count follows from the largest curve alone.
+        stroke = TriangleDraw("stroke" + depth_suffix, _NO_ROWS, uniforms,
+                              count=_stroke_verts_at(rows.sqrt_area, uniforms["frame_scale"]),
+                              instances=rows.curves, rows=(rows.rows,))
+    elif has_stroke:
         data = np.ascontiguousarray(sm.get_shader_data()).copy()
         stroke = TriangleDraw("stroke" + depth_suffix, data, uniforms,
                               count=_stroke_verts(data, uniforms["frame_scale"]),
@@ -1525,6 +1590,19 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
     ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
     into.draws.extend(draw for draw in ordered if draw is not None)
     return into
+
+
+def _refuse_nonplanar(points):
+    """planar_coordinates' refusal alone, for a patch fill, which uses
+    nothing else of it: a path whose points share one z lies in that plane,
+    so the fit's residual is zero to rounding and the refusal never fires,
+    and only another path is fitted."""
+    points = np.asarray(points)
+    if len(points) and np.all(points[:, 2] == points[0, 2]):
+        if not np.isfinite(points).all():
+            raise UnsupportedPrototype("nonfinite source points")
+        return
+    planar_coordinates(points)
 
 
 def _limitation(ctx, into, message):
@@ -1538,7 +1616,7 @@ def _limitation(ctx, into, message):
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
                            coalesce=True, fill_borders=False, gpu_borders=False,
-                           patch_fills=False, net_surfaces=False, programs=False):
+                           patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -1552,6 +1630,10 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``patch_fills=True`` (with GPU borders) prepares no fill mesh at all: each
     filled path becomes a patch draw the driver builds from its curve records
     on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
+    ``patch_rows=True`` (with patch fills) sends a path's rows for its fill's
+    curve records and its stroke's instances, which the driver finalizes
+    (docs/phase_b4_plan.md, B5.1); a path whose rows cannot stand for them
+    keeps its records.
     ``net_surfaces=True`` sends each surface's control net instead of its
     evaluated grid; the driver evaluates it at screen density
     (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
@@ -1572,7 +1654,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     frame, context = begin_triangle_frame(
         scene, tessellator, pixel_tolerance=pixel_tolerance, diagnostic=diagnostic,
         mesh_cache=mesh_cache, fill_builder=fill_builder, fill_borders=fill_borders,
-        gpu_borders=gpu_borders, patch_fills=patch_fills, net_surfaces=net_surfaces, programs=programs)
+        gpu_borders=gpu_borders, patch_fills=patch_fills, patch_rows=patch_rows, net_surfaces=net_surfaces,
+        programs=programs)
     records = [(sm, {**context.camera_uniforms,
                      **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
                for sm in draw_order(scene)]
@@ -1587,7 +1670,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
 
 def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic=False,
                          mesh_cache=None, fill_builder=None, fill_borders=False, gpu_borders=False,
-                         patch_fills=False, net_surfaces=False, programs=False):
+                         patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
     """The empty frame prepare_triangle_frame fills and the LeafContext its
     leaves share, every cache begun for the frame; the options are
     prepare_triangle_frame's. The context's ``borders`` are the caller's to
@@ -1604,6 +1687,8 @@ def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic
         raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
     if patch_fills and not gpu_borders:
         raise ValueError("patch fills require gpu_borders=True")
+    if patch_rows and not patch_fills:
+        raise ValueError("row sources require patch_fills=True")
     if programs and not patch_fills:
         raise ValueError("programs require patch_fills=True")
     program_cache = mesh_cache.program_sources if mesh_cache is not None else {}
@@ -1623,7 +1708,7 @@ def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic
     return frame, LeafContext(
         frame.resolution, camera_uniforms, tessellator, pixel_tolerance, diagnostic=diagnostic,
         fill_builder=fill_builder, fill_borders=fill_borders, gpu_borders=gpu_borders,
-        patch_fills=patch_fills, programs=programs, mesh_cache=mesh_cache,
+        patch_fills=patch_fills, patch_rows=patch_rows, programs=programs, mesh_cache=mesh_cache,
         border_cache=border_cache, net_cache=net_cache, program_cache=program_cache,
         stats_before=cache_before)
 

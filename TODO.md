@@ -226,9 +226,16 @@ more JS under format 8 (~0.1 ms a seek, in slot resolution; the plan's
 1: a play where every leaf moves
 costs ~16% more (the plan names the fast path that would take it back, and
 whether the flip stands for `--render` is Taylor's call), and the 8.a seek-up
-gate (≤ 8 ms) is unverified until it runs on a quiet machine. The paragraphs
-below are the earlier framing and remain the contracts for resources, counts
-and recovery.
+gate (≤ 8 ms) is unverified until it runs on a quiet machine. B5.1 is
+built behind `MANIML_PATCH_SOURCE=rows`, off by default (the plan's "B5.1:
+built"): a patch path's rows travel in place of its records and each driver
+finalizes them, pixels identical, and 8.a's play serializes in 51.6 ms
+instead of 104.5, not the 2.65 ms floor. Open there: the GPU pays ~10 ms a
+frame more for a finalize dispatch per changed rows (one dispatch for a
+frame's rows is the fix), the page ~0.5-1 ms more JS, and the serializer's
+per-leaf and per-batch structure stands between it and the floor. The
+paragraphs below are the earlier framing and remain the contracts for
+resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
 source points and supported operations live on the GPU. Map/reduce operations

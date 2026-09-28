@@ -303,23 +303,41 @@ def encode_draw(draw, camera, parts, record=None):
     # from the driver's evaluation, so no retained source travels.
     program = getattr(draw, "program", None)
     program_descriptor = None
+    # Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1):
+    # each object's rows, sent once by hash in the program sources' table;
+    # the driver finalizes them into the batch's curve records or stroke
+    # instances, so neither travels.
+    row_sources = getattr(draw, "rows", None)
+    row_hashes, num_curves = None, None
+    if row_sources is not None:
+        if (program is not None or base not in ("patch", "stroke") or len(vertices) or indices is not None
+                or border is not None or net is not None):
+            raise ValueError("row sources feed a patch or stroke draw that carries nothing else")
+        row_hashes = _row_digests(row_sources, parts, record, "row sources")
+        counts = []
+        for source in row_sources:
+            if source.shape[1] != gpu_program_geometry.ROW_FLOATS or len(source) < 3 or len(source) % 2 == 0:
+                raise ValueError("row sources must be VMobject rows, an odd count of at least three")
+            counts.append(gpu_program_geometry.curve_count(len(source)))
+        num_curves = sum(counts)
+        if base == "patch":
+            border_hash = gpu_program_geometry.rows_key(row_hashes)
+            capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
+            layout = validate_patch_layout(getattr(draw, "patch_layout", None), num_curves)
+            if [curves for curves, _, _ in layout] != counts:
+                raise ValueError("patch run layout does not match its row sources")
+            objects_hash, objects = _objects_payload(objects, layout, parts.previous_objects, parts.retained_objects)
+            parts.object_tables[objects_hash] = objects
+            if record is not None:
+                _note(record, parts, "objects", f"objects:{objects_hash}", objects)
+            if draw.count != patch_draw_count(layout, capacity):
+                raise ValueError("invalid patch fill draw count")
+            border = True  # a curve record source exists, in the driver
+        elif draw.instances != num_curves:
+            raise ValueError("a row-sourced stroke draw has one instance per curve")
     if program is not None:
         kind, source_rows, scalars = program["kind"], program["sources"], program["scalars"]
-        hashes = []
-        for source in source_rows:
-            source = np.asarray(source)
-            if source.dtype != np.dtype("<f4") or source.ndim != 2 or not source.flags.c_contiguous:
-                raise ValueError("program sources must be contiguous float32 rows")
-            memo = parts.previous_rows.get(id(source))
-            digest = memo[1] if memo is not None and memo[0] is source else gpu_program_geometry.rows_hash(source)
-            if _immutable(source):
-                parts.retained_rows[id(source)] = (source, digest)
-                if record is not None:
-                    record.memos.append(("rows", id(source)))
-            parts.row_sources[digest] = source
-            if record is not None:
-                record.names.add(f"rows:{digest}")
-            hashes.append(digest)
+        hashes = _row_digests(source_rows, parts, record, "program sources")
         shapes = {np.asarray(s).shape for s in source_rows}
         if len(shapes) != 1:
             raise ValueError("program sources must be row-aligned")
@@ -379,8 +397,8 @@ def encode_draw(draw, camera, parts, record=None):
             raise ValueError("invalid surface net draw count")
         net_descriptor = {"hash": net_hash, "nu": nu, "nv": nv, "channels": channels,
                           "capacity": net_capacity, "density": density}
-    if base == "patch" and program is not None:
-        pass  # validated with the program above
+    if base == "patch" and (program is not None or row_sources is not None):
+        pass  # validated with the program or the row sources above
     elif base == "patch":
         # A patch fill run: curve records, the object table and the
         # (curve count, bordered) layout; no vertices or indices of its own.
@@ -413,10 +431,12 @@ def encode_draw(draw, camera, parts, record=None):
         layout = validate_layout(layout, len(indices), len(vertices), len(border))
     elif objects is not None:
         raise ValueError("an object table belongs to a patch fill draw")
-    if program is not None and base == "patch":
-        output_vertices = capacity * gpu_program_geometry.curve_count(program_descriptor["rows"])
-    elif program is not None and base == "stroke":
-        output_vertices = 3 * gpu_program_geometry.curve_count(program_descriptor["rows"])
+    if program is not None:
+        num_curves = gpu_program_geometry.curve_count(program_descriptor["rows"])
+    if num_curves is not None and base == "patch":
+        output_vertices = capacity * num_curves
+    elif num_curves is not None and base == "stroke":
+        output_vertices = 3 * num_curves
     else:
         output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
     if net_descriptor is not None:
@@ -452,12 +472,14 @@ def encode_draw(draw, camera, parts, record=None):
             raise ValueError("invalid generated dot draw count")
     elif base == "stroke":
         if draw.count < 4 or draw.count > 64 or draw.count % 2 or (
-                program is None and draw.instances * 3 > len(vertices)):
+                num_curves is None and draw.instances * 3 > len(vertices)):
             raise ValueError("invalid generated stroke draw count")
     payload_key = (draw.pipeline, id(vertices), id(indices),
                    None if border is None or border is True else (len(border), tuple(map(tuple, layout))),
                    objects_hash, net_hash,
-                   None if program_descriptor is None else (program_descriptor["kind"], tuple(program_descriptor["sources"])))
+                   None if program_descriptor is None else (program_descriptor["kind"], tuple(program_descriptor["sources"])),
+                   None if row_hashes is None else (tuple(row_hashes),
+                                                     None if layout is None else tuple(map(tuple, layout))))
     retained = parts.previous_payloads.get(payload_key)
     if retained is not None and retained[0] is vertices and retained[1] is indices:
         content_hash = retained[2]
@@ -476,6 +498,10 @@ def encode_draw(draw, camera, parts, record=None):
             # Scalars change per frame and stay out of the identity.
             identity.update(b"\0program\0" + program_descriptor["kind"].encode()
                             + b"".join(h.encode() for h in program_descriptor["sources"]))
+            if layout is not None:
+                identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
+        if row_hashes is not None:
+            identity.update(b"\0rows\0" + b"".join(h.encode() for h in row_hashes))
             if layout is not None:
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
         if objects_hash is not None:
@@ -520,10 +546,13 @@ def encode_draw(draw, camera, parts, record=None):
         batch["program"] = program_descriptor
         if base == "stroke":
             batch["fill_num_verts"] = 0
+    if row_hashes is not None:
+        batch["rows"] = row_hashes
+        if base == "stroke":
+            batch["fill_num_verts"] = 0
     if border is True:
         batch["fill_num_verts"] = 0
-        batch["border"] = {"hash": border_hash, "num_curves": gpu_program_geometry.curve_count(program_descriptor["rows"]),
-                           "capacity": capacity}
+        batch["border"] = {"hash": border_hash, "num_curves": num_curves, "capacity": capacity}
     elif border is not None:
         batch["fill_num_verts"] = len(vertices)
         batch["border"] = {"hash": border_hash, "num_curves": len(border), "capacity": capacity}
@@ -563,6 +592,30 @@ def encode_draw(draw, camera, parts, record=None):
     if record is not None:
         record.names.add(content_hash)
     return batch
+
+
+def _row_digests(sources, parts, record, what):
+    """The content hash of each of ``sources``, float32 rows, registered on
+    ``parts`` as program sources (the one table of rows, sent once by
+    hash) and noted on ``record``: a program's endpoints, or a draw's row
+    sources."""
+    hashes = []
+    for source in sources:
+        source = np.asarray(source)
+        if source.dtype != np.dtype("<f4") or source.ndim != 2 or not source.flags.c_contiguous:
+            raise ValueError(f"{what} must be contiguous float32 rows")
+        # This message's memo first: an object's fill and stroke name one rows.
+        memo = parts.retained_rows.get(id(source)) or parts.previous_rows.get(id(source))
+        digest = memo[1] if memo is not None and memo[0] is source else gpu_program_geometry.rows_hash(source)
+        if _immutable(source):
+            parts.retained_rows[id(source)] = (source, digest)
+            if record is not None:
+                record.memos.append(("rows", id(source)))
+        parts.row_sources[digest] = source
+        if record is not None:
+            record.names.add(f"rows:{digest}")
+        hashes.append(digest)
+    return hashes
 
 
 def _note(record, parts, table, name, array):

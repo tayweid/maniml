@@ -126,6 +126,7 @@ from maniml.web.generated_geometry import (
     BatchRecord, MessageParts, SentBatch, _supersample, assemble_message, encode_draw, held_batch, stream_message,
 )
 from maniml.web.geometry import _jsonable, _stroke_sqrt_area, _stroke_verts_at
+from maniml.web.gpu_border_geometry import rows_sqrt_area
 from maniml.web.gpu_net_geometry import pixels_per_unit
 from maniml.web.triangle_scene import (
     CLASSIFY_COLUMNS, _STANDARD_MESH_GETTERS, TriangleDraw, _prepare_border_geometry, begin_triangle_frame,
@@ -466,6 +467,9 @@ def _same_value(kept, read, texts):
         return isinstance(kept, np.ndarray) and isinstance(read, np.ndarray) and _same_bytes(kept, read)
     if type(kept) is not type(read):
         return False
+    if type(kept) is tuple and any(isinstance(value, np.ndarray) for value in (*kept, *read)):
+        # A draw's row sources: its objects' rows, array by array.
+        return len(kept) == len(read) and all(_same_value(a, b, texts) for a, b in zip(kept, read))
     if isinstance(kept, (dict, list, tuple)):
         return _text(kept, texts) == _text(read, texts)
     if type(kept) is float:
@@ -615,7 +619,8 @@ class LeafEntry:
                 if type(frame_scale) is not float or not 0 < frame_scale < float("inf"):
                     return False
                 if self.sqrt_area is None:
-                    self.sqrt_area = _stroke_sqrt_area(draw.vertices)
+                    self.sqrt_area = (_stroke_sqrt_area(draw.vertices) if draw.rows is None
+                                      else rows_sqrt_area(draw.rows[0]))
                 if _stroke_verts_at(self.sqrt_area, frame_scale) != draw.count:
                     return False
         self.frame_scale = frame_scale
@@ -1419,9 +1424,9 @@ class RetainedFrame:
             self.stats["runs_combined"] += 1
             memo = RunMemo(tuple(run), combine_run(run, kind, border_cache=border_cache))
             first = run[0]
-            if first.program is None and first.border_sources is not None:
-                memo.key = (border_cache.patch_run_key(patch_parts(run)) if first.fill_objects is not None
-                            else border_cache.run_key(border_parts(run)))
+            if first.program is None and (first.border_sources is not None or first.fill_objects is not None):
+                memo.key = (border_cache.patch_run_key(patch_parts(run), rows=first.rows is not None)
+                            if first.fill_objects is not None else border_cache.run_key(border_parts(run)))
                 memo.assembly = border_cache.keep_run(memo.key)
         self._next_runs[ids] = memo
         self._frame_runs.append(memo)

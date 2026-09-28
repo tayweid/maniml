@@ -54,6 +54,17 @@ def program_key(kind, source_hashes):
     return digest.hexdigest()
 
 
+def rows_key(source_hashes):
+    """The name of the curve records a run of row sources finalizes into
+    (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1): its objects'
+    rows, in order, stand for them, so it is a digest of their hashes."""
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(b"maniml.rows.run.v1\0")
+    for source in source_hashes:
+        digest.update(source.encode() + b"\0")
+    return digest.hexdigest()
+
+
 def validate_program(program, stride=None):
     """The descriptor on the wire: kind, sources, scalars, rows, channels."""
     if not isinstance(program, dict):

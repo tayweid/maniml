@@ -97,8 +97,9 @@ so the harness samples a bounded active window instead of waiting for idle.
 `python -m benchmarks.gpu_borders --gpu-timestamps ...` (or
 `MANIML_GPU_TIMESTAMPS=1` for any `WgpuRenderer`) stamps every GPU pass of a
 generated frame at its boundaries, the finest grain Metal offers, and puts the
-result beside the wall-clock columns. The labels are `programs`, `borders`,
-`nets`, `out` and `resolve`. Read two things as costs: `gpu_total_ms`, the
+result beside the wall-clock columns. The labels are `rows` (row sources
+finalized, under `MANIML_PATCH_SOURCE=rows`), `programs`, `borders`, `nets`,
+`out` and `resolve`. Read two things as costs: `gpu_total_ms`, the
 frame on the GPU (first pass begin to latest pass end), and the per-label
 `gpu_exclusive_<label>_ms` sums, which add up to it. The other columns are
 diagnostics that read like costs and are not: `gpu_pass_<label>_ms` is begin
@@ -236,7 +237,10 @@ the first message after a restore re-sends what the cache no longer holds,
 as a seek does, and the rest are cached batches with the camera. Two
 streams of the same frames are the variants: `phase_a` from the default
 renderer and `phase_b` from the whole Phase B stack (`MANIML_FILL=patches
-MANIML_SURFACE=nets MANIML_PROGRAMS=gpu`) through the same driver. Each is
+MANIML_SURFACE=nets MANIML_PROGRAMS=gpu`, its records packed:
+`MANIML_PATCH_SOURCE=records`) through the same driver; `--variants` may
+also name `phase_b_rows`, the same stack with its paths sent as rows
+(`MANIML_PATCH_SOURCE=rows`, `docs/phase_b4_plan.md` B5.1). Each is
 written under `<dir>/<variant>/` in the export recorder's format
 (`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
 it, `scene.json`'s frame entries also say what each frame is, and its

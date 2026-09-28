@@ -52,12 +52,16 @@ from benchmarks.episode_frames import (ROOT, family, git_state, load_episode, pl
 VARIANTS = ("phase_a", "phase_b")
 # What the recording process sets for each stream; the serializer and the
 # animations read these, so a stream is self-consistent whatever the
-# caller's environment says.
+# caller's environment says. phase_b_rows is phase_b with the patch fill's
+# records sent as rows (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
+# B5.1), recorded when --variants names it.
 ENVIRONMENTS = {
     "phase_a": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
                 "MANIML_BORDER_GENERATOR": "gpu"},
     "phase_b": {"MANIML_FILL": "patches", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "gpu",
-                "MANIML_BORDER_GENERATOR": "gpu"},
+                "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
+    "phase_b_rows": {"MANIML_FILL": "patches", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "gpu",
+                     "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "rows"},
 }
 # The kinds of row, as the viewer draws them: the still redraw of a
 # pausepoint, the same with its updaters ticking, a frame of a play, and
@@ -549,7 +553,7 @@ def main(argv=None):
     parser.add_argument("--scene", nargs=2, metavar=("FILE", "SCENE"), required=True,
                         help="episode file and scene class")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS),
+    parser.add_argument("--variants", nargs="+", choices=tuple(ENVIRONMENTS), default=list(VARIANTS),
                         help="the streams to record and play, each from the same frames")
     parser.add_argument("--samples", type=int, default=12)
     parser.add_argument("--warmups", type=int, default=3)

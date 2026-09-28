@@ -195,6 +195,8 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._program_sources = {}
         self.renderer._program_outputs = {}
         self.renderer._program_pipelines = {}
+        self.renderer._row_outputs = {}
+        self.renderer._row_runs = {}
         self.renderer._stale_index_buffers = []
         self.renderer.texture_cache = {}
         self.renderer.sampler = object()

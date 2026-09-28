@@ -89,7 +89,7 @@ RENDERERS = ("triangles", "phase_b")
 # the pin is the default configuration. MANIML_RETAINED_FRAME and
 # MANIML_VERIFY_LEDGER stay as the run has them: neither may change a byte.
 PINNED_ENV = ("MANIML_BORDER_GENERATOR", "MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
-              "MANIML_RENDER_CACHE", "MANIML_RENDERER")
+              "MANIML_PATCH_SOURCE", "MANIML_RENDER_CACHE", "MANIML_RENDERER")
 # The course episodes the plan's gates are measured on, with the checkpoint
 # each gate names: EpisodeB2's 8.a and PriceDiscovery's 3.a.4.
 EPISODES_ROOT = Path(os.environ.get("MANIML_EPISODES", Path.home() / "Projects" / "econ-0100"))
@@ -2184,6 +2184,19 @@ class RetainedFrameLockstep(GoldenCase):
                     self.assertEqual(len(lock.retained.retired), 0)
 
 
+class RowSourcesLockstep(RetainedFrameLockstep):
+    """Every lockstep above with Phase B's patch fills and strokes sent as
+    rows (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1): the rows
+    entry is the border cache's, kept, compared, parked and adopted as a
+    curve source is, and a stroke's rows are compared every frame as its
+    shader data is read every frame, so the same writes that bump nothing
+    stay off a kept leaf and reach the frame's loop."""
+
+    def setUp(self):
+        super().setUp()
+        self.enterContext(patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"))
+
+
 @requires_lyon
 class AdoptionMirrorsTheRead(unittest.TestCase):
     """TriangleMeshCache.adopt and BorderRecipeCache.adopt (B4.4) leave
@@ -2678,6 +2691,15 @@ class RetainedFrameNavigation(GoldenCase):
             lock.step(seek(target))
             self.frame(lock, f"seek to {target}", "triangles")
             self.assertLessEqual(len(lock.retained.retired), 3)
+
+
+class RowSourcesNavigation(RetainedFrameNavigation):
+    """The navigation above with Phase B's paths sent as rows (B5.1): a
+    seek's retired paths are parked with their rows entry and adopted."""
+
+    def setUp(self):
+        super().setUp()
+        self.enterContext(patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"))
 
 
 if __name__ == "__main__":

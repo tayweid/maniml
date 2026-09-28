@@ -223,6 +223,23 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
             for anim in anims:
                 anim.finish()
 
+    def test_row_sources_are_finalized_and_draw_what_records_draw(self):
+        from maniml.web.geometry import GeometryCache
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.test_patch_rows import _shapes
+        from tests.renderer_fixtures import build_scene
+        shapes = _shapes()
+        scene = build_scene(*shapes, resolution=(480, 270))
+        with tempfile.TemporaryDirectory() as directory:
+            files = [Path(directory) / name for name in ("records.bin", "rows_0.bin", "rows_1.bin", "rows_2.bin")]
+            files[0].write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
+            cache, wire = TriangleMeshCache(), GeometryCache()
+            for path in files[1:3]:
+                path.write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
+            shapes[1].shift([0, .2, 0])
+            files[3].write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
+            self.run_case("rowsWire", *files)
+
     def test_a_format_8_stream_draws_what_its_full_frames_draw(self):
         """B4.8 (docs/phase_b4_plan.md): one history serialized twice, as the
         format 7 full frames a receiver that has not negotiated is sent and
@@ -231,8 +248,18 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         child's z_index up and back, a leaf added and one removed, a play
         and its landing, a client's reset, and each renderer switched to and
         back, Phase B's plays drawn from GPU programs, whose scalars travel
-        as scalars ops."""
+        as scalars ops. Phase B's frames with their records packed and, B5.1,
+        sent as rows (MANIML_PATCH_SOURCE=rows), whose runs the drivers
+        finalize and assemble slot by slot."""
+        import os
+        from unittest.mock import patch
+        for source in ("records", "rows"):
+            with self.subTest(patch_source=source), patch.dict(os.environ, MANIML_PATCH_SOURCE=source):
+                self._stream_equals_full()
+
+    def _stream_equals_full(self):
         import gzip
+        import os
         import json
         from maniml.animation.animation import prepare_animation
         from maniml.animation.creation import ShowCreation
@@ -301,6 +328,12 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         frame()
         headers = [parse_geometry_message(message)[0] for message in sent["delta"] if message is not None]
         self.assertTrue(any(header.get("scalars") for header in headers), "a program play sends scalars ops")
+        rows = [batch for message in sent["full"] for batch in parse_geometry_message(message)[0]["batches"]
+                if "rows" in batch]
+        self.assertEqual(bool(rows), os.environ.get("MANIML_PATCH_SOURCE") == "rows")
+        if rows:
+            self.assertTrue(any(len(batch["rows"]) > 1 for batch in rows), "a run of several row sources")
+            self.assertEqual({batch["pipeline"] for batch in rows}, {"patch", "stroke"})
         with tempfile.TemporaryDirectory() as directory:
             for name, messages in sent.items():
                 folder = Path(directory) / name

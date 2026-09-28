@@ -236,8 +236,31 @@ globalThis.ManimlRecording = (() => {
     throw new Error("Invalid recorded program descriptor");
   }
 
+  // A batch of row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
+  // B5.1) names its objects' rows, which the driver finalizes into the
+  // patch run's curve records or the stroke's instances: no vertices, and
+  // no border definition. The counts against the rows are checked where
+  // the rows are captured.
+  function rowsLayout(header, batch) {
+    const keys = batch.rows;
+    if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !Array.isArray(keys)
+        || !keys.length || !keys.every(isHash) || "program" in batch || "net" in batch) {
+      throw new Error("Invalid recorded row sources");
+    }
+    if (isPatch(batch)) return patchLayout(header, batch);
+    if ((batch.pipeline !== "stroke" && batch.pipeline !== "stroke_depth") || batch.kind !== "generated"
+        || batch.stride !== 68 || batch.indexed !== false || batch.fill_num_verts !== 0 || batch.index_count !== 0
+        || !Number.isSafeInteger(batch.instances) || batch.instances < 1 || batch.num_verts !== 3 * batch.instances
+        || !Number.isSafeInteger(batch.count) || batch.count < 4 || batch.count > 64 || batch.count % 2
+        || "border" in batch || "objects" in batch) {
+      throw new Error("Invalid recorded row-sourced stroke layout");
+    }
+    return 0;
+  }
+
   function vertexLayout(header, batch) {
     if ("program" in batch) return programLayout(header, batch);
+    if ("rows" in batch) return rowsLayout(header, batch);
     if ("net" in batch) return netLayout(header, batch);
     if (isPatch(batch)) return patchLayout(header, batch);
     return borderLayout(header, batch);
@@ -349,6 +372,27 @@ globalThis.ManimlRecording = (() => {
             if (bytes.length !== count * channels * 4) throw new Error("Recorded program source does not match its descriptor");
             return [hash, bytes];
           });
+        }
+        if ("rows" in batch) {
+          // Each object's rows: an odd count of VMobject rows, whose curves
+          // are the patch layout's object by object, or the stroke's instances.
+          const curves = [];
+          sources = batch.rows.map(hash => {
+            const bytes = rows.get(hash);
+            if (!bytes) throw new Error(`Missing recorded row source: ${hash}`);
+            const count = bytes.length / (4 * ROW_FLOATS);
+            if (!Number.isInteger(count) || count < 3 || count % 2 === 0) {
+              throw new Error("Invalid recorded row source");
+            }
+            curves.push((count - 1) / 2);
+            return [hash, bytes];
+          });
+          const total = curves.reduce((sum, value) => sum + value, 0);
+          if (isPatch(batch) ? batch.border.layout.length !== curves.length
+              || batch.border.layout.some(([count], index) => count !== curves[index])
+              : batch.instances !== total) {
+            throw new Error("Recorded row sources do not match their batch");
+          }
         }
         let objects = null;
         if (isPatch(batch)) {

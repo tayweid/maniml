@@ -462,6 +462,148 @@ diff over 444 runs; a play is neutral. Not done: a real-device pixel check
 of the delta path (the Node equivalence is the proof, as planned: the
 native driver never sees a delta).
 
+## B5.1: built
+
+Rows on the wire under patches, behind `MANIML_PATCH_SOURCE=rows` (default
+`records`, so Phase B as measured on 2026-09-26/27 stays reproducible;
+2026-09-27, on `b4-integration`). A filled or stroked path whose rows can
+stand for its records (VMobject's own columns, the library's getters, the
+outer-vertex pattern) is read once per changed revision as its shader data
+would be read (unit normal, joint angles, base points refreshed), copied
+once (`RowsSource.read`, kept in the border cache's own entry, reservation
+and trust), and sent in `program_data` by content hash; its patch and
+stroke batches name it in `rows`. Each driver finalizes each rows once with
+`row_finalize.wgsl` into curve records and stroke instances shared by every
+batch that names them, copies a run's objects' outputs into a buffer of the
+run's own, and feeds the border stage, the patch fill and the stroke
+pipeline from them as it feeds them a program's output (`_prepare_rows` in
+`wgpu_renderer.py`; `resolveRows`, `makeFinalizedRows` and the head of
+`prepareCompute` in `webgpu.js`). Where every drawn path is row-sourced,
+the runs, groups, counts and draws are the records' call for call. A path
+that keeps its records (a getter of its own, another dtype, an edited
+outer-vertex pattern) closes the rows run around it, because `run_kind`
+gives row-sourced draws kinds of their own (`patch_rows`, `stroke_rows`)
+that never join a `patch` or `stroke` run: three stroked squares whose
+middle one has a getter of its own are one draw of 12 instances from
+records and three of 4 from rows, and a records patch between row-sourced
+ones splits their patch run and its shared stencil groups alike. The pixels
+do not move; the draw and group counts B5.2 and B6 read do. Python keeps:
+the refresh of the derived columns the rows carry; the validation (finite
+rows, nonnegative fill border widths, no overflowed area both ways); what
+the draw counts need (active curves, the reservation's density summary, the
+stroke's largest curve); the planar refusal, unchanged, with a path whose
+points share one z accepted without the fit (it lies in that plane); and
+the eight-word object record, whose base words stay zero (unread since
+B3b), so a moving object's table does not change, and whose winding sign is
+computed only for an object that may share a stencil count, the only kind
+the sign groups. A stroke's rows are compared every frame, since the
+records' side reads its shader data every frame; a fill's are trusted at an
+unchanged revision, as its records are. `geometry_recording.js` captures a
+batch's rows when it indexes the frame and carries them into every frame it
+reconstructs, as it does a program's sources.
+
+**Proof.** Pixels, rows against records, natively: the 20 renderer
+fixtures, the quality fixtures (tex, perspective, hairlines, border, normal
+and zoomed) and a sequence of moves, zooms and a morph, identical (35
+frames, largest channel difference 0; `tests/test_patch_rows.py`
+`PatchRowsPixels` holds the gate and at most 1/255); every pausepoint of
+both episodes and their gate plays, Phase B stack, identical (EpisodeB2:
+84 pausepoints and the 23 frames of the play into 8.a; PriceDiscovery: 24
+pausepoints and the 9 of the play into 3.a.4; largest channel difference
+0). The three mirrors' commands: `rowsWire` (the browser driver on real
+rows frames: one finalize per rows, a run's copies in order, the border
+stage, the patch fill and the strokes reading the outputs, the records'
+draws call for call, nothing made again for the same frame, retirement);
+`deltaEqualsFull` over the B4.8 synthetic history under both sources (the
+slots, buffers and submissions of the format 8 stream are the format 7
+frames'); the native driver on the fake device (`PatchRowsCommands`: one
+finalize per rows, the run's copies, rejected malformed sources with
+nothing submitted or kept); the player (`player_commands.cjs phaseB` and
+`corrupt` with row sources; a row-sourced `--export` replayed forward, back
+and by chips through the indexer and the driver, `test_export`). The
+retained frame holds to the whole-frame path under rows byte for byte
+(`RowSourcesLockstep`, `RowSourcesNavigation`: every lockstep, the seeks
+and adoptions, verify mode included); the golden pin, which now clears the
+switch, has not moved.
+
+**Gate** (the play into 8.a, 23 frames, Phase B, retained frame on;
+`serialize_scene` alone, each replay of the play serialized through one
+source only, the two alternating replay by replay, four replays each, each
+frame's median over its replays, then the median over the frames; load
+2.3-3.0, the GPU idle):
+
+| 8.a play | records | rows |
+| --- | ---: | ---: |
+| format 8 stream, ms (min) | 104.5 (99.9) | 51.6 (49.5) |
+| format 7 frames, ms (min) | 105.4 (101.4) | 52.2 (49.9) |
+| whole-frame path, format 7, ms (min) | 114.3 (107.5) | 51.4 (47.9) |
+| wire, format 8 | 997 KB | 616 KB |
+| of which the payload | 595 KB (records 392, strokes ~191, tables 12) | 203 KB (rows alone) |
+| PriceDiscovery 3.a.4 play (its movers are programs), format 8 | 6.20 ms | 6.31 ms |
+
+The design's estimate was 206 KB of rows for 375 movers: measured 203 KB,
+and the copy and hash of them 0.9 ms a frame. The serialize is 51.6 ms, not
+the 2.65 ms floor, because the floor was the rows alone and the serializer
+still builds a leaf's draws and a batch's descriptor per mover. Where the
+rest goes (one instrumented run, 54.8 ms against 51.6 uninstrumented, 383
+leaves prepared and 739 batches encoded a frame): the rows read 18.2 ms
+(the refresh of joint angles and unit normals ~7.9, the same work the
+records' side does; the CPU's derivations for the counts and the
+validation ~9; the copy 0.3); the rest of each leaf's preparation 11.3
+(the rows entry and reservation 1.9, the classification 2.9, the record
+and planar check 3.1, the two draws 3.4); tier 1's bookkeeping 6.4 and the
+coalescing 5.3; the encode 13.5 (739 descriptors 9.1, of which the rows'
+hashes 0.6, and the JSON and assembly 4.4). The next levers, in that
+order: a mover's batch keeping its identity with its rows as a per-frame
+op, as a program's scalars are (the header is now 413 of the 616 KB and
+the encode a quarter of the frame); the joint angles computed in the
+finalize from the rows' points; the per-leaf and per-batch structure the
+floor did not have.
+
+**The negatives: the GPU, the native render and the browser's JavaScript
+pay for finalizing what the CPU packed.** Both drivers put every fresh
+rows' finalize into one compute pass, one dispatch each: about 360 a frame
+on the 8.a play (the browser's count below, 711 dispatches against 351),
+at about 30 µs of GPU time a dispatch, far more than its work. On the same
+play, the two sources alternating replay by replay as in the gate (six
+replays each, each frame's median over its replays, then the median over
+the frames; the minimum in brackets; load 2.7-3.7, the GPU idle at the
+start of each run, Taylor's viewer drawing between them):
+
+| 8.a play | records | rows |
+| --- | ---: | ---: |
+| GPU frame, `gpu_total_ms` (attribution run, `MANIML_GPU_TIMESTAMPS=1`) | 17.8 (16.2) | 27.6 (19.2) |
+| of which the `rows` pass, exclusive | – | 10.9 (3.0) |
+| of which the borders / out, exclusive | 15.1 / 2.56 | 14.5 / 2.07 |
+| native `render()` through its readback, flag off | 93.1 (86.6) | 108.3 (101.7) |
+| complete native frame, `serialize_scene` + `render()`, flag off | 198.1 (189.4) | 160.5 (156.8) |
+
+A play frame gains ~10 ms of GPU (+55%) and ~15 ms of native render (the
+finalize's GPU time and its encoding, natively a parameter buffer and two
+bind groups per rows), against ~52 ms less serialize, so the complete
+native frame still gains ~38 ms; the border stage and the out pass read
+finalized records a little faster (~0.6 and ~0.5 ms). The browser's GPU
+frame was not measured (the fake device has no GPU); if Dawn's dispatches
+cost what wgpu-native's do, it rises by about the same ~10 ms. The fix is
+to stop issuing a dispatch per rows, in both drivers: finalize a frame's
+fresh rows in one dispatch over their concatenation and a table of offsets
+(an output then becomes a range of a shared buffer, which changes how
+outputs are kept and retired); finalizing a run's members straight into
+the run's buffer would also remove the copies. A compute pass per finalize
+is not it: natively it made `render()` slower still (121.4 against 111.0
+ms, four replays each). Deferred to an increment of its own, with this
+table as its baseline.
+
+The browser's JavaScript: `browser_frames.py`'s new variant `phase_b_rows`
+against `phase_b` (four middle frames of the 8.a play, main realm, five
+rounds, the fake device): page_ms 8.34 → 8.89 (format 7) and 8.22 → 9.22
+(format 8) at the median, uploads 909 → 528 KB a frame, buffers made 1405 →
+1786, bind groups 703 → 1060 (a finalize's per rows), dispatches 351 → 711,
+draws 1817 both. A finalize's parameters are shared per curve count; the
+records and instances of one rows are two buffers, one of them unused by a
+path with no stroke (a glyph), which one buffer bound at two offsets would
+save. Not a gate here; B6 reads the complete frame.
+
 ## After B4: the flips and the test point
 
 **B5.1 Rows on the wire under patches.** A mover sends its 17-float rows and
