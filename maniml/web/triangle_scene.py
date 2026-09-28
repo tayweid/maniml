@@ -1303,19 +1303,28 @@ def _program_recipe(cache, sm, sources):
     return recipe
 
 
-def _program_draws(into, sm, pending, uniforms, depth_suffix, cache):
+def _program_draws(into, sm, pending, uniforms, depth_suffix, ctx):
     """Add the fill and stroke draws of a VMobject under a program to
     ``into`` (prepare_leaf's), or return False when the program does not
     apply (rows not aligned, or the path needs what a program cannot
     supply), so the caller draws its rows."""
+    cache = ctx.program_cache
     sources = [_program_rows(cache, endpoint) for endpoint in pending["sources"]]
     # Counts and dtypes only: reading the rows would materialize the program.
     rows, dtype = sm.get_num_points(), sm._data.dtype
     recipe = _program_recipe(cache, sm, sources)
     if dtype.itemsize // 4 != gpu_program_geometry.ROW_FLOATS or recipe.rows != rows or not recipe.aligned:
         return False
-    if not recipe.uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
-        return False  # a paint field over blended rows is B3b's work
+    if (recipe.has_fill and not recipe.uniform_fill) or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
+        # A paint field over blended rows is B3b's work. A stroke's
+        # instances never read the fill columns, so a path without fill
+        # whose invisible fill colour varies (set_color with a gradient
+        # writes both) is still drawn as its program.
+        return False
+    if recipe.has_fill and not ctx.patch_fills:
+        # Only a patch fill draws from a program's curve records; a Lyon
+        # mesh is made of the rows (docs/phase_b4_plan.md, B5.3).
+        return False
     program = {"kind": pending["kind"], "sources": sources,
                "scalars": gpu_program_geometry.wire_scalars(pending["kind"], pending["scalars"], rows)}
     frame_scale = uniforms["frame_scale"]
@@ -1468,7 +1477,7 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
         return into
     if not isinstance(sm, VMobject):
         raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
-    if pending is not None and _program_draws(into, sm, pending, uniforms, depth_suffix, ctx.program_cache):
+    if pending is not None and _program_draws(into, sm, pending, uniforms, depth_suffix, ctx):
         return into
     # The data read materializes any pending program this leaf is not drawn
     # from (Mobject.data), so the rows drawn below are the CPU path's.
@@ -1638,8 +1647,11 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     evaluated grid; the driver evaluates it at screen density
     (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
     a pending program (``mobject._program``, set by a supported animation)
-    as that program over its endpoints' rows rather than as its own rows;
-    it needs patch fills for filled paths and nets for surfaces.
+    as that program over its endpoints' rows rather than as its own rows
+    where it can: a filled path's program needs patch fills and a surface's
+    nets, and without them the leaf is drawn from its rows, so a path
+    without fill is the only program Phase A draws (docs/phase_b4_plan.md,
+    B5.3).
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -1689,8 +1701,6 @@ def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic
         raise ValueError("patch fills require gpu_borders=True")
     if patch_rows and not patch_fills:
         raise ValueError("row sources require patch_fills=True")
-    if programs and not patch_fills:
-        raise ValueError("programs require patch_fills=True")
     program_cache = mesh_cache.program_sources if mesh_cache is not None else {}
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),

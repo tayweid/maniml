@@ -138,6 +138,9 @@ class ProgramRecipe:
         self.aligned = bool(self.sources) and self.curves > 0 and all(
             s.shape == (rows, ROW_FLOATS) for s in self.sources)
         self.capacity = None
+        # The stroke count at the last frame scale asked for, which a play
+        # rarely moves: (frame_scale, count).
+        self._stroke_count = (None, None)
         if not self.aligned:
             return
         self.has_fill = any(bool(np.any(s[:, 12] != 0)) for s in self.sources)
@@ -157,8 +160,12 @@ class ProgramRecipe:
         """The strip vertex count a stroke draw reserves: twice the largest
         count either endpoint needs at this zoom, capped at the shader's
         64, so the bulge a blend can make between them is covered."""
-        counts = _density_counts(np.asarray([self.stroke_density], dtype="f4"), frame_scale)
-        return int(min(64, 2 * max(2, 2 * int(counts.max()))))
+        scale, count = self._stroke_count
+        if scale != frame_scale:
+            counts = _density_counts(np.asarray([self.stroke_density], dtype="f4"), frame_scale)
+            count = int(min(64, 2 * max(2, 2 * int(counts.max()))))
+            self._stroke_count = (frame_scale, count)
+        return count
 
     def border_capacity(self, frame_scale):
         """The border reservation at this zoom: twice the endpoints' need,

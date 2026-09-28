@@ -604,6 +604,187 @@ records and instances of one rows are two buffers, one of them unused by a
 path with no stroke (a glyph), which one buffer bound at two offsets would
 save. Not a gate here; B6 reads the complete frame.
 
+## B5.3: built
+
+Programs for strokes on Phase A, behind `MANIML_PROGRAMS=strokes`, a mode
+beside `off`, `shadow` and `gpu` (default `off`, so nothing changes;
+2026-09-27, on `b4-integration`). Strokes never needed the mesh, so the
+rule "programs require patches" is now per object. A program over a path
+without fill is drawn on Phase A as a stroke from the program's finalized
+instances, as it is under Phase B; a filled path's program still needs the
+patch fill, and without it the leaf is drawn from its rows
+(`_program_draws`), and `shadow` and `gpu`, whose programs are mostly
+fills', still refuse `MANIML_FILL=meshes`. The decision is the
+animation's, made once at its begin (`programs.begin`, stored as
+`Animation.program_sources`, asked per frame by `programs.admits`): the
+places in the families it zips where every source is a path without fill,
+or has no points, are freshened and may record a program, and nowhere
+else is anything freshened, so a filled member's animation, its sources
+included, is the CPU path's exactly (its rows, derived columns, refresh
+flags and uniforms equal to programs off at every frame). That covers
+`ShowCreation`/`Create`, `Uncreate` and `ShowPassingFlash` (`partial`),
+`VFadeIn`/`VFadeOut` (`paint`), `maniml.animation.rotation`'s
+`Rotate`/`Rotating` (`affine`, all or nothing, so a rotation of a group
+that holds a filled member is the CPU's whole), a straight `Transform` and
+what is one (`FadeIn`/`FadeOut`, `.animate`, `MoveToTarget`, and the
+CE-compat `Rotate` that a `from manim import *` scene such as the episodes
+gets, `maniml/compatibility.py`, a `Transform` to the rotated copy and so a
+`blend` admitted place by place, not all or nothing), and
+`Write`/`DrawBorderThenFill` of a path without fill (`partial`, then
+`blend`); an animation whose begin decides nothing (`FadeTransform`) keeps
+the CPU path under strokes. The begin's own `interpolate(0)` runs before
+the places are decided, so a play's first interpolation is the CPU's. A
+path without fill whose unseen fill colour varies (a gradient `set_color`
+writes both colours) is drawn as its program, since a stroke's instances
+never read the fill columns; the review draft refused it for a paint field
+no stroke has, and so recorded a program every frame and read it back. A
+program leaf is the retained frame's own kind, as it was under patches,
+and a format 8 stream sends a kept program run's scalars as a `scalars`
+op; neither needed a change. `ProgramRecipe.stroke_vertices` now keeps the
+count of the last frame scale it was asked (3.5 µs a program a frame, 0.7
+ms on the bumper play below, in every program mode).
+
+**A program never hides another writer** (the review's finding, in every
+mode since B3). A program is drawn from its own sources' rows, while the
+CPU path of a creation or a rotation writes only the points and what
+derives from them, and keeps what else the member holds. So where something else wrote the member earlier in
+the frame, or between frames, the program drew over it: a `Transform`
+filling a ring and a `ShowCreation` of it in one play, the creation listed
+second, drew the ring unfilled (185/255 on 3.9% of the pixels, and the same
+under Phase B's `gpu`), and a `VFadeIn` listed before a `ShowCreation`
+drew nothing of the curve, the creation's start being the curve as the
+fade's begin left it, at opacity 0 (195/255 on 0.4%, inside the gate's
+fraction). Now an animation records a program only over a member it left
+as it is: `programs.stamp` notes its family's revisions at the end of its
+begin (after `Transform`'s locks, which bump them too) and after each of
+its frames (`Animation.interpolate`), and `programs.admits` compares the
+member's revision with the note, so a frame after another writer's is the
+CPU path's, which composes the two as programs off does. A state change
+moves the revision too and so costs a program where none was needed, the
+safe side. `DrawBorderThenFill` asks before its own index-transition
+write, and `Rotating` counts every frame for its first-frame box, since a
+program may now follow CPU frames. The episodes' plays keep every program
+they had: the counts below, measured with the rule, are the review
+draft's.
+
+**Proof.** Pixels, natively, programs off against strokes, Phase A, ten
+alphas a case: the stroke-only cases (a creation of axes, a curve and a
+dashed line; an uncreation; fades in and out; a rotation and a 3D
+rotating; a curve blended into another, a fade in and a fade out; a write
+and a draw-border-then-fill; a passing flash; a gradient curve's creation
+and a gradient ring's fade; a fade and a creation of one curve) and those
+that mix in a filled square and a word (a creation, a rotation, a blend,
+a lagged write and draw-border-then-fill of a group holding the curve,
+and a fill and a creation of one ring;
+`LibraryPixels.test_stroke_cases_match_the_cpu_path_on_phase_a`), and a
+curve, a ring and a dashed line blended into their targets
+(`ProgramPixels.test_paths_without_fill_on_phase_a`): the gate at every
+alpha, each case sending the programs it should (none for the rotation of
+a group holding the square, none where two animations write one member),
+and to 1/255 on every case but the lagged write and draw-border-then-fill
+(`STROKE_TIPS`): there the curve's partial path ends mid-curve at
+sub-alphas where the partial kernel places the tip in float32, a pixel or
+two from the CPU's float64 one, 2/255 on one pixel and 12/255 on two (17
+under Phase B's `gpu`, whose kernel it is). The two cases where two
+animations write one member are exact, and fail (185 and 195/255) without
+the revision rule. `LibraryAnimations.test_a_second_writer_keeps_the_cpu_path`:
+five such plays (a fill or a fade with a creation, either order; a move
+with a `Rotate`) under Phase B's `gpu` and under strokes, the member's
+rows and flags programs off's at every frame, with nothing pending; seven
+of the ten fail without the rule. Every frame of the seven plays below,
+natively (`play_frames.py --render`, 99 frames): largest channel
+difference 0 (the bumper's squares are the background's colour until the
+flicker fills them, so its frames prove nothing but the others' do).
+`StrokePrograms`: the state after every case is programs off's; only
+strokes carry programs and nothing is a patch; a filled member's frames
+are the CPU path's, frame by frame; a play that writes no outline reads
+no rows (a write reads once per member at its index transition, as under
+Phase B; the gradient creation read one a frame in the draft); a stream
+sends the programs' scalars as ops and splices only the CPU's batches.
+`StrokeProgramsLockstep`: the retained frame's bytes are the whole-frame
+path's through a play of a creation, a rotation, a fade in and a filled
+leaf's move, as full frames, as a format 8 stream and under verification,
+each program leaf prepared every frame and every leaf kept on the still
+after the landing. The browser: `strokeProgramsWire` (real Phase A frames:
+every kind evaluated and finalized, each program's stroke drawing its
+finalized instances, the filled square's stroke its own rows, no patch
+stage; another alpha re-evaluates from the same sources into the same
+outputs, the same alpha evaluates nothing, and a frame without them
+retires them) and `deltaEqualsFull` over a Phase A history whose play is
+programs (same slots, buffers and submissions after every message). The
+golden pin, which clears the switch, has not moved.
+
+**Gate** (`serialize_scene` over every frame of a play, Phase A, retained
+frame on, `MANIML_GPU_TIMESTAMPS` unset; `benchmarks/play_frames.py`, each
+replay of a play under one mode, the two taking turns replay by replay, six
+replays each, each through its own cache; each frame's median over its
+replays, then the median over the play's frames after its first, the
+entry, reported apart; `benchmarks/results/b53_strokes_20260927/`, whose
+README has the commands). A mode cannot rotate frame by frame as the
+other harnesses' variants do, since an animation decides at its begin
+whether it records programs. The GPU was 37-58% busy with another
+application, which serialize does not use, one of Taylor's scene
+processes ran, and the load was 2.8-4.2; PriceDiscovery ran through
+B5.1's tree of links, its file having moved to `_archive/`. The plays are
+the ones whose movers are most paths without fill, by a survey of every
+play of both episodes under strokes (the movers and programs at each
+play's middle frame, which the harness records as `movers: programs`);
+only EpisodeB2's bumper is mostly strokes by count (its raster
+wordmark's 211 squares fading in), and the axes, curve and dashed-line
+plays are a quarter to a third strokes, their labels, numbers and titles
+being glyphs:
+
+| Play, by checkpoint (movers: programs) | format 8, ms | format 7, ms | wire a frame, format 8 |
+| --- | ---: | ---: | ---: |
+| EpisodeB2 1, line 35, the bumper's raster fade in (211: 211) | 9.57 → 7.42 (-22%) | 9.65 → 6.10 (-37%) | 172.7 → 6.1 KB |
+| EpisodeB2 14, line 78, the recap's axes and curve (16: 3) | 2.86 → 2.80 | 2.84 → 2.77 | 122.0 → 120.6 KB |
+| EpisodeB2 15, line 80, the recap's dashed price and drop (136: 48) | 11.89 → 11.45 | 11.91 → 11.15 | 230.8 → 221.8 KB |
+| EpisodeB2 22, line 120, the axes with their labels (77: 18) | 12.92 → 12.74 | 13.15 → 12.74 | 556.8 → 552.8 KB |
+| EpisodeB2 279, line 806, three small axes and two supply lines (148: 38) | 24.99 → 24.47 | 25.01 → 24.21 | 1168 → 1159 KB |
+| PriceDiscovery 1, line 202, the plaza's rim and dashed hub, the camera moving (36: 13) | 5.63 → 5.52 | 5.60 → 5.40 | 331.9 → 289.4 KB |
+| PriceDiscovery 81, line 1179, rays and marks fading out (42: 10) | 2.20 → 2.00 | 2.16 → 1.92 | 112.5 → 110.4 KB |
+
+Where a play is strokes the serialize falls by a fifth (format 8) to a
+third (format 7); where a third or less of the movers are strokes it
+falls by 1-11%, since the glyphs' preparation is the rest (the review
+draft's scratch run read 9.81 → 7.39 on the bumper, the same programs on
+every play). The scene's own Python between two frames (the
+interpolation and the updaters) falls on the bumper, 1.25 → 1.03 ms, and
+holds elsewhere. What a program still costs Python on the bumper (the
+review draft's instrumented medians, a scratch run): the frame 9.91 →
+7.76 ms, of which the preparation 9.66 → 2.83 (the 211 stroke reads, 6.1
+ms, gone; the programs' draws 1.05) and the encode 0.22 → 4.70: a program
+is a batch of its own where the CPU's strokes are one coalesced run, so
+its descriptor is encoded every frame (211 descriptors 2.33 ms) and the
+stream compares it (1.11 ms). A program run keeping its descriptor, with
+its scalars an op, is the lever there, the one B5.1 named for rows.
+
+**The negatives.** The play's entry costs more: its first frame packs,
+hashes and summarizes every program's sources (bumper 10.5 → 23.3 ms, the
+other EpisodeB2 plays +0.2-2.4 ms). Format 7 carries a descriptor per
+program, so its frames grow where strokes are a minority (EpisodeB2 15:
+237 → 255 KB). And the GPU and the native render pay per program, as
+B5.1's rows did per rows: each program is a compute pass of its own with
+two dispatches, and strokes makes the complete native frame dearer on
+every play measured (`--render`, four replays each, the GPU shared, so
+read these against each other only): native `render()` through its
+readback on the bumper 6.06 → 40.35 ms and the complete frame 15.9 →
+47.2; on EpisodeB2 279 render 37.3 → 43.0 (minima 9.9 → 16.4) and the
+complete frame 63.1 → 68.7; the other plays +1.3 to +5.0 ms complete. In
+the attribution run (`MANIML_GPU_TIMESTAMPS=1`) `gpu_total` is 3.09 →
+15.70 ms on the bumper, 12.66 of it the 211 `programs` passes, and 10.7
+→ 13.7 on EpisodeB2 279 (38 passes, 2.0 ms). The browser's JavaScript
+(`--browser`, the fake device, main realm, five rounds): the bumper 0.13
+→ 0.93 ms a frame under format 7 and 0.12 → 0.50 under format 8, with 211
+compute passes and 422 dispatches where there were none and 172 KB
+uploaded → 3 KB, its entry 0.8 → 6.9 / 8.5 ms; every tab pays the format
+7 figure while any client of the viewer has not negotiated format 8.
+EpisodeB2 279: 2.65 → 2.80 (format 7), 2.70 → 2.68 (format 8). The
+browser's GPU was not measured. The fix is the one B5.1 deferred: one
+dispatch per kernel over a frame's programs and rows, in both drivers.
+Until then strokes saves Python and costs the GPU, more than it saves in
+the complete native frame on every play measured; no default flips.
+
 ## After B4: the flips and the test point
 
 **B5.1 Rows on the wire under patches.** A mover sends its 17-float rows and

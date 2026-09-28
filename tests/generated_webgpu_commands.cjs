@@ -979,6 +979,59 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
+  // Real Phase A frames under MANIML_PROGRAMS=strokes (docs/phase_b4_plan.md,
+  // B5.3): paths without fill as programs of every kind, each evaluated,
+  // finalized and drawn as a stroke from its finalized instances, beside a
+  // filled square's move, which is Phase A's own mesh and stroke; nothing is
+  // a patch. Another alpha evaluates again from the same sources into the
+  // same outputs, the same alpha again evaluates nothing, and a frame
+  // without them retires them.
+  async strokeProgramsWire() {
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const header = file => { const bytes = fs.readFileSync(file); return JSON.parse(bytes.subarray(5, 5 + bytes.readUInt32LE(1)).toString()); };
+    const [first, second, again] = process.argv.slice(3);
+    const code = draw => draw.pipeline.descriptor.compute.module.code;
+    const kindOf = pass => ["Affine", "Paint", "Partial", "Blend"].find(name => code(pass.draws[0]).includes(`struct ${name}Params`));
+    const programPasses = passes => passes.filter(pass => pass.compute && pass.draws.some(draw => code(draw).includes("struct FinalizeParams")));
+    const sent = header(first);
+    const programBatches = sent.batches.filter(batch => batch.program);
+    assert.ok(programBatches.every(batch => batch.pipeline === "stroke"), "a program on Phase A is a stroke");
+    assert.ok(!sent.batches.some(batch => batch.pipeline.startsWith("patch")), "nothing is a patch");
+    const d = await driver();
+    const passes = await d.renderBytes(load(first));
+    const programs = programPasses(passes);
+    assert.equal(programs.length, new Set(programBatches.map(batch => JSON.stringify(batch.program))).size);
+    assert.deepEqual([...new Set(programs.map(kindOf))].sort(), ["Affine", "Blend", "Paint", "Partial"]);
+    const outputs = programs.map(pass => {
+      assert.equal(pass.draws.length, 2, "the row kernel, then finalize");
+      const entries = pass.draws[0].bindings.get(1).entries.map(entry => entry.resource.buffer);
+      const [rows, records, strokes] = pass.draws[1].bindings.get(1).entries.map(entry => entry.resource.buffer);
+      assert.equal(rows, entries.at(-1), "finalize reads the kernel's rows");
+      return {sources: entries.slice(0, -1), rows, records, strokes};
+    });
+    const finalized = new Set(outputs.map(output => output.strokes));
+    const scene = sceneDraws(passes);
+    assert.ok(!scene.some(draw => ["vs_fan", "vs_patch", "vs_cover"].includes(draw.pipeline.descriptor.vertex.entryPoint)));
+    const strokes = scene.filter(draw => draw.pipeline.descriptor.vertex.buffers[0]?.arrayStride === 204);
+    const fromPrograms = strokes.filter(draw => finalized.has(draw.vertices[0]));
+    assert.equal(fromPrograms.length, programBatches.length, "every program's stroke draws its finalized instances");
+    assert.ok(strokes.length > fromPrograms.length, "the filled square's stroke is its own rows");
+    // Another alpha: the same sources and outputs, evaluated again.
+    const next = programPasses(await d.renderBytes(load(second)));
+    assert.equal(next.length, programs.length);
+    const reused = next.map(pass => pass.draws[1].bindings.get(1).entries[0].resource.buffer);
+    assert.deepEqual(new Set(reused), new Set(outputs.map(output => output.rows)), "outputs are reused");
+    const sources = pass => pass.draws[0].bindings.get(1).entries.slice(0, -1).map(entry => entry.resource.buffer);
+    assert.deepEqual(new Set(next.flatMap(sources)), new Set(outputs.flatMap(output => output.sources)), "sources are reused");
+    // The same alpha again: nothing to evaluate.
+    assert.equal(programPasses(await d.renderBytes(load(again))).length, 0);
+    assert.equal(d.cacheMisses(), 0);
+    await d.render([], {format_version: 7});
+    assert.ok(outputs.every(output => [output.rows, output.records, output.strokes, ...output.sources].every(buffer => buffer.destroyed)),
+              "sources, rows, records and strokes retire");
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
   // A real Phase B export (tests.test_export) through the recording indexer
   // and this driver: every reconstructed frame, forward, back and out of
   // order, draws with nothing missing, because the indexer put each frame's

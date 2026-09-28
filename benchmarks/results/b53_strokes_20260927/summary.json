@@ -1,0 +1,2842 @@
+{
+ "archive": "B5.3, MANIML_PROGRAMS=strokes against off on Phase A (docs/phase_b4_plan.md, 'B5.3: built')",
+ "recorded_by": "python -m benchmarks.play_frames (commands per run; <dir> is the run's output folder)",
+ "machine": {
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "node": "macbook.local"
+ },
+ "python": "3.13.9",
+ "numpy": "2.5.2",
+ "wgpu": "0.32.0",
+ "environment": {
+  "MANIML_FILL": "meshes",
+  "MANIML_SURFACE": "grids",
+  "MANIML_BORDER_GENERATOR": "gpu",
+  "MANIML_PATCH_SOURCE": "records",
+  "MANIML_RETAINED_FRAME": "1"
+ },
+ "source_files_sha256": {
+  "benchmarks/play_frames.py": "1103e88f33a83d1e9b59664817ba8ff647cb4be2a2f1ca0d91455fb24ea98857",
+  "benchmarks/episode_frames.py": "c1faf9aa72ffba8aa00e1b0131e69044586485bd49409ac1b8259f8ea4160e55",
+  "benchmarks/browser_frames.py": "0c664bcefda45b364b8f7a16056d0a34681c6eefd79ce4dc193144e4d588ef97",
+  "benchmarks/browser_frames.cjs": "935c47d4e8febdf66a59338ab004796e0b84c48eaf94e376f5b635016b097fa7",
+  "maniml/web/static/webgpu.js": "944e3a7a80238c52578d90ee2c8dd14eb138e1744092c3a58ea4c25776953e34",
+  "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+  "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+  "maniml/web/viewer.py": "7e3378cbd6dcf04fe59664c4bd48becd6d48e6a308241498b009f7d93739a98a",
+  "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+  "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+  "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+  "maniml/web/generated_geometry.py": "9a9cbdcc6675cf72b4dbee9d6628161cdb3e9da106dbc40a4791502e61ec2738",
+  "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+  "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+  "maniml/web/gpu_program_geometry.py": "60fdc6a2132f5d9b4db564e4b3b41264815d2c0b77eb2a6d2268a3ba7092386c",
+  "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+  "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+  "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+  "maniml/web/triangle_scene.py": "22345c4b5256bf6994f1ded28696dc1c3255c4e4d9c52b6a03aab54d226f55c9",
+  "maniml/web/gpu_border_geometry.py": "6191a72a06b423ab04e0b225bbd45e575b7a24d700105559dbce340e29ed965c",
+  "maniml/web/geometry.py": "7e314b94eeba8956b5a0088b864c098984eb9c48313dacb8f36d45724b0f806c",
+  "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+  "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+  "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+  "maniml/web/gpu_net_geometry.py": "f53d958645ebc5b9c2db1cdebb5972b52ff49be98ad2e56c3af5ebae1b3f015c",
+  "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+  "maniml/web/wgpu_renderer.py": "4a9af1a1fc70c55cc62303d64fac0c1b27717f781d18b7fb7bfb7455fed1a991",
+  "maniml/web/retained_frame.py": "e54ab9cc44a7fe2ee2c7cc20b1ab5afed33e3d7d253b6240b48d3a6ca38470fa",
+  "maniml/animation/update.py": "d2bdf1ba2bcca2b86567a2dc52da4041c121a13e9ec240a0eff488165469d7f4",
+  "maniml/animation/creation.py": "a18d64a48f0daac606c2965c294a871ad8cb5bd4a5c7bf4d6aa177f8cd0d187e",
+  "maniml/animation/transform_matching_parts.py": "f5dce0211a8d6e89811c0da7e201dc477f903ecc7cb3037ecf5781ef39c2ef9c",
+  "maniml/animation/__init__.py": "eb4b1911877bc0179943bb4bbbebf59726577914b2e5b498cb094a649a14560d",
+  "maniml/animation/movement.py": "0c22b0418d8b9bcddf11efc4bac88719b68bdfc2a71d4becd1e27fb52d88cff2",
+  "maniml/animation/animation.py": "46b9ab86a1d84870f3458324bb03125948bc665c2ff21ff78646484b3be60e7a",
+  "maniml/animation/transform.py": "56cba26a41b2e014abff00d0290055edb82b9afb421ef22c7af8d444f2598152",
+  "maniml/animation/indication.py": "12608112679b8fc027adec41954dd9a91968bc8ae5579678de8dcd8a7c7d59b3",
+  "maniml/animation/composition.py": "e8155641471d23082fbd659d392c4583dd3fe3fd8dc8feb55152d5aae5dfd796",
+  "maniml/animation/changing.py": "1fe9dfe0d2327d137fedc968fdc86af69bf1e7b791168bf81b997974718600c7",
+  "maniml/animation/rotation.py": "0ed07544689ba077802d85c8c7caca215cfb8cc72444525d8af21da66af4cf66",
+  "maniml/animation/growing.py": "f786264e3272299fad3286707e25c99d002e7ffbae1f297bba58d37d7856bf9d",
+  "maniml/animation/fading.py": "c730d9e494cb51ba1a8e33af518fab4cc7ca086c5d8c57af067f00fcd7724b3c",
+  "maniml/utils/programs.py": "1908ceb624bf5666f5a1f5c097139b570bb93b7781c46283f478e7b67954bfd0",
+  "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+  "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+  "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+  "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+  "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+  "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+  "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+  "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+  "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+  "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+  "maniml/web/static/wgsl/net_compute.wgsl": "965a1f55cc589bfd4cfe11d9534dd7caa9ee645a644ec8c77ca6262412c5b30f",
+  "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+  "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+  "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+  "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+  "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+  "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+  "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+  "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+  "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b"
+ },
+ "runs": {
+  "b2_f8": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--plays",
+    "1",
+    "14",
+    "15",
+    "22",
+    "279",
+    "--replays",
+    "6",
+    "--format",
+    "8",
+    "--output",
+    "<dir>/b2_f8"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:15:59.084433+00:00",
+   "wall_seconds": 43.4,
+   "gpu_device_utilization_percent_before": [
+    39,
+    37,
+    45
+   ],
+   "gpu_device_utilization_percent_after": [
+    44,
+    40,
+    50
+   ],
+   "load_average_before": [
+    4.0234375,
+    3.20458984375,
+    2.93701171875
+   ],
+   "load_average_after": [
+    3.82275390625,
+    3.26708984375,
+    2.97216796875
+   ],
+   "scene": {
+    "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308
+   },
+   "scene_file_sha256": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 6,
+   "format": 8,
+   "render": false,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 35,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.254968752618879,
+         "min": 1.121792010962963,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 9.572552051395178,
+         "min": 9.042207966558635,
+         "entry": 10.53383300313726,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 172700.0,
+         "min": 172698,
+         "entry": 172700.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.0307082266081125,
+         "min": 0.855417107231915,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 7.422541762934998,
+         "min": 6.804749951697886,
+         "entry": 23.314854071941227,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 6125.0,
+         "min": 2960,
+         "entry": 413308.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 211
+       }
+      }
+     },
+     "wall_seconds": 5.3
+    },
+    {
+     "play": 14,
+     "line": 78,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.16855221474543214,
+         "min": 0.15295809134840965,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 2.862406283384189,
+         "min": 2.38241592887789,
+         "entry": 6.234854052308947,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 121950.0,
+         "min": 114888,
+         "entry": 121949.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.1765415072441101,
+         "min": 0.15995802823454142,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 2.8014582640025765,
+         "min": 2.3669590009376407,
+         "entry": 6.388541543856263,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 120637.0,
+         "min": 114646,
+         "entry": 123999.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 3
+       }
+      }
+     },
+     "wall_seconds": 4.1
+    },
+    {
+     "play": 15,
+     "line": 80,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.1066249862778932,
+         "min": 1.0019169421866536,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 11.885260726558045,
+         "min": 10.689042042940855,
+         "entry": 25.404375046491623,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 230770.0,
+         "min": 226909,
+         "entry": 230768.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.0905315284617245,
+         "min": 0.9763330454006791,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 11.446875258116052,
+         "min": 10.55516698397696,
+         "entry": 27.695750002749264,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 221775.0,
+         "min": 221245,
+         "entry": 275841.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 48
+       }
+      }
+     },
+     "wall_seconds": 6.0
+    },
+    {
+     "play": 22,
+     "line": 120,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.8714794821571559,
+         "min": 0.7733328966423869,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 12.917895801365376,
+         "min": 10.693583055399358,
+         "entry": 24.324833997525275,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 556774.0,
+         "min": 520834,
+         "entry": 556773.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.8979270060081035,
+         "min": 0.7893750444054604,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 12.742926948703825,
+         "min": 10.050041950307786,
+         "entry": 25.479292031377554,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 552830.0,
+         "min": 526750,
+         "entry": 572959.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 18
+       }
+      }
+     },
+     "wall_seconds": 6.2
+    },
+    {
+     "play": 279,
+     "line": 806,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.7284582427237183,
+         "min": 1.658958033658564,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 24.98650024062954,
+         "min": 20.580042037181556,
+         "entry": 45.91216653352603,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1168481.0,
+         "min": 1102237,
+         "entry": 1168479.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.771645765984431,
+         "min": 1.6827089712023735,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 24.46601024712436,
+         "min": 19.843167043291032,
+         "entry": 48.264625016599894,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1159066.0,
+         "min": 1112489,
+         "entry": 1201614.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 38
+       }
+      }
+     },
+     "wall_seconds": 9.8
+    }
+   ]
+  },
+  "b2_f7": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--plays",
+    "1",
+    "14",
+    "15",
+    "22",
+    "279",
+    "--replays",
+    "6",
+    "--format",
+    "7",
+    "--output",
+    "<dir>/b2_f7"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:16:45.672955+00:00",
+   "wall_seconds": 43.2,
+   "gpu_device_utilization_percent_before": [
+    47,
+    42,
+    47
+   ],
+   "gpu_device_utilization_percent_after": [
+    42,
+    45,
+    41
+   ],
+   "load_average_before": [
+    3.9970703125,
+    3.31201171875,
+    2.98974609375
+   ],
+   "load_average_after": [
+    4.15478515625,
+    3.46484375,
+    3.0625
+   ],
+   "scene": {
+    "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308
+   },
+   "scene_file_sha256": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 6,
+   "format": 7,
+   "render": false,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 35,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.2733442417811602,
+         "min": 1.1290839174762368,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 9.65252099558711,
+         "min": 9.097875095903873,
+         "entry": 10.784895566757768,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 173239.0,
+         "min": 173239,
+         "entry": 173239.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.9722710237838328,
+         "min": 0.8349999552592635,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 6.1020622961223125,
+         "min": 5.5400419514626265,
+         "entry": 22.596332943066955,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 125788.0,
+         "min": 122623,
+         "entry": 413827.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 211
+       }
+      }
+     },
+     "wall_seconds": 5.2
+    },
+    {
+     "play": 14,
+     "line": 78,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.16738552949391305,
+         "min": 0.1542920945212245,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 2.842843998223543,
+         "min": 2.326624933630228,
+         "entry": 5.532166513148695,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 122469.0,
+         "min": 115407,
+         "entry": 122469.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.17566702445037663,
+         "min": 0.1611659536138177,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 2.769031241768971,
+         "min": 2.27479194290936,
+         "entry": 5.661562492605299,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 122839.0,
+         "min": 115732,
+         "entry": 124499.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 3
+       }
+      }
+     },
+     "wall_seconds": 4.0
+    },
+    {
+     "play": 15,
+     "line": 80,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.1195105034857988,
+         "min": 0.9977089939638972,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 11.908708489499986,
+         "min": 10.830875020474195,
+         "entry": 24.762396060395986,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 236982.0,
+         "min": 233121,
+         "entry": 236982.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.0822602198459208,
+         "min": 0.966415973380208,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 11.151312501169741,
+         "min": 10.245417011901736,
+         "entry": 27.98060403438285,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 255397.0,
+         "min": 250816,
+         "entry": 282035.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 48
+       }
+      }
+     },
+     "wall_seconds": 6.0
+    },
+    {
+     "play": 22,
+     "line": 120,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.8905520080588758,
+         "min": 0.7709170458838344,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 13.150323240552098,
+         "min": 10.527792037464678,
+         "entry": 24.604062491562217,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 557293.0,
+         "min": 521353,
+         "entry": 557293.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.8990937494672835,
+         "min": 0.7925000973045826,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 12.739260506350547,
+         "min": 10.261459043249488,
+         "entry": 25.52125055808574,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 563479.0,
+         "min": 527269,
+         "entry": 573459.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 18
+       }
+      }
+     },
+     "wall_seconds": 6.2
+    },
+    {
+     "play": 279,
+     "line": 806,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.7592500080354512,
+         "min": 1.6311249928548932,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 25.008271040860564,
+         "min": 20.31458297278732,
+         "entry": 45.75058346381411,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1168999.0,
+         "min": 1102755,
+         "entry": 1168999.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.7796145111788064,
+         "min": 1.705167000181973,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 24.205229041399434,
+         "min": 20.173792028799653,
+         "entry": 48.19062497699633,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1180950.0,
+         "min": 1114137,
+         "entry": 1202114.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 38
+       }
+      }
+     },
+     "wall_seconds": 9.8
+    }
+   ]
+  },
+  "pd_f8": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "PriceDiscovery",
+    "--plays",
+    "1",
+    "81",
+    "--replays",
+    "6",
+    "--format",
+    "8",
+    "--output",
+    "<dir>/pd_f8"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:17:26.643569+00:00",
+   "wall_seconds": 26.9,
+   "gpu_device_utilization_percent_before": [
+    46,
+    42,
+    44
+   ],
+   "gpu_device_utilization_percent_after": [
+    45,
+    45,
+    41
+   ],
+   "load_average_before": [
+    4.15478515625,
+    3.46484375,
+    3.0625
+   ],
+   "load_average_after": [
+    3.8125,
+    3.45068359375,
+    3.07080078125
+   ],
+   "scene": {
+    "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "name": "PriceDiscovery",
+    "checkpoint_count": 131
+   },
+   "scene_file_sha256": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 6,
+   "format": 8,
+   "render": false,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 202,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.3571662527974695,
+         "min": 0.3108329838141799,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 5.625843739835545,
+         "min": 4.646084038540721,
+         "entry": 10.21447905804962,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 331865.0,
+         "min": 318331,
+         "entry": 331845.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.355510477675125,
+         "min": 0.3052500542253256,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 5.516551958862692,
+         "min": 4.370082984678447,
+         "entry": 10.060125030577183,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 289364.0,
+         "min": 283146,
+         "entry": 331845.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 13
+       }
+      }
+     },
+     "wall_seconds": 3.0
+    },
+    {
+     "play": 81,
+     "line": 1179,
+     "name": null,
+     "run_time": 0.6,
+     "frames": 9,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.5829476867802441,
+         "min": 0.5479580722749233,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 2.202822739491239,
+         "min": 1.883000019006431,
+         "entry": 9.50310449115932,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 112525.0,
+         "min": 112523,
+         "entry": 216663.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.5878329975530505,
+         "min": 0.5371670704334974,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 2.0022497337777168,
+         "min": 1.8471250077709556,
+         "entry": 10.022833477705717,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 110359.5,
+         "min": 110143,
+         "entry": 216663.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 10
+       }
+      }
+     },
+     "wall_seconds": 17.4
+    }
+   ]
+  },
+  "pd_f7": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "PriceDiscovery",
+    "--plays",
+    "1",
+    "81",
+    "--replays",
+    "6",
+    "--format",
+    "7",
+    "--output",
+    "<dir>/pd_f7"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:17:56.764609+00:00",
+   "wall_seconds": 26.8,
+   "gpu_device_utilization_percent_before": [
+    43,
+    40,
+    44
+   ],
+   "gpu_device_utilization_percent_after": [
+    44,
+    44,
+    48
+   ],
+   "load_average_before": [
+    3.8125,
+    3.45068359375,
+    3.07080078125
+   ],
+   "load_average_after": [
+    3.216796875,
+    3.3544921875,
+    3.0498046875
+   ],
+   "scene": {
+    "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "name": "PriceDiscovery",
+    "checkpoint_count": 131
+   },
+   "scene_file_sha256": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 6,
+   "format": 7,
+   "render": false,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 202,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.34993747249245644,
+         "min": 0.31699996907263994,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 5.601510492851958,
+         "min": 4.562458023428917,
+         "entry": 10.06456301547587,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 332077.0,
+         "min": 318543,
+         "entry": 332058.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.3603435179684311,
+         "min": 0.311249983496964,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 5.399364250479266,
+         "min": 4.259708104655147,
+         "entry": 9.798313025385141,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 297064.0,
+         "min": 283358,
+         "entry": 332058.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 13
+       }
+      }
+     },
+     "wall_seconds": 3.0
+    },
+    {
+     "play": 81,
+     "line": 1179,
+     "name": null,
+     "run_time": 0.6,
+     "frames": 9,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.5799372447654605,
+         "min": 0.5379159701988101,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 2.1617602615151554,
+         "min": 1.7859579529613256,
+         "entry": 9.294459014199674,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 155503.0,
+         "min": 155503,
+         "entry": 238969.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 0.574187288293615,
+         "min": 0.5377079360187054,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 1.9234164792578667,
+         "min": 1.7582910368219018,
+         "entry": 9.123791474848986,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 159019.5,
+         "min": 158870,
+         "entry": 238969.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 10
+       }
+      }
+     },
+     "wall_seconds": 17.4
+    }
+   ]
+  },
+  "b2_render": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--plays",
+    "1",
+    "14",
+    "15",
+    "22",
+    "279",
+    "--replays",
+    "4",
+    "--format",
+    "7",
+    "--render",
+    "--output",
+    "<dir>/b2_render"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:18:32.253461+00:00",
+   "wall_seconds": 51.5,
+   "gpu_device_utilization_percent_before": [
+    43,
+    45,
+    46
+   ],
+   "gpu_device_utilization_percent_after": [
+    43,
+    44,
+    40
+   ],
+   "load_average_before": [
+    3.216796875,
+    3.3544921875,
+    3.0498046875
+   ],
+   "load_average_after": [
+    3.22216796875,
+    3.34130859375,
+    3.0625
+   ],
+   "scene": {
+    "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308
+   },
+   "scene_file_sha256": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 4,
+   "format": 7,
+   "render": true,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 35,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 15.886666777078062,
+         "min": 14.751457958482206,
+         "entry": 23.895041551440954,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 6.061333522666246,
+         "min": 5.344499950297177,
+         "entry": 13.3050000295043,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.5009267372079194,
+         "min": 1.3352500973269343,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 9.934271016390994,
+         "min": 9.406958008185029,
+         "entry": 10.590041521936655,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 173239.0,
+         "min": 173239,
+         "entry": 173239.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 47.17024980345741,
+         "min": 42.07462503109127,
+         "entry": 79.24343808554113,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 40.34852079348639,
+         "min": 35.22412502206862,
+         "entry": 56.54116702498868,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.2775938084814698,
+         "min": 1.1298329336568713,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 6.672166229691356,
+         "min": 5.994750070385635,
+         "entry": 22.702271060552448,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 125788.0,
+         "min": 122623,
+         "entry": 413827.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 211
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 7.8
+    },
+    {
+     "play": 14,
+     "line": 78,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 12.920249777380377,
+         "min": 9.525707922875881,
+         "entry": 19.062396022491157,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 9.610229230020195,
+         "min": 6.789082894101739,
+         "entry": 13.312458526343107,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 0.3418749547563493,
+         "min": 0.24262501392513514,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 3.189395763911307,
+         "min": 2.6912079192698,
+         "entry": 5.539208010304719,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 122469.0,
+         "min": 115407,
+         "entry": 122469.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 14.233218767913058,
+         "min": 8.59666708856821,
+         "entry": 20.922542025800794,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 11.034177266992629,
+         "min": 5.682417075149715,
+         "entry": 14.84550052555278,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 0.36743751843459904,
+         "min": 0.25783292949199677,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 3.143176989397034,
+         "min": 2.6279579615220428,
+         "entry": 6.052749988157302,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 122839.0,
+         "min": 115732,
+         "entry": 124499.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 16,
+        "movers": 16,
+        "programs": 3
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 4.6
+    },
+    {
+     "play": 15,
+     "line": 80,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 29.60887469816953,
+         "min": 25.134418159723282,
+         "entry": 42.40802041022107,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 17.009656236041337,
+         "min": 13.054000097326934,
+         "entry": 17.84006244270131,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.3192292826715857,
+         "min": 1.1863750405609608,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 12.307958182645962,
+         "min": 11.375124915502965,
+         "entry": 25.255458487663418,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 236982.0,
+         "min": 233121,
+         "entry": 236982.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 34.64271849952638,
+         "min": 30.111540923826396,
+         "entry": 57.16535454848781,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 23.252687242347747,
+         "min": 18.78499996382743,
+         "entry": 28.867187444120646,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.3137602363713086,
+         "min": 1.1639160802587867,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 11.353364534443244,
+         "min": 10.581208043731749,
+         "entry": 27.614396007265896,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 255397.0,
+         "min": 250816,
+         "entry": 282035.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 152,
+        "movers": 136,
+        "programs": 48
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 7.2
+    },
+    {
+     "play": 22,
+     "line": 120,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 36.45449996110983,
+         "min": 19.618582911789417,
+         "entry": 51.0544374701567,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 22.567531297681853,
+         "min": 8.803457953035831,
+         "entry": 26.10754151828587,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.1022812395822257,
+         "min": 0.9377920068800449,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 13.633021007990465,
+         "min": 10.815124958753586,
+         "entry": 24.785666493698955,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 557293.0,
+         "min": 521353,
+         "entry": 557293.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 39.82308303238824,
+         "min": 21.366915898397565,
+         "entry": 55.87558349361643,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 26.5108747407794,
+         "min": 10.067999945022166,
+         "entry": 29.63418752187863,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.1488019954413176,
+         "min": 0.9575000731274486,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 13.187759963329881,
+         "min": 10.686667053960264,
+         "entry": 25.929770956281573,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 563479.0,
+         "min": 527269,
+         "entry": 573459.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 77,
+        "movers": 77,
+        "programs": 18
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 7.7
+    },
+    {
+     "play": 279,
+     "line": 806,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 63.1051357195247,
+         "min": 32.079082913696766,
+         "entry": 89.17472953908145,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 37.26209397427738,
+         "min": 9.881458943709731,
+         "entry": 42.71320899715647,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 2.0251037494745106,
+         "min": 1.826333929784596,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 26.109750266186893,
+         "min": 21.517332992516458,
+         "entry": 46.077667037025094,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1168999.0,
+         "min": 1102755,
+         "entry": 1168999.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 68.71452071936801,
+         "min": 37.157750921323895,
+         "entry": 97.78806252870709,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 42.9992605058942,
+         "min": 16.35191694367677,
+         "entry": 49.48387498734519,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 2.064458269160241,
+         "min": 1.8045830074697733,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 25.329280993901193,
+         "min": 20.77041706070304,
+         "entry": 47.783999994862825,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1180950.0,
+         "min": 1114137,
+         "entry": 1202114.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 38
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 12.0
+    }
+   ]
+  },
+  "pd_render": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "PriceDiscovery",
+    "--plays",
+    "1",
+    "81",
+    "--replays",
+    "4",
+    "--format",
+    "7",
+    "--render",
+    "--output",
+    "<dir>/pd_render"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:19:21.503574+00:00",
+   "wall_seconds": 24.2,
+   "gpu_device_utilization_percent_before": [
+    45,
+    48,
+    47
+   ],
+   "gpu_device_utilization_percent_after": [
+    44,
+    39,
+    47
+   ],
+   "load_average_before": [
+    3.1240234375,
+    3.31884765625,
+    3.05615234375
+   ],
+   "load_average_after": [
+    2.7783203125,
+    3.2265625,
+    3.0302734375
+   ],
+   "scene": {
+    "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/b51/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "name": "PriceDiscovery",
+    "checkpoint_count": 131
+   },
+   "scene_file_sha256": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 4,
+   "format": 7,
+   "render": true,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 202,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 17.989166517509148,
+         "min": 12.272167019546032,
+         "entry": 31.702479522209615,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 11.97697946918197,
+         "min": 7.298709009774029,
+         "entry": 20.80454205861315,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 0.5520627310033888,
+         "min": 0.4278330598026514,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 6.191124790348113,
+         "min": 4.97241597622633,
+         "entry": 10.586625430732965,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 332077.0,
+         "min": 318543,
+         "entry": 332058.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 20.6375312700402,
+         "min": 14.073916943743825,
+         "entry": 26.379311981145293,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 14.903677016263828,
+         "min": 8.842624956741929,
+         "entry": 16.270666499622166,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 0.55248974240385,
+         "min": 0.4416669253259897,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 5.659645772539079,
+         "min": 4.747624974697828,
+         "entry": 10.45297842938453,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 297064.0,
+         "min": 283358,
+         "entry": 332058.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 36,
+        "movers": 36,
+        "programs": 13
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 4.8
+    },
+    {
+     "play": 81,
+     "line": 1179,
+     "name": null,
+     "run_time": 0.6,
+     "frames": 9,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 13.093333196593449,
+         "min": 10.642499895766377,
+         "entry": 26.9008754985407,
+         "n": 8
+        },
+        "render_ms": {
+         "p50": 10.644239460816607,
+         "min": 8.362166932784021,
+         "entry": 17.21956254914403,
+         "n": 8
+        },
+        "scene_ms": {
+         "p50": 0.8428857254330069,
+         "min": 0.7021669298410416,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 2.623082953505218,
+         "min": 2.2615829948335886,
+         "entry": 9.169687516987324,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 155503.0,
+         "min": 155503,
+         "entry": 238969.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 14.751552342204377,
+         "min": 11.551583069376647,
+         "entry": 29.939708474557847,
+         "n": 8
+        },
+        "render_ms": {
+         "p50": 12.402895808918402,
+         "min": 9.188125026412308,
+         "entry": 20.33206250052899,
+         "n": 8
+        },
+        "scene_ms": {
+         "p50": 0.8763335063122213,
+         "min": 0.7646250305697322,
+         "entry": null,
+         "n": 8
+        },
+        "serialize_ms": {
+         "p50": 2.395281248027459,
+         "min": 2.2574589820578694,
+         "entry": 9.607645974028856,
+         "n": 8
+        },
+        "wire_bytes": {
+         "p50": 159019.5,
+         "min": 158870,
+         "entry": 238969.0,
+         "n": 8
+        }
+       },
+       "middle": {
+        "frame": 4,
+        "leaves": 204,
+        "movers": 42,
+        "programs": 10
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 9,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 13.0
+    }
+   ]
+  },
+  "b2_stamps": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--plays",
+    "1",
+    "279",
+    "--replays",
+    "4",
+    "--format",
+    "7",
+    "--render",
+    "--output",
+    "<dir>/b2_stamps"
+   ],
+   "environment_added": {
+    "MANIML_GPU_TIMESTAMPS": "1"
+   },
+   "recorded_utc": "2026-09-28T04:19:54.627781+00:00",
+   "wall_seconds": 33.5,
+   "gpu_device_utilization_percent_before": [
+    46,
+    45,
+    45
+   ],
+   "gpu_device_utilization_percent_after": [
+    44,
+    46,
+    46
+   ],
+   "load_average_before": [
+    2.7783203125,
+    3.2265625,
+    3.0302734375
+   ],
+   "load_average_after": [
+    2.91552734375,
+    3.21484375,
+    3.03271484375
+   ],
+   "scene": {
+    "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308
+   },
+   "scene_file_sha256": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": true,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 4,
+   "format": 7,
+   "render": true,
+   "browser": false,
+   "rounds": null,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 35,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 17.545697512105107,
+         "min": 15.39395796135068,
+         "entry": 24.901937053073198,
+         "n": 14
+        },
+        "gpu_exclusive_out_ms": {
+         "p50": 2.7704375,
+         "min": 0.993,
+         "entry": 3.744854,
+         "n": 14
+        },
+        "gpu_exclusive_resolve_ms": {
+         "p50": 0.21553124999999998,
+         "min": 0.110167,
+         "entry": 0.4723545,
+         "n": 14
+        },
+        "gpu_passes_out": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_passes_resolve": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_total_ms": {
+         "p50": 3.08546875,
+         "min": 1.107958,
+         "entry": 4.562813,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 7.202052482170984,
+         "min": 5.676375003531575,
+         "entry": 12.653458048589528,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.5105102793313563,
+         "min": 1.3208750169724226,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 10.12476024334319,
+         "min": 9.445416973903775,
+         "entry": 11.419749993365258,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 173239.0,
+         "min": 173239,
+         "entry": 173239.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 53.69287502253428,
+         "min": 50.00841710716486,
+         "entry": 83.6812499910593,
+         "n": 14
+        },
+        "gpu_exclusive_out_ms": {
+         "p50": 2.22754125,
+         "min": 0.973958,
+         "entry": 1.9827294999999998,
+         "n": 14
+        },
+        "gpu_exclusive_programs_ms": {
+         "p50": 12.65994775,
+         "min": 9.564042000000002,
+         "entry": 13.495417000000003,
+         "n": 14
+        },
+        "gpu_exclusive_resolve_ms": {
+         "p50": 0.19798949999999998,
+         "min": 0.11399999999999999,
+         "entry": 0.17610399999999998,
+         "n": 14
+        },
+        "gpu_passes_out": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_passes_programs": {
+         "p50": 211.0,
+         "min": 211,
+         "entry": 211.0,
+         "n": 14
+        },
+        "gpu_passes_resolve": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_total_ms": {
+         "p50": 15.695760499999999,
+         "min": 11.658083999999999,
+         "entry": 16.392813,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 47.243771026842296,
+         "min": 42.87533403839916,
+         "entry": 61.20799999916926,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.3079685159027576,
+         "min": 1.0836250148713589,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 6.600520951906219,
+         "min": 6.06924993917346,
+         "entry": 22.699104505591094,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 125788.0,
+         "min": 122623,
+         "entry": 413827.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 211
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 8.5
+    },
+    {
+     "play": 279,
+     "line": 806,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "complete_ms": {
+         "p50": 65.7242602610495,
+         "min": 32.01137401629239,
+         "entry": 86.83006244245917,
+         "n": 14
+        },
+        "gpu_exclusive_borders_ms": {
+         "p50": 7.87118725,
+         "min": 0.223042,
+         "entry": 7.675957999999998,
+         "n": 14
+        },
+        "gpu_exclusive_out_ms": {
+         "p50": 2.162396,
+         "min": 1.4607919999999999,
+         "entry": 2.1009165,
+         "n": 14
+        },
+        "gpu_exclusive_resolve_ms": {
+         "p50": 0.19756249999999997,
+         "min": 0.13833399999999998,
+         "entry": 0.154729,
+         "n": 14
+        },
+        "gpu_passes_borders": {
+         "p50": 110.0,
+         "min": 7,
+         "entry": 110.0,
+         "n": 14
+        },
+        "gpu_passes_out": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_passes_resolve": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_total_ms": {
+         "p50": 10.726208,
+         "min": 1.917417,
+         "entry": 10.7118335,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 40.0905515125487,
+         "min": 9.938000002875924,
+         "entry": 40.67022947128862,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.9034170545637608,
+         "min": 1.7119590193033218,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 25.916260987287387,
+         "min": 20.817624987103045,
+         "entry": 45.9765829727985,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1168999.0,
+         "min": 1102755,
+         "entry": 1168999.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "complete_ms": {
+         "p50": 73.255562747363,
+         "min": 39.14970904588699,
+         "entry": 104.21758302254602,
+         "n": 14
+        },
+        "gpu_exclusive_borders_ms": {
+         "p50": 8.721562249999998,
+         "min": 0.43425,
+         "entry": 13.821228999999997,
+         "n": 14
+        },
+        "gpu_exclusive_out_ms": {
+         "p50": 2.26758325,
+         "min": 1.435708,
+         "entry": 1.8763545,
+         "n": 14
+        },
+        "gpu_exclusive_programs_ms": {
+         "p50": 1.99419825,
+         "min": 1.595042,
+         "entry": 2.0140835,
+         "n": 14
+        },
+        "gpu_exclusive_resolve_ms": {
+         "p50": 0.2098545,
+         "min": 0.111166,
+         "entry": 0.155,
+         "n": 14
+        },
+        "gpu_passes_borders": {
+         "p50": 110.0,
+         "min": 7,
+         "entry": 110.0,
+         "n": 14
+        },
+        "gpu_passes_out": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_passes_programs": {
+         "p50": 38.0,
+         "min": 38,
+         "entry": 38.0,
+         "n": 14
+        },
+        "gpu_passes_resolve": {
+         "p50": 1.0,
+         "min": 1,
+         "entry": 1.0,
+         "n": 14
+        },
+        "gpu_total_ms": {
+         "p50": 13.661781,
+         "min": 3.990833,
+         "entry": 17.8572505,
+         "n": 14
+        },
+        "render_ms": {
+         "p50": 47.948281542630866,
+         "min": 17.970124958083034,
+         "entry": 55.32902048435062,
+         "n": 14
+        },
+        "scene_ms": {
+         "p50": 1.9155725312884897,
+         "min": 1.7435000045225024,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 25.70276049664244,
+         "min": 21.17958408780396,
+         "entry": 49.24939601914957,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1180950.0,
+         "min": 1114137,
+         "entry": 1202114.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 38
+       },
+       "pixels": {
+        "against": "off",
+        "frames": 15,
+        "max_channel_diff": 0,
+        "max_fraction_over_24": 0.0
+       }
+      }
+     },
+     "wall_seconds": 12.6
+    }
+   ]
+  },
+  "b2_browser": {
+   "command": [
+    "python",
+    "-m",
+    "benchmarks.play_frames",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--plays",
+    "1",
+    "279",
+    "--replays",
+    "1",
+    "--format",
+    "8",
+    "--browser",
+    "--rounds",
+    "5",
+    "--output",
+    "<dir>/b2_browser"
+   ],
+   "environment_added": {},
+   "recorded_utc": "2026-09-28T04:20:31.085200+00:00",
+   "wall_seconds": 21.4,
+   "gpu_device_utilization_percent_before": [
+    45,
+    40,
+    41
+   ],
+   "gpu_device_utilization_percent_after": [
+    58,
+    49,
+    47
+   ],
+   "load_average_before": [
+    2.841796875,
+    3.1943359375,
+    3.0263671875
+   ],
+   "load_average_after": [
+    2.81787109375,
+    3.1650390625,
+    3.0185546875
+   ],
+   "scene": {
+    "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308
+   },
+   "scene_file_sha256": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff",
+   "git": {
+    "commit": "7c5cb8040d04615ba085f5ed57e974800895ae85",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "gpu_timestamps": false,
+   "modes": [
+    "off",
+    "strokes"
+   ],
+   "replays": 1,
+   "format": 8,
+   "render": false,
+   "browser": true,
+   "rounds": 5,
+   "source_files_unchanged_during_run": true,
+   "plays": [
+    {
+     "play": 1,
+     "line": 35,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.2549790553748608,
+         "min": 1.133041107095778,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 9.50758351245895,
+         "min": 9.034665999934077,
+         "entry": 9.15512500796467,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 172698.0,
+         "min": 172698,
+         "entry": 172698.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.0164370178245008,
+         "min": 0.876000034622848,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 7.457604515366256,
+         "min": 6.7824580473825336,
+         "entry": 24.048957973718643,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 6124.5,
+         "min": 2960,
+         "entry": 413306.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 211,
+        "movers": 211,
+        "programs": 211
+       }
+      }
+     },
+     "browser": {
+      "off_f7": {
+       "entry_page_ms": 0.7584170000000015,
+       "frames": 15,
+       "page_ms_max": 0.8263330000000018,
+       "page_ms": 0.12595849999999942,
+       "js_ms": 0.12279199999999868,
+       "wire_bytes": 173239.0,
+       "bytes_uploaded": 172176.0,
+       "compute_passes": 0.0,
+       "compute_dispatches": 0.0,
+       "buffers_created": 1.0,
+       "bind_groups_created": 0.0,
+       "uniform_writes": 0.0,
+       "draws": 2.0
+      },
+      "off_f8": {
+       "entry_page_ms": 0.824625000000001,
+       "frames": 15,
+       "page_ms_max": 0.8200000000000003,
+       "page_ms": 0.11772899999999886,
+       "js_ms": 0.11422899999999991,
+       "wire_bytes": 172698.0,
+       "bytes_uploaded": 172176.0,
+       "compute_passes": 0.0,
+       "compute_dispatches": 0.0,
+       "buffers_created": 1.0,
+       "bind_groups_created": 0.0,
+       "uniform_writes": 0.0,
+       "draws": 2.0
+      },
+      "strokes_f7": {
+       "entry_page_ms": 6.912958999999997,
+       "frames": 15,
+       "page_ms_max": 1.5805000000000007,
+       "page_ms": 0.9323960000000042,
+       "js_ms": 0.9169164999999992,
+       "wire_bytes": 125788.0,
+       "bytes_uploaded": 3376.0,
+       "compute_passes": 211.0,
+       "compute_dispatches": 422.0,
+       "buffers_created": 0.0,
+       "bind_groups_created": 0.0,
+       "uniform_writes": 211.0,
+       "draws": 212.0
+      },
+      "strokes_f8": {
+       "entry_page_ms": 8.475708000000001,
+       "frames": 15,
+       "page_ms_max": 1.197499999999998,
+       "page_ms": 0.5032920000000001,
+       "js_ms": 0.49837549999999986,
+       "wire_bytes": 6124.5,
+       "bytes_uploaded": 3376.0,
+       "compute_passes": 211.0,
+       "compute_dispatches": 422.0,
+       "buffers_created": 0.0,
+       "bind_groups_created": 0.0,
+       "uniform_writes": 211.0,
+       "draws": 212.0
+      }
+     },
+     "wall_seconds": 2.6
+    },
+    {
+     "play": 279,
+     "line": 806,
+     "name": null,
+     "run_time": 1.0,
+     "frames": 15,
+     "modes": {
+      "off": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.7133749788627028,
+         "min": 1.6544159734621644,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 24.92508350405842,
+         "min": 20.90545801911503,
+         "entry": 46.8708339612931,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1168479.0,
+         "min": 1102237,
+         "entry": 1168477.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 0
+       }
+      },
+      "strokes": {
+       "summary": {
+        "scene_ms": {
+         "p50": 1.7720210598781705,
+         "min": 1.6908330144360662,
+         "entry": null,
+         "n": 14
+        },
+        "serialize_ms": {
+         "p50": 24.44570802617818,
+         "min": 20.08204208686948,
+         "entry": 47.494875034317374,
+         "n": 14
+        },
+        "wire_bytes": {
+         "p50": 1159065.5,
+         "min": 1112489,
+         "entry": 1201612.0,
+         "n": 14
+        }
+       },
+       "middle": {
+        "frame": 7,
+        "leaves": 148,
+        "movers": 148,
+        "programs": 38
+       }
+      }
+     },
+     "browser": {
+      "off_f7": {
+       "entry_page_ms": 10.838082999999997,
+       "frames": 15,
+       "page_ms_max": 3.5544169999999866,
+       "page_ms": 2.6499795000000006,
+       "js_ms": 2.6425209999999986,
+       "wire_bytes": 1168999.0,
+       "bytes_uploaded": 1711552.0,
+       "compute_passes": 110.0,
+       "compute_dispatches": 110.0,
+       "buffers_created": 337.0,
+       "bind_groups_created": 110.0,
+       "uniform_writes": 0.0,
+       "draws": 118.0
+      },
+      "off_f8": {
+       "entry_page_ms": 10.912875,
+       "frames": 15,
+       "page_ms_max": 3.436334000000002,
+       "page_ms": 2.6962295000000083,
+       "js_ms": 2.6826044999999965,
+       "wire_bytes": 1168479.0,
+       "bytes_uploaded": 1711552.0,
+       "compute_passes": 110.0,
+       "compute_dispatches": 110.0,
+       "buffers_created": 337.0,
+       "bind_groups_created": 110.0,
+       "uniform_writes": 0.0,
+       "draws": 118.0
+      },
+      "strokes_f7": {
+       "entry_page_ms": 12.081000000000003,
+       "frames": 15,
+       "page_ms_max": 3.7554170000000084,
+       "page_ms": 2.802250000000001,
+       "js_ms": 2.7956874999999997,
+       "wire_bytes": 1180950.0,
+       "bytes_uploaded": 1704408.0,
+       "compute_passes": 148.0,
+       "compute_dispatches": 186.0,
+       "buffers_created": 330.0,
+       "bind_groups_created": 110.0,
+       "uniform_writes": 38.0,
+       "draws": 149.0
+      },
+      "strokes_f8": {
+       "entry_page_ms": 12.167124999999999,
+       "frames": 15,
+       "page_ms_max": 3.318666999999998,
+       "page_ms": 2.6773330000000044,
+       "js_ms": 2.6630414999999985,
+       "wire_bytes": 1159065.5,
+       "bytes_uploaded": 1704408.0,
+       "compute_passes": 148.0,
+       "compute_dispatches": 186.0,
+       "buffers_created": 330.0,
+       "bind_groups_created": 110.0,
+       "uniform_writes": 38.0,
+       "draws": 149.0
+      }
+     },
+     "wall_seconds": 6.7
+    }
+   ]
+  }
+ }
+}

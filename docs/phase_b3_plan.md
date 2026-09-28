@@ -295,9 +295,15 @@ already.
 materialized it), so a `VFadeIn` on top of a `Transform` in one play, or
 an updater's write, composes as the CPU path does; a `VFadeIn` records
 its program only when no updater runs on the family and no other
-animation's program is pending on the member. Recording a program bumps
-the revision without dropping it (`_bump_revision`); a child's change
-bumps its parents the same way. A program's source has its derived
+animation's program is pending on the member. That covers a write that
+comes after the program in the frame; one that comes before it (the other
+animation listed first, or an updater between frames) a program drawn
+from the animation's own sources would hide, so since B5.3's review an
+animation records a program only over a member its own last write left
+as it is (`programs.stamp`, `programs.admits`; docs/phase_b4_plan.md,
+B5.3) and otherwise takes the CPU path for that frame. Recording a
+program bumps the revision without dropping it (`_bump_revision`); a
+child's change bumps its parents the same way. A program's source has its derived
 columns computed once at `begin` (`programs.freshen`: joint angles, unit
 normal, base point rows), since the renderer refreshes them on the
 animated rows when it reads them and a program's rows are never read.

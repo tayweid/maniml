@@ -240,7 +240,9 @@ renderer and `phase_b` from the whole Phase B stack (`MANIML_FILL=patches
 MANIML_SURFACE=nets MANIML_PROGRAMS=gpu`, its records packed:
 `MANIML_PATCH_SOURCE=records`) through the same driver; `--variants` may
 also name `phase_b_rows`, the same stack with its paths sent as rows
-(`MANIML_PATCH_SOURCE=rows`, `docs/phase_b4_plan.md` B5.1). Each is
+(`MANIML_PATCH_SOURCE=rows`, `docs/phase_b4_plan.md` B5.1), and
+`phase_a_strokes`, Phase A with its paths without fill animated as GPU
+programs (`MANIML_PROGRAMS=strokes`, B5.3). Each is
 written under `<dir>/<variant>/` in the export recorder's format
 (`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
 it, `scene.json`'s frame entries also say what each frame is, and its
@@ -329,6 +331,48 @@ an updater tick; at rest without either it sends nothing, and that silence
 is not a row (under `--deltas` the format 8 stream's silences are). A
 cache miss on a recorded stream fails the run. Pass the episode by absolute
 path; TeX is needed; nothing is written beside the episode.
+
+## Program plays
+
+`python -m benchmarks.play_frames --scene <file.py> <Scene> --plays <checkpoint>...
+--modes off strokes --replays 6 --format 8 --output <dir>` measures chosen
+plays of an episode under `MANIML_PROGRAMS` modes (`docs/phase_b4_plan.md`,
+B5.3). The two harnesses above rotate their variants frame by frame over a
+play's middle; a program mode cannot rotate that way, because an animation
+decides at its begin whether it records programs, so a play is drawn under
+one mode from its first frame to its last. Here each replay of a play (from
+the checkpoint before it, through the scene's retained replay, as
+`episode_frames.replay_play` runs it) is under one mode, the modes taking
+turns replay by replay, each through a `GeometryCache` of its own kept
+across its replays, and every frame is measured: `serialize_ms`,
+`wire_bytes` and `scene_ms` (the scene's own Python since the frame
+before: the interpolation and the updaters), each frame's median over the
+replays and then the median over the frames after the play's first, which
+is reported apart (`entry`) as the frame that packs every program's
+sources. The first replay of each mode also records what each message
+carries (a full frame's batches and program batches, a delta's splices and
+scalars ops) and, at the play's middle frame, the drawn leaves whose
+revision moved since the frame before and how many are programs (`movers:
+programs`), which is how the plays worth measuring are found. Phase A,
+the retained frame on and the records packed are set whatever the
+environment says (`ENVIRONMENT`). `--format 8` serializes the stream a
+negotiated page is sent, `--format 7` full frames.
+
+`--render --format 7` draws each frame with a native `WgpuRenderer` per
+mode through its readback (`render_ms`, `complete_ms`: what a program's
+compute passes cost), and compares each mode's first replay with the
+first mode's frame by frame (`pixels`: the largest channel difference and
+the largest fraction of pixels over 24). Run it once without `MANIML_GPU_TIMESTAMPS`
+for the totals and once with it for attribution (`gpu_total_ms`,
+`gpu_exclusive_<label>_ms`, `gpu_passes_<label>`), as above. `--browser`
+records each mode's play once more in both formats (the checkpoint before
+it, then each frame) as `browser_frames` writes a stream, under
+`<dir>/streams/`, and replays them through `browser_frames.cjs` in Node's
+own realm, `--rounds` times with the streams taking turns: `page_ms` and
+the calls, the median over the frames after the entry, the entry apart.
+`report.json` holds the per-frame medians, `summary.json` the reductions
+with the scene, commit, machine and source hashes, `summary.md` the table.
+`results/b53_strokes_20260927/` is the B5.3 run on both episodes.
 
 ## Point reads by kind and phase
 

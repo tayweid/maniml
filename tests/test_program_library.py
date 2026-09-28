@@ -1,6 +1,8 @@
 """B3b (docs/phase_b3_plan.md): the affine, paint and partial programs;
 their animations under MANIML_PROGRAMS; composition with CPU writes; and,
-with MANIML_TEST_GPU=1, pixels against the CPU path at several alphas."""
+with MANIML_TEST_GPU=1, pixels against the CPU path at several alphas.
+B5.3 (docs/phase_b4_plan.md): the same under MANIML_PROGRAMS=strokes on
+Phase A, where only a path without fill is a program."""
 
 import importlib.util
 import os
@@ -10,12 +12,13 @@ from unittest.mock import patch
 import numpy as np
 
 from maniml.animation.creation import DrawBorderThenFill, ShowCreation, Uncreate, Write
-from maniml.animation.fading import VFadeIn, VFadeOut
+from maniml.animation.fading import FadeIn, FadeOut, VFadeIn, VFadeOut
 from maniml.animation.indication import ShowPassingFlash
 from maniml.animation.rotation import Rotate, Rotating
 from maniml.animation.transform import Transform
-from maniml.constants import BLUE, GREEN, RED, RIGHT, UP, YELLOW
-from maniml.mobject.geometry import Circle, Square
+from maniml.constants import BLUE, DOWN, GREEN, RED, RIGHT, UP, YELLOW
+from maniml.mobject.functions import FunctionGraph
+from maniml.mobject.geometry import Circle, DashedLine, Line, Square
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.svg.text_mobject import Text
 from maniml.mobject.types.vectorized_mobject import VGroup, partial_points
@@ -28,6 +31,7 @@ from tests.renderer_fixtures import build_scene
 
 HAVE_LYON = bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
 PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets")
+PHASE_A = dict(MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="grids")
 
 
 def _shapes():
@@ -51,6 +55,52 @@ CASES = {
 ALPHAS = (0.0, .11, .3, .5, .62, .8, .97, 1.0)
 
 
+def _strokes():
+    """Paths without fill, as an episode's axes, curves and dashed lines
+    are, beside a filled square and a word, whose animations keep the CPU
+    path under MANIML_PROGRAMS=strokes (docs/phase_b4_plan.md, B5.3)."""
+    axes = VGroup(Line([-4, -2.5, 0], [4, -2.5, 0], stroke_width=3),
+                  Line([-4, -2.5, 0], [-4, 2, 0], stroke_width=3),
+                  *(Line([x, -2.65, 0], [x, -2.35, 0], stroke_width=2) for x in (-2, 0, 2)))
+    curve = FunctionGraph(lambda x: .3 * x * x - 1.5, x_range=(-2.5, 2.5, .25), color=YELLOW, stroke_width=5)
+    dashed = DashedLine([-3.5, 1.4, 0], [2, 1.4, 0], color=BLUE).set_opacity(.5)
+    ring = Circle(radius=.8, stroke_color=RED, stroke_width=6).shift([2.8, -.4, 0])
+    square = Square(side_length=1.2, fill_color=GREEN, fill_opacity=.9, stroke_color=BLUE, stroke_width=6,
+                    fill_border_width=3).shift([-2.6, .2, 0])
+    word = Text("stroke", font_size=40, color=YELLOW).shift([0, 2.5, 0])
+    return VGroup(axes, curve, dashed, ring, square, word)
+
+
+# The stroke-only cases (every animated member a path without fill), then
+# ones that mix in filled members, which keep the CPU path. A gradient
+# writes the fill colours too, unseen, which a stroke's program never reads.
+# Two animations of one member in a play keep the CPU path (programs.admits):
+# a program recorded after the other's write would hide it.
+STROKE_CASES = {
+    "create": lambda g: [ShowCreation(VGroup(g[0], g[1], g[2]))],
+    "uncreate": lambda g: [Uncreate(g[1])],
+    "vfade": lambda g: [VFadeIn(g[3]), VFadeOut(g[2])],
+    "rotate": lambda g: [Rotate(VGroup(g[3], g[2]), angle=2.0), Rotating(g[1], angle=1.0, axis=UP)],
+    "transform": lambda g: [Transform(g[1], FunctionGraph(lambda x: 1 - .2 * x * x, x_range=(-3, 2, .25),
+                                                          color=BLUE, stroke_width=3)),
+                            FadeIn(g[2], shift=DOWN), FadeOut(g[0])],
+    "write": lambda g: [Write(g[3]), DrawBorderThenFill(g[1])],
+    "flash": lambda g: [ShowPassingFlash(g[3].copy().set_stroke(YELLOW, 8), time_width=.5)],
+    "gradient": lambda g: [ShowCreation(g[1].set_stroke(width=[2, 10, 3]).set_color([RED, YELLOW, GREEN])),
+                           VFadeIn(g[3].set_color([RED, BLUE]))],
+    "fade_create": lambda g: [VFadeIn(g[1]), ShowCreation(g[1])],
+}
+MIXED_CASES = {
+    "create_mixed": lambda g: [ShowCreation(VGroup(g[0], g[4])), FadeIn(g[5])],
+    "rotate_mixed": lambda g: [Rotate(VGroup(g[3], g[4]), angle=1.5), VFadeOut(g[5])],
+    "transform_mixed": lambda g: [Transform(VGroup(g[1], g[4]), VGroup(g[1].copy().shift(UP), g[4].copy().shift(DOWN)))],
+    "write_mixed": lambda g: [Write(VGroup(g[1], g[4], g[5]))],
+    "draw_mixed": lambda g: [DrawBorderThenFill(VGroup(g[1], g[4]), lag_ratio=.3)],
+    "fill_create": lambda g: [Transform(g[3], g[3].copy().set_fill(BLUE, 1)), ShowCreation(g[3])],
+}
+STROKE_ALPHAS = (0.0, .07, .19, .3, .42, .5, .63, .77, .91, 1.0)
+
+
 def _state(mobject):
     """What the ledger compares, plus the derived-column flags."""
     return [([sm._data[k].tobytes() for k in sm._data.dtype.names if k not in DERIVED_DATA_KEYS],
@@ -58,26 +108,42 @@ def _state(mobject):
              sm.needs_new_unit_normal, sm.needs_new_joint_angles) for sm in mobject.get_family()]
 
 
-def _play(name, mode, frames=None, render=None):
-    """Run a case under a mode; ``render(header, payload)`` per frame when given."""
-    with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS=mode):
-        group = _shapes()
-        anims = CASES[name](group)
-        extra = [a.mobject for a in anims if a.mobject not in group.get_family()]
+def _play(name, mode, frames=None, render=None, *, cases=CASES, shapes=_shapes, env=PHASE_B, alphas=ALPHAS,
+          interpolated=None, inspect=None):
+    """Run a case under a mode; ``render(header, payload)`` per frame when
+    given, ``interpolated(group)`` after each frame's interpolation and
+    ``inspect(group, header)`` after its serialization too."""
+    with patch.dict(os.environ, **env, MANIML_PROGRAMS=mode):
+        group = shapes()
+        anims = cases[name](group)
+        # A case's own mobject is drawn beside the group unless it only
+        # gathers the group's members.
+        drawn = set(map(id, group.get_family()))
+        extra = [a.mobject for a in anims if not drawn.issuperset(map(id, a.mobject.family_members_with_points()))]
         scene, wire = build_scene(group, *extra, resolution=(480, 270), samples=4), GeometryCache()
         for anim in anims:
             anim.begin()
         kinds, out = set(), []
-        for alpha in ALPHAS:
+        for alpha in alphas:
             for anim in anims:
                 anim.interpolate(alpha)
+            if interpolated is not None:
+                interpolated(group)
             header, payload = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
             kinds.update(b["program"]["kind"] for b in header["batches"] if "program" in b)
+            if inspect is not None:
+                inspect(group, header)
             if render is not None:
                 out.append(render(header, payload))
         for anim in anims:
             anim.finish()
         return _state(group), kinds, out
+
+
+def _play_strokes(name, mode, render=None, **hooks):
+    """A stroke or mixed case on Phase A (B5.3), at ten alphas."""
+    return _play(name, mode, render=render, cases={**STROKE_CASES, **MIXED_CASES}, shapes=_strokes, env=PHASE_A,
+                 alphas=STROKE_ALPHAS, **hooks)
 
 
 class RowPrograms(unittest.TestCase):
@@ -211,6 +277,39 @@ class LibraryAnimations(unittest.TestCase):
             for anim in anims + reference:
                 anim.finish()
 
+    def test_a_second_writer_keeps_the_cpu_path(self):
+        # Two animations of one member in a play, whichever runs first: a
+        # program recorded after the other's write would be drawn from its
+        # own sources' rows and hide that write (a fill, an opacity), so
+        # once the member is not as the animation left it the frame is
+        # the CPU's (programs.admits), with the same rows as programs off.
+        plays = (lambda ring: [Transform(ring, ring.copy().set_fill(BLUE, 1)), ShowCreation(ring)],
+                 lambda ring: [ShowCreation(ring), Transform(ring, ring.copy().set_fill(BLUE, 1))],
+                 lambda ring: [VFadeIn(ring), ShowCreation(ring)],
+                 lambda ring: [ShowCreation(ring), VFadeIn(ring)],
+                 lambda ring: [Transform(ring, ring.copy().shift(UP)), Rotate(ring, angle=1.0)])
+
+        def frames(play, mode, env):
+            with patch.dict(os.environ, **env, MANIML_PROGRAMS=mode):
+                ring = Circle(radius=1.2, stroke_color=RED, stroke_width=6)
+                anims = play(ring)
+                for anim in anims:
+                    anim.begin()
+                seen = []
+                for alpha in ALPHAS:
+                    for anim in anims:
+                        anim.interpolate(alpha)
+                    seen.append(("_program" in ring.__dict__, _state(ring)))
+                for anim in anims:
+                    anim.finish()
+                return seen
+
+        for index, play in enumerate(plays):
+            off = frames(play, "off", PHASE_B)
+            for mode, env in (("gpu", PHASE_B), ("strokes", PHASE_A)):
+                with self.subTest(play=index, mode=mode):
+                    self.assertEqual(frames(play, mode, env), off)
+
     def test_an_arc_transform_keeps_the_cpu_path(self):
         with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS="gpu"):
             mob = Circle()
@@ -229,6 +328,127 @@ class LibraryWire(unittest.TestCase):
         for name, kinds in expected.items():
             _, seen, _ = _play(name, "gpu")
             self.assertEqual(seen, kinds, name)
+
+
+# What a stroke case sends on Phase A under strokes: the stroke-only cases
+# their programs; the mixed ones only their paths without fill's (a Rotate
+# is all or nothing, so one of a filled member is the CPU's whole); a
+# member two animations write, nothing.
+STROKE_KINDS = {"create": {"partial"}, "uncreate": {"partial"}, "vfade": {"paint"}, "rotate": {"affine"},
+                "transform": {"blend"}, "write": {"partial", "blend"}, "flash": {"partial"},
+                "gradient": {"partial", "paint"}, "fade_create": set(),
+                "create_mixed": {"partial"}, "rotate_mixed": set(), "transform_mixed": {"blend"},
+                "write_mixed": {"partial", "blend"}, "draw_mixed": {"partial", "blend"}, "fill_create": set()}
+# The cases whose frames are held to the gate alone: a lagged write's
+# partial path ends mid-curve at sub-alphas where the partial kernel's
+# float32 tip lands a pixel or two away from the CPU's float64 one (12/255
+# on two pixels at most here; 17 under Phase B, whose partial it is).
+STROKE_TIPS = {"write_mixed", "draw_mixed"}
+# Write's index transition writes the outline's rows over the border
+# phase's program (set_data), a read once per member, as under Phase B.
+STROKE_WRITES = {"write", "write_mixed", "draw_mixed"}
+
+
+def _filled(mobject):
+    return mobject.has_points() and bool(np.any(mobject._data["fill_rgba"][:, 3]))
+
+
+@unittest.skipUnless(HAVE_LYON, "the Lyon helper is the frame preparer's tessellator")
+class StrokePrograms(unittest.TestCase):
+    """B5.3 (docs/phase_b4_plan.md): MANIML_PROGRAMS=strokes on Phase A. A
+    path without fill is a program, drawn as a stroke from its finalized
+    rows; a filled member's animation is the CPU path's, frame by frame."""
+
+    def test_the_switch_needs_no_patch_fill(self):
+        scene = build_scene(Square(), Circle(fill_opacity=.5))
+        with patch.dict(os.environ, **PHASE_A, MANIML_PROGRAMS="strokes"):
+            self.assertEqual(programs.mode(), "strokes")
+            self.assertTrue(programs.deferred(programs.mode()))
+            serialize_scene(scene, GeometryCache(), renderer="triangles")
+        for mode in ("shadow", "gpu"):
+            with patch.dict(os.environ, **PHASE_A, MANIML_PROGRAMS=mode), self.assertRaises(ValueError):
+                serialize_scene(scene, GeometryCache(), renderer="triangles")
+        with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS="strokes"):
+            serialize_scene(scene, GeometryCache(), renderer="triangles")
+
+    def test_every_case_ends_in_the_cpu_paths_state(self):
+        for name, kinds in STROKE_KINDS.items():
+            with self.subTest(case=name):
+                off, off_kinds, _ = _play_strokes(name, "off")
+                self.assertEqual(off_kinds, set())
+                state, seen, _ = _play_strokes(name, "strokes")
+                self.assertEqual(state, off)
+                self.assertEqual(seen, kinds)
+
+    def test_only_paths_without_fill_are_programs(self):
+        def inspect(group, header):
+            pipelines = [batch["pipeline"] for batch in header["batches"]]
+            self.assertNotIn("patch", pipelines)
+            self.assertTrue(all(batch["pipeline"] == "stroke" for batch in header["batches"] if "program" in batch))
+            self.assertFalse(any(sm._program is not None for sm in group.get_family() if _filled(sm)))
+
+        for name in STROKE_KINDS:
+            with self.subTest(case=name):
+                _play_strokes(name, "strokes", inspect=inspect)
+
+    def test_a_filled_members_frames_are_the_cpu_paths(self):
+        # Exactly as with programs off: the same rows, derived columns and
+        # refresh flags included, and the same uniforms, at every frame, as
+        # the animation leaves them and as the frame's reads leave them (an
+        # endpoint freshened for a program it cannot record would show in
+        # the first).
+        def frames(mode):
+            seen = []
+
+            def record(group, header=None):
+                seen.append([(sm._data.tobytes(), sm.needs_new_joint_angles, sm.needs_new_unit_normal,
+                              sorted((k, np.asarray(v).tobytes()) for k, v in sm.uniforms.items()))
+                             for sm in group.get_family() if _filled(sm)])
+            _play_strokes(name, mode, interpolated=record, inspect=record)
+            return seen
+
+        for name in MIXED_CASES:
+            with self.subTest(case=name):
+                off = frames("off")
+                self.assertTrue(all(off))
+                self.assertEqual(frames("strokes"), off)
+
+    def test_stroke_frames_read_no_rows(self):
+        # But a write's (STROKE_WRITES). The play's end reads them all
+        # (finish).
+        original = Mobject._materialize_program
+        for name in STROKE_KINDS.keys() - STROKE_WRITES:
+            with self.subTest(case=name):
+                reads, seen = [], []
+                with patch.object(Mobject, "_materialize_program", lambda mobject: (reads.append(mobject),
+                                                                                    original(mobject))):
+                    _play_strokes(name, "strokes", inspect=lambda group, header: seen.append(len(reads)))
+                self.assertEqual(seen[-1], 0)
+
+    def test_a_stream_sends_a_programs_scalars(self):
+        # Format 8 (docs/phase_b4_plan.md, B4.8): past a play's first frame
+        # a program run that holds its place is a scalars op.
+        with patch.dict(os.environ, **PHASE_A, MANIML_PROGRAMS="strokes"):
+            group = _strokes()
+            scene, wire = build_scene(group, resolution=(480, 270), samples=4), GeometryCache()
+            wire.negotiate(True)
+            anims = MIXED_CASES["create_mixed"](group) + STROKE_CASES["vfade"](group)
+            for anim in anims:
+                anim.begin()
+            headers = []
+            for alpha in (.2, .4, .6):
+                for anim in anims:
+                    anim.interpolate(alpha)
+                headers.append(parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))[0])
+            for anim in anims:
+                anim.finish()
+        self.assertTrue(any("program" in batch for batch in headers[0]["batches"]))
+        for header in headers[1:]:
+            # The members the lag has not reached, or has finished, hold
+            # their scalars; the square's CPU path is spliced.
+            self.assertTrue(header["scalars"])
+            self.assertTrue(header["splices"])
+            self.assertFalse(any("program" in batch for _, _, batches in header["splices"] for batch in batches))
 
 
 @unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "GPU image comparison not requested")
@@ -260,6 +480,23 @@ class LibraryPixels(unittest.TestCase):
                         self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, (name, mode, alpha))
                         if name in exact:
                             self.assertLessEqual(diff.max(), 1, (name, mode, alpha))
+
+    def test_stroke_cases_match_the_cpu_path_on_phase_a(self):
+        # B5.3 (docs/phase_b4_plan.md): strokes on Phase A, at ten alphas,
+        # against programs off: the gate, and but for a lagged write's tips
+        # (STROKE_TIPS) to the pixel, blends included (a stroke's blend
+        # moves its points by float32 rounding at most). The cases two
+        # animations write are exact: nothing there is a program.
+        for name in STROKE_KINDS:
+            with self.subTest(case=name):
+                _, _, reference = _play_strokes(name, "off", render=self.render)
+                _, kinds, frames = _play_strokes(name, "strokes", render=self.render)
+                self.assertEqual(kinds, STROKE_KINDS[name])
+                for alpha, frame, expected in zip(STROKE_ALPHAS, frames, reference):
+                    diff = np.abs(frame - expected)
+                    self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, (name, alpha))
+                    if name not in STROKE_TIPS:
+                        self.assertLessEqual(diff.max(), 1, (name, alpha))
 
 
 if __name__ == "__main__":

@@ -33,8 +33,8 @@ class ShowPartial(Animation, ABC):
 
     def begin(self) -> None:
         super().begin()
-        if programs.mode() != "off":
-            programs.freshen(self.starting_mobject)
+        self.program_sources = programs.begin(self.starting_mobject)
+        programs.stamp(self)
 
     def interpolate_submobject(
         self,
@@ -44,8 +44,8 @@ class ShowPartial(Animation, ABC):
     ) -> None:
         bounds = self.get_bounds(alpha)
         mode = programs.mode()
-        if (mode != "off" and hasattr(submob, "partial_program")
-                and submob.partial_program(start_submob, *bounds, defer=mode == "gpu")):
+        if (programs.admits(mode, self, submob, start_submob) and hasattr(submob, "partial_program")
+                and submob.partial_program(start_submob, *bounds, defer=programs.deferred(mode))):
             return
         submob.pointwise_become_partial(start_submob, *bounds)
 
@@ -113,9 +113,8 @@ class DrawBorderThenFill(Animation):
         self.mobject.set_animating_status(True)
         self.outline = self.get_outline()
         super().begin()
-        if programs.mode() != "off":
-            programs.freshen(self.starting_mobject)
-            programs.freshen(self.outline)
+        self.program_sources = programs.begin(self.starting_mobject, self.outline)
+        programs.stamp(self)
 
     def finish(self) -> None:
         super().finish()
@@ -168,6 +167,10 @@ class DrawBorderThenFill(Animation):
         if cache_completion and self._completed_submobjects.get(key) == revisions:
             return
         self._completed_submobjects.pop(key, None)
+        # Asked before this frame's own writes below, which move the
+        # revision that programs.admits compares.
+        mode = programs.mode()
+        admitted = programs.admits(mode, self, submob, start)
 
         previous_index = self.sm_to_index.get(key)
         if previous_index is None:
@@ -180,16 +183,15 @@ class DrawBorderThenFill(Animation):
                 submob.set_uniforms(outline.uniforms)
             self.sm_to_index[key] = index
 
-        mode = programs.mode()
         if index == 0:
-            if not (mode != "off" and submob.partial_program(outline, 0, subalpha, defer=mode == "gpu")):
+            if not (admitted and submob.partial_program(outline, 0, subalpha, defer=programs.deferred(mode))):
                 submob.pointwise_become_partial(outline, 0, subalpha)
         else:
             # The border phase's rows are the outline's; the fill phase
             # blends the outline into the start. As a program the blend
             # is the GPU's, with the same path function on the CPU side.
-            program = mode != "off" and submob.blend_program(
-                outline, start, subalpha, defer=mode == "gpu", path_func=self._interpolate_points)
+            program = admitted and submob.blend_program(
+                outline, start, subalpha, defer=programs.deferred(mode), path_func=self._interpolate_points)
             if not program:
                 submob.interpolate(outline, start, subalpha, self._interpolate_points)
             if (

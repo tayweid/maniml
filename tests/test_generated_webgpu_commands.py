@@ -123,6 +123,26 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def delta_equals_full(test, sent):
+    """Play one history's format 7 frames (``sent["full"]``) and its format
+    8 stream (``sent["delta"]``, None where nothing was sent) on two drivers
+    (deltaEqualsFull), and return what the harness counted."""
+    import gzip
+    import json
+    with tempfile.TemporaryDirectory() as directory:
+        for name, messages in sent.items():
+            folder = Path(directory) / name
+            folder.mkdir()
+            with gzip.open(folder / "scene.bin.gz", "wb") as file:
+                file.writelines(message for message in messages if message is not None)
+            (folder / "scene.json").write_text(json.dumps(
+                {"frames": [{"len": len(message or b"")} for message in messages]}))
+        result = subprocess.run(["node", str(HARNESS), "deltaEqualsFull", Path(directory) / "full",
+                                 Path(directory) / "delta"], capture_output=True, text=True, timeout=60)
+    test.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return json.loads(result.stdout)
+
+
 def _lyon():
     import importlib.util
     import os
@@ -258,9 +278,7 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
                 self._stream_equals_full()
 
     def _stream_equals_full(self):
-        import gzip
         import os
-        import json
         from maniml.animation.animation import prepare_animation
         from maniml.animation.creation import ShowCreation
         from maniml.animation.rotation import Rotate
@@ -334,18 +352,7 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         if rows:
             self.assertTrue(any(len(batch["rows"]) > 1 for batch in rows), "a run of several row sources")
             self.assertEqual({batch["pipeline"] for batch in rows}, {"patch", "stroke"})
-        with tempfile.TemporaryDirectory() as directory:
-            for name, messages in sent.items():
-                folder = Path(directory) / name
-                folder.mkdir()
-                with gzip.open(folder / "scene.bin.gz", "wb") as file:
-                    file.writelines(message for message in messages if message is not None)
-                (folder / "scene.json").write_text(json.dumps(
-                    {"frames": [{"len": len(message or b"")} for message in messages]}))
-            result = subprocess.run(["node", str(HARNESS), "deltaEqualsFull", Path(directory) / "full",
-                                     Path(directory) / "delta"], capture_output=True, text=True, timeout=60)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        played = json.loads(result.stdout)
+        played = delta_equals_full(self, sent)
         self.assertEqual(played["frames"], len(sent["full"]))
         # Four epochs open with a full frame (the cold frame, the reset and
         # each switch); every frame that changed nothing is sent nothing.
@@ -366,3 +373,101 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
             second = Path(directory) / "nets_2.bin"
             second.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
             self.run_case("netWire", first, second)
+
+
+@unittest.skipIf(shutil.which("node") is None, "node not available")
+@unittest.skipUnless(_lyon(), "the Lyon helper is the frame preparer's tessellator")
+class GeneratedWebGPUStrokePrograms(unittest.TestCase):
+    """The browser driver on real Phase A frames under MANIML_PROGRAMS=strokes
+    (docs/phase_b4_plan.md, B5.3): paths without fill drawn from GPU
+    programs, filled paths from Phase A's own meshes and strokes."""
+
+    @staticmethod
+    def _play():
+        """A static axis; a curve's creation, a ring's fade in, a triangle's
+        rotation and a square outline's blend into a circle's, programs all;
+        and a filled square's move, the CPU's."""
+        from maniml.animation.creation import ShowCreation
+        from maniml.animation.fading import VFadeIn
+        from maniml.animation.rotation import Rotate
+        from maniml.animation.transform import Transform
+        from maniml.constants import BLUE, DOWN, GREEN, LEFT, RED, RIGHT, UP, YELLOW
+        from maniml.mobject.functions import FunctionGraph
+        from maniml.mobject.geometry import Circle, Line, Square, Triangle
+        from tests.renderer_fixtures import build_scene
+        axis = Line(4 * LEFT + 2.5 * DOWN, 4 * RIGHT + 2.5 * DOWN, stroke_width=3)
+        curve = FunctionGraph(lambda x: .3 * x * x - 1.5, x_range=(-2.5, 2.5, .25), color=YELLOW, stroke_width=5)
+        ring = Circle(radius=.8, stroke_color=RED, stroke_width=6).shift(2.8 * RIGHT)
+        triangle = Triangle(stroke_color=GREEN, stroke_width=4).shift(2.8 * LEFT + UP)
+        outline = Square(side_length=1.2, stroke_color=BLUE, stroke_width=5).shift(1.5 * UP)
+        filled = Square(side_length=1, fill_color=GREEN, fill_opacity=.9, stroke_color=BLUE, stroke_width=4).shift(2 * DOWN)
+        scene = build_scene(axis, curve, ring, triangle, outline, filled, resolution=(480, 270), samples=4)
+        animations = [ShowCreation(curve), VFadeIn(ring), Rotate(triangle, 1.0),
+                      Transform(outline, Circle(radius=.7, stroke_color=RED, stroke_width=3).shift(1.5 * UP)),
+                      filled.animate.shift(RIGHT)]
+        return scene, animations
+
+    def test_stroke_programs_draw_their_finalized_instances(self):
+        import os
+        from unittest.mock import patch
+        from maniml.animation.animation import prepare_animation
+        from maniml.web.geometry import GeometryCache, serialize_scene
+        with patch.dict(os.environ, MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_PROGRAMS="strokes"):
+            scene, animations = self._play()
+            animations = [prepare_animation(animation) for animation in animations]
+            wire = GeometryCache()
+            for animation in animations:
+                animation.begin()
+            with tempfile.TemporaryDirectory() as directory:
+                files = []
+                for index, alpha in enumerate((.3, .6, .6)):
+                    for animation in animations:
+                        animation.interpolate(alpha)
+                    files.append(Path(directory) / f"strokes_{index}.bin")
+                    files[-1].write_bytes(serialize_scene(scene, wire, renderer="triangles"))
+                result = subprocess.run(["node", str(HARNESS), "strokeProgramsWire", *map(str, files)],
+                                        capture_output=True, text=True, timeout=60)
+            for animation in animations:
+                animation.finish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_format_8_stream_draws_what_its_full_frames_draw(self):
+        # B4.8's equivalence over a Phase A history whose play is drawn from
+        # stroke programs: their scalars travel as scalars ops.
+        import os
+        from unittest.mock import patch
+        from maniml.animation.animation import prepare_animation
+        from maniml.constants import RIGHT
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        with patch.dict(os.environ, MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_PROGRAMS="strokes"):
+            scene, animations = self._play()
+            full, stream = GeometryCache(), GeometryCache()
+            stream.negotiate(True)
+            sent = {"full": [], "delta": []}
+
+            def frame():
+                sent["full"].append(serialize_scene(scene, full, renderer="triangles"))
+                sent["delta"].append(serialize_scene(scene, stream, renderer="triangles"))
+
+            frame()
+            frame()
+            animations = [prepare_animation(animation) for animation in animations]
+            for animation in animations:
+                animation.begin()
+            frame()
+            for alpha in (.2, .45, .45, .7, .9):
+                for animation in animations:
+                    animation.interpolate(alpha)
+                frame()
+            for animation in animations:
+                animation.finish()
+            frame()
+            frame()
+            scene.camera.frame.shift(.05 * RIGHT)
+            frame()
+        headers = [parse_geometry_message(message)[0] for message in sent["delta"] if message is not None]
+        self.assertTrue(sum(bool(header.get("scalars")) for header in headers) >= 3, "the play's scalars ops")
+        played = delta_equals_full(self, sent)
+        self.assertEqual(played["frames"], len(sent["full"]))
+        self.assertEqual(sum(message is None for message in sent["delta"]), played["skipped"])
+        self.assertEqual(played["frames"] - played["deltas"] - played["skipped"], 1)

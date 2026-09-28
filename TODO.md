@@ -233,7 +233,21 @@ finalizes them, pixels identical, and 8.a's play serializes in 51.6 ms
 instead of 104.5, not the 2.65 ms floor. Open there: the GPU pays ~10 ms a
 frame more for a finalize dispatch per changed rows (one dispatch for a
 frame's rows is the fix), the page ~0.5-1 ms more JS, and the serializer's
-per-leaf and per-batch structure stands between it and the floor. The
+per-leaf and per-batch structure stands between it and the floor. B5.3 is
+built behind `MANIML_PROGRAMS=strokes`, off by default (the plan's "B5.3:
+built"): on Phase A a path without fill animates as a GPU program, a
+filled one exactly as before, pixels within the gate at every alpha and
+identical on every frame of the seven episode plays measured. In every
+program mode an animation now records a program only over a member it
+left as it is, so a second writer in the same play keeps the CPU path
+(before, a program hid its fill or opacity). It saves Python where a play
+is strokes (EpisodeB2's bumper serializes 22-37% faster) and little on the
+axes plays, where glyphs dominate (1-11%); a program is still a batch of
+its own, encoded every frame, and a compute pass with two dispatches in
+each driver, which makes the complete native frame dearer on every play
+measured (~31 ms on the bumper, the GPU ~13 ms) and the page's JavaScript
+on the bumper 0.1 → 0.9 ms under format 7, 0.5 under format 8 (the same
+one-dispatch fix; `benchmarks/play_frames.py` measures it). The
 paragraphs below are the earlier framing and remain the contracts for
 resources, counts and recovery.
 

@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from maniml.mobject.mobject import _AnimationBuilder
 from maniml.mobject.mobject import Mobject
+from maniml.utils import programs
 from maniml.utils.iterables import remove_list_redundancies
 from maniml.utils.rate_functions import smooth
 from maniml.utils.simple_functions import clip
@@ -21,6 +22,16 @@ DEFAULT_ANIMATION_LAG_RATIO = 0
 
 
 class Animation(object):
+    # MANIML_PROGRAMS (maniml/utils/programs.py), for an animation that
+    # records GPU programs: the places one may be recorded at under
+    # strokes, as programs.begin decided them at its begin (the ids of its
+    # starting members; None where no begin decided, which under strokes
+    # admits nothing), and its family's revisions as it last left them
+    # (programs.stamp; None where nothing was noted), which programs.admits
+    # compares so a program never hides another writer's work.
+    program_sources: set[int] | None = None
+    program_revisions: dict[int, int] | None = None
+
     def __init__(
         self,
         mobject: Mobject,
@@ -74,6 +85,11 @@ class Animation(object):
             start, end = self.time_span
             self.run_time = max(end, self.run_time)
         self.mobject.set_animating_status(True)
+        # Decided anew once the copies exist, by the begin of an animation
+        # that records programs: an id from an earlier begin may name a
+        # copy since collected.
+        self.program_sources = None
+        self.program_revisions = None
         self.starting_mobject = self.create_starting_mobject()
         if self.suspend_mobject_updating:
             self.mobject_was_updating = not self.mobject.updating_suspended
@@ -146,6 +162,8 @@ class Animation(object):
     # Methods for interpolation, the mean of an Animation
     def interpolate(self, alpha: float) -> None:
         self.interpolate_mobject(alpha)
+        if self.program_revisions is not None:
+            programs.stamp(self)
 
     def update(self, alpha: float) -> None:
         """

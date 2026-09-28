@@ -54,7 +54,9 @@ VARIANTS = ("phase_a", "phase_b")
 # animations read these, so a stream is self-consistent whatever the
 # caller's environment says. phase_b_rows is phase_b with the patch fill's
 # records sent as rows (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
-# B5.1), recorded when --variants names it.
+# B5.1), and phase_a_strokes phase_a with its paths without fill animated
+# as GPU programs (MANIML_PROGRAMS=strokes, B5.3), each recorded when
+# --variants names it.
 ENVIRONMENTS = {
     "phase_a": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
                 "MANIML_BORDER_GENERATOR": "gpu"},
@@ -62,6 +64,8 @@ ENVIRONMENTS = {
                 "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
     "phase_b_rows": {"MANIML_FILL": "patches", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "gpu",
                      "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "rows"},
+    "phase_a_strokes": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "strokes",
+                        "MANIML_BORDER_GENERATOR": "gpu"},
 }
 # The kinds of row, as the viewer draws them: the still redraw of a
 # pausepoint, the same with its updaters ticking, a frame of a play, and

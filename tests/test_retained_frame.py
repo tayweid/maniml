@@ -61,9 +61,12 @@ from PIL import Image
 from maniml import config
 from maniml.__main__ import load_scene_module
 from maniml.animation.animation import prepare_animation
+from maniml.animation.creation import ShowCreation
+from maniml.animation.fading import FadeIn
+from maniml.animation.rotation import Rotate
 from maniml.animation.transform import Transform
 from maniml.constants import BLUE, DEFAULT_RESOLUTION, DOWN, GREEN, LEFT, ORIGIN, RED, RIGHT, UL, UP, WHITE, YELLOW
-from maniml.mobject.geometry import Annulus, Circle, Line, Rectangle, Square
+from maniml.mobject.geometry import Annulus, Circle, DashedLine, Line, Rectangle, Square
 from maniml.mobject.three_dimensions import Sphere
 from maniml.mobject.types.dot_cloud import DotCloud
 from maniml.mobject.types.image_mobject import ImageMobject
@@ -2195,6 +2198,66 @@ class RowSourcesLockstep(RetainedFrameLockstep):
     def setUp(self):
         super().setUp()
         self.enterContext(patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"))
+
+
+@requires_lyon
+class StrokeProgramsLockstep(GoldenCase):
+    """B5.3 (docs/phase_b4_plan.md): Phase A under MANIML_PROGRAMS=strokes.
+    A play whose paths without fill are GPU programs (a creation, a
+    rotation, a fade in, which is a blend) beside a filled leaf's move,
+    which keeps the CPU path: the retained frame's bytes are the
+    whole-frame path's at every frame, as full frames and as a format 8
+    stream, verified or not; a program leaf is prepared every frame it is
+    one, and the still after the landing keeps every leaf."""
+
+    def setUp(self):
+        self.enterContext(patch.dict(os.environ, MANIML_PROGRAMS="strokes"))
+
+    def test_a_play_of_paths_without_fill(self):
+        for deltas, verify in ((False, None), (True, None), (False, "1")):
+            with self.subTest(deltas=deltas, verify=verify), patch.dict(os.environ):
+                if verify is not None:
+                    os.environ["MANIML_VERIFY_LEDGER"] = verify
+                self.play_of_paths_without_fill(deltas)
+
+    def play_of_paths_without_fill(self, deltas):
+        def build():
+            scene, family, path, _, _ = synthetic_scene()
+            side = SimpleNamespace(scene=scene, family=family, path=path)
+            add(side, "ring", Circle(radius=.5, stroke_color=WHITE, stroke_width=4).shift(2 * LEFT + 1.5 * UP))
+            add(side, "dashes", DashedLine(3 * LEFT + 2.2 * DOWN, 3 * RIGHT + 2.2 * DOWN, stroke_width=3))
+            return side
+
+        lock = Lockstep(self, build, deltas=deltas)
+        lock.frame("cold")
+        lock.frame("still")
+        lock.expect(leaves_prepared=0)
+        plays = [[prepare_animation(animation) for animation in (
+            ShowCreation(side.path), Rotate(side.ring, 1.0), FadeIn(side.dashes), side.family[0].animate.shift(.3 * UP))]
+            for side in lock.sides]
+        for animation in (animation for group in plays for animation in group):
+            animation.begin()
+        lock.frame("the play begins")
+        headers = []
+        for alpha in (.25, .5, .75):
+            for animation in (animation for group in plays for animation in group):
+                animation.interpolate(alpha)
+            message = lock.frame(f"the play at {alpha}")
+            headers.append(parse_geometry_message(message)[0])
+            # The path, the ring and every dash, and nothing filled.
+            self.assertEqual(lock.retained.stats["leaves_prepared"], 2 + len(lock.sides[1].dashes) + 1)
+        for animation in (animation for group in plays for animation in group):
+            animation.finish()
+        lock.frame("the play lands")
+        lock.frame("still")
+        lock.expect(leaves_prepared=0)
+        if deltas:
+            self.assertTrue(all(header["scalars"] for header in headers[1:]))
+        else:
+            kinds = {batch["program"]["kind"] for header in headers for batch in header["batches"] if "program" in batch}
+            self.assertEqual(kinds, {"partial", "affine", "blend"})
+            self.assertTrue(all(batch["pipeline"] == "stroke" for header in headers
+                                for batch in header["batches"] if "program" in batch))
 
 
 @requires_lyon

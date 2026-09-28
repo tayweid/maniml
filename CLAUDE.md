@@ -440,10 +440,45 @@ not, and `Mobject.data` materializes a pending program on read with the
 CPU path's own arithmetic (every accessor and direct `data[...]` read
 goes through the property; counts do not), so a reader mid-play sees
 what is drawn; a CPU mutation supersedes the program (`note_changed_data`),
-so animations that write rows compose as before. `Animation.finish`
+so animations that write rows compose as before. And an animation records
+a program only over a member it left as it is: `programs.stamp` notes its
+family's revisions after its begin and after each frame, and
+`programs.admits` compares them, so where another writer changed the
+member since (a second animation of the mobject in the same play, an
+updater) that frame is the CPU path's, which composes the two, and not a
+program drawn from the animation's own sources over the other's fill or
+opacity (the review of B5.3 found that, in every mode). `Animation.finish`
 writes the final rows, so the state after a play is byte-identical in
 every mode. Pixels match the CPU path at every alpha in both drivers; the
 default stays `off`.
+
+`MANIML_PROGRAMS=strokes` (B5.3, `docs/phase_b4_plan.md`) needs no patch
+fill: it is `gpu` for a path without fill only, the one program Phase A
+can draw (its stroke from the program's finalized instances; a Lyon mesh
+has no program input). An animation decides at its begin where a program
+may stand (`programs.begin`: the places in the families it zips where
+every source is a path without fill, or has no points, which it returns
+as `Animation.program_sources` and freshens; `programs.admits` asks per
+frame, the revision rule above included), so a filled member's animation,
+sources included, is the CPU path's exactly, frame by frame.
+`maniml.animation.rotation`'s `Rotate`/`Rotating` stay all or nothing, so
+one of a group holding a filled member is the CPU's whole; the CE-compat
+`Rotate` a `from manim import *` scene gets (`maniml/compatibility.py`,
+the episodes' spelling) is a straight `Transform`, so a `blend` admitted
+place by place. The serializer draws a filled path's program only under
+patches, and from its rows otherwise (`_program_draws`); a path without
+fill whose unseen fill colour varies (a gradient `set_color` writes both)
+is drawn as its program, since a stroke's instances never read the fill.
+A program leaf is the retained frame's own kind, prepared every frame it
+is one, and a format 8 stream sends a kept program run's scalars as a
+`scalars` op. Pixels match programs off at ten alphas in the native
+driver within the gate, and to 1/255 on the tested cases but where a
+lagged write's partial path ends mid-curve: the partial kernel places
+that tip in float32, a pixel or two from the CPU's (up to 12/255 on two
+pixels in the tests; 17 under Phase B, whose kernel it is). The default
+stays `off`; it saves Python where a play is strokes and costs the GPU a
+compute pass a program (`benchmarks/play_frames.py`,
+`benchmarks/results/b53_strokes_20260927/`).
 
 ## Delivery: one artifact, local only
 

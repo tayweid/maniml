@@ -262,10 +262,13 @@ def _serialize_triangle_scene(scene, cache, *, phase_b: bool = False):
     if surface_generator not in ("grids", "nets"):
         raise ValueError("MANIML_SURFACE must be 'grids' or 'nets'")
     # Phase B3 (docs/phase_b3_plan.md): a supported animation's frames as a
-    # program the Phase B stages evaluate; it draws from the patch fill.
+    # program the Phase B stages evaluate; a filled path's draws from the
+    # patch fill. Under strokes (B5.3, docs/phase_b4_plan.md) only a path
+    # without fill is a program, whose stroke Phase A draws from the
+    # program's rows, so it needs no patch fill.
     program_mode = "gpu" if phase_b else programs.env_mode()
-    if program_mode != "off" and fill_generator != "patches":
-        raise ValueError("MANIML_PROGRAMS requires MANIML_FILL=patches")
+    if program_mode in ("shadow", "gpu") and fill_generator != "patches":
+        raise ValueError("MANIML_PROGRAMS=shadow or gpu requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
             or state.patch_source != patch_source or state.surface_generator != surface_generator
             or state.program_mode != program_mode):

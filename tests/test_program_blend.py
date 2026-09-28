@@ -1,7 +1,8 @@
 """The blend program (docs/phase_b3_plan.md): the row summary, the
 mobject's pending program and its materialize-on-read guarantee, the
 Transform integration under MANIML_PROGRAMS, the wire, and, with
-MANIML_TEST_GPU=1, pixels against the CPU path at several alphas."""
+MANIML_TEST_GPU=1, pixels against the CPU path at several alphas; under
+MANIML_PROGRAMS=strokes (docs/phase_b4_plan.md, B5.3) on Phase A too."""
 
 import copy
 import importlib.util
@@ -12,8 +13,9 @@ from unittest.mock import patch
 import numpy as np
 
 from maniml.animation.transform import Transform
-from maniml.constants import BLUE, GREEN, RED
-from maniml.mobject.geometry import Circle, Square
+from maniml.constants import BLUE, GREEN, RED, YELLOW
+from maniml.mobject.functions import FunctionGraph
+from maniml.mobject.geometry import Circle, DashedLine, Square
 from maniml.mobject.mobject import Mobject, copy_mode
 from maniml.mobject.svg.text_mobject import Text
 from maniml.mobject.three_dimensions import Sphere, Torus
@@ -28,6 +30,7 @@ from tests.renderer_fixtures import build_scene
 
 HAVE_LYON = bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
 PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets")
+PHASE_A = dict(MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="grids")
 
 
 def _endpoints():
@@ -36,6 +39,18 @@ def _endpoints():
     target = Square(side_length=2.5, fill_color=GREEN, fill_opacity=.9, stroke_color=BLUE, stroke_width=10,
                     fill_border_width=3).shift([1.5, .5, 0])
     return start, target
+
+
+def _stroke_endpoints():
+    """Paths without fill and their targets: a curve to another, a ring to
+    a square's outline, a dashed line moved (B5.3)."""
+    curve = FunctionGraph(lambda x: .3 * x * x - 1.5, x_range=(-2.5, 2.5, .25), color=YELLOW, stroke_width=5)
+    ring = Circle(radius=.8, stroke_color=RED, stroke_width=6).shift([2.8, -.4, 0])
+    dashed = DashedLine([-3.5, 1.4, 0], [2, 1.4, 0], color=BLUE)
+    targets = (FunctionGraph(lambda x: 1 - .2 * x * x, x_range=(-3, 2, .25), color=BLUE, stroke_width=3),
+               Square(side_length=1.4, stroke_color=GREEN, stroke_width=10).shift([2.2, .6, 0]),
+               DashedLine([-3, 2.2, 0], [3, 1.8, 0], color=GREEN))
+    return (curve, ring, dashed), targets
 
 
 def _aligned():
@@ -234,6 +249,35 @@ class ProgramTransform(unittest.TestCase):
         self.assertFalse(any(pending for pending, _ in circle_frames))
         self.assertEqual(state, self.play("off", arc=1.0)[1])
 
+    def test_strokes_blends_only_paths_without_fill(self):
+        # B5.3: the filled circle and the text keep the CPU path; the
+        # curve's blend is deferred to the GPU, as under gpu.
+        def play(mode):
+            with patch.dict(os.environ, **PHASE_A, MANIML_PROGRAMS=mode):
+                (curve, *_), (curve_target, *_) = _stroke_endpoints()
+                mob, target = _endpoints()
+                text, text_target = Text("ab", font_size=48), Text("ab", font_size=72, color=GREEN).shift([0, 2, 0])
+                anims = [Transform(mob, target), Transform(text, text_target), Transform(curve, curve_target)]
+                for anim in anims:
+                    anim.begin()
+                frames = []
+                for alpha in (0.0, .5, 1.0):
+                    for anim in anims:
+                        anim.interpolate(alpha)
+                    frames.append([(sm._program is not None, sm._program is not None and not sm._program["materialized"])
+                                   for sm in (mob, *text.family_members_with_points(), curve)])
+                for anim in anims:
+                    anim.finish()
+                return frames, _state(mob) + _state(text) + _state(curve)
+
+        frames, state = play("strokes")
+        self.assertEqual(state, play("off")[1])
+        # interpolate(0) runs inside begin, before its places are decided.
+        for frame in frames[1:]:
+            *filled, (pending, deferred) = frame
+            self.assertTrue(pending and deferred)
+            self.assertFalse(any(flag for flag, _ in filled))
+
 
 @unittest.skipUnless(HAVE_LYON, "the Lyon helper is the frame preparer's tessellator")
 class ProgramWire(unittest.TestCase):
@@ -324,21 +368,24 @@ class ProgramPixels(unittest.TestCase):
         for driver in cls.drivers.values():
             driver.close()
 
-    def frames(self, mode, build):
-        with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS=mode):
+    def frames(self, mode, build, env=PHASE_B, alphas=ALPHAS):
+        with patch.dict(os.environ, **env, MANIML_PROGRAMS=mode):
             mobjects, targets = build()
             scene, wire = build_scene(*mobjects, resolution=(480, 270), samples=4), GeometryCache()
             anims = [Transform(a, b) for a, b in zip(mobjects, targets)]
             for anim in anims:
                 anim.begin()
-            frames = []
-            for alpha in self.ALPHAS:
+            frames, sent = [], 0
+            for alpha in alphas:
                 for anim in anims:
                     anim.interpolate(alpha)
                 header, payload = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
+                sent += sum("program" in batch for batch in header["batches"])
                 frames.append(np.asarray(self.drivers[mode].render(header, payload), dtype=int))
             for anim in anims:
                 anim.finish()
+            # Programs drew the frames, or the modes' pictures agree for nothing.
+            self.assertEqual(bool(sent), mode != "off", mode)
             return frames, [_state(m) for m in mobjects]
 
     def assert_modes_agree(self, build, tolerance):
@@ -359,6 +406,18 @@ class ProgramPixels(unittest.TestCase):
             text_target = Text("blend", font_size=64, color=GREEN).shift([0, 1.5, 0])
             return (mob, text), (target, text_target)
         self.assert_modes_agree(build, tolerance=1)
+
+    def test_paths_without_fill_on_phase_a(self):
+        # B5.3 (docs/phase_b4_plan.md): under strokes, at ten alphas, what
+        # the CPU path draws, and the same rows after the play.
+        alphas = (0.0, .07, .19, .3, .42, .5, .63, .77, .91, 1.0)
+        reference, state = self.frames("off", _stroke_endpoints, PHASE_A, alphas)
+        frames, end = self.frames("strokes", _stroke_endpoints, PHASE_A, alphas)
+        self.assertEqual(end, state)
+        for alpha, frame, expected in zip(alphas, frames, reference):
+            diff = np.abs(frame - expected)
+            self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, alpha)
+            self.assertLessEqual(diff.max(), 1, alpha)
 
     def test_nets(self):
         # A program's net is reserved from the larger endpoint's density,
