@@ -11,14 +11,15 @@ from unittest.mock import patch
 
 import numpy as np
 
+from maniml.animation.composition import LaggedStart
 from maniml.animation.creation import DrawBorderThenFill, ShowCreation, Uncreate, Write
 from maniml.animation.fading import FadeIn, FadeOut, VFadeIn, VFadeOut
 from maniml.animation.indication import ShowPassingFlash
 from maniml.animation.rotation import Rotate, Rotating
 from maniml.animation.transform import Transform
-from maniml.constants import BLUE, DOWN, GREEN, RED, RIGHT, UP, YELLOW
+from maniml.constants import BLUE, DOWN, GREEN, GREY, PINK, RED, RIGHT, UP, YELLOW
 from maniml.mobject.functions import FunctionGraph
-from maniml.mobject.geometry import Circle, DashedLine, Line, Square
+from maniml.mobject.geometry import Circle, DashedLine, Dot, Line, Square
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.svg.text_mobject import Text
 from maniml.mobject.types.vectorized_mobject import VGroup, partial_points
@@ -144,6 +145,44 @@ def _play_strokes(name, mode, render=None, **hooks):
     """A stroke or mixed case on Phase A (B5.3), at ten alphas."""
     return _play(name, mode, render=render, cases={**STROKE_CASES, **MIXED_CASES}, shapes=_strokes, env=PHASE_A,
                  alphas=STROKE_ALPHAS, **hooks)
+
+
+SURVEY_ALPHAS = (.05, .3, .6, .97)
+
+
+def _play_survey(mode, render=None, inspect=None):
+    """PriceDiscovery's survey (3.a, found by B6, docs/phase_b4_plan.md):
+    grey rays fading in, lagged, beside a dashed pick whose updater
+    rebuilds its DashedLine with become() every frame. FadeIn's starting
+    and target copies carry the updater, and Animation.update_mobjects runs
+    it on them each frame, as a scene's frame does before the
+    interpolation, so the blends' sources are rows become() wrote after the
+    begin: a fresh DashedLine's, base points not yet written. The pick's
+    set_opacity fills the dashes too (a patch program each). Returns the
+    rendered frames and the program (pipeline, kind) pairs sent."""
+    with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS=mode):
+        hub, end = np.array([2.5, -1.5, 0]), np.array([-3.5, -.5, 0])
+        rays = VGroup(*(Line(hub, [3 * np.cos(t) - 1, 3 * np.sin(t), 0]).set_stroke(GREY, width=2, opacity=.5)
+                        for t in np.linspace(.3, 2.8, 9)))
+        pick = VGroup(DashedLine(hub, end, color=PINK, stroke_width=2.5),
+                      Dot(hub, radius=.05, color=PINK)).set_opacity(.9)
+        pick.add_updater(lambda m: m[0].become(DashedLine(hub, end, color=PINK, stroke_width=2.5).set_opacity(.9)))
+        scene, wire = build_scene(rays, pick, resolution=(480, 270), samples=4), GeometryCache()
+        play = LaggedStart(*(FadeIn(ray) for ray in rays), FadeIn(pick), lag_ratio=.03)
+        play.begin()
+        kinds, out, last = set(), [], 0.0
+        for alpha in SURVEY_ALPHAS:
+            play.update_mobjects(alpha - last)
+            play.interpolate(alpha)
+            last = alpha
+            header, payload = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
+            kinds.update((b["pipeline"], b["program"]["kind"]) for b in header["batches"] if "program" in b)
+            if inspect is not None:
+                inspect(header, payload)
+            if render is not None:
+                out.append(render(header, payload))
+        play.finish()
+        return out, kinds
 
 
 class RowPrograms(unittest.TestCase):
@@ -309,6 +348,24 @@ class LibraryAnimations(unittest.TestCase):
             for mode, env in (("gpu", PHASE_B), ("strokes", PHASE_A)):
                 with self.subTest(play=index, mode=mode):
                     self.assertEqual(frames(play, mode, env), off)
+
+    def test_program_sources_carry_their_base_points(self):
+        # Every row kernel takes a source's even base_normal rows to be its
+        # first point, as the CPU path's read (get_shader_data) writes it;
+        # a source become() rebuilt after the begin must be sent so too,
+        # or the patch fill fans each dash out to the stale base point.
+        sent = []
+
+        def inspect(header, payload):
+            for ref in header.get("program_data", {}).values():
+                rows = np.frombuffer(payload[ref["offset"]:ref["offset"] + ref["nbytes"]], dtype="<f4")
+                sent.append(rows.reshape(-1, programs_geometry.ROW_FLOATS))
+
+        _, kinds = _play_survey("gpu", inspect=inspect)
+        self.assertLessEqual({("patch", "blend"), ("stroke", "blend")}, kinds)
+        self.assertTrue(sent)
+        for rows in sent:
+            np.testing.assert_array_equal(rows[0::2, 13:16], np.broadcast_to(rows[0, :3], rows[0::2, :3].shape))
 
     def test_an_arc_transform_keeps_the_cpu_path(self):
         with patch.dict(os.environ, **PHASE_B, MANIML_PROGRAMS="gpu"):
@@ -497,6 +554,16 @@ class LibraryPixels(unittest.TestCase):
                     self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, (name, alpha))
                     if name not in STROKE_TIPS:
                         self.assertLessEqual(diff.max(), 1, (name, alpha))
+
+    def test_sources_rebuilt_by_an_updater_match_the_cpu_path(self):
+        # B6's PriceDiscovery 3.a plays: the dashes' blends drew a magenta
+        # fan to the rebuilt sources' stale base point, 5.5% of this frame.
+        reference, _ = _play_survey("off", render=self.render)
+        frames, kinds = _play_survey("gpu", render=self.render)
+        self.assertLessEqual({("patch", "blend"), ("stroke", "blend")}, kinds)
+        for alpha, frame, expected in zip(SURVEY_ALPHAS, frames, reference):
+            diff = np.abs(frame - expected)
+            self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, alpha)
 
 
 if __name__ == "__main__":

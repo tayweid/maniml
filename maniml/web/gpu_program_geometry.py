@@ -29,8 +29,19 @@ _HASH = re.compile(r"[0-9a-f]{32}")
 
 
 def pack_rows(mobject):
-    """A mobject's data as an immutable float32 (rows, channels) array."""
-    data = np.ascontiguousarray(mobject.data)
+    """A mobject's data as an immutable float32 (rows, channels) array.
+
+    A VMobject's base point rows are its first point, as
+    VMobject.get_shader_data writes them on every read of the CPU path:
+    each row kernel takes them from its sources so (a blend lerps them,
+    an affine map moves them with the points), and the patch fill fans
+    from them. ``programs.freshen`` writes them at an animation's begin,
+    but a source rebuilt after it (an updater's become() on a starting
+    or target copy, which Animation.update_mobjects runs every frame)
+    holds whatever the rows it copied held."""
+    data = np.array(mobject.data)
+    if "base_normal" in (data.dtype.names or ()) and len(data):
+        data["base_normal"][0::2] = data["point"][0]
     channels = data.dtype.itemsize // 4
     rows = data.view(np.float32).reshape(len(data), channels)
     if not np.isfinite(rows).all():
