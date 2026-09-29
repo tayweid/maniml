@@ -5,6 +5,40 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Nets drawn as grids are; the nets gate over a timed set; surfaces stay grids (2026-09-29)
+
+B5.7 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b57_net_runs_20260929/`) took the three things B5.5
+named before the nets gate could be taken again. A driver draws a net
+with the index pattern of the steps it evaluated it at, not its
+capacity's (the kernel repeats the rows past the steps, so the extra
+triangles had zero area); consecutive nets that can share a draw, by the
+rule grids already follow, are one batch whose `net` lists its members,
+each evaluated into its span of one output, drawn in one draw in both
+drivers and read by the player; and the gate is judged over a timed set
+(`flip_gates.TIMED_SCENES`, `flip_gates gate`) that holds two scenes that
+are mostly surfaces beside the three it was set on, so it cannot pass
+without them, nor (since the review) on a run reduced with a looser
+`--limit`, one lacking a class its serialize run measured (the camera and
+play classes always), or runs of more than one tree. The golden pin states `MANIML_NET_RUNS=0`, as its nets were
+recorded, rather than being re-recorded (23 of PriceDiscovery's phase_b
+digests would move for a change that moves no pixel).
+
+Pixels did not move (every fixture, zoom walk and play frame compared
+against `main`'s driver), so the lattice's 0.98% of pixels over 24/255
+stands. It was measured against a supersampled sphere: nets are off it in
+0.86% of the frame, grids in 1.60%, and where the two differ nets are the
+nearer at 97.5% of the pixels. The gate measures distance from the grid,
+and it was not changed. Taken three times (pass 3, every run started on
+an idle GPU, is the verdict): the three scenes pass every class; the orbs
+fail still and camera frames at 1.06-1.15× grids (B5.5: 1.16-1.31×) and
+the lattice at 1.11-1.24× (1.37-1.52×) and its pixels. So
+`geometry.DEFAULT_SURFACE` stays `grids`. What is left is mostly the
+triangles that make a net round (2.25-3.7× grids'), which no redraw lever
+removes; whether the pixel test should measure against a reference
+surface, and whether such frames may cost more for no facets, are
+Taylor's to decide.
+
 ## Phase B sends a patch as its rows (2026-09-29)
 
 B5.6 (`docs/phase_b4_plan.md`, "The flips";

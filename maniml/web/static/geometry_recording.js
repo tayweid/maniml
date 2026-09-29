@@ -171,28 +171,44 @@ globalThis.ManimlRecording = (() => {
     return 0;
   }
 
+  // A net batch's descriptor is one net's or, for a run of nets
+  // (docs/phase_b4_plan.md, B5.7), a list of them, each member evaluated
+  // into its span of the batch's output after the members before it.
+  function netMembers(batch) {
+    return Array.isArray(batch.net) ? batch.net : [batch.net];
+  }
+
   function netLayout(header, batch, program = null) {
-    const net = batch.net;
-    if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !isRecord(net)) {
+    const run = Array.isArray(batch.net), members = netMembers(batch);
+    if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !members.length
+        || (run && (members.length < 2 || program || !["surface", "surface_depth"].includes(batch.pipeline)))
+        || !members.every(isRecord)) {
       throw new Error("Invalid recorded net geometry layout");
     }
-    const {hash, nu, nv, channels, capacity, density} = net;
-    if (!isHash(hash) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
-        || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0 || capacity < 2 || capacity > 32
-        || typeof density !== "number" || !Number.isFinite(density) || density < 0
-        || !["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
-        || batch.kind !== "generated" || channels * 4 !== batch.stride || batch.indexed !== false
+    if (!["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
+        || batch.kind !== "generated" || batch.indexed !== false
         || batch.fill_num_verts !== 0 || batch.index_count !== 0 || batch.instances !== 1
         || "border" in batch || "objects" in batch) {
       throw new Error("Invalid recorded net geometry layout");
     }
-    const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
-    if (batch.num_verts !== patches * (capacity + 1) ** 2 || batch.count !== patches * 6 * capacity * capacity) {
-      throw new Error("Invalid recorded net geometry layout");
+    let vertices = 0, count = 0;
+    for (const {hash, nu, nv, channels, capacity, density} of members) {
+      if (!isHash(hash) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
+          || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0 || capacity < 2 || capacity > 32
+          || typeof density !== "number" || !Number.isFinite(density) || density < 0
+          || channels * 4 !== batch.stride) {
+        throw new Error("Invalid recorded net geometry layout");
+      }
+      const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
+      vertices += patches * (capacity + 1) ** 2;
+      count += patches * 6 * capacity * capacity;
+      // A program's evaluated rows stand in for the net's control points.
+      if (program && program.rows * program.channels !== nu * nv * channels) {
+        throw new Error("Recorded program rows do not match its net");
+      }
     }
-    // A program's evaluated rows stand in for the net's control points.
-    if (program && program.rows * program.channels !== nu * nv * channels) {
-      throw new Error("Recorded program rows do not match its net");
+    if (batch.num_verts !== vertices || batch.count !== count) {
+      throw new Error("Invalid recorded net geometry layout");
     }
     return 0;
   }
@@ -400,12 +416,15 @@ globalThis.ManimlRecording = (() => {
           if (!objects) throw new Error(`Missing recorded object table: ${batch.objects.hash}`);
           validateObjectRecords(objects, batch.border.layout);
         }
+        // Each net's control points, a run's member by member.
         let net = null;
         if ("net" in batch && sources === null) {
-          net = nets.get(batch.net.hash);
-          if (!net) throw new Error(`Missing recorded net: ${batch.net.hash}`);
-          const {nu, nv, channels} = batch.net;
-          if (net.length !== nu * nv * channels * 4) throw new Error("Recorded net does not match its descriptor");
+          net = netMembers(batch).map(({hash, nu, nv, channels}) => {
+            const bytes = nets.get(hash);
+            if (!bytes) throw new Error(`Missing recorded net: ${hash}`);
+            if (bytes.length !== nu * nv * channels * 4) throw new Error("Recorded net does not match its descriptor");
+            return [hash, bytes];
+          });
         }
         let border = null;
         if (batch.border && sources === null) {
@@ -462,7 +481,7 @@ globalThis.ManimlRecording = (() => {
           if (paint) paints.set(batch.paint_hash, paint);
           if (border) borders.set(batch.border.hash, border);
           if (objects) tables.set(batch.objects.hash, objects);
-          if (net) nets.set(batch.net.hash, net);
+          for (const [hash, bytes] of net || []) nets.set(hash, bytes);
           for (const [hash, bytes] of sources || []) rows.set(hash, bytes);
           return full;
         });

@@ -28,7 +28,7 @@ from maniml.web.gpu_border_geometry import (
     BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, ROW_DTYPE, STROKE_INSTANCE_BYTES,
     indices_per_curve, patch_draw_count, row_source_ready,
 )
-from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
+from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit, vertices_per_patch
 from maniml.web import gpu_program_geometry
 
 
@@ -102,6 +102,11 @@ class TriangleDraw:
     net_shape: tuple | None = None
     net_capacity: int = 2
     net_density: float = 0.0
+    # A run of surface nets (docs/phase_b4_plan.md, B5.7): the member draws,
+    # each one net, which the driver evaluates into consecutive spans of
+    # one output and draws in one draw, in order. Such a draw has no net
+    # of its own.
+    net_members: tuple | None = None
     # A program (docs/phase_b3_plan.md): {"kind", "sources": [rows...],
     # "scalars": [...]}; the draw's records, strokes or net come from the
     # driver's evaluation of it.
@@ -122,7 +127,11 @@ def run_kind(draw):
     if draw.program is not None:
         return None  # one evaluated program per draw
     if draw.net is not None:
-        return None  # one evaluated net per draw
+        # Nets join a run under the rule grids follow ("indexed" below):
+        # the surface pipeline, one instance, no textures (B5.7).
+        if draw.pipeline in ("surface", "surface_depth") and draw.instances == 1 and not draw.coverage:
+            return "net"
+        return None
     if draw.rows is not None:
         # A run of row sources, whose records or instances the driver
         # finalizes into one buffer; a painted patch stays a run of its own.
@@ -167,6 +176,21 @@ def draw_curves(draw):
     return sum(curves for curves, _, _ in draw.patch_layout)
 
 
+def net_output_bytes(draw):
+    """The bytes a net draw's evaluated output takes: (capacity + 1)²
+    vertices a patch, in the surface's vertex layout. Memoized on the
+    draw, as memoized_run_kind is: coalesce_draws asks it of every net
+    every frame, and a draw's net and capacity never change (a zoom that
+    outgrows the reservation prepares a new draw)."""
+    try:
+        return draw._net_output_bytes
+    except AttributeError:
+        nu, nv, _ = draw.net_shape
+        size = draw._net_output_bytes = (((nu - 1) // 2) * ((nv - 1) // 2) * vertices_per_patch(draw.net_capacity)
+                                         * draw.vertices.dtype.itemsize)
+        return size
+
+
 def border_parts(run):
     """What BorderRecipeCache.assemble takes for a border run."""
     return [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
@@ -183,6 +207,13 @@ def combine_run(run, kind, *, border_cache=None):
     """
     if run[0].program is not None:
         return run[0]  # evaluated by the driver; nothing to assemble
+    if kind == "net":
+        # The driver evaluates each member into its span of the run's one
+        # output and draws them in one draw (B5.7); nothing is assembled.
+        if len(run) == 1:
+            return run[0]
+        return replace(run[0], net=None, net_shape=None, net_members=tuple(run),
+                       count=sum(draw.count for draw in run))
     if run[0].fill_objects is not None:
         rows = run[0].rows is not None
         curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run), rows=rows)
@@ -218,7 +249,7 @@ def combine_run(run, kind, *, border_cache=None):
                    instances=sum(draw.instances for draw in run) if kind == "stroke" else 1)
 
 
-def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_run):
+def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_run, net_runs=True):
     """Join consecutive compatible draws without changing primitive order.
 
     Full normalized uniforms, vertex layout and depth pipeline must agree.
@@ -230,9 +261,11 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
     ``kind`` and ``combine`` are run_kind and combine_run, or memoized
     stand-ins with their signatures from a caller that keeps draws across
     frames; either way the rule that closes a run is this loop's alone.
+    Surface nets join as grids do (docs/phase_b4_plan.md, B5.7), their
+    outputs within the run cap, unless ``net_runs`` is false.
     """
     result, run, current, vertex_count = [], [], None, 0
-    curve_count, run_capacity = 0, 0
+    curve_count, run_capacity, net_bytes = 0, 0, 0
 
     def border_run_bytes(draw):
         # A run reserves its largest member's capacity for every curve.
@@ -254,13 +287,15 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
                            or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "stroke_rows"
                            or (curve_count + draw.instances) * STROKE_INSTANCE_BYTES <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind != "net"
+                           or (net_runs and net_bytes + net_output_bytes(draw) <= MAX_RUN_OUTPUT_BYTES))
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
                             and vertex_count + len(draw.vertices) <= 2 ** 32)))
         if run and not compatible:
             result.append(combine(run, current, border_cache=border_cache))
-            run, vertex_count, curve_count, run_capacity = [], 0, 0, 0
+            run, vertex_count, curve_count, run_capacity, net_bytes = [], 0, 0, 0, 0
         run.append(draw)
         current = draw_kind
         vertex_count += len(draw.vertices)
@@ -269,6 +304,8 @@ def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_r
             run_capacity = max(run_capacity, draw.border_capacity)
         elif draw_kind == "stroke_rows":
             curve_count += draw.instances
+        elif draw_kind == "net":
+            net_bytes += net_output_bytes(draw)
     if run:
         result.append(combine(run, current, border_cache=border_cache))
     return result
@@ -1370,6 +1407,8 @@ class LeafContext:
     patch_fills: bool = False
     patch_rows: bool = False
     programs: bool = False
+    # Whether consecutive nets that can share a draw join a run (B5.7).
+    net_runs: bool = True
     mesh_cache: TriangleMeshCache | None = None
     border_cache: BorderRecipeCache | None = None
     net_cache: NetRecipeCache | None = None
@@ -1625,7 +1664,8 @@ def _limitation(ctx, into, message):
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
                            coalesce=True, fill_borders=False, gpu_borders=False,
-                           patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
+                           patch_fills=False, patch_rows=False, net_surfaces=False, programs=False,
+                           net_runs=True):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -1645,7 +1685,9 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     keeps its records.
     ``net_surfaces=True`` sends each surface's control net instead of its
     evaluated grid; the driver evaluates it at screen density
-    (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
+    (docs/phase_b2_plan.md); consecutive nets that can share a draw are one
+    run (docs/phase_b4_plan.md, B5.7), unless ``net_runs=False`` keeps each
+    net a draw of its own, as before. ``programs=True`` sends a mobject that carries
     a pending program (``mobject._program``, set by a supported animation)
     as that program over its endpoints' rows rather than as its own rows
     where it can: a filled path's program needs patch fills and a surface's
@@ -1667,7 +1709,7 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         scene, tessellator, pixel_tolerance=pixel_tolerance, diagnostic=diagnostic,
         mesh_cache=mesh_cache, fill_builder=fill_builder, fill_borders=fill_borders,
         gpu_borders=gpu_borders, patch_fills=patch_fills, patch_rows=patch_rows, net_surfaces=net_surfaces,
-        programs=programs)
+        programs=programs, net_runs=net_runs)
     records = [(sm, {**context.camera_uniforms,
                      **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
                for sm in draw_order(scene)]
@@ -1682,7 +1724,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
 
 def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic=False,
                          mesh_cache=None, fill_builder=None, fill_borders=False, gpu_borders=False,
-                         patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
+                         patch_fills=False, patch_rows=False, net_surfaces=False, programs=False,
+                         net_runs=True):
     """The empty frame prepare_triangle_frame fills and the LeafContext its
     leaves share, every cache begun for the frame; the options are
     prepare_triangle_frame's. The context's ``borders`` are the caller's to
@@ -1718,7 +1761,7 @@ def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic
     return frame, LeafContext(
         frame.resolution, camera_uniforms, tessellator, pixel_tolerance, diagnostic=diagnostic,
         fill_builder=fill_builder, fill_borders=fill_borders, gpu_borders=gpu_borders,
-        patch_fills=patch_fills, patch_rows=patch_rows, programs=programs, mesh_cache=mesh_cache,
+        patch_fills=patch_fills, patch_rows=patch_rows, programs=programs, net_runs=net_runs, mesh_cache=mesh_cache,
         border_cache=border_cache, net_cache=net_cache, program_cache=program_cache,
         stats_before=cache_before)
 
@@ -1736,7 +1779,8 @@ def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combi
         frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
                                       retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
-        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache, kind=kind, combine=combine)
+        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache, kind=kind, combine=combine,
+                                     net_runs=context.net_runs)
     elif context.gpu_borders:
         frame.draws = [coalesce_draws([draw], border_cache=border_cache)[0] for draw in frame.draws]
     if border_cache is not None:

@@ -144,6 +144,12 @@ const patchRun = (hash, curves, objects, border = H("b"), extra = {}) => ({pipel
   objects: {hash: objects, count: 1}, ...extra});
 const netBatch = (hash, net, extra = {}) => ({pipeline: "surface", hash, num_verts: 9, count: 24, fill_num_verts: 0,
   net: {hash: net, nu: 3, nv: 3, channels: 10, capacity: 2, density: 0}, ...extra});
+// A run of one-patch nets (B5.7): [net hash, capacity, density] a member,
+// each evaluated into its span of the run's output after the members before.
+const netRun = (hash, members, extra = {}) => ({pipeline: "surface", hash, fill_num_verts: 0,
+  num_verts: members.reduce((sum, [, capacity]) => sum + (capacity + 1) ** 2, 0),
+  count: members.reduce((sum, [, capacity]) => sum + 6 * capacity * capacity, 0),
+  net: members.map(([net, capacity, density]) => ({hash: net, nu: 3, nv: 3, channels: 10, capacity, density})), ...extra});
 const blend = (sources, alpha, rows, channels) => ({kind: "blend", sources, scalars: [alpha], rows, channels});
 // Cached copies of batches, as the encoder sends them once the client holds
 // their bytes: no offsets and no run layout.
@@ -159,11 +165,13 @@ const kernel = pass => ["BorderParams", "NetParams", "BlendParams", "FinalizePar
   .find(name => pass.draws.some(draw => draw.pipeline.descriptor.compute.module.code.includes("struct " + name)));
 const computePasses = (passes, name) => passes.filter(pass => pass.compute && kernel(pass) === name);
 // What the net stage evaluated (B5.5), net by net in its dispatches' order:
-// the buffer each read and the output it wrote, with its table entry. A net
-// alone in its dispatch is read and written in place; a dispatch of
-// several reads a scratch buffer the sources were copied into and writes
-// another, copied out into each output. Read right after the frame: the
-// table is rewritten every frame that evaluates.
+// the buffer each read and the output it wrote, at which byte offset, with
+// its table entry. A net alone in its dispatch is read and written in
+// place, at its span of the output (a run's member after the members
+// before it, B5.7); a dispatch of several reads a scratch buffer the
+// sources were copied into and writes another, copied out into each
+// output's span. Read right after the frame: the table is rewritten every
+// frame that evaluates.
 function netEvaluations(passes) {
   const evaluated = [];
   passes.forEach((pass, at) => {
@@ -179,7 +187,7 @@ function netEvaluations(passes) {
         const out = gathered && passes.slice(at + 1).find(p => p.copy && p.copy[0] === output && p.copy[1] === outputOffset * 4);
         assert.ok(!gathered || (into && out), "a gathered net is copied in and out");
         evaluated.push({source: gathered ? into.copy[0] : input, output: gathered ? out.copy[2] : output,
-                        nu, nv, channels, capacity, steps, gathered});
+                        offset: gathered ? out.copy[3] : outputOffset * 4, nu, nv, channels, capacity, steps, gathered});
       }
     }
   });
@@ -850,6 +858,52 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
+  // Real frames of runs of nets (B5.7): spheres whose consecutive nets
+  // share a draw, split by a textured one, then a member moved, then a zoom
+  // that moves some steps at the reservations standing. Each net batch is
+  // one indexed draw over its output with the pattern of its members' steps
+  // (Python's gpu_net_geometry.run_indices, a file per draw), and a frame
+  // evaluates exactly the members whose source or steps moved, each at its
+  // span of the output its batch drew before (argv[3], per frame: per draw
+  // its count and its members [offset, steps] evaluated).
+  async netRunsWire() {
+    const d = await driver();
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const expected = JSON.parse(process.argv[3]), files = process.argv.slice(4);
+    let held = null, patterns = [];
+    for (const [index, frame] of expected.entries()) {
+      const passes = await d.renderBytes(load(files[2 * index]));
+      const bytes = fs.readFileSync(files[2 * index + 1]);
+      const draws = sceneDraws(passes), evaluated = netEvaluations(passes);
+      assert.equal(draws.length, frame.draws.length, `frame ${index}: one draw a batch`);
+      assert.ok(computePasses(passes, "NetParams").length <= 1, `frame ${index}: one dispatch or none`);
+      let read = 0;
+      frame.draws.forEach(({count, evaluated: members}, k) => {
+        const draw = draws[k];
+        assert.ok(draw.indexed);
+        assert.equal(draw.args[0], count, `frame ${index} draw ${k}: the steps' count`);
+        const indices = new Uint8Array(draw.index.buffer.bytes);
+        assert.deepEqual(Buffer.from(indices), bytes.subarray(read, read += count * 4),
+                         `frame ${index} draw ${k}: Python's pattern at the steps`);
+        const into = evaluated.filter(net => net.output === draw.vertices[0]);
+        assert.deepEqual(into.map(net => [net.offset, net.steps]), members,
+                         `frame ${index} draw ${k}: the members that moved, at their spans`);
+        if (held) assert.equal(draw.vertices[0], held[k], `frame ${index} draw ${k}: the output stands`);
+      });
+      assert.equal(read, bytes.length);
+      assert.equal(evaluated.length, frame.draws.reduce((sum, draw) => sum + draw.evaluated.length, 0));
+      if (index) {
+        // A pattern no draw of this frame reads retires after its submit.
+        const now = new Set(draws.map(draw => draw.index.buffer));
+        for (const buffer of patterns) assert.equal(buffer.destroyed, !now.has(buffer));
+      }
+      held = draws.map(draw => draw.vertices[0]);
+      patterns = draws.map(draw => draw.index.buffer);
+    }
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
   // Three real program frames (docs/phase_b3_plan.md): a path and a net
   // under a blend, then the same play at another alpha with nothing but
   // the scalar on the wire, then that frame again.
@@ -1425,9 +1479,18 @@ const cases = {
     const tables = {paint_data: {[H("a")]: Buffer.from(new Float32Array(constantPaint([1, 0, 0, .5])).buffer)},
       border_data: {[H("c")]: curveRecords(3), [H("b")]: curveRecords(4)},
       object_data: {[H("d")]: objectTable([[4, 1]]), [H("f")]: objectTable([[4, 1]])},
-      net_data: {[H("e")]: floats(90, 1)}, texture_data: {texture: Buffer.alloc(4, 7)},
+      net_data: {[H("e")]: floats(90, 1), [H("3")]: floats(90, 3), [H("7")]: floats(90, 4)},
+      texture_data: {texture: Buffer.alloc(4, 7)},
       program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
     const run = borderRunFixture(3, 40, H("c")).spec;
+    // Runs of nets (B5.7): one that stands, and one whose members move step
+    // by step over the same spans (a new batch taking over the run's
+    // output, whose members that stand keep their vertices).
+    const moving = [[[H("e"), 8], [H("7"), 4], [H("3"), 2]], [[H("e"), 8], [H("3"), 4], [H("3"), 2]],
+                    [[H("7"), 8], [H("3"), 4], [H("3"), 2]]];
+    const netRuns = (density, step) => [
+      netRun("net-run", [[H("e"), 8, density], [H("3"), 4, 0], [H("7"), 2, 0]]),
+      netRun(`net-mover-${step}`, moving[step].map(([net, capacity]) => [net, capacity, density]))];
     const patchProgram = (hash, alpha) => patchRun(hash, 4, H("f"), H("9"), {program: blend([H("1"), H("2")], alpha, 9, 17)});
     const netProgram = (hash, alpha) => netBatch(hash, H("8"), {program: blend([H("5"), H("6")], alpha, 9, 10)});
     const everything = ([a, b], density, step = 0) => [
@@ -1442,7 +1505,7 @@ const cases = {
       patchProgram("patch-a", a), patchProgram("patch-b", b),
       {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4, fill_num_verts: 0,
        program: blend([H("1"), H("2")], a, 9, 17)},
-      netProgram("net-a", a), netProgram("net-b", b)];
+      netProgram("net-a", a), netProgram("net-b", b), ...netRuns(density, step)];
     const scaled = {...CAMERA, frame_scale: .9}, moved = {...scaled, camera_position: [1, 0, 10]};
     const inserted = [{pipeline: "surface", hash: "inserted", num_verts: 3, count: 3}, {...run, uniforms: {frame_scale: 2}},
                       ...everything([.3, .7], 1, 2)];
@@ -1452,9 +1515,9 @@ const cases = {
       [everything([.25, .6], 0), {}, true],
       [everything([.25, .6], 0), {}, true],
       [everything([.25, .6], 0), {}, []],
-      [everything([.25, .6], 0, 1), {}, ["mover-1"]],
+      [everything([.25, .6], 0, 1), {}, ["mover-1", "net-mover-1"]],
       [everything([.25, .6], 0, 1), {camera: scaled}, []],
-      [everything([.25, .6], 0, 2), {camera: moved}, ["mover-2"]],
+      [everything([.25, .6], 0, 2), {camera: moved}, ["mover-2", "net-mover-2"]],
       [everything([.25, .6], 1, 2), {camera: moved}, []],
       [everything([.5, .5], 1, 2), {camera: moved}, []],
       [everything([.3, .7], 1, 2), {camera: moved}, []],

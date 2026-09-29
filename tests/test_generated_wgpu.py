@@ -193,6 +193,7 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._net_outputs = {}
         self.renderer._net_compute_pipeline = None
         self.renderer._net_scratch = {}
+        self.renderer._net_patterns = {}
         self.renderer._program_sources = {}
         self.renderer._program_outputs = {}
         self.renderer._program_pipelines = {}

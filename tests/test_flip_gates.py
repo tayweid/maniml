@@ -243,6 +243,31 @@ class Complete(unittest.TestCase):
                                  "--browser", str(root / "browser"), "--gpu", str(root / "gpu"),
                                  "--pixels", str(root / "pixels"), "--limit", "1.05", "--output", str(root / "out")])
 
+    def test_the_command_records_what_the_serialize_run_measured_and_the_inputs_sources(self):
+        # What the gate command reads of a run: the serialize run's switches
+        # and classes, and the sources its inputs hashed (one of them
+        # hashed a.py otherwise).
+        serialize, browser, gpu = self.reports()
+        serialize = {**serialize, "tick_updaters": True, "play_frames": True, "camera_moves": False,
+                     "source_files_sha256": {"a.py": "1", "b.py": "2"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, report in (("serialize", serialize), ("browser", {**browser, "source_files_sha256": {"a.py": "1"}}),
+                                 ("gpu", {**gpu[0], "gpu_timestamps": True, "source_files_sha256": {"a.py": "9"}})):
+                (root / name).mkdir()
+                report = {**report, "scene": {"measured_checkpoints": [2, 5]}, "git": {"commit": "c0ffee"}}
+                (root / name / "report.json").write_text(json.dumps(report))
+            with patch("sys.stdout"):
+                flip_gates.main(["complete", "--flip", "nets", "--serialize", str(root / "serialize"),
+                                 "--browser", str(root / "browser"), "--gpu", str(root / "gpu"), "--limit", "1.05",
+                                 "--output", str(root / "out")])
+            summary = json.loads((root / "out" / "summary.json").read_text())
+        self.assertEqual(summary["measured"], {"tick_updaters": True, "play_frames": True, "camera_moves": False,
+                                               "classes": ["pausepoint", "ticked", "play"]})
+        self.assertEqual((summary["source_files_sha256"], summary["source_files_disagree"]),
+                         ({"a.py": "1", "b.py": "2"}, ["a.py"]))
+        self.assertEqual(flip_gates.run_commits(summary), {"c0ffee"})
+
     def test_the_command_refuses_reports_of_other_frames(self):
         serialize, browser, gpu = self.reports()
         with tempfile.TemporaryDirectory() as tmp:
@@ -269,6 +294,132 @@ PLAYS = textwrap.dedent('''\
             self.play(ShowCreation(ring), square.animate.shift(UP), run_time=0.3)
             self.play(square.animate.shift(DOWN), run_time=0.2)
     ''')
+
+
+class TimedSet(unittest.TestCase):
+    """The gate command (B5.7): a flip passes only over every scene of its
+    timed set, the ones mostly surfaces included, each judged at the
+    flip's limit on every class its serialize run measured, every run of
+    one tree."""
+
+    FIXTURES = {"passes": True, "worst": "orbs", "fixtures": {"orbs": {"fraction_pixels_rgb_over24": .003}}}
+
+    @staticmethod
+    def summary(file, name, ratio=1.0, pixels=.001, *, limit=1.05, classes=("pausepoint", "camera", "play"),
+                measured=None, switches=None, commit="c0ffee", sources=None, disagree=()):
+        judged = {"phase_a_ms": 1.0, "flip_ms": ratio, "ratio": ratio, "ratio_gpu_min": ratio,
+                  "within_limit": ratio <= limit}
+        git = {"commit": commit, "branch": "b", "dirty": True}
+        return {"flip": "nets", "limit": limit, "scene": {"path": f"/somewhere/{file}", "name": name},
+                "input_commits": {"serialize": git, "browser": git, "gpu": [git, git], "pixels": [git]},
+                "measured": {**{switch: True for switch in flip_gates.GATE_SWITCHES}, **(switches or {}),
+                             "classes": list(classes if measured is None else measured)},
+                "source_files_sha256": {"maniml/web/geometry.py": "g", f"/somewhere/{file}": f"h-{file}",
+                                        **(sources or {})},
+                "source_files_disagree": list(disagree),
+                "verdict": {fmt: {cls: dict(judged) for cls in classes} for fmt in ("7", "8")},
+                "flag_off_check": None,
+                "pixels": {"passes": pixels <= flip_gates.PIXEL_LIMIT,
+                           "worst": {"fraction_pixels_rgb_over24": pixels}}}
+
+    def every(self):
+        return [self.summary(file, name) for file, name in flip_gates.TIMED_SCENES["nets"]]
+
+    def test_the_nets_set_holds_the_scenes_mostly_surfaces(self):
+        scenes = flip_gates.TIMED_SCENES["nets"]
+        self.assertIn(("surface_scenes.py", "OrbsScene"), scenes)
+        self.assertIn(("surface_scenes.py", "LatticeScene"), scenes)
+        self.assertEqual(len(scenes), 5)
+        from benchmarks import surface_scenes
+        self.assertTrue(all(hasattr(surface_scenes, name) for file, name in scenes if file == "surface_scenes.py"))
+        self.assertEqual(flip_gates.GATE_LIMITS["nets"], 1.05, "the plan's table: ≤ 1.05× grids")
+
+    def test_a_scene_missing_from_the_set_fails_the_gate(self):
+        fixtures, every = self.FIXTURES, self.every()
+        self.assertTrue(flip_gates.gate_verdict(every, fixtures, "nets")["passes"])
+        without = flip_gates.gate_verdict(every[:3], fixtures, "nets")
+        self.assertFalse(without["passes"])
+        self.assertEqual(without["missing"], ["OrbsScene (surface_scenes.py)", "LatticeScene (surface_scenes.py)"])
+        over = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.2)],
+                                       fixtures, "nets")
+        self.assertFalse(over["passes"])
+        self.assertEqual(len(over["failures"]), 6, "three classes in two formats")
+        pixels = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.0, .0098)],
+                                         fixtures, "nets")
+        self.assertEqual(pixels["failures"], ["LatticeScene: pixels 0.9800% over 24/255"])
+        self.assertFalse(flip_gates.gate_verdict(every, None, "nets")["passes"], "the fixtures are part of it")
+        with self.assertRaises(SystemExit):
+            flip_gates.gate_verdict(every + every[:1], fixtures, "nets")
+        self.assertIn("Missing from the timed set", flip_gates.gate_table(without))
+
+    def test_a_run_judged_at_another_limit_fails_the_gate(self):
+        # 1.24 passes a run judged at 1.5 by its own flags; the gate judges
+        # it at the flip's limit and fails the run for the limit besides.
+        loose = flip_gates.gate_verdict(
+            self.every()[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.24, limit=1.5)],
+            self.FIXTURES, "nets")
+        self.assertFalse(loose["passes"])
+        self.assertEqual(loose["failures"][0], "LatticeScene: judged at --limit 1.5, the gate's is 1.05")
+        self.assertEqual(len(loose["failures"]), 1 + 6)
+        self.assertIn("**1.240**", flip_gates.gate_table(loose))
+        # A stricter limit is another limit too: the verdict is the gate's.
+        strict = flip_gates.gate_verdict(
+            self.every()[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.0, limit=1.0)],
+            self.FIXTURES, "nets")
+        self.assertEqual(strict["failures"], ["LatticeScene: judged at --limit 1.0, the gate's is 1.05"])
+
+    def test_every_class_the_run_measured_is_judged_in_both_formats(self):
+        def gate(last):
+            return flip_gates.gate_verdict(self.every()[:4] + [last], self.FIXTURES, "nets")
+
+        lattice = ("surface_scenes.py", "LatticeScene")
+        # The pausepoints alone, of a run that measured the camera and plays.
+        still = gate(self.summary(*lattice, classes=("pausepoint",), measured=("pausepoint", "camera", "play")))
+        self.assertFalse(still["passes"])
+        self.assertEqual(still["failures"], [f"LatticeScene: format {fmt} {cls} not measured"
+                                             for fmt in ("8", "7") for cls in ("camera", "play")])
+        table = flip_gates.gate_table(still)
+        self.assertEqual(table.count("**missing**"), 4, table)
+        # An empty verdict: every class missing.
+        empty = gate(self.summary(*lattice, classes=(), measured=("pausepoint", "camera", "play")))
+        self.assertEqual(len(empty["failures"]), 6)
+        # A ticked frame the serialize run measured is required as well.
+        b3 = self.every()
+        b3[1] = self.summary("B3_Animation.py", "EpisodeB3", measured=("pausepoint", "ticked", "camera", "play"))
+        ticked = flip_gates.gate_verdict(b3, self.FIXTURES, "nets")
+        self.assertEqual(ticked["failures"], ["EpisodeB3: format 8 ticked not measured",
+                                              "EpisodeB3: format 7 ticked not measured"])
+        # A serialize run without camera moves measured none, and the gate
+        # still requires them.
+        uncamera = gate(self.summary(*lattice, classes=("pausepoint", "play"), switches={"camera_moves": False}))
+        self.assertEqual(uncamera["failures"], ["LatticeScene: serialize ran without --camera-moves",
+                                                "LatticeScene: format 8 camera not measured",
+                                                "LatticeScene: format 7 camera not measured"])
+        # A complete run from before the gate read what it measured.
+        old = self.summary(*lattice)
+        del old["measured"], old["source_files_sha256"]
+        self.assertEqual(gate(old)["failures"], [
+            "LatticeScene: the complete run records neither what it measured nor its sources: re-run complete"])
+
+    def test_every_run_is_of_one_tree(self):
+        every = self.every()
+        other = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
+                                                                  commit="decade")], self.FIXTURES, "nets")
+        self.assertEqual(other["failures"], ["the runs name more than one commit: c0ffee, decade"])
+        edited = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
+                                                                   sources={"maniml/web/geometry.py": "g2"})],
+                                         self.FIXTURES, "nets")
+        self.assertEqual(edited["failures"], ["the scenes' runs hash maniml/web/geometry.py differently"])
+        mixed = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
+                                                                  disagree=["maniml/web/webgpu.js"])],
+                                        self.FIXTURES, "nets")
+        self.assertEqual(mixed["failures"], ["LatticeScene: its inputs hash maniml/web/webgpu.js differently"])
+        # The two surface scenes share their file, hashed alike (every()
+        # passes); edited between their runs, it fails.
+        scene_file = {"/somewhere/surface_scenes.py": "h-edited"}
+        moved = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
+                                                                  sources=scene_file)], self.FIXTURES, "nets")
+        self.assertEqual(moved["failures"], ["the scenes' runs hash /somewhere/surface_scenes.py differently"])
 
 
 class Programs(unittest.TestCase):

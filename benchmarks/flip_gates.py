@@ -8,6 +8,8 @@ frames of a course episode (docs/phase_b4_plan.md, "The flips", B5.4).
         --browser <dir>/browser --gpu <dir>/gpu --pixels <dir>/frames --limit 1.0 \\
         --output <dir>/complete
     python -m benchmarks.flip_gates fixtures --output <dir>/fixtures
+    python -m benchmarks.flip_gates gate --flip nets --complete <dir per scene>/complete \\
+        --fixtures <dir>/fixtures --output <dir>/gate
     python -m benchmarks.flip_gates programs --plays <play_frames dirs> --render <play_frames --render dirs> \\
         --output <dir>/programs
 
@@ -60,12 +62,22 @@ the two bracket the flip. The nets flip's pixel gate also reads every
 Surface fixture (tests/surface_fixtures.py): the third command draws each
 from Phase A's grids and from nets natively and writes the pairs.
 
+A default reaches every scene the Default, --render, checkpoint stills and
+--export draw, so a flip is judged over a timed set of scenes
+(TIMED_SCENES, B5.7). The fourth command reads one complete run per scene
+of the set and passes the flip only when none is missing, each was judged
+at the flip's limit (GATE_LIMITS) from a serialize run with every switch
+(GATE_SWITCHES), every class that run measured (the camera and play
+classes always) is judged in both formats and within the limit, every
+scene's pixels pass and, for nets, the fixtures', and every run is of one
+tree (one commit, each source file hashed alike wherever it was hashed).
+
 The programs flip reads other numbers (the plan's "The flips"): Python ms
 per play frame under the candidate mode against programs off over every
 play of an episode, and the pixels of every play frame against the CPU
 path. benchmarks/play_frames.py measures both (--every-play, the modes
 taking turns replay by replay and the mode that opens a play alternating
-play by play; --render for the pixels); the fourth command reduces its
+play by play; --render for the pixels); the fifth command reduces its
 reports: per episode and format, each frame's serialize_ms plus scene_ms
 (the scene's own Python since the frame before; a play's entry follows
 none of its frames and counts its serialize alone), their total over every
@@ -109,7 +121,7 @@ FORMATS = (7, 8)
 # stacks draw programs off, and an animation decides at its begin), stated
 # so that neither a caller's environment nor a default can move them.
 ENVIRONMENT = {"MANIML_RETAINED_FRAME": "1", "MANIML_PROGRAMS": "off"}
-CLEARED = ("MANIML_VERIFY_LEDGER", "MANIML_RENDER_CACHE", "MANIML_GPU_TIMESTAMPS")
+CLEARED = ("MANIML_VERIFY_LEDGER", "MANIML_RENDER_CACHE", "MANIML_GPU_TIMESTAMPS", "MANIML_NET_RUNS")
 PIXEL_LIMIT = .005
 # The flag-off check's GPU part (complete --pixels): episode_frames' wall
 # clock from the submit through the full readback, in the runs without
@@ -118,6 +130,25 @@ FLAG_OFF_GPU = "submit_through_full_readback_ms"
 # The programs gate's interval: resamples of the plays of each opener, and
 # the seed.
 INTERVAL_RESAMPLES, INTERVAL_SEED = 2000, 20260928
+# The timed set a flip is judged on (docs/phase_b4_plan.md, "The flips",
+# B5.7): the scenes, by file name and class, whose complete runs the gate
+# command reads, every one required. The nets flip's are B5.4's three
+# (the orbit demo in the workspace's dogfood/, EpisodeB3 and B4 in
+# econ-0100) and B5.5's two that are mostly surfaces
+# (benchmarks/surface_scenes.py): a default reaches every scene the
+# Default, --render, checkpoint stills and --export draw, and on the three
+# alone surfaces are a small share of the frame.
+TIMED_SCENES = {"nets": (("orbit_demo.py", "OrbitDemo"), ("B3_Animation.py", "EpisodeB3"),
+                         ("B4_Animation.py", "B4"), ("surface_scenes.py", "OrbsScene"),
+                         ("surface_scenes.py", "LatticeScene"))}
+# The limit the gate command judges each flip's complete frame against
+# (docs/phase_b4_plan.md, "The flips": nets ≤ 1.05× grids). A complete run
+# judged at another --limit fails the gate, whatever its own verdict says.
+GATE_LIMITS = {"nets": 1.05}
+# The switches the gate command requires of each scene's serialize run, so
+# that the camera and play classes, and the ticked class wherever a
+# checkpoint's updaters tick, are in the verdict.
+GATE_SWITCHES = ("tick_updaters", "play_frames", "camera_moves")
 
 
 def stacks(flip):
@@ -746,6 +777,30 @@ def run_serialize(args):
     (args.output / "report.json").write_text(json.dumps(report, indent=2, default=_jsonable) + "\n")
 
 
+def measured_of(serialize):
+    """What a serialize run measured, for the gate command: its switches
+    and the classes of its frames (each a pausepoint or a ticked frame,
+    with a camera move under --camera-moves and a play under --play-frames
+    where one comes before it)."""
+    classes = set()
+    for frame in serialize["frames"]:
+        classes.add(frame["class"])
+        classes.update(cls for cls in ("camera", "play") if frame.get(cls))
+    return {**{switch: bool(serialize.get(switch)) for switch in GATE_SWITCHES},
+            "classes": [cls for cls in CLASSES if cls in classes]}
+
+
+def input_sources(reports):
+    """The source hashes a complete run's inputs recorded, merged, and the
+    files two of them hashed differently."""
+    merged, disagree = {}, set()
+    for report in reports:
+        for path, digest in (report.get("source_files_sha256") or {}).items():
+            if merged.setdefault(path, digest) != digest:
+                disagree.add(path)
+    return merged, sorted(disagree)
+
+
 def run_complete(args):
     def load(directory):
         return json.loads((Path(directory) / "report.json").read_text())
@@ -767,6 +822,7 @@ def run_complete(args):
             raise SystemExit(f"pixels report {index} compares a play's last sampled frame, which may be its "
                              "landing: re-run episode_frames")
     complete = complete_frames(serialize, browser, gpu, args.flip)
+    sources, disagree = input_sources([serialize, browser, *gpu, *pixels])
     summary = {
         "flip": args.flip, "limit": args.limit, "scene": serialize["scene"],
         "inputs": {"serialize": str(args.serialize), "browser": str(args.browser),
@@ -774,6 +830,8 @@ def run_complete(args):
         "input_commits": {"serialize": serialize["git"], "browser": browser.get("git"),
                           "gpu": [report.get("git") for report in gpu],
                           "pixels": [report.get("git") for report in pixels]},
+        "measured": measured_of(serialize),
+        "source_files_sha256": sources, "source_files_disagree": disagree,
         "verdict": verdict(complete, args.flip, args.limit),
         # The same frames with the GPU part the flag-off runs' wall clock:
         # the stamps cost each pass ~30 µs, so the attribution runs charge a
@@ -789,6 +847,139 @@ def run_complete(args):
     (args.output / "report.json").write_text(json.dumps({**summary, "complete": complete}, indent=2) + "\n")
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     table = markdown_table(summary)
+    (args.output / "summary.md").write_text(table + "\n")
+    print(table)
+
+
+def scene_key(scene):
+    """A complete run's scene as the timed set names it: (file name, class)."""
+    return (Path(scene["path"]).name, scene["name"])
+
+
+def run_commits(summary):
+    """Every commit a complete run's inputs name (None for an input that
+    recorded no git state)."""
+    commits = summary.get("input_commits") or {}
+    states = [commits.get("serialize"), commits.get("browser"), *commits.get("gpu", []), *commits.get("pixels", [])]
+    return {state.get("commit") if state else None for state in states}
+
+
+def within(judged, limit):
+    return judged["ratio"] is not None and judged["ratio"] <= limit
+
+
+def gate_verdict(summaries, fixtures, flip):
+    """The flip's verdict over its timed set: every scene of TIMED_SCENES
+    present among the complete runs' ``summaries`` (one per scene), each
+    judged at the flip's GATE_LIMITS and measured with GATE_SWITCHES, every
+    class its serialize run measured (the camera and play classes always)
+    judged in both formats and within the limit, every scene's pixels and,
+    for nets, the Surface fixtures' within PIXEL_LIMIT, and every run of
+    one tree: one commit, and each source file hashed alike by every input
+    that hashed it. A scene of the set without a run, or a run of a scene
+    outside it, is said; the flip passes only when nothing is missing and
+    nothing fails."""
+    required, limit = TIMED_SCENES[flip], GATE_LIMITS[flip]
+    by_scene = {}
+    for summary in summaries:
+        if summary["flip"] != flip:
+            raise SystemExit(f"a complete run of the {summary['flip']} flip given for {flip}")
+        key = scene_key(summary["scene"])
+        if key in by_scene:
+            raise SystemExit(f"two complete runs of {key[1]} ({key[0]})")
+        by_scene[key] = summary
+    scenes, failures = {}, []
+    for key, summary in by_scene.items():
+        measured, problems = summary.get("measured"), []
+        if summary["limit"] != limit:
+            problems.append(f"judged at --limit {summary['limit']}, the gate's is {limit}")
+        if measured is None or "source_files_sha256" not in summary:
+            problems.append("the complete run records neither what it measured nor its sources: re-run complete")
+            classes = [cls for cls in CLASSES if cls != "ticked"]
+        else:
+            problems += [f"serialize ran without --{switch.replace('_', '-')}" for switch in GATE_SWITCHES
+                         if not measured[switch]]
+            classes = [cls for cls in CLASSES if cls in ("camera", "play") or cls in measured["classes"]]
+        if summary.get("source_files_disagree"):
+            problems.append("its inputs hash " + ", ".join(summary["source_files_disagree"]) + " differently")
+        unmeasured = [f"format {fmt} {cls} not measured" for fmt in ("8", "7") for cls in classes
+                      if summary["verdict"].get(fmt, {}).get(cls) is None]
+        over = [f"format {fmt} {cls} " + ("no ratio" if judged["ratio"] is None else f"{judged['ratio']:.3f}")
+                for fmt, per in summary["verdict"].items() for cls, judged in per.items()
+                if not within(judged, limit)]
+        pixels = summary.get("pixels")
+        entry = {"file": key[0], "scene": key[1], "limit": summary["limit"], "measured": measured,
+                 "required_classes": classes, "verdict": summary["verdict"],
+                 "flag_off_check": summary.get("flag_off_check"), "pixels": pixels, "over_limit": over,
+                 "unmeasured": unmeasured, "run_problems": problems,
+                 "pixels_pass": bool(pixels and pixels["passes"]), "in_timed_set": key in required}
+        scenes[f"{key[1]} ({key[0]})"] = entry
+        failures += [f"{key[1]}: {item}" for item in problems + unmeasured + over]
+        if not entry["pixels_pass"]:
+            failures.append(f"{key[1]}: pixels " + ("not measured" if not pixels else
+                            f"{100 * pixels['worst']['fraction_pixels_rgb_over24']:.4f}% over 24/255"))
+    commits = sorted({commit for summary in by_scene.values() for commit in run_commits(summary)}, key=str)
+    if len(commits) > 1:
+        failures.append("the runs name more than one commit: " + ", ".join(str(commit) for commit in commits))
+    hashed, differ = {}, set()
+    for summary in by_scene.values():
+        for path, digest in (summary.get("source_files_sha256") or {}).items():
+            if hashed.setdefault(path, digest) != digest:
+                differ.add(path)
+    if differ:
+        failures.append("the scenes' runs hash " + ", ".join(sorted(differ)) + " differently")
+    missing = [f"{name} ({file})" for file, name in required if (file, name) not in by_scene]
+    fixture_pass = None
+    if flip == "nets":
+        fixture_pass = bool(fixtures and fixtures["passes"])
+        if not fixture_pass:
+            failures.append("Surface fixtures " + ("not measured" if not fixtures else
+                            f"{fixtures['worst']} {100 * fixtures['fixtures'][fixtures['worst']]['fraction_pixels_rgb_over24']:.4f}%"))
+    return {"flip": flip, "limit": limit, "timed_set": [f"{name} ({file})" for file, name in required],
+            "missing": missing, "commits": commits, "scenes": scenes, "fixtures_pass": fixture_pass,
+            "failures": failures, "passes": not missing and not failures}
+
+
+def gate_table(gate):
+    """Per scene: each class's ratio in format 8; format 7 (bold over the
+    limit; a class the gate requires and the run lacks is named missing),
+    and its pixels."""
+    limit = gate["limit"]
+    lines = [f"Timed set ({gate['flip']}, each class ≤ {limit}× Phase A): " + ", ".join(gate["timed_set"]), "",
+             "| Scene | pausepoint | ticked | camera | play | pixels over 24/255 |", "|---|---:|---:|---:|---:|---:|"]
+    for name, entry in gate["scenes"].items():
+        cells = []
+        for cls in CLASSES:
+            ratios = [entry["verdict"].get(fmt, {}).get(cls) for fmt in ("8", "7")]
+            needed = cls in entry["required_classes"]
+            cells.append("–" if not any(ratios) and not needed else "; ".join(
+                ("**missing**" if needed else "–") if judged is None else
+                (f"{judged['ratio']:.3f}" if within(judged, limit) else
+                 "**" + ("none" if judged["ratio"] is None else f"{judged['ratio']:.3f}") + "**")
+                for judged in ratios))
+        pixels = entry["pixels"]
+        worst = "–" if not pixels or not pixels["worst"] else f"{100 * pixels['worst']['fraction_pixels_rgb_over24']:.4f}%"
+        lines.append(f"| {name}{'' if entry['in_timed_set'] else ' (outside the set)'} | " + " | ".join(cells)
+                     + f" | {worst if entry['pixels_pass'] else '**' + worst + '**'} |")
+    lines.append("")
+    if gate["missing"]:
+        lines.append("Missing from the timed set: " + ", ".join(gate["missing"]))
+    if gate["fixtures_pass"] is not None:
+        lines.append(f"Surface fixtures within {100 * PIXEL_LIMIT}%: {'yes' if gate['fixtures_pass'] else '**no**'}")
+    lines.append(f"Verdict: {'passes' if gate['passes'] else '**fails**'}"
+                 + ("" if gate["passes"] else " (" + "; ".join(gate["failures"] + [f"missing {m}" for m in gate["missing"]]) + ")"))
+    return "\n".join(lines)
+
+
+def run_gate(args):
+    summaries = [json.loads((Path(directory) / "summary.json").read_text()) for directory in args.complete]
+    fixtures = json.loads((args.fixtures / "summary.json").read_text()) if args.fixtures else None
+    gate = gate_verdict(summaries, fixtures, args.flip)
+    gate["inputs"] = {"complete": [str(path) for path in args.complete],
+                      "fixtures": None if args.fixtures is None else str(args.fixtures)}
+    args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "summary.json").write_text(json.dumps(gate, indent=2) + "\n")
+    table = gate_table(gate)
     (args.output / "summary.md").write_text(table + "\n")
     print(table)
 
@@ -823,6 +1014,12 @@ def main(argv=None):
     complete.add_argument("--output", type=Path, required=True)
     fixtures = commands.add_parser("fixtures", help="every Surface fixture drawn from grids and from nets")
     fixtures.add_argument("--output", type=Path, required=True)
+    timed = commands.add_parser("gate", help="the flip's verdict over its timed set of scenes (TIMED_SCENES)")
+    timed.add_argument("--flip", choices=tuple(TIMED_SCENES), required=True)
+    timed.add_argument("--complete", type=Path, nargs="+", required=True,
+                       help="this module's complete output, one per scene of the timed set")
+    timed.add_argument("--fixtures", type=Path, help="this module's fixtures output (the nets flip's other pixel gate)")
+    timed.add_argument("--output", type=Path, required=True)
     gate = commands.add_parser("programs", help="Python ms per play frame and pixels, from play_frames reports")
     gate.add_argument("--plays", type=Path, nargs="+", required=True,
                       help="play_frames --every-play --modes off <candidate> runs, one per episode and format")
@@ -837,6 +1034,8 @@ def main(argv=None):
         run_complete(args)
     elif args.command == "programs":
         run_programs(args)
+    elif args.command == "gate":
+        run_gate(args)
     else:
         run_fixtures(args)
 

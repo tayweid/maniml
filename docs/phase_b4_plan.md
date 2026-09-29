@@ -899,7 +899,10 @@ where the check would change it, that is said.
 stack, as before, and Phase A, Phase B and Original 2D stay selectable.
 (B5.5, below, took the nets gate again after one dispatch: it passed on
 the gate's three scenes and failed on scenes that are mostly surfaces, so
-grids stay the default.)
+grids stay the default. B5.7 drew each net's steps and coalesced them as
+grids are, and took the gate over a timed set that holds two such scenes:
+it fails there still, on still and camera frames and the lattice's
+pixels, so grids stay.)
 
 | Flip | Gate | Measured | Verdict |
 | --- | --- | --- | --- |
@@ -1364,6 +1367,215 @@ them counts finalizes per navigation, not only dispatches, and reads its
 baseline in these tables. Archive:
 `benchmarks/results/b56_rows_source_20260929/`.
 
+### B5.7: nets drawn as grids are, and the nets gate over its timed set
+
+B5.7 (2026-09-29, on `b5-loose-ends`) closed what B5.5 left open. B5.5
+passed the nets gate on its three scenes and failed it on scenes that are
+mostly surfaces, and named the cost left as the redraw: a net drew the
+index pattern of its capacity (`net_indices(patches, capacity)`) though the
+reservation is twice the steps, so three quarters of its triangles had zero
+area, each net in a draw of its own where grids coalesce (the orbs: 290,560
+triangles in 70 draws against grids' 19,840 in one). Three changes, then
+the gate again.
+
+**Each net draws its steps' pattern.** A driver decides a net's steps
+(B5.5), so it draws the pattern of those steps over the net's
+`(capacity + 1)²` vertex layout, `patches × 6 × steps²` indices
+(`gpu_net_geometry.net_indices(..., steps=)`, `run_indices`, `run_count`;
+`netIndices` in `webgpu.js`). The kernel repeats the rows and columns past
+the steps, so the capacity's pattern drew exactly these triangles, in this
+order, and the rest with zero area, which rasterize to nothing: the pixels
+cannot move (`NetRuns.test_the_steps_pattern_is_the_capacitys_without_its_zero_area_triangles`
+holds the two patterns to that, and natively the two draw the same image).
+The pattern is the driver's, built when a frame's steps are decided and
+kept per members' `(patches, capacity, steps)` while a frame draws it; the
+wire's `count` stays the capacity's, as the drivers check it.
+
+**Consecutive nets that can share a draw are one batch.** `run_kind` gives
+a net `"net"` under the rule grids follow (`"indexed"`: the surface
+pipeline, one instance, and `coalesce_draws` asks the same pipeline, depth
+mode, uniforms and textures), so a run of them is combined into one draw
+whose `net_members` are the member draws, within the run cap
+(`MAX_RUN_OUTPUT_BYTES` of evaluated output). A program's net and a
+textured one stay alone, as a textured grid does. On the wire the batch's
+`net` is a list of the members' descriptors in order (a net alone keeps
+its descriptor, byte for byte); its `num_verts` and `count` are the sums.
+Each driver evaluates every member into its span of the batch's one output
+(after the members before it) and draws the batch in one indexed draw
+with the members' patterns laid end to end: a member's span is its table
+entry's output offset when it is evaluated alone in place (binding the
+output whole), and its copy's destination when it is gathered with others.
+A run where some members moved is another batch over the same spans: the
+page hands its slot's output to the new batch (tier 2's predecessor, now
+by the members' layout) and the native driver keys a run's output by its
+layout rather than its hash, so each member whose source and steps stand
+keeps its vertices and only the members that moved are evaluated. The
+recording player carries each member's net into the frame it
+reconstructs. The serializer pays one run where it paid a run a net.
+
+**The switch, and the pin.** `MANIML_NET_RUNS=0` sends each net as a batch
+of its own, as before B5.7, pixel for pixel the same; the forced stacks
+read it as they read the patch source. The golden pin states it (its
+phase_b nets were recorded one batch each; without the statement 23 of
+PriceDiscovery's phase_b frames would move, where its spheres join runs),
+so no golden was re-recorded, and `NetRunsLockstep` holds the retained
+frame to the whole-frame path with runs on (stills that keep them, a
+member moved, one added and removed, zooms that grow and keep the
+reservations, a pan, a play that moves every other member, a reset, and
+the same history as a format 8 stream). The harnesses measure nets as they
+ship: every variant takes `MANIML_NET_RUNS` out of the environment.
+
+**The timed set.** A default reaches every scene the Default, `--render`,
+checkpoint stills and `--export` draw, so the nets gate is now judged over
+a set of scenes (`flip_gates.TIMED_SCENES`: the orbit demo, EpisodeB3, B4,
+and `benchmarks/surface_scenes.py`'s `OrbsScene` and `LatticeScene`, the
+two B5.5's recipe failed) by a command that reads the complete runs by
+scene and fails the flip for a scene of the set it was not given
+(`flip_gates gate`, `benchmarks/README.md`, "Flip gates"). It judges every
+run at the flip's limit (`flip_gates.GATE_LIMITS`, 1.05 for nets, the
+table above), whatever `--limit` the run was reduced with, and fails a run
+reduced with another; it requires every class the scene's serialize run
+measured (recorded by `complete` since the review of B5.7) in both formats,
+the camera and play classes always, from a serialize run taken with
+`--tick-updaters --play-frames --camera-moves`, and names a class a run
+lacks as a failure; and it fails runs of more than one tree (more than one
+commit among the inputs, or a source file two inputs hashed differently).
+The review found the first version passing a run judged at a looser
+`--limit`, or one without its camera or play classes; re-reduced from the
+same reports, the three passes below read exactly as they did.
+
+**The serializer's share.** Coalescing nets costs the serializer a size a
+net a frame (a run's output within the run cap), and the gate's first
+pass (below) was taken while it was asked twice a net, each time through
+the capacity's validation: 0.2 ms of the lattice's still frame. It is memoized on the draw, as `run_kind` is (a
+draw's net and capacity never change; a zoom that outgrows the
+reservation prepares a new draw). A still frame's serialize, the tree
+against the tree before the memo against grids (20 interleaved rounds of
+50 frames, median): the lattice 1.049 → 0.858 ms (grids 0.684), the orbs
+0.234 → 0.205 (grids 0.177). What is left over grids there is the net
+cache's per-leaf `keep` (`NetRecipeCache.keep`: an LRU move and a stamp
+per net a frame), B5.5's.
+
+**Pixels.** Drawing fewer triangles of the same net, in runs, moves no
+pixel. Natively against `main`'s driver (efcb262c, B5.5's): every Surface
+fixture under the nets stack and under the forced Phase B, zoom walks over
+the default sphere and the orbs (frame by frame through one driver and
+each frame fresh), a pan and an orbit, and a play of the orbs where every
+third member moves (kept, fresh and Phase B): 90 images, 0 pixels differ;
+every checkpoint of `OrbsScene` and `LatticeScene` and frames inside their
+plays: 38 images, 0 differ; PriceDiscovery under the forced Phase B with
+runs on and off (the pin's pausepoints and the gate play, 27 run batches):
+22 frames, 0 differ. So the lattice's 0.979% over 24/255 against grids is
+B5.5's and B5.4's, and the gate's pixel test fails it as before.
+
+What those pixels are, measured against a reference that stands for the
+true sphere (at the lattice's checkpoint 1, 1920×1080: each of the 480
+spheres replaced by one of the same centre, radius and colour with eight
+times the patches in each direction, drawn as Phase A's grids, whose
+facets are then a fraction of a pixel): grids are more than 24/255 off it
+in 1.596% of the frame (33,101 pixels), nets in 0.858% (17,786); the mean
+channel difference is 1.01 against 0.47. Of the 20,299 pixels where grids
+and nets differ by more than 24/255, nets are the nearer to the reference
+at 19,792 and grids at 507, and there grids are off by 68.1 on average
+against nets' 22.3. The differing pixels are the silhouettes: the grid's
+polygon outline against the net's curve (the archive's
+`lattice_silhouette_crop.png`: the reference, grids and nets over the 96
+× 54 window with the most differing pixels, enlarged 8×, and each stack's
+difference from the reference, 4× brighter). The gate measures distance
+from the grid, so a net rounder than its grid fails it; the verdict stands
+on the gate as written.
+
+**What a redraw costs now.** The orbs draw one net batch where they drew
+70, 72,640 triangles where they drew 290,560 (grids 19,840 in one); the
+lattice one where it drew 480, 207,360 triangles where it drew 829,440
+(grids 92,160). Natively (40 small pans at checkpoint 1, `render()` wall
+clock, flag off) the lattice's frame is 9.3 ms where B5.5's driver took
+19.4 (grids 9.2-9.3): its CPU encode of 480 draws is gone. What remains is
+what makes a net round: it draws the steps its screen density needs, 3-4
+a patch on these spheres where a grid draws 2, so 2.25× (the lattice) and
+3.7× (the orbs) the triangles of grids.
+
+**The gate fails; grids stay the default.** Taken as B5.5 took it (the six
+commands per scene, `fixtures`, then `flip_gates gate` over the timed
+set; `MANIML_*` unset but for the attribution runs), three times. Pass 1
+(09:15-09:59) measured the tree before the serializer's fix above. Pass 2
+(10:07-10:51), on the tree as committed, ran under another's load (B4's
+first attribution run started with the GPU 31-46% busy, the load reached
+6.3 and a browser opened mid-scene) and failed B4 by its GPU part alone
+(format 7 still 1.196, camera 1.072 and 1.070), which no other pass
+showed. Pass 3 (11:55-12:42), on the same tree, had every run wait for
+three samples of the GPU at or below 10% (all 32 started at 0-7%, load
+2.0-4.1; a first attempt was stopped when another application's video
+held the GPU at 79-82%), and is the verdict. Every source file of the tree
+committed here hashes as pass 3 recorded it but `benchmarks/flip_gates.py`,
+whose `complete` and `gate` commands the review changed after it (not
+`serialize`, the part that measures), and two test modules no run reads
+(`tests/test_export.py`, `tests/test_flip_gates.py`); every pass's
+`complete` and `gate` were run again with them, from the same reports.
+
+| Complete frame, nets / grids (format 8; format 7) | pausepoint | ticked | camera | play | pixels over 24/255 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Orbit demo, B5.5 | 1.037; 0.990 | – | 0.997; 1.002 | 0.696; 0.700 | 0.307% |
+| Orbit demo, pass 1; pass 3 | 1.047, 1.036; 0.988, 0.989 | – | 1.000, 1.000; 0.998, 0.997 | 0.679, 0.695; 0.688, 0.697 | 0.307% |
+| EpisodeB3, B5.5 | 1.010; 0.999 | 1.016; 1.013 | 1.020; 1.021 | 1.017; 1.008 | 0.026% |
+| EpisodeB3, pass 1; pass 3 | 0.987, 0.996; 0.997, 1.001 | 1.005, 1.025; 1.003, 1.009 | 1.016, 0.963; 1.017, 0.964 | 1.006, 0.986; 1.013, 1.002 | 0.026% |
+| B4, B5.5 | 0.988; 1.004 | 0.999; 0.999 | 1.037; 1.046 | 1.014; 1.022 | 0.023% |
+| B4, pass 1; pass 3 | 1.009, 0.992; 0.997, 0.998 | 0.993, 1.007; 1.002, 1.005 | 1.031, 1.018; 1.031, 1.020 | 1.013, 1.001; 1.027, 1.011 | 0.023% |
+| Orbs, 70 spheres, B5.5 (fix pass) | **1.305; 1.162** | – | **1.196; 1.215** | 0.851; 0.858 | 0.356% |
+| Orbs, pass 1; pass 3 | **1.315, 1.151; 1.070, 1.063** | – | **1.106, 1.096; 1.106, 1.098** | 0.724, 0.729; 0.725, 0.733 | 0.356% |
+| Lattice, 480 spheres, B5.5 (fix pass) | **1.500; 1.366** | – | **1.435; 1.523** | 0.801; 0.793 | **0.979%** |
+| Lattice, pass 1; pass 3 | **1.525, 1.243; 1.143, 1.106** | – | **1.204, 1.177; 1.224, 1.193** | 0.597, 0.610; 0.597, 0.610 | **0.979%** |
+
+The Surface fixtures pass, B5.4's and B5.5's exactly (worst the orbs,
+0.2814%). The three scenes the gate was set on pass every class in every
+pass but
+pass 2's B4; the two that are mostly surfaces fail their still and
+camera frames in every pass (pass 2, under load, read two of those classes
+under the limit: the orbs' format 7 still, 1.015, and the lattice's format
+8 camera, 1.027), and the lattice its pixels. The flag-off check reads the
+same way on them (pass 3: the orbs' still 1.151; 1.280 and camera 1.019;
+1.020, the lattice's 1.243; 1.140 and 1.072; 1.084). The redraw took half
+to two thirds of B5.5's excess off both scenes, and a moving net now costs
+a play frame less than B5.5's (the lattice's play 0.80 → 0.61 of grids).
+Where the rest goes, pass 3's parts in format 8 (serialize + page + GPU,
+ms, grids against nets):
+
+- Orbs, still: 0.19 against 0.22, Python alone (the frame sends nothing).
+  Camera: 0.20 + 0.02 + 3.69 against 0.27 + 0.10 + 3.94.
+- Lattice, still: 0.70 against 0.87. Camera: 0.73 + 0.03 + 4.72 against
+  1.15 + 0.18 + 5.12. In format 7 the still is 0.70 + 0.01 + 4.71 against
+  0.88 + 0.02 + 5.11.
+
+The GPU part (+0.22-0.25 ms on the orbs, +0.40 on the lattice) is the
+triangles a net draws to be round, 2.25-3.7× grids' (above). The page's
+(+0.08 and +0.15 ms on a camera move in format 8, +0.09 and +0.24 in
+format 7) is its per-member walk of a run every frame (each member's
+steps, its state, the pattern's key over every member, and in format 7
+each member's descriptor compared). The serializer's is the net cache's per-leaf `keep`
+on a still frame and each net leaf's reservation taken again on a camera
+move (B5.5's `NetRecipeCache.source`: +0.42 ms over the lattice's 480).
+The pixels are the grid's facets (above): the gate measures distance from
+the grid.
+
+**What would flip it.** Not the costs alone: the lattice's pixels fail a
+gate that measures distance from the grid for as long as a net is drawn
+rounder than its grid, which is the point of drawing it. Two questions for
+Taylor, then. Whether the nets gate's pixel test should measure each stack
+against a reference surface (as above) rather than nets against grids:
+there nets are the nearer, though at 0.5% over 24/255 neither stack
+passes on the lattice (nets 0.86%, grids 1.60%), so such a gate would
+want its limit set with it. And whether a
+surface-heavy still or camera frame may cost 6-25% more (0.03-0.17 ms of
+Python on a still frame that sends nothing; 0.4-1.1 ms on a camera move at
+1080p) for no facets at any zoom. The costs that can still come down
+without drawing less: the page's per-member walk (keep a run's steps and
+pattern and walk the members only when the camera moves a step), the
+per-leaf `keep` and the reservation's check on a move in Python.
+
+Archive: `benchmarks/results/b57_net_runs_20260929/` (the three passes'
+tables, commands, conditions and source hashes, the silhouette
+measurement and its crop, the redraw and still-frame figures).
+
 ## The final test point
 
 Since B5.6 the selection's Phase B sends its patches as rows; the Phase B
@@ -1683,6 +1895,15 @@ Phase B beside B6's: 8.a's play 127.3 → 80.5 ms, each class's median
 within 0.5 ms, navigations dearer natively (+15-28%) until one dispatch finalizes
 a frame's rows and a change of paint alone stops resending them ("The
 flips", B5.6).
+
+**B5.7 Nets drawn as grids are.** Each net drawn with the index pattern
+of its steps, consecutive nets that can share a draw one batch in both
+drivers and the player, and the nets gate judged over a timed set with
+two scenes that are mostly surfaces. Done 2026-09-29: pixels unchanged,
+the pin untouched (it states each net a batch of its own); the three
+scenes pass, the orbs (1.06-1.15×) and the lattice (1.11-1.24×, and 0.98%
+of its pixels, silhouettes where the net is the rounder) fail, so grids
+stay ("The flips", B5.7).
 
 **B6 The final test point.** Both episodes through `episode_frames.py
 --tick-updaters --play-frames` with variants `[gpu_border, retained,

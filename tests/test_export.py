@@ -117,17 +117,21 @@ class TriangleWebExportE2E(WebExportE2E):
         _require_lyon()
 
 
-# A filled square (a patch run), a sphere (a net) and a Transform (a blend
-# program over the square's rows, drawn as a patch run and a stroke).
+# A small sphere alone (a net: the square drawn after it parts it from the
+# others), a filled square (a patch run), two spheres side by side (a run of
+# nets, B5.7) and a Transform (a blend program over the square's rows, drawn
+# as a patch run and a stroke).
 PHASE_B_SCENE_SOURCE = """
 from manim import *
 
 class PhaseBDemo(Scene):
     def construct(self):
+        pebble = Sphere(radius=.3, resolution=(5, 3)).shift(LEFT * 2 + DOWN * 1.8)
         square = Square(side_length=2, fill_color=BLUE, fill_opacity=0.8, stroke_color=RED,
                         stroke_width=6, fill_border_width=3).shift(LEFT * 2)
         sphere = Sphere(radius=1, resolution=(9, 5)).shift(RIGHT * 2)
-        self.add(square, sphere)
+        moon = Sphere(radius=.4, resolution=(7, 5)).shift(RIGHT * 2 + UP * 1.6)
+        self.add(pebble, square, sphere, moon)
         self.wait(0.1)
         circle = Circle(radius=1, fill_color=GREEN, fill_opacity=0.8, stroke_color=BLUE,
                         stroke_width=6, fill_border_width=3).shift(LEFT * 2)
@@ -199,6 +203,12 @@ class PhaseBWebExportE2E(unittest.TestCase):
                         tag = "program patch" if program else "patch"
                         if not program:
                             reference("border_data", batch["border"]["hash"])
+                    elif isinstance(batch.get("net"), list):
+                        # A run of nets (B5.7): the sphere and the moon, one
+                        # batch. The pebble is a net alone.
+                        for member in batch["net"]:
+                            reference("net_data", member["hash"])
+                        tag = "net run"
                     elif "net" in batch:
                         reference("net_data", batch["net"]["hash"])
                         tag = "program net" if program else "net"
@@ -211,8 +221,9 @@ class PhaseBWebExportE2E(unittest.TestCase):
                     seen.add(tag)
                     if batch.get("cached"):
                         seen.add("cached " + tag)
-            self.assertLessEqual({"patch", "cached patch", "net", "cached net", "program patch",
-                                  "cached program patch", "program stroke", "cached program stroke"}, seen)
+            self.assertLessEqual({"patch", "cached patch", "net", "cached net", "net run", "cached net run",
+                                  "program patch", "cached program patch", "program stroke",
+                                  "cached program stroke"}, seen)
             self.assertEqual(relied, set(defined))
 
             # The player's load and seek path over the folder, then the

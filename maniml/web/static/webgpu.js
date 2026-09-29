@@ -195,6 +195,11 @@ const ManimlWGPU = (() => {
   // and one for the pair. A dispatch of several nets stays within the budget.
   const NET_SCRATCH_BUDGET = 32 << 20, NET_TABLE_HEADER = 16, NET_ENTRY_BYTES = 32;
   const netScratch = { buffers: {}, sizes: {}, tables: new Map(), io: null };
+  // The index patterns net batches draw at the steps they are evaluated at
+  // (B5.7), by their members' patches, capacity and steps, each stamped
+  // with the last frame that drew it; a commit retires the ones its frame
+  // did not draw.
+  const netPatterns = new Map();
   // Buffers let go of while a frame is prepared, destroyed after its submit.
   let retired = [];
   let cacheMissed = false;
@@ -458,22 +463,32 @@ const ManimlWGPU = (() => {
     return dispatches;
   }
 
-  function netIndices(patches, capacity) {
-    const side = capacity + 1, perPatch = 6 * capacity * capacity;
-    const out = new Uint32Array(patches * perPatch);
-    let write = 0;
-    for (let patch = 0; patch < patches; patch++) {
-      const base = patch * side * side;
-      for (let a = 0; a < capacity; a++) {
-        for (let b = 0; b < capacity; b++) {
-          const topLeft = base + a * side + b;
-          out[write++] = topLeft; out[write++] = topLeft + side; out[write++] = topLeft + 1;
-          out[write++] = topLeft + 1; out[write++] = topLeft + side; out[write++] = topLeft + side + 1;
+  // The triangles of a run of nets at the steps they are evaluated at
+  // (B5.7), as gpu_net_geometry.run_indices lays them out: per member
+  // [patches, capacity, steps], each patch's steps² quads over its
+  // (capacity + 1)² vertices, after the members before it. The kernel
+  // repeats the rows and columns past the steps, so the capacity's pattern
+  // draws these triangles in this order and the rest with zero area.
+  function netIndices(members) {
+    let total = 0;
+    for (const [patches, , steps] of members) total += patches * 6 * steps * steps;
+    const out = new Uint32Array(total);
+    let write = 0, base = 0;
+    for (const [patches, capacity, steps] of members) {
+      const side = capacity + 1;
+      for (let patch = 0; patch < patches; patch++, base += side * side) {
+        for (let a = 0; a < steps; a++) {
+          for (let b = 0; b < steps; b++) {
+            const topLeft = base + a * side + b;
+            out[write++] = topLeft; out[write++] = topLeft + side; out[write++] = topLeft + 1;
+            out[write++] = topLeft + 1; out[write++] = topLeft + side; out[write++] = topLeft + side + 1;
+          }
         }
       }
     }
     return out;
   }
+
 
   function ensureTargets(width, height, samples, outputWidth = width, outputHeight = height) {
     const key = width + "x" + height + "@" + samples + ":" + outputWidth + "x" + outputHeight;
@@ -1118,32 +1133,46 @@ const ManimlWGPU = (() => {
   }
 
   // A net descriptor, density included, as the net stage has always
-  // checked it.
+  // checked it; a batch's net is one descriptor or, for a run of nets
+  // (docs/phase_b4_plan.md, B5.7), a list of them, each member evaluated
+  // into its span of the batch's one output after the members before it.
+  // Returns the members (with their first vertex) and the output's size.
   function validateNet(batch, incoming) {
-    const net = batch.net;
-    if ((incoming.header.format_version ?? 0) < 7 || net === null || typeof net !== "object" || Array.isArray(net)) {
+    const net = batch.net, run = isArray(net), members = run ? net : [net];
+    if ((incoming.header.format_version ?? 0) < 7 || !members.length || (run && members.length < 2)
+        || members.some(member => member === null || typeof member !== "object" || isArray(member))) {
       throw new Error("a surface net requires a format 7 net descriptor");
     }
-    const {hash: key, nu, nv, channels, capacity, density} = net;
-    if (!validHash(key) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
-        || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0
-        || typeof density !== "number" || !Number.isFinite(density) || density < 0
-        || !["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
-        || channels * 4 !== batch.stride || batch.indexed !== false
-        || batch.fill_num_verts !== 0 || batch.index_count !== 0 || batch.instances !== 1) {
+    if (!["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
+        || (run && (!["surface", "surface_depth"].includes(batch.pipeline) || batch.program !== undefined))
+        || batch.indexed !== false || batch.fill_num_verts !== 0 || batch.index_count !== 0 || batch.instances !== 1) {
       throw new Error("invalid surface net descriptor");
     }
-    validateNetCapacity(capacity);
-    const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
-    const perPatch = (capacity + 1) * (capacity + 1);
-    if (batch.num_verts !== patches * perPatch || batch.count !== patches * 6 * capacity * capacity) {
+    let vertices = 0, count = 0;
+    const parsed = members.map(member => {
+      const {hash: key, nu, nv, channels, capacity, density} = member;
+      if (!validHash(key) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
+          || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0
+          || typeof density !== "number" || !Number.isFinite(density) || density < 0
+          || channels * 4 !== batch.stride) {
+        throw new Error("invalid surface net descriptor");
+      }
+      validateNetCapacity(capacity);
+      const patches = ((nu - 1) / 2) * ((nv - 1) / 2), perPatch = (capacity + 1) * (capacity + 1);
+      const first = vertices;
+      vertices += patches * perPatch;
+      count += patches * 6 * capacity * capacity;
+      return { key, nu, nv, channels, capacity, patches, first, size: patches * perPatch * batch.stride,
+               bytes: nu * nv * channels * 4 };
+    });
+    if (batch.num_verts !== vertices || batch.count !== count) {
       throw new Error("invalid surface net vertex or draw count");
     }
     const size = batch.num_verts * batch.stride;
     if (!Number.isSafeInteger(size) || size > incoming.maxBuffer || size > incoming.maxStorage) {
       throw new Error("surface net output exceeds device buffer limits");
     }
-    return { key, nu, nv, channels, capacity, patches, perPatch, size, bytes: nu * nv * channels * 4 };
+    return { members: parsed, size };
   }
 
   function validatePaint(bytes) {
@@ -1254,7 +1283,15 @@ const ManimlWGPU = (() => {
       && sameValue(a.uniforms, b.uniforms) && sameValue(a.textures, b.textures) && sameValue(a.paint, b.paint)
       && sameValue(a.rows, b.rows)
       && sameFields(a.border, b.border, BORDER_FIELDS) && sameFields(a.objects, b.objects, OBJECT_FIELDS)
-      && sameFields(a.net, b.net, NET_FIELDS) && sameFields(a.program, b.program, PROGRAM_FIELDS);
+      && sameNet(a.net, b.net) && sameFields(a.program, b.program, PROGRAM_FIELDS);
+  }
+
+  // A net descriptor, or a run's list of them member by member (B5.7).
+  function sameNet(a, b) {
+    if (!isArray(a) && !isArray(b)) return sameFields(a, b, NET_FIELDS);
+    if (!isArray(a) || !isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameFields(a[i], b[i], NET_FIELDS)) return false;
+    return true;
   }
 
   function sameFields(a, b, fields) {
@@ -1308,7 +1345,7 @@ const ManimlWGPU = (() => {
       coverage: !!batch.coverage, patch, count: batch.count, instances: batch.instances,
       set: null, geometry: null, paint: null, indexBuffer: null, draws: [], patchDraw: null,
       border: null, net: null, program: null, programKey: null, sources: null, strokes: false,
-      borderSource: null, netSource: null, table: null, programOutput: null, programState: null,
+      borderSource: null, netSources: null, table: null, programOutput: null, programState: null,
       rows: null, rowsKey: null, rowsRun: null, rowBuffer: null, rowStrokes: null };
     incoming.created.push(slot);
     const name = "generated_" + batch.pipeline + (batch.coverage ? "_coverage" : "");
@@ -1351,17 +1388,19 @@ const ManimlWGPU = (() => {
     let net = null;
     if (batch.net !== undefined) {
       net = validateNet(batch, incoming);
-      let length = net.bytes;
-      if (program) {
-        if (program.rows * program.channels * 4 !== net.bytes) throw new Error("a program's rows do not match its net batch");
-      } else {
-        const source = netSources.get(net.key);
-        net.definition = source ? source.bytes : incoming.nets.get(net.key);
-        if (!net.definition) return miss(slot);
-        length = net.definition.length;
-      }
-      if (length !== net.bytes || length > incoming.maxStorage) {
-        throw new Error("net definition does not match its descriptor");
+      for (const member of net.members) {
+        let length = member.bytes;
+        if (program) {
+          if (program.rows * program.channels * 4 !== member.bytes) throw new Error("a program's rows do not match its net batch");
+        } else {
+          const source = netSources.get(member.key);
+          member.definition = source ? source.bytes : incoming.nets.get(member.key);
+          if (!member.definition) return miss(slot);
+          length = member.definition.length;
+        }
+        if (length !== member.bytes || length > incoming.maxStorage) {
+          throw new Error("net definition does not match its descriptor");
+        }
       }
     }
     if (batch.cached && !generatedGeometry.has(batch.hash)) return miss(slot);
@@ -1445,23 +1484,26 @@ const ManimlWGPU = (() => {
     if (net) {
       // COPY_SRC: a dispatch of several nets gathers their control points (B5.5).
       if (!program) {
-        slot.netSource = holdStorage(slot, netSources, net.key, net.definition,
-                                     GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+        slot.netSources = net.members.map(member => holdStorage(slot, netSources, member.key, member.definition,
+                                                                 GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC));
       }
       computeUniforms(slot.set, incoming);
       if (!netPipeline) netPipeline = device.createComputePipeline({layout: "auto",
         compute: {module: modules.net_compute, entryPoint: "cs_main"}});
-      const shape = [net.size, net.nu, net.nv, net.channels, net.capacity].join(":");
+      // An output taken over keeps each member's vertices where its span,
+      // source and steps are the same (prepareCompute): the layout decides.
+      const shape = net.size + "=" + net.members.map(member =>
+        [member.nu, member.nv, member.channels, member.capacity].join(":")).join(",");
       if (predecessor && predecessor.net && predecessor.net.shape === shape) {
         inherit(slot, "net", predecessor.net, incoming);
       } else {
         const buffer = device.createBuffer({size: net.size,
           usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
-        slot.net = { shape, buffer, owner: slot, size: net.size, nu: net.nu, nv: net.nv, channels: net.channels,
-          capacity: net.capacity, patches: net.patches, sourceBytes: net.bytes,
-          binding: null, bound: null, state: null, source: null, buffers: [buffer] };
+        slot.net = { shape, buffer, owner: slot, size: net.size,
+          members: net.members.map(({nu, nv, channels, capacity, patches, first, size, bytes}) =>
+            ({ nu, nv, channels, capacity, patches, offset: first * batch.stride, size, sourceBytes: bytes })),
+          binding: null, bound: null, states: null, sources: null, buffers: [buffer] };
       }
-      slot.indexBuffer = holdPattern(slot, slot.geometry, net.capacity, () => netIndices(net.patches, net.capacity));
     }
     if (!border && !net && batch.indexed) slot.indexBuffer = slot.geometry.index;
 
@@ -1638,9 +1680,11 @@ const ManimlWGPU = (() => {
         // and must be laid out as the geometry it was resolved from.
         if (slot.programKey) validateScalars(batch.program);
         if (slot.net) {
-          const density = batch.net.density;
-          if (typeof density !== "number" || !Number.isFinite(density) || density < 0) {
-            throw new Error("invalid surface net descriptor");
+          for (const member of isArray(batch.net) ? batch.net : [batch.net]) {
+            const density = member.density;
+            if (typeof density !== "number" || !Number.isFinite(density) || density < 0) {
+              throw new Error("invalid surface net descriptor");
+            }
           }
         }
         if (slot.border && (!batch.cached || "layout" in batch.border)) {
@@ -1977,23 +2021,51 @@ const ManimlWGPU = (() => {
       compute.end();
       completed.push([output, { state, fill, source }]);
     }
-    // Nets: every output whose steps or source moved, in one dispatch.
-    const changed = [];
+    // Nets: every member whose steps or source moved, in one dispatch, and
+    // each batch drawn with the pattern of the steps it is evaluated at
+    // (B5.7), not its capacity's.
+    const changed = [], height = incoming.header.resolution[1];
     for (const i of incoming.netSlots) {
       const slot = slots[i], output = slot.net, uniforms = slot.set.compute, net = batches[i].net;
       if (!uniforms.netValid) throw new Error("invalid surface net uniforms");
-      const source = slot.programKey ? slot.programOutput.rows : slot.netSource.buffer;
-      // The output depends on the camera through its steps alone: a pan, an
-      // orbit or a zoom that moves no step count evaluates nothing.
-      const steps = netSteps(net.density, uniforms.floats[17], incoming.header.resolution[1], uniforms.floats[23],
-                             output.capacity);
-      const state = slot.programKey ? steps + ";" + slot.programState : String(steps);
-      if (output.state === state && output.source === source) continue;
-      changed.push({ output, source, steps, sourceBytes: output.sourceBytes, size: output.size, patches: output.patches });
-      completed.push([output, { state, source }]);
+      const descriptors = isArray(net) ? net : [net], held = output.states, heldSources = output.sources;
+      const states = [], sources = [], pattern = [];
+      let moved = !held;
+      output.members.forEach((member, m) => {
+        const source = slot.programKey ? slot.programOutput.rows : slot.netSources[m].buffer;
+        // A member depends on the camera through its steps alone: a pan, an
+        // orbit or a zoom that moves no step count evaluates nothing.
+        const steps = netSteps(descriptors[m].density, uniforms.floats[17], height, uniforms.floats[23],
+                               member.capacity);
+        const state = slot.programKey ? steps + ";" + slot.programState : String(steps);
+        states.push(state); sources.push(source); pattern.push([member.patches, member.capacity, steps]);
+        if (held && held[m] === state && heldSources[m] === source) return;
+        moved = true;
+        changed.push({ output, member, offset: member.offset, source, steps, sourceBytes: member.sourceBytes,
+                       size: member.size, patches: member.patches });
+      });
+      if (moved) completed.push([output, { states, sources }]);
+      const drawn = netPattern(pattern, incoming.serial);
+      slot.indexBuffer = drawn.buffer;
+      slot.count = drawn.count;
     }
     if (changed.length) evaluateNets(changed, encoder, incoming);
     else if (!incoming.netSlots.length) releaseNetScratch();
+  }
+
+  // The index buffer of a net batch's [patches, capacity, steps] members
+  // (B5.7), shared by the batches drawn with the same members, stamped with
+  // the frame that draws it (commit retires the ones its frame did not).
+  function netPattern(members, serial) {
+    const key = members.join(";");
+    let entry = netPatterns.get(key);
+    if (!entry) {
+      const indices = netIndices(members);
+      entry = { buffer: makeBuffer(indices.buffer, GPUBufferUsage.INDEX), count: indices.length, serial };
+      netPatterns.set(key, entry);
+    }
+    entry.serial = serial;
+    return entry;
   }
 
   // A scratch buffer of at least `size` bytes, grown by powers of two (never
@@ -2023,8 +2095,9 @@ const ManimlWGPU = (() => {
   // Evaluate every changed net in one dispatch (docs/phase_b4_plan.md,
   // B5.5), as the native driver's _evaluate_nets does: their control points
   // gathered into one scratch buffer, the kernel evaluating every patch of
-  // every net into another, and each net's vertices copied into the output
-  // its slot owns. A net alone in its dispatch (the one changed net, or one
+  // every net into another, and each net's vertices copied into its span of
+  // the output its slot owns (a run's member after the members before it,
+  // B5.7). A net alone in its dispatch (the one changed net, or one
   // larger than the budget) is read and written in place. The tables of a
   // frame's dispatches share one buffer, each at an aligned offset.
   function evaluateNets(changed, encoder, incoming) {
@@ -2042,9 +2115,14 @@ const ManimlWGPU = (() => {
       let at = dispatch.offset / 4;
       words[at] = dispatch.entries.length; words[at + 1] = dispatch.patches;
       at += 4;
+      // A net alone in its dispatch writes in place, at its span of the
+      // output it binds whole (a run's member after the members before it,
+      // B5.7); the others write into the scratch.
+      const direct = dispatch.entries.length === 1;
       for (const [index, sourceOffset, outputOffset, first] of dispatch.entries) {
-        const {output, steps} = changed[index];
-        words.set([sourceOffset, outputOffset, output.nu, output.nv, output.channels, output.capacity, steps, first], at);
+        const {member, offset, steps} = changed[index];
+        words.set([sourceOffset, direct ? offset / 4 : outputOffset, member.nu, member.nv, member.channels,
+                   member.capacity, steps, first], at);
         at += 8;
       }
     }
@@ -2080,7 +2158,7 @@ const ManimlWGPU = (() => {
         if (target.bound !== net.source) {
           target.binding = device.createBindGroup({layout: netPipeline.getBindGroupLayout(1), entries: [
             {binding: 0, resource: {buffer: net.source, size: net.sourceBytes}},
-            {binding: 1, resource: {buffer: target.buffer, size: net.size}}]});
+            {binding: 1, resource: {buffer: target.buffer, size: target.size}}]});
           target.bound = net.source;
         }
         binding = target.binding;
@@ -2096,7 +2174,7 @@ const ManimlWGPU = (() => {
       if (!direct) {
         for (const [index, , outputOffset] of dispatch.entries) {
           const net = changed[index];
-          encoder.copyBufferToBuffer(output, outputOffset * 4, net.output.buffer, 0, net.size);
+          encoder.copyBufferToBuffer(output, outputOffset * 4, net.output.buffer, net.offset, net.size);
         }
       }
     }
@@ -2204,6 +2282,11 @@ const ManimlWGPU = (() => {
       camera: header.camera, background: header.background, resolution: header.resolution, samples: header.samples,
       supersample: header.supersample, unsupported: header.unsupported, limitations: header.limitations} : null;
     for (const [output, state] of completed) Object.assign(output, state);
+    for (const [key, entry] of netPatterns) {
+      if (entry.serial === incoming.serial) continue;
+      retired.push(entry.buffer);
+      netPatterns.delete(key);
+    }
     destroyRetired();
     for (const entry of looseTextures) {
       if (entry.refs) continue;
@@ -2428,6 +2511,8 @@ const ManimlWGPU = (() => {
         frame.samples = frame.format = frame.environment = frame.message = frame.header = null;
         frame.stream = frame.resync = null;
         releaseNetScratch();
+        for (const entry of netPatterns.values()) retired.push(entry.buffer);
+        netPatterns.clear();
         destroyRetired();
         for (const entry of textureCache.values()) entry.texture.destroy();
         textureCache.clear();

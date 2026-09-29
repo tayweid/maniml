@@ -90,6 +90,10 @@ ENVIRONMENTS = {
 # stack is what the defaults select whatever the caller's environment says.
 UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE"),
          "phase_b_forced": ("MANIML_PATCH_SOURCE",)}
+# Taken out for every variant: whether consecutive nets join a run
+# (MANIML_NET_RUNS, docs/phase_b4_plan.md B5.7) is the default's, runs, so
+# every variant that draws nets sends them as they ship.
+UNSET_ALWAYS = ("MANIML_NET_RUNS",)
 # The renderer a variant's stream is serialized as: Phase A forced for
 # phase_a and Phase B forced for phase_b_forced and phase_b_forced_records,
 # else the default stack under the variant's switches. The other Phase B
@@ -658,7 +662,7 @@ def main(argv=None):
         environment = ENVIRONMENTS[variant]
         delta_stream = [] if args.deltas else None
         with patch.dict(os.environ, environment):
-            for key in UNSET.get(variant, ()):
+            for key in (*UNSET.get(variant, ()), *UNSET_ALWAYS):
                 os.environ.pop(key, None)
             messages, entries, frames = record_stream(scene, indices, args.samples, args.warmups,
                                                       tick_updaters=args.tick_updaters, play_frames=args.play_frames,

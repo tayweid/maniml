@@ -70,7 +70,8 @@ function borderMessage(color, frameId, {cached=false, definition=true, empty=fal
 }
 // Format 7 Phase B batches, synthetic like the paint and border messages: a
 // patch run over one four-curve object, a one-patch net, and a blend program
-// drawn three ways (a stroke, a patch run, a net). The variant picks the
+// drawn three ways (a stroke, a patch run, a net), then row sources and a
+// run of two nets (B5.7), the first the net's. The variant picks the
 // content hashes and a marker word in every definition, so a seek can be
 // checked to restore the right one; `marker` alone changes the bytes under
 // the same hashes, which a recording may not do.
@@ -106,6 +107,8 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
       {...base,pipeline:'patch',hash:rowsHash('a1'),num_verts:capacity*3,count:3*(6+strip),rows:[rowsHash('b1'),rowsHash('b2')],
        border:{hash:rowsHash('c1'),num_curves:3,capacity},objects:{hash:rowsHash('d1'),count:2}},
       {...base,pipeline:'stroke',stride:68,hash:rowsHash('a2'),num_verts:6,instances:2,count:4,rows:[rowsHash('b1')]},
+      {...base,pipeline:'surface',hash:rowsHash('a3'),num_verts:9+25,count:24+96,
+       net:[{hash:hash('e'),nu:3,nv:3,channels:10,capacity:2,density:0},{hash:rowsHash('e1'),nu:3,nv:3,channels:10,capacity:4,density:0}]},
     ];
     for(const batch of header.batches) {
       if(cached) batch.cached=true;
@@ -124,6 +127,7 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
       const table=Buffer.concat([objects(2),objects(1)]);
       table.writeFloatLE(2,32+12);
       define('object_data',rowsHash('d1'),table);
+      define('net_data',rowsHash('e1'),floats(90,word+40));
     }
   }
   mutate(header);
@@ -163,9 +167,9 @@ function phaseBRecords(header, frame, length) {
         found.push(['border',curves.getFloat32(40*4,true)]);
       }
     }
-    if(batch.net&&!batch.program) {
-      const net=span('net_data',batch.net.hash,'net');
-      assert.equal(net.byteLength,batch.net.nu*batch.net.nv*batch.net.channels*4);
+    if(batch.net&&!batch.program) for(const member of Array.isArray(batch.net)?batch.net:[batch.net]) {
+      const net=span('net_data',member.hash,'net');
+      assert.equal(net.byteLength,member.nu*member.nv*member.channels*4);
       found.push(['net',net.getFloat32(0,true)]);
     }
     return found;
@@ -325,7 +329,7 @@ async function run(format, messages, transformMeta=x=>x) {
     // the definitions of the frame shown, never the last ones sent.
     const expected=v=>[['objects',v],['border',v],['net',v],['rows',v],['rows',v+10],
       ['rows',v],['rows',v+10],['objects',v],['rows',v],['rows',v+10],
-      ['rows',v+20],['rows',v+30],['objects',v],['rows',v+20]];
+      ['rows',v+20],['rows',v+30],['objects',v],['rows',v+20],['net',v],['net',v+40]];
     const page=await run(7,[phaseBMessage('a',0),phaseBMessage('a',1,{cached:true,definition:false}),
       phaseBMessage('a',2,{empty:true}),phaseBMessage('b',3),phaseBMessage('b',4,{cached:true,definition:false})],
       meta=>({...meta,segments:3,lines:[1,2,3],frames:meta.frames.map((frame,i)=>({...frame,segment:[0,0,1,2,2][i]}))}));
@@ -404,6 +408,10 @@ async function run(format, messages, transformMeta=x=>x) {
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[5].rows.reverse();}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[6].instances=3; header.batches[6].num_verts=9;}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{delete header.program_data[header.batches[5].rows[1]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{delete header.net_data[header.batches[7].net[1].hash];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].net[1].capacity=6;}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].net=[header.batches[7].net[0]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].pipeline='texsurface';}})]],
     ];
     for(const args of cases) {
       const page=await run(...args);

@@ -7,6 +7,21 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- Surfaces drawn as Bézier nets (the **Phase B** selection, or
+  `MANIML_SURFACE=nets`) are cheaper to redraw (docs/phase_b4_plan.md,
+  "The flips", B5.7): each net draws only the triangles of the steps it is
+  evaluated at, a quarter of what it drew on the benchmark spheres, and
+  consecutive surfaces that share a look are drawn together, one draw
+  where there was one a surface, as grids are. Pixels are unchanged. On a
+  scene of 480 small spheres a still or camera frame now costs 1.11-1.24×
+  what grids cost (1.37-1.52× before), a play 0.61× (0.80×), and the
+  native redraw of that frame halved. The nets gate now covers two scenes
+  that are mostly surfaces beside the three it was set on, and those two
+  still fail it, as do the lattice's silhouettes (where the nets are the
+  rounder, and nearer the true sphere, the pixel test measures distance
+  from the grid), so the Default renderer, `--render`, checkpoint stills
+  and `--export` keep drawing surfaces as CPU grids.
+  `MANIML_NET_RUNS=0` draws each net on its own, for comparison.
 - The **Phase B** selection sends each filled or stroked path as its rows,
   which the page and the native driver finalize themselves, instead of
   the curve records Python packed (docs/phase_b4_plan.md, "The flips",

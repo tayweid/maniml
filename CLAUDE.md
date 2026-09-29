@@ -216,17 +216,18 @@ export recorder draw it, so a default that flips flips there too. `phase_a`
 forces Phase A (meshes, grids, programs off) and `phase_b` the whole Phase
 B stack (patches, nets, GPU programs), whatever the defaults or the
 environment say about the fill, surface and programs
-(`geometry.FORCED_STACKS`; both still read the border generator and the
-patch source, ways to send the same pixels, so Phase B's patches go as
-their paths' rows by `geometry.DEFAULT_PATCH_SOURCE`), so both ends stay
+(`geometry.FORCED_STACKS`; both still read the border generator, the
+patch source and whether nets join runs, ways to send the same pixels, so
+Phase B's patches go as their paths' rows by
+`geometry.DEFAULT_PATCH_SOURCE` and its nets in runs), so both ends stay
 selectable whichever way a default goes, and the viewer sets
 `programs.set_override("off")` or `("gpu")` while one is selected so its
 plays write what it draws; the default follows the environment
 (`programs.env_mode()`), so an export made while a forced renderer is on
 screen is unaffected. The golden pin (`tests/test_retained_frame.py`) holds
 `phase_a` and `phase_b` under the switches it was recorded with (programs
-off and the records packed, both stated), so no flip can move a pinned
-byte. A frame's
+off, the records packed and each net a batch of its own, all stated), so
+no flip can move a pinned byte. A frame's
 header names the selection that made it, so the page's selection drops
 another's frames across a switch, with one exception: Phase A's frames are
 stamped `triangles`, the bytes Phase A always wrote (the pin's digests,
@@ -241,7 +242,8 @@ decided on measured gates (the plan's "The flips"), not by this switch; on
 2026-09-28 none passed (nets on camera moves, patches on plays and ticked
 frames, strokes on Python no lower than programs off; B5.5's nets then
 passed the gate's three scenes and failed on scenes that are mostly
-surfaces), so the default is Phase A's stack.
+surfaces, and B5.7's, drawn as grids are, still fail those), so the
+default is Phase A's stack.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -432,19 +434,37 @@ alone and a pan, an orbit or a zoom that moves no step count evaluates
 nothing; the nets whose steps or source moved are gathered into one scratch
 buffer, evaluated by one dispatch over a table of them (one workgroup a
 patch) and copied into the outputs their slots own (a net alone is read
-and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). B5.4's
-gate failed nets on camera moves (1.23-1.34× grids' complete frame: a zoom
-re-evaluated every net on screen, each in a pass of its own); B5.5 passed
-it on its three scenes, every class within 1.05 in both formats on the
-orbit demo, EpisodeB3 and B4 (camera moves 0.997-1.046×) and pixels within
-0.31% over 24/255, with the serializer's per-net cost on camera moves and
-still frames made cheaper along the way, and failed it on scenes that are
-mostly surfaces (70 spheres 1.16-1.31× on still and camera frames, 480
-spheres 1.37-1.52× and 0.98% of the pixels;
-`benchmarks/results/b55_nets_one_dispatch_20260928/`): a net draws its
-capacity's triangle pattern (`net_indices(patches, capacity)`, though the
-reservation is twice the steps) in a draw of its own, where grids coalesce,
-so the redraw is the lever left. Recordings
+and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). Each driver draws a net with the index pattern of
+the steps it evaluated it at (`patches × 6 × steps²` indices over the
+`(capacity + 1)²` layout; `gpu_net_geometry.run_indices`, `netIndices` in
+`webgpu.js`), not the capacity's, whose extra triangles had zero area; and
+consecutive nets that can share a draw (`run_kind` `"net"`: the surface
+pipeline, one instance, and `coalesce_draws`' same uniforms, textures and
+depth mode, as grids join) are one batch whose `net` is the list of its
+members' descriptors, each member evaluated into its span of the batch's
+one output and the batch drawn in one draw (B5.7, "The flips"; a program's
+net and a textured one stay alone). A run where some members moved keeps
+the others' vertices (the page hands the slot's output over by the
+members' layout; the native driver keys a run's output by it).
+`MANIML_NET_RUNS=0` sends each net a batch of its own, pixel for pixel the
+same; the forced stacks read it as they read the patch source, and the
+golden pin states it (its phase_b nets were recorded one batch each).
+B5.4's gate failed nets on camera moves (a zoom re-evaluated every net,
+each in a pass of its own); B5.5 passed it on its three scenes (the orbit
+demo, EpisodeB3, B4) and failed on scenes that are mostly surfaces; B5.7
+judged it over a timed set of five (`flip_gates.TIMED_SCENES`: the three
+and `benchmarks/surface_scenes.py`'s `OrbsScene`, 70 spheres, and
+`LatticeScene`, 480; `flip_gates gate`), where the three pass every class
+in both formats and the two fail their still and camera frames (the orbs
+1.06-1.15× grids, the lattice 1.11-1.24×, down from B5.5's 1.16-1.31× and
+1.37-1.52×) and the lattice its pixels (0.98% over 24/255, silhouettes
+where the net is the rounder: against a supersampled sphere nets are off
+in 0.86% of the frame, grids in 1.60%;
+`benchmarks/results/b57_net_runs_20260929/`). What is left is what makes a
+net round, 2.25-3.7× grids' triangles (+0.2-0.4 ms of GPU), the page's
+per-member walk of a run on a camera move and the serializer's per-net
+`keep` and reservation check; and the pixel gate measures distance from
+the grid. Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -500,7 +520,10 @@ wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
 flip changes the pass count, as programs do (and nets did before B5.5), the
 attribution run overstates the stack with more passes; the gate's text and
 the measuring contract disagree there, and both are quoted), `fixtures` draws every
-Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
+Surface fixture (`tests/surface_fixtures.py`) from grids and from nets,
+`gate` judges a flip over its timed set (`TIMED_SCENES`: a complete run per
+scene, each at the flip's `GATE_LIMITS`, every class its serialize run
+measured present in both formats, every run of one tree), and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.

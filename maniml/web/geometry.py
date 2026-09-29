@@ -71,6 +71,7 @@ class GeometryCache:
         self.fill_generator = None
         self.patch_source = None
         self.surface_generator = None
+        self.net_runs = None
         self.program_mode = None
         # The retained frame (docs/phase_b4_plan.md; MANIML_RETAINED_FRAME=0
         # turns it off): the draws kept across frames, which must see every
@@ -229,13 +230,15 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
 # environment say — Phase A (meshes, grids, programs off) and the whole
 # Phase B stack (patch fills, net surfaces, GPU programs;
 # docs/phase_b_plan.md) — so both stay selectable from the dropdown. They
-# do not fix how the bytes are made: both still read the border generator
-# and the patch source (MANIML_BORDER_GENERATOR, MANIML_PATCH_SOURCE), each
-# another way to send the same pixels that a harness compares on purpose,
-# so the viewer's Phase B sends what DEFAULT_PATCH_SOURCE says. The golden
-# pin (tests/test_retained_frame.py) holds the two names under the
-# switches it was recorded with (the border generator's default; the
-# records packed, stated): no flip of a default can move a pinned byte.
+# do not fix how the bytes are made: both still read the border generator,
+# the patch source and whether nets join runs (MANIML_BORDER_GENERATOR,
+# MANIML_PATCH_SOURCE, MANIML_NET_RUNS), each another way to send the same
+# pixels that a harness compares on purpose, so the viewer's Phase B sends
+# what DEFAULT_PATCH_SOURCE says and its nets in runs. The golden pin
+# (tests/test_retained_frame.py) holds the two names under the switches it
+# was recorded with (the border generator's default; the records packed and
+# each net a batch of its own, stated): no flip of a default can move a
+# pinned byte.
 # "winding" is Original 2D.
 RENDERERS = ("triangles", "phase_a", "phase_b", "winding")
 # What a forced renderer draws: (fill, surface, programs).
@@ -288,6 +291,16 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
     surface_generator = forced[1] if forced else os.environ.get("MANIML_SURFACE", DEFAULT_SURFACE)
     if surface_generator not in ("grids", "nets"):
         raise ValueError("MANIML_SURFACE must be 'grids' or 'nets'")
+    # B5.7 (docs/phase_b4_plan.md): consecutive nets that can share a draw
+    # are one batch, a run each driver evaluates into one output and draws
+    # in one draw; MANIML_NET_RUNS=0 sends each net as a batch of its own,
+    # as before, pixel for pixel the same. The forced stacks read it as they
+    # read the patch source; the golden pin states 0, as its nets were
+    # recorded. Without nets there is nothing to join.
+    net_runs = os.environ.get("MANIML_NET_RUNS", "1")
+    if net_runs not in ("0", "1"):
+        raise ValueError("MANIML_NET_RUNS must be '0' or '1'")
+    net_runs = net_runs == "1" or surface_generator != "nets"
     # Phase B3 (docs/phase_b3_plan.md): a supported animation's frames as a
     # program the Phase B stages evaluate; a filled path's draws from the
     # patch fill. Under strokes (B5.3, docs/phase_b4_plan.md) only a path
@@ -298,12 +311,13 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
         raise ValueError("MANIML_PROGRAMS=shadow or gpu requires MANIML_FILL=patches")
     if (state.border_generator != border_generator or state.fill_generator != fill_generator
             or state.patch_source != patch_source or state.surface_generator != surface_generator
-            or state.program_mode != program_mode):
+            or state.net_runs != net_runs or state.program_mode != program_mode):
         state.reset()
         state.border_generator = border_generator
         state.fill_generator = fill_generator
         state.patch_source = patch_source
         state.surface_generator = surface_generator
+        state.net_runs = net_runs
         state.program_mode = program_mode
         state.retained_frame = None
         if state.triangle_meshes is not None:
@@ -324,7 +338,7 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
                    gpu_borders=border_generator == "gpu",
                    patch_fills=fill_generator == "patches",
                    patch_rows=patch_source == "rows",
-                   net_surfaces=surface_generator == "nets",
+                   net_surfaces=surface_generator == "nets", net_runs=net_runs,
                    programs=program_mode != "off")
     # The header names the selection that made the frame, so the page's
     # selection drops another's frames across a switch, except that Phase

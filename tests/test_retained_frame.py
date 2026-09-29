@@ -94,14 +94,15 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "goldens" / "retained_frame"
 RECORD_ENV = "MANIML_RECORD_GOLDENS"
 RENDERERS = ("phase_a", "phase_b")
 # The switches the forced renderers still read (the border generator, the
-# patch source) and the cache policy select other bytes on purpose; the pin
-# is the border generator's and the cache policy's defaults and the patch
-# source it was recorded under, stated (GoldenCase); the stack's own (fill,
-# surface, programs) the forced names ignore, and are cleared all the same.
+# patch source, net runs) and the cache policy select other bytes on
+# purpose; the pin is the border generator's and the cache policy's
+# defaults and the patch source and net batches it was recorded under,
+# stated (GoldenCase); the stack's own (fill, surface, programs) the forced
+# names ignore, and are cleared all the same.
 # MANIML_RETAINED_FRAME and MANIML_VERIFY_LEDGER stay as the run has them:
 # neither may change a byte.
 PINNED_ENV = ("MANIML_BORDER_GENERATOR", "MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
-              "MANIML_PATCH_SOURCE", "MANIML_RENDER_CACHE", "MANIML_RENDERER")
+              "MANIML_PATCH_SOURCE", "MANIML_NET_RUNS", "MANIML_RENDER_CACHE", "MANIML_RENDERER")
 # The course episodes the plan's gates are measured on, with the checkpoint
 # each gate names: EpisodeB2's 8.a and PriceDiscovery's 3.a.4.
 EPISODES_ROOT = Path(os.environ.get("MANIML_EPISODES", Path.home() / "Projects" / "econ-0100"))
@@ -313,6 +314,14 @@ class GoldenCase(unittest.TestCase):
         # draw the same pixels (PatchRowsPixels) and keep the retained
         # frame's lockstep (RowSourcesLockstep, RowSourcesNavigation).
         os.environ["MANIML_PATCH_SOURCE"] = "records"
+        # The nets were recorded one batch each, as B5.7's runs (consecutive
+        # nets that share a draw joined in one batch, the default since)
+        # did not yet join them: stated, so that the runs move no pinned
+        # byte (without it, 23 of PriceDiscovery's phase_b digests move,
+        # where its spheres join runs). Runs draw the same pixels
+        # (test_surface_net's test_net_runs_draw_what_each_net_draws) and
+        # keep the retained frame's lockstep (NetRunsLockstep).
+        os.environ["MANIML_NET_RUNS"] = "0"
         # An episode sets the CE config for itself (EpisodeB2 is 2:1, both
         # are 60 fps on #212121) and the process keeps it, so every class
         # starts from the import-time default resolution the fixtures were
@@ -2218,6 +2227,71 @@ class RowSourcesLockstep(RetainedFrameLockstep):
     def setUp(self):
         super().setUp()
         self.enterContext(patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"))
+
+
+def orbs_scene():
+    """Spheres whose nets share a draw, a textured one between them, and a
+    square: runs of nets (B5.7) split by what cannot join them."""
+    colors = (BLUE, RED, GREEN, YELLOW)
+    spheres = [Sphere(radius=.3, color=colors[index % 4], resolution=(9, 7)).move_to([index * .8 - 3, .4, 0])
+               for index in range(6)]
+    from tests.surface_fixtures import image_path
+    textured = TexturedSurface(Sphere(radius=.3, resolution=(7, 7)), image_path()).shift(1.8 * DOWN)
+    small = [Sphere(radius=.15, color=colors[index % 4], resolution=(7, 5)).move_to([index * .5 - 1, -1, 0])
+             for index in range(4)]
+    square = Square(side_length=.5, fill_color=YELLOW, fill_opacity=1, stroke_width=0).shift(2 * UP)
+    return SimpleNamespace(scene=build_scene(*spheres, textured, *small, square), spheres=spheres, small=small)
+
+
+@requires_lyon
+class NetRunsLockstep(GoldenCase):
+    """B5.7 (docs/phase_b4_plan.md): consecutive nets that share a draw are
+    one run under Phase B (MANIML_NET_RUNS=1, the default the pin states
+    off), and the retained frame writes the whole-frame path's bytes for
+    them: stills that keep the runs, a member moved (the run a new batch
+    over the same spans), one added and one removed, zooms in that grow the
+    reservations and the zooms back that keep them, a pan, a play that
+    moves every other member, a client's connect, and the same history
+    streamed as format 8."""
+
+    def setUp(self):
+        self.enterContext(patch.dict(os.environ, MANIML_NET_RUNS="1"))
+        self.enterContext(patch.object(generated_geometry, "_TEXTURE_BY_HASH", {}))
+        self.addCleanup(programs.set_override, None)
+
+    def test_runs_of_nets(self):
+        for deltas in (False, True):
+            with self.subTest(deltas=deltas):
+                self.history(deltas)
+
+    def history(self, deltas):
+        lock = Lockstep(self, orbs_scene, deltas=deltas)
+        cold = lock.frame("cold", "phase_b")
+        if not deltas:
+            header = parse_geometry_message(cold)[0]
+            self.assertEqual([len(batch["net"]) if isinstance(batch["net"], list) else 1
+                              for batch in header["batches"] if "net" in batch], [6, 1, 4])
+        for index in range(3):
+            lock.frame(f"still {index}", "phase_b")
+            lock.expect(leaves_prepared=0, runs_combined=0, batches_encoded=0)
+        lock.step(lambda side: side.spheres[2].shift(.1 * UP))
+        lock.frame("a member moved", "phase_b")
+        lock.expect(leaves_prepared=1, runs_combined=1)
+        lock.step(lambda side: add(side, "extra", Sphere(radius=.2, resolution=(7, 5)).shift(2 * RIGHT + DOWN)))
+        lock.frame("a member added after the square", "phase_b")
+        lock.step(lambda side: remove(side, "extra"))
+        lock.frame("and removed", "phase_b")
+        for name, move in (("zoom in", lambda frame: frame.scale(1 / 4)), ("zoom in again", lambda frame: frame.scale(1 / 2)),
+                           ("zoom back", lambda frame: frame.scale(2)), ("zoom back again", lambda frame: frame.scale(4)),
+                           ("pan", lambda frame: frame.shift(.1 * RIGHT))):
+            lock.step(lambda side, move=move: (move(side.scene.camera.frame), side.scene.camera.refresh_uniforms()))
+            lock.frame(name, "phase_b")
+        lock.play(lambda side: [Transform(sphere, sphere.copy().shift(.2 * UP)) for sphere in side.spheres[::2]],
+                  "every other member moves", "phase_b")
+        for cache in lock.caches:
+            cache.reset()
+        lock.frame("a client's connect", "phase_b")
+        lock.frame("still after it", "phase_b")
 
 
 @requires_lyon

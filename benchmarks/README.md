@@ -425,7 +425,41 @@ python -m benchmarks.flip_gates complete --flip patches --serialize <d>/serializ
 ```
 
 (`--flip nets` with the variants `nets gpu_border` and `phase_a phase_a_nets`;
-B5.5 took the nets gate again this way, `results/b55_nets_one_dispatch_20260928/`.)
+B5.5 took the nets gate again this way, `results/b55_nets_one_dispatch_20260928/`,
+and B5.7 over its timed set, `results/b57_net_runs_20260929/`.)
+
+**The timed set.** A default reaches every scene the Default, `--render`,
+checkpoint stills and `--export` draw, so a flip is judged over a set of
+scenes, not one (`flip_gates.TIMED_SCENES`, B5.7): for nets, B5.4's three
+(the workspace's `dogfood/orbit_demo.py` OrbitDemo, econ-0100's
+`Blocks/B3_Equilibrium/B3_Animation.py` EpisodeB3 and
+`Blocks/B4_Efficiency/B4_Animation.py` B4) and the two scenes of
+`benchmarks/surface_scenes.py` that are mostly surfaces, `OrbsScene` (the
+70 spheres of `tests/surface_fixtures.orbs`) and `LatticeScene` (480 small
+spheres), where B5.5's recipe failed while the three passed. The six
+commands above run per scene, `fixtures` once, and then
+
+```bash
+python -m benchmarks.flip_gates gate --flip nets --complete <d>/{orbit,b3,b4,orbs,lattice}/complete \
+    --fixtures <d>/fixtures --output <d>/gate
+```
+
+reads the complete runs by their scenes (file name and class): the flip
+passes only when every scene of the set has a run, every class of each is
+within the limit in both formats, every scene's pixels pass and so do the
+fixtures'; a scene missing from the set is named and fails it. The limit
+is the flip's (`flip_gates.GATE_LIMITS`, 1.05 for nets), not the run's: a
+run reduced with another `--limit` fails. "Every class" is every class the
+scene's serialize run measured, which `complete` records (`measured`), the
+camera and play classes always, so the serialize run must have had all
+three switches of `$F`; a class a run lacks in either format is named as a
+failure. And the runs must be of one tree: one commit among every input,
+and each source file hashed alike by every input that hashed it
+(`complete` records the inputs' hashes, and the files two of them hashed
+differently). A complete run from before `complete` recorded these fails
+too: run `complete` again over its reports.
+`surface_scenes.py` also holds B5.5's two controls, `CobbDouglasScene` and
+`TranslucentScene`, outside the set.
 `serialize` measures the Python part itself: Phase A forced and the flip's
 stack (`browser_frames`' variant's environment on the default renderer),
 each as format 7 full frames and as a negotiated format 8 stream, through a
@@ -584,6 +618,13 @@ pins records on every route but `default` and `phase_b`) and with it
 `flip_gates`' patches gate, and `play_frames`. A patches flip, if its gate
 is taken again, would ship rows and wants a rows variant beside
 `patch_fill`.
+
+**Net runs in the harnesses.** Since B5.7 consecutive nets that can share
+a draw are one batch unless `MANIML_NET_RUNS=0` sends each net alone,
+pixel for pixel the same. Every harness measures nets as they ship: each
+variant of `browser_frames`, `gpu_borders.sample` (so `episode_frames`),
+`flip_gates` and `test_point` takes `MANIML_NET_RUNS` out of the
+environment. The golden pin states `0`, as its nets were recorded.
 
 ## Point reads by kind and phase
 

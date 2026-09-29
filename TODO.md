@@ -18,7 +18,7 @@ Phase A triangle WebGPU backend, and the **Default** renderer draws Phase A's
 stack (Lyon meshes, surface grids, no GPU programs): no Phase B default
 passed its gate ([the B4 plan](docs/phase_b4_plan.md), "The flips"; B5.5's
 nets passed on the gate's three scenes and failed on scenes that are mostly
-surfaces). The
+surfaces, and B5.7's, drawn as grids are, still fail those two). The
 viewer's selector keeps **Default**, **Phase A**, **Phase B** and **Original
 2D** (the last for dogfood comparison, as Taylor asked on 2026-09-10). Python
 retains the frame and prepares only what changed (tier 1), and a page that
@@ -221,8 +221,11 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   dispatch keyed on their step counts and passed the gate's three scenes
   (camera moves 0.997-1.046×), then failed on scenes that are mostly
   surfaces (70 spheres 1.16-1.31× on still and camera frames, 480 spheres
-  1.37-1.52× and 0.98% of the pixels): a net draws its capacity's
-  triangles in a draw of its own, where grids coalesce.
+  1.37-1.52× and 0.98% of the pixels). B5.7 drew each net's steps (a
+  quarter of the triangles) and coalesced nets as grids are, and judged
+  the gate over a timed set holding those two scenes: 1.06-1.15× and
+  1.11-1.24×, the lattice's pixels unchanged (silhouettes where nets are
+  the rounder, nearer a supersampled sphere than grids), so grids stay.
 - **Measured whole** (B6, "The final test point"): the numbers under
   "Where things stand" above.
 
@@ -255,12 +258,16 @@ reading has the rest):
    under rows). Key the finalized geometry on the geometry columns only and
    take the colour from the object table or the paint, as records do; count
    finalizes per navigation, not only dispatches, when it is measured. The
-   nets flip waits on the redraw instead: each net drawn with the index
-   pattern of its current steps rather than its capacity's (the
-   reservation is twice the steps, so three quarters of its triangles have
-   zero area), net batches that share a pipeline and uniforms coalesced
-   into one draw as grids are, and a scene that is mostly surfaces added
-   to the gate's timed set before it is taken again.
+   nets flip is B5.7's to read: its redraw levers are taken (each net's
+   steps' pattern, runs as grids have), and on the surface-heavy scenes
+   it still fails by the GPU of the triangles that make a net round
+   (+0.2-0.4 ms), the page's per-member walk of a run on a camera move
+   (+0.1-0.25 ms), the serializer's per-net `keep` and reservation check
+   (+0.03-0.4 ms), and the lattice's pixels, which the gate measures
+   against the grid. Whether that pixel test should measure against a
+   reference surface, and whether a surface-heavy frame may cost 6-25%
+   more for no facets at any zoom, are Taylor's (the plan's B5.7, "What
+   would flip it").
 3. **A mover's batch keeping its identity**, its program scalars or rows an
    op: a program is a batch of its own, encoded and diffed every frame
    (5.a's play under Phase B: 18.7 ms of encode and 3.3 of diff of 26.5).
