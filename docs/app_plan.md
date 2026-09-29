@@ -182,14 +182,23 @@ helper apps and three small update frameworks come to 1.3 MB. The prototype
   ManimLive's viewer ran on Chrome 152 / V8 15.2 with WebGPU up and stepped a
   scene.
 
-So each Electron version lives once in
-`~/Library/Application Support/Claerbout/Electron-44/` (per user: with no load
-path, the folder need not be fixed, and no password is needed). Each app's
-download leaves Chromium out (1-2 MB); the install line fetches the runtime
-once and clones it into the app, and moving to Electron 45 means one download
-and a re-clone. Clones share space only on one APFS volume, the internal disk
-of every current Mac; Finder and `du` still count each app in full. Windows
-keeps a copy per app for now.
+**Clone from a sibling app, not from a shared folder** (Taylor's refinement,
+the same day). A clone is an independent copy, so no folder of its own is
+needed: each app's download leaves Chromium out (1-2 MB), and its install line
+looks for an installed Claerbout app on the same Electron version (the
+framework's `Resources/Info.plist` records it: `CFBundleVersion` 44.4.5) and
+clones that app's frameworks in; with none, it downloads Electron's release
+for that version from GitHub (130 MB) and checks the published SHASUMS256.
+Updates do the same. Every app is then complete on its own: deleting one never
+breaks another, nothing is left behind, and an old version's space frees
+itself when the last app on it updates, where a shared folder would need its
+old versions collected. Rules: clone only an exact version match; an app on
+another volume cannot clone, so it downloads; Electron's framework is only
+ad-hoc signed (no identity to verify), so if a check is wanted, each app can
+carry the expected hash of its framework and compare before cloning. Clones
+share space only on one APFS volume, the internal disk of every current Mac,
+and Finder and `du` still count each app in full. Windows keeps a copy per app
+for now.
 
 **Order.**
 
@@ -207,6 +216,8 @@ engine to trust, Plass's private flag, Mac-only); Tauri 2 (split engines);
 Tauri 3 with CEF (alpha; its shared-CEF mode is for development); the user's
 installed browser for all three (the window and menus belong to the browser;
 Brave switches off the file-picker API Plass's file layer uses); a
-shared-framework load path or link (the sandbox, above). GitHub Pages holds a
+shared-framework load path or link (the sandbox, above); a shared runtime
+folder in Application Support (cloning from an installed sibling shares the
+same disk with nothing hidden to manage). GitHub Pages holds a
 ~150 MB zip beside a site (a ~1 GB artifact, no 100 MB per-file limit), so the
 Knuth/Plass distribution standard carries Electron apps unchanged.
