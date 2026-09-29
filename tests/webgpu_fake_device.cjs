@@ -264,6 +264,12 @@ async function driver(options = {}) {
             if (pass.copy) {
               const [source, from, target, to, size] = pass.copy;
               assert.ok(!source.destroyed && !target.destroyed, "copy uses live buffers");
+              // What Dawn rejects: the usages, alignment and bounds.
+              assert.ok(source.descriptor.usage & BUFFER_USAGE.COPY_SRC, "copy source lacks COPY_SRC usage");
+              assert.ok(target.descriptor.usage & BUFFER_USAGE.COPY_DST, "copy target lacks COPY_DST usage");
+              assert.ok(from % 4 === 0 && to % 4 === 0 && size % 4 === 0, "copy offsets and size are multiples of 4");
+              assert.ok(from + size <= source.descriptor.size && to + size <= target.descriptor.size, "copy within its buffers");
+              assert.ok(source !== target, "copy between two buffers");
               new Uint8Array(target.bytes, to, size).set(new Uint8Array(source.bytes, from, size));
               target.version++;
               continue;
@@ -274,6 +280,37 @@ async function driver(options = {}) {
                   for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
                 }
                 const group0 = draw.bindings.get(0).entries;
+                if (draw.pipeline.descriptor.compute.module.code.includes("struct NetParams")) {
+                  // Surface nets (B5.5): a table of [source offset, output
+                  // offset, nu, nv, channels, capacity, steps, first patch]
+                  // per net after a header [count, patches, 0, 0], over one
+                  // source and one output binding; the dispatch one
+                  // workgroup per patch, in rows.
+                  const table = group0[0].resource;
+                  assert.equal(group0.length, 1);
+                  assert.equal((table.offset ?? 0) % (device.limits.minStorageBufferOffsetAlignment ?? 256), 0);
+                  const words = new Uint32Array(table.buffer.bytes, table.offset ?? 0, table.size / 4);
+                  const [count, patches] = words;
+                  assert.ok(count >= 1 && 16 + 32 * count <= table.size, "the table holds its entries");
+                  const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
+                  let first = 0, written = 0;
+                  for (let k = 0; k < count; k++) {
+                    const [sourceOffset, outputOffset, nu, nv, channels, capacity, steps, start] = words.subarray(4 + 8 * k, 12 + 8 * k);
+                    const netPatches = ((nu - 1) / 2) * ((nv - 1) / 2), side = capacity + 1;
+                    assert.ok(nu >= 3 && nv >= 3 && nu % 2 === 1 && nv % 2 === 1);
+                    assert.ok(capacity >= 2 && capacity <= 32 && steps >= 2 && steps <= capacity, "steps within the capacity");
+                    assert.equal(start, first, "each net's patches follow the last's");
+                    assert.ok((sourceOffset + nu * nv * channels) * 4 <= source.size, "a net's control points within the source");
+                    assert.ok(outputOffset >= written, "outputs do not overlap");
+                    written = outputOffset + netPatches * side * side * channels;
+                    assert.ok(written * 4 <= output.size, "a net's vertices within the output");
+                    first += netPatches;
+                  }
+                  assert.equal(first, patches);
+                  assert.ok(draw.count <= (device.limits.maxComputeWorkgroupsPerDimension ?? 65535));
+                  assert.ok(draw.count * draw.rows >= patches && draw.count * (draw.rows - 1) < patches, "one workgroup per patch");
+                  continue;
+                }
                 if (group0.length === 1) {
                   // A program kernel: params alone in group 0, 16 bytes.
                   const words = new Uint32Array(group0[0].resource.buffer.bytes);
@@ -308,18 +345,6 @@ async function driver(options = {}) {
                 const paramsResource = group0[1].resource;
                 const params = new Uint32Array(paramsResource.buffer.bytes);
                 const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
-                if (paramsResource.size === 48) {
-                  // A surface net: [_, nu, nv, channels, capacity, output base, patch offset, patch count].
-                  const [, nu, nv, channels, capacity, base, patchOffset, patchCount] = params;
-                  const side = capacity + 1;
-                  assert.ok(nu * nv * channels * 4 <= source.size);
-                  assert.ok(capacity >= 2 && capacity <= 32);
-                  assert.ok((base + patchCount * side * side) * channels * 4 <= output.size);
-                  assert.ok(patchOffset + patchCount <= ((nu - 1) / 2) * ((nv - 1) / 2));
-                  assert.equal(draw.count, patchCount);
-                  assert.equal(draw.rows, Math.ceil(side * side / 64));
-                  continue;
-                }
                 assert.ok((params[0] + params[1]) * 176 <= source.size);
                 assert.ok(params[4] % 2 === 0 && params[4] >= 4 && params[4] <= 64, "capacity is an even vertex count");
                 assert.ok((params[2] + params[1] * params[4]) * 40 <= output.size);

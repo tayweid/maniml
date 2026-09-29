@@ -119,7 +119,7 @@ const ManimlWGPU = (() => {
     resolve2: ["resolve2.wgsl"],
     border_compute: ["common.wgsl", "border_compute.wgsl"],
     patch_fill: ["common.wgsl", "paint_field.wgsl", "patch_fill.wgsl"],
-    net_compute: ["common.wgsl", "net_compute.wgsl"],
+    net_compute: ["net_compute.wgsl"],
     row_blend: ["row_blend.wgsl"],
     row_affine: ["row_affine.wgsl"],
     row_paint: ["row_paint.wgsl"],
@@ -188,6 +188,13 @@ const ManimlWGPU = (() => {
   // Sources are 176 bytes per curve and must fit one portable storage binding.
   const MAX_BORDER_CURVES = Math.floor((128 << 20) / 176);
   const REDRAW_BYTES = 1 << 20;
+  // The net stage's scratch (docs/phase_b4_plan.md, B5.5): a frame's
+  // dispatch tables, and for a dispatch of several nets their gathered
+  // control points and evaluated vertices, grown by powers of two and kept
+  // while frames draw nets; the bind groups that name them, by table offset
+  // and one for the pair. A dispatch of several nets stays within the budget.
+  const NET_SCRATCH_BUDGET = 32 << 20, NET_TABLE_HEADER = 16, NET_ENTRY_BYTES = 32;
+  const netScratch = { buffers: {}, sizes: {}, tables: new Map(), io: null };
   // Buffers let go of while a frame is prepared, destroyed after its submit.
   let retired = [];
   let cacheMissed = false;
@@ -406,6 +413,51 @@ const ManimlWGPU = (() => {
     return capacity;
   }
 
+  // The steps a net is evaluated at (docs/phase_b4_plan.md, B5.5), decided
+  // here rather than in the kernel so that an output depends on its control
+  // points, its capacity and this integer alone, and a camera move that
+  // leaves it unchanged evaluates nothing. In double precision from the
+  // descriptor's density and the uniforms as packed (float32 y rescale
+  // factor and frame scale), as gpu_net_geometry.evaluation_steps computes
+  // it, so both drivers reach the same integer.
+  function netSteps(density, rescaleY, height, frameScale, capacity) {
+    const pixels = density * (rescaleY * height / 2) / frameScale;
+    if (!(pixels > 4)) return MIN_NET_STEPS;
+    const root = Math.sqrt(pixels);
+    if (root >= capacity) return capacity;
+    return Math.max(MIN_NET_STEPS, Math.min(capacity, Math.ceil(root)));
+  }
+
+  // The nets a frame evaluates grouped into dispatches, in order, as
+  // gpu_net_geometry.plan_evaluation groups them: each source gathered once
+  // per dispatch, offsets in floats, a dispatch of several within the
+  // budget in both scratch buffers; a dispatch of one net reads and writes
+  // in place.
+  function planNets(nets, budget) {
+    const dispatches = [];
+    let current = null;
+    nets.forEach((net, index) => {
+      const fresh = !current || !current.offsets.has(net.source);
+      if (current && (current.inputBytes + (fresh ? net.sourceBytes : 0) > budget
+                      || current.outputBytes + net.size > budget)) current = null;
+      if (!current) {
+        current = { entries: [], sources: [], offsets: new Map(), inputBytes: 0, outputBytes: 0, patches: 0 };
+        dispatches.push(current);
+      }
+      let offset = current.offsets.get(net.source);
+      if (offset === undefined) {
+        offset = current.inputBytes;
+        current.offsets.set(net.source, offset);
+        current.sources.push([net.source, offset, net.sourceBytes]);
+        current.inputBytes += net.sourceBytes;
+      }
+      current.entries.push([index, offset / 4, current.outputBytes / 4, current.patches]);
+      current.outputBytes += net.size;
+      current.patches += net.patches;
+    });
+    return dispatches;
+  }
+
   function netIndices(patches, capacity) {
     const side = capacity + 1, perPatch = 6 * capacity * capacity;
     const out = new Uint32Array(patches * perPatch);
@@ -590,9 +642,9 @@ const ManimlWGPU = (() => {
     retired = [];
   }
 
-  function holdStorage(slot, cache, key, bytes) {
+  function holdStorage(slot, cache, key, bytes, usage = GPUBufferUsage.STORAGE) {
     return hold(slot, cache, key, () => {
-      const buffer = makeBuffer(bytes, GPUBufferUsage.STORAGE);
+      const buffer = makeBuffer(bytes, usage);
       return { buffer, bytes, buffers: [buffer] };
     });
   }
@@ -1391,7 +1443,11 @@ const ManimlWGPU = (() => {
       }
     }
     if (net) {
-      if (!program) slot.netSource = holdStorage(slot, netSources, net.key, net.definition);
+      // COPY_SRC: a dispatch of several nets gathers their control points (B5.5).
+      if (!program) {
+        slot.netSource = holdStorage(slot, netSources, net.key, net.definition,
+                                     GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+      }
       computeUniforms(slot.set, incoming);
       if (!netPipeline) netPipeline = device.createComputePipeline({layout: "auto",
         compute: {module: modules.net_compute, entryPoint: "cs_main"}});
@@ -1402,8 +1458,8 @@ const ManimlWGPU = (() => {
         const buffer = device.createBuffer({size: net.size,
           usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
         slot.net = { shape, buffer, owner: slot, size: net.size, nu: net.nu, nv: net.nv, channels: net.channels,
-          capacity: net.capacity, patches: net.patches, perPatch: net.perPatch, sourceBytes: net.bytes,
-          binding: null, bound: null, chunks: null, camera: null, state: null, source: null, buffers: [buffer] };
+          capacity: net.capacity, patches: net.patches, sourceBytes: net.bytes,
+          binding: null, bound: null, state: null, source: null, buffers: [buffer] };
       }
       slot.indexBuffer = holdPattern(slot, slot.geometry, net.capacity, () => netIndices(net.patches, net.capacity));
     }
@@ -1690,7 +1746,8 @@ const ManimlWGPU = (() => {
   // it: the rows, and for VMobject rows the curve records and stroke
   // instances row_finalize.wgsl writes.
   function makeProgramOutput(slot, program) {
-    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+    // COPY_SRC: the net stage gathers a program's rows (B5.5).
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
     const rowBytes = program.rows * program.channels * 4;
     const curves = Math.max(0, Math.floor((program.rows - 1) / 2));
     const output = { rows: device.createBuffer({size: rowBytes, usage}), records: null, strokes: null,
@@ -1920,56 +1977,128 @@ const ManimlWGPU = (() => {
       compute.end();
       completed.push([output, { state, fill, source }]);
     }
+    // Nets: every output whose steps or source moved, in one dispatch.
+    const changed = [];
     for (const i of incoming.netSlots) {
       const slot = slots[i], output = slot.net, uniforms = slot.set.compute, net = batches[i].net;
       if (!uniforms.netValid) throw new Error("invalid surface net uniforms");
       const source = slot.programKey ? slot.programOutput.rows : slot.netSource.buffer;
-      if (output.bound !== source) {
-        output.binding = device.createBindGroup({layout: netPipeline.getBindGroupLayout(1), entries: [
-          {binding: 0, resource: {buffer: source, size: output.sourceBytes}},
-          {binding: 1, resource: {buffer: output.buffer, size: output.size}}]});
-        output.bound = source;
-      }
-      // Output pixels per world unit at frame scale 1: the camera's rescale
-      // factor for y and the output height.
-      const ppu = uniforms.floats[17] * incoming.header.resolution[1] / 2;
-      const state = [uniforms.floats[23], net.density, ppu, slot.programKey ? slot.programState : ""].join(",");
+      // The output depends on the camera through its steps alone: a pan, an
+      // orbit or a zoom that moves no step count evaluates nothing.
+      const steps = netSteps(net.density, uniforms.floats[17], incoming.header.resolution[1], uniforms.floats[23],
+                             output.capacity);
+      const state = slot.programKey ? steps + ";" + slot.programState : String(steps);
       if (output.state === state && output.source === source) continue;
-      const params = [];
-      for (let offset = 0; offset < output.patches; offset += incoming.maxDispatch) {
-        const chunk = Math.min(incoming.maxDispatch, output.patches - offset);
-        const data = new ArrayBuffer(48), view = new DataView(data);
-        [0, output.nu, output.nv, output.channels, output.capacity, offset * output.perPatch, offset, chunk]
-          .forEach((value, k) => view.setUint32(4 * k, value, true));
-        view.setFloat32(32, net.density, true); view.setFloat32(36, ppu, true);
-        params.push([data, chunk]);
+      changed.push({ output, source, steps, sourceBytes: output.sourceBytes, size: output.size, patches: output.patches });
+      completed.push([output, { state, source }]);
+    }
+    if (changed.length) evaluateNets(changed, encoder, incoming);
+    else if (!incoming.netSlots.length) releaseNetScratch();
+  }
+
+  // A scratch buffer of at least `size` bytes, grown by powers of two (never
+  // past `limit`, the budget, but to `size`); one it outgrew is destroyed
+  // after the submit, with the bind groups that named it.
+  function netScratchBuffer(name, size, usage, limit = Infinity) {
+    const held = netScratch.buffers[name];
+    if (held && netScratch.sizes[name] >= size) return held;
+    if (held) retired.push(held);
+    if (name === "table") netScratch.tables.clear(); else netScratch.io = null;
+    let bytes = 1 << 16;
+    while (bytes < size) bytes *= 2;
+    bytes = Math.max(size, Math.min(bytes, limit));
+    netScratch.sizes[name] = bytes;
+    return netScratch.buffers[name] = device.createBuffer({size: bytes, usage});
+  }
+
+  // The scratch belongs to frames that draw nets.
+  function releaseNetScratch() {
+    for (const buffer of Object.values(netScratch.buffers)) retired.push(buffer);
+    netScratch.buffers = {};
+    netScratch.sizes = {};
+    netScratch.tables.clear();
+    netScratch.io = null;
+  }
+
+  // Evaluate every changed net in one dispatch (docs/phase_b4_plan.md,
+  // B5.5), as the native driver's _evaluate_nets does: their control points
+  // gathered into one scratch buffer, the kernel evaluating every patch of
+  // every net into another, and each net's vertices copied into the output
+  // its slot owns. A net alone in its dispatch (the one changed net, or one
+  // larger than the budget) is read and written in place. The tables of a
+  // frame's dispatches share one buffer, each at an aligned offset.
+  function evaluateNets(changed, encoder, incoming) {
+    const alignment = (device.limits || {}).minStorageBufferOffsetAlignment ?? 256;
+    const budget = Math.min(NET_SCRATCH_BUDGET, incoming.maxStorage);
+    const dispatches = planNets(changed, budget);
+    let cursor = 0;
+    for (const dispatch of dispatches) {
+      dispatch.offset = cursor;
+      dispatch.bytes = NET_TABLE_HEADER + NET_ENTRY_BYTES * dispatch.entries.length;
+      cursor += Math.ceil(dispatch.bytes / alignment) * alignment;
+    }
+    const table = new ArrayBuffer(cursor), words = new Uint32Array(table);
+    for (const dispatch of dispatches) {
+      let at = dispatch.offset / 4;
+      words[at] = dispatch.entries.length; words[at + 1] = dispatch.patches;
+      at += 4;
+      for (const [index, sourceOffset, outputOffset, first] of dispatch.entries) {
+        const {output, steps} = changed[index];
+        words.set([sourceOffset, outputOffset, output.nu, output.nv, output.channels, output.capacity, steps, first], at);
+        at += 8;
       }
-      if (!output.chunks) {
-        output.chunks = params.map(([data, count]) => {
-          const buffer = makeBuffer(data, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-          output.buffers.push(buffer);
-          return { params: buffer, count, binding: null };
-        });
-      } else {
-        output.chunks.forEach((chunk, k) => device.queue.writeBuffer(chunk.params, 0, params[k][0]));
+    }
+    const tableBuffer = netScratchBuffer("table", cursor, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const gathered = dispatches.filter(dispatch => dispatch.entries.length > 1);
+    let input = null, output = null;
+    if (gathered.length) {
+      input = netScratchBuffer("input", Math.max(...gathered.map(dispatch => dispatch.inputBytes)),
+                               GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, budget);
+      output = netScratchBuffer("output", Math.max(...gathered.map(dispatch => dispatch.outputBytes)),
+                                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, budget);
+      if (!netScratch.io) {
+        netScratch.io = device.createBindGroup({layout: netPipeline.getBindGroupLayout(1), entries: [
+          {binding: 0, resource: {buffer: input, size: netScratch.sizes.input}},
+          {binding: 1, resource: {buffer: output, size: netScratch.sizes.output}}]});
       }
-      if (output.camera !== uniforms.buffer) {
-        for (const chunk of output.chunks) {
-          chunk.binding = device.createBindGroup({layout: netPipeline.getBindGroupLayout(0), entries: [
-            {binding: 0, resource: {buffer: uniforms.buffer, size: 192}},
-            {binding: 1, resource: {buffer: chunk.params, size: 48}}]});
+    }
+    device.queue.writeBuffer(tableBuffer, 0, table);
+    for (const dispatch of dispatches) {
+      const width = Math.max(1, Math.min(dispatch.patches, incoming.maxDispatch));
+      const rows = Math.ceil(dispatch.patches / width);
+      if (rows > incoming.maxDispatch) throw new Error("surface nets exceed the device's dispatch limits");
+      let group = netScratch.tables.get(dispatch.offset);
+      if (!group) {
+        group = device.createBindGroup({layout: netPipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: tableBuffer, offset: dispatch.offset, size: netScratch.sizes.table - dispatch.offset}}]});
+        netScratch.tables.set(dispatch.offset, group);
+      }
+      const direct = dispatch.entries.length === 1;
+      let binding = netScratch.io;
+      if (direct) {
+        const net = changed[dispatch.entries[0][0]], target = net.output;
+        if (target.bound !== net.source) {
+          target.binding = device.createBindGroup({layout: netPipeline.getBindGroupLayout(1), entries: [
+            {binding: 0, resource: {buffer: net.source, size: net.sourceBytes}},
+            {binding: 1, resource: {buffer: target.buffer, size: net.size}}]});
+          target.bound = net.source;
         }
-        output.camera = uniforms.buffer;
+        binding = target.binding;
+      } else {
+        for (const [source, offset, size] of dispatch.sources) encoder.copyBufferToBuffer(source, 0, input, offset, size);
       }
       const compute = encoder.beginComputePass();
       compute.setPipeline(netPipeline);
-      compute.setBindGroup(1, output.binding);
-      for (const chunk of output.chunks) {
-        compute.setBindGroup(0, chunk.binding);
-        compute.dispatchWorkgroups(chunk.count, Math.ceil(output.perPatch / 64));
-      }
+      compute.setBindGroup(0, group);
+      compute.setBindGroup(1, binding);
+      compute.dispatchWorkgroups(width, rows);
       compute.end();
-      completed.push([output, { state, source }]);
+      if (!direct) {
+        for (const [index, , outputOffset] of dispatch.entries) {
+          const net = changed[index];
+          encoder.copyBufferToBuffer(output, outputOffset * 4, net.output.buffer, 0, net.size);
+        }
+      }
     }
   }
 
@@ -2297,6 +2426,7 @@ const ManimlWGPU = (() => {
         frame.slots = [];
         frame.samples = frame.format = frame.environment = frame.message = frame.header = null;
         frame.stream = frame.resync = null;
+        releaseNetScratch();
         destroyRetired();
         for (const entry of textureCache.values()) entry.texture.destroy();
         textureCache.clear();

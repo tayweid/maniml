@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import lru_cache
+import math
 import weakref
 
 import numpy as np
@@ -55,12 +57,97 @@ def pack_net(surface):
 def steps_needed(density, pixels_per_unit, frame_scale):
     """The kernel's rule: steps per patch edge so the chord deviation stays
     under a quarter pixel, at least two, capped."""
-    pixels = float(density) * float(pixels_per_unit) / float(frame_scale)
+    return _steps_needed(float(density), float(pixels_per_unit), float(frame_scale))
+
+
+# Memoized on its float arguments: the reservation reads it for every net
+# on every camera move, and a frame's many equal surfaces share a density.
+@lru_cache(maxsize=4096)
+def _steps_needed(density, pixels_per_unit, frame_scale):
+    pixels = density * pixels_per_unit / frame_scale
     if not np.isfinite(pixels) or pixels <= 4.0:
         return MIN_NET_STEPS
     return int(min(MAX_NET_STEPS, max(MIN_NET_STEPS, np.ceil(np.sqrt(np.float32(pixels))))))
 
 
+def evaluation_steps(density, rescale_y, height, frame_scale, capacity):
+    """The steps a driver evaluates a net at (docs/phase_b4_plan.md, B5.5):
+    the kernel's rule, decided where the frame is encoded so that a net's
+    output depends on its control points, its capacity and this integer
+    alone, and a camera move that leaves it unchanged evaluates nothing.
+    Computed in double precision from the descriptor's density and the
+    uniforms as packed (float32 y rescale factor and frame scale), as the
+    browser driver computes it (netSteps), so both reach the same integer."""
+    capacity = validate_capacity(capacity)
+    pixels = float(density) * (float(rescale_y) * float(height) / 2.0) / float(frame_scale)
+    if not pixels > 4.0:
+        return MIN_NET_STEPS
+    root = math.sqrt(pixels)
+    if root >= capacity:
+        return capacity
+    return max(MIN_NET_STEPS, min(capacity, math.ceil(root)))
+
+
+# The table net_compute.wgsl reads: a header of four words (entries,
+# patches), then eight words per net (source offset, output offset, nu, nv,
+# channels, capacity, steps, first patch), offsets in floats.
+NET_TABLE_HEADER_BYTES = 16
+NET_ENTRY_BYTES = 32
+# A dispatch of several nets gathers their control points into one scratch
+# buffer and evaluates into another, each at most this many bytes (and the
+# device's storage binding limit); a net whose own output is larger is a
+# dispatch of its own, bound directly.
+NET_SCRATCH_BUDGET = 32 << 20
+
+
+def plan_evaluation(nets, budget=NET_SCRATCH_BUDGET):
+    """Group the nets a frame evaluates into dispatches, in order. ``nets``
+    is a sequence of (source, source_bytes, output_bytes, patches), source
+    any hashable naming its control points. Each dispatch is a dict:
+    ``entries`` (index into nets, source offset and output offset in floats,
+    first patch), ``sources`` (source, byte offset, bytes: what is gathered,
+    each source once), ``input_bytes``, ``output_bytes`` and ``patches``.
+    A dispatch of one net reads its source and writes its output directly
+    (both offsets 0); the others fit ``budget`` in both scratch buffers."""
+    dispatches, current = [], None
+    for index, (source, source_bytes, output_bytes, patches) in enumerate(nets):
+        fresh = current is None or source not in current["offsets"]
+        if current is not None and (current["input_bytes"] + (source_bytes if fresh else 0) > budget
+                                    or current["output_bytes"] + output_bytes > budget):
+            current = None
+        if current is None:
+            current = {"entries": [], "sources": [], "offsets": {}, "input_bytes": 0, "output_bytes": 0,
+                       "patches": 0}
+            dispatches.append(current)
+        offset = current["offsets"].get(source)
+        if offset is None:
+            offset = current["offsets"][source] = current["input_bytes"]
+            current["sources"].append((source, offset, source_bytes))
+            current["input_bytes"] += source_bytes
+        current["entries"].append((index, offset // 4, current["output_bytes"] // 4, current["patches"]))
+        current["output_bytes"] += output_bytes
+        current["patches"] += patches
+    for dispatch in dispatches:
+        del dispatch["offsets"]
+    return dispatches
+
+
+def pack_table(rows, patches):
+    """A dispatch's table: the header, then each row of eight words."""
+    words = [len(rows), patches, 0, 0]
+    for row in rows:
+        words.extend(row)
+    return np.asarray(words, dtype="<u4").tobytes()
+
+
+def dispatch_shape(patches, max_dispatch):
+    """Workgroups (x, y) covering ``patches``, one per patch, in rows of at
+    most ``max_dispatch``."""
+    width = max(1, min(patches, max_dispatch))
+    return width, -(-patches // width)
+
+
+@lru_cache(maxsize=1024)
 def steps_cap(patches, stride):
     """The largest reservation whose output stays under MAX_NET_OUTPUT_BYTES."""
     side = int(np.sqrt(MAX_NET_OUTPUT_BYTES // max(1, patches * stride)))
@@ -72,7 +159,13 @@ def reserve_steps(needed, previous=None, cap=MAX_NET_STEPS):
     the object's cap."""
     needed = validate_capacity(needed)
     cap = validate_capacity(cap)
-    if previous is not None and validate_capacity(previous) >= min(needed, cap):
+    return _reserve(needed, None if previous is None else validate_capacity(previous), cap)
+
+
+def _reserve(needed, previous, cap):
+    """reserve_steps for step counts the cache made itself (valid by
+    construction), without checking them again on every camera move."""
+    if previous is not None and previous >= min(needed, cap):
         return previous
     return min(cap, 2 * needed)
 
@@ -109,8 +202,9 @@ def net_indices(patches, capacity, vertex_base=0):
 def pixels_per_unit(uniforms, resolution):
     """Output pixels per world unit at frame scale 1, from the camera's
     rescale factor for y and the output height."""
-    factors = np.asarray(uniforms["frame_rescale_factors"], dtype=float)
-    return float(factors[1]) * float(resolution[1]) / 2.0
+    # float() of the element is what np.asarray(..., dtype=float) makes of
+    # it, without building the array: the retained frame asks per net.
+    return float(uniforms["frame_rescale_factors"][1]) * float(resolution[1]) / 2.0
 
 
 _NO_NET = readonly(np.zeros((0, 0), dtype="<f4"))  # a program entry carries no net
@@ -142,6 +236,9 @@ class NetRecipeCache:
         self.entries = OrderedDict()
         self.frame = 0
         self._bytes = 0
+        # Entries used in the current frame: when every entry was,
+        # finish_frame has nothing to sweep.
+        self._used = 0
         self.updates = 0
         self.policy = render_cache_policy()
         self.verify = verify_render_cache()
@@ -152,6 +249,7 @@ class NetRecipeCache:
 
     def begin_frame(self):
         self.frame += 1
+        self._used = 0
         # Read once per frame: ``source`` is asked per surface.
         self.policy = render_cache_policy()
         self.verify = verify_render_cache()
@@ -159,8 +257,18 @@ class NetRecipeCache:
     def clear(self):
         self.entries.clear()
         self._bytes = 0
+        self._used = 0
+
+    def _use(self, entry, counted):
+        """Stamp ``entry`` used in this frame, counting its place once
+        (``counted``: an entry at its place was already used in it)."""
+        if not counted:
+            self._used += 1
+        entry.frame = self.frame
 
     def finish_frame(self):
+        if self._used == len(self.entries) and self._bytes <= self.max_bytes:
+            return
         for key, entry in list(self.entries.items()):
             if entry.frame != self.frame or entry.owner() is None:
                 self._bytes -= entry.net.nbytes
@@ -177,6 +285,8 @@ class NetRecipeCache:
         previous = self.entries.get(id(surface))
         if previous is not None and previous.owner() is not surface:
             self._bytes -= self.entries.pop(id(surface)).net.nbytes
+            if previous.frame == self.frame:
+                self._used -= 1
             previous = None
         return previous
 
@@ -199,13 +309,14 @@ class NetRecipeCache:
         entry = self.entries.get(id(surface))
         if entry is None or entry.owner() is not surface:
             return None
-        entry.frame = self.frame
+        self._use(entry, entry.frame == self.frame)
         self.entries.move_to_end(id(surface))
         return entry
 
     def source(self, surface, *, revision=None, pixels_per_unit, frame_scale):
         """The surface's net entry, reserved for this zoom."""
         previous = self._previous(surface)
+        counted = previous is not None and previous.frame == self.frame
         trusted = (self.policy == "revision" and revision is not None
                    and previous is not None and previous.revision == revision)
         if trusted and self.verify:
@@ -231,9 +342,9 @@ class NetRecipeCache:
         else:
             entry = previous
         entry.revision = revision
-        entry.frame = self.frame
-        entry.capacity = reserve_steps(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
-                                       steps_cap(entry.patches, entry.channels * 4))
+        self._use(entry, counted)
+        entry.capacity = _reserve(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
+                                  steps_cap(entry.patches, entry.channels * 4))
         self.entries.move_to_end(id(surface))
         return entry
 
@@ -248,6 +359,7 @@ class NetRecipeCache:
         if nu * nv != rows or any(s.shape != (rows, channels) for s in sources):
             return None
         previous = self._previous(surface)
+        counted = previous is not None and previous.frame == self.frame
         key = tuple(id(s) for s in sources)
         if previous is None or previous.data_bytes != key:
             density = max(float(bezier_net.second_difference(
@@ -260,8 +372,8 @@ class NetRecipeCache:
             self.entries[id(surface)] = entry
         else:
             entry = previous
-        entry.frame = self.frame
-        entry.capacity = reserve_steps(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
-                                       steps_cap(entry.patches, entry.channels * 4))
+        self._use(entry, counted)
+        entry.capacity = _reserve(steps_needed(entry.density, pixels_per_unit, frame_scale), entry.capacity,
+                                  steps_cap(entry.patches, entry.channels * 4))
         self.entries.move_to_end(id(surface))
         return entry

@@ -158,6 +158,33 @@ const sceneDraws = passes => scenePasses(passes).flatMap(pass => pass.draws);
 const kernel = pass => ["BorderParams", "NetParams", "BlendParams", "FinalizeParams"]
   .find(name => pass.draws.some(draw => draw.pipeline.descriptor.compute.module.code.includes("struct " + name)));
 const computePasses = (passes, name) => passes.filter(pass => pass.compute && kernel(pass) === name);
+// What the net stage evaluated (B5.5), net by net in its dispatches' order:
+// the buffer each read and the output it wrote, with its table entry. A net
+// alone in its dispatch is read and written in place; a dispatch of
+// several reads a scratch buffer the sources were copied into and writes
+// another, copied out into each output. Read right after the frame: the
+// table is rewritten every frame that evaluates.
+function netEvaluations(passes) {
+  const evaluated = [];
+  passes.forEach((pass, at) => {
+    if (!pass.compute || kernel(pass) !== "NetParams") return;
+    for (const draw of pass.draws) {
+      const table = draw.bindings.get(0).entries[0].resource;
+      const words = new Uint32Array(table.buffer.bytes, table.offset ?? 0, table.size / 4);
+      const [input, output] = draw.bindings.get(1).entries.map(entry => entry.resource.buffer);
+      for (let k = 0; k < words[0]; k++) {
+        const [sourceOffset, outputOffset, nu, nv, channels, capacity, steps] = words.subarray(4 + 8 * k, 11 + 8 * k);
+        const gathered = words[0] > 1;
+        const into = gathered && passes.slice(0, at).filter(p => p.copy && p.copy[2] === input && p.copy[3] === sourceOffset * 4).at(-1);
+        const out = gathered && passes.slice(at + 1).find(p => p.copy && p.copy[0] === output && p.copy[1] === outputOffset * 4);
+        assert.ok(!gathered || (into && out), "a gathered net is copied in and out");
+        evaluated.push({source: gathered ? into.copy[0] : input, output: gathered ? out.copy[2] : output,
+                        nu, nv, channels, capacity, steps, gathered});
+      }
+    }
+  });
+  return evaluated;
+}
 const countsDelta = (before, after) => Object.fromEntries(Object.keys(after).map(key => [key, after[key] - before[key]]));
 
 function expectedRunIndices(fillCount, count, capacity) {
@@ -767,22 +794,30 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
-  // Two real surface net frames: the port's surfaces scene, then the same
-  // scene after a zoom, whose batches are cached at a larger reservation.
+  // Real surface net frames: the port's surfaces scene, then the same scene
+  // after a zoom, whose batches are cached at a larger reservation, then
+  // camera moves at that reservation (B5.5): a pan, a zoom that moves no
+  // net's step count and one that moves them. The steps each evaluation
+  // carries are the ones Python's rule gives (the expectation, argv[3]):
+  // a frame whose steps and sources stand evaluates nothing.
   async netWire() {
     const d = await driver();
     const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
-    const first = await d.renderBytes(load(process.argv[3]));
-    const compute = first.filter(pass => pass.compute);
-    assert.equal(compute.length, 2, "one evaluation per net");
+    const expected = JSON.parse(process.argv[3]), files = process.argv.slice(4);
+    assert.equal(expected.length, files.length);
+    const first = await d.renderBytes(load(files[0]));
+    const nets = netEvaluations(first);
+    assert.equal(nets.length, 2, "one evaluation per net");
+    assert.equal(first.filter(pass => pass.compute).length, 1, "both nets in one dispatch");
+    assert.ok(nets.every(net => net.gathered), "gathered into the scratch and copied out");
+    assert.deepEqual(nets.map(net => net.steps), expected[0]);
     const scene = first.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
     assert.equal(scene.draws.length, 2);
     const [sphere, textured] = scene.draws;
-    for (const [draw, pass] of [[sphere, compute[0]], [textured, compute[1]]]) {
+    for (const [draw, net] of [[sphere, nets[0]], [textured, nets[1]]]) {
       assert.ok(draw.indexed);
-      assert.equal(draw.vertices[0], pass.draws[0].bindings.get(1).entries[1].resource.buffer, "draws the evaluated output");
-      const params = new Uint32Array(pass.draws[0].bindings.get(0).entries[1].resource.buffer.bytes);
-      const [, nu, nv, , capacity] = params;
+      assert.equal(draw.vertices[0], net.output, "draws the evaluated output");
+      const {nu, nv, capacity} = net;
       const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
       assert.equal(draw.args[0], patches * 6 * capacity * capacity);
       const indices = new Uint32Array(draw.index.buffer.bytes);
@@ -792,16 +827,26 @@ const cases = {
     assert.equal(sphere.pipeline.descriptor.vertex.buffers[0].arrayStride, 40);
     assert.equal(textured.pipeline.descriptor.vertex.buffers[0].arrayStride, 36);
     assert.ok(textured.bindings.get(1).entries.some(entry => entry.resource.texture), "the texture binds as before");
-    const outputs = compute.map(pass => pass.draws[0].bindings.get(1).entries[1].resource.buffer);
-    const sources = compute.map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer);
-    const second = await d.renderBytes(load(process.argv[4]));
-    const again = second.filter(pass => pass.compute);
-    assert.equal(again.length, 2, "a zoom re-evaluates both nets");
+    const outputs = nets.map(net => net.output), sources = nets.map(net => net.source);
+    const second = await d.renderBytes(load(files[1]));
+    const again = netEvaluations(second);
+    assert.equal(again.length, 2, "a zoom that grows the reservations re-evaluates both nets");
+    assert.deepEqual(again.map(net => net.steps), expected[1]);
     const grown = second.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment).draws;
     assert.ok(grown[0].args[0] > sphere.args[0], "the reservation grew with the zoom");
-    assert.deepEqual(again.map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer), sources, "sources are reused");
+    assert.deepEqual(again.map(net => net.source), sources, "sources are reused");
     assert.ok(outputs.every(output => output.destroyed), "the old reservations retire after the frame");
     assert.ok(sphere.index.buffer.destroyed);
+    const held = again.map(net => net.output);
+    for (const [index, file] of files.slice(2).entries()) {
+      const passes = await d.renderBytes(load(file)), evaluated = netEvaluations(passes);
+      assert.deepEqual(evaluated.map(net => net.steps), expected[index + 2], `frame ${index + 2}: the steps that moved`);
+      assert.equal(passes.filter(pass => pass.compute).length, evaluated.length ? 1 : 0, `frame ${index + 2}: one dispatch or none`);
+      const draws = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment).draws;
+      assert.deepEqual(draws.map(draw => draw.vertices[0]), held, `frame ${index + 2}: the outputs stand, evaluated in place`);
+      assert.ok(evaluated.every(net => held.includes(net.output)));
+    }
+    assert.equal(d.cacheMisses(), 0);
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
@@ -1126,16 +1171,18 @@ const cases = {
       assert.equal(frame.delta.draws, first.delta.draws, label);
       sameDraws(label, frame.passes);
     }
-    // A camera move: every border and net output is evaluated again at the
-    // new scale, the program is not, and nothing is made.
+    // A camera move: every border output is evaluated again at the new
+    // scale; a net's output depends on the camera through its steps alone
+    // (B5.5), which this move leaves at two, so neither net is, nor the
+    // program; nothing is made.
     const moved = await counted(formatSeven(cached(batches), {}, {camera: {...CAMERA, frame_scale: .9}}));
     for (const key of ["buffers_created", "buffers_destroyed", "bind_groups_created", "uniform_buffers_created"]) {
       assert.equal(moved.delta[key], 0, `camera move: ${key}`);
     }
     assert.ok(moved.delta.write_buffer_calls > 0 && moved.delta.write_buffer_calls === moved.delta.uniform_writes,
-      "the uniform sets and the nets' parameters are rewritten in place");
+      "the uniform sets are rewritten in place");
     assert.equal(computePasses(moved.passes, "BorderParams").length, 3);
-    assert.equal(computePasses(moved.passes, "NetParams").length, 2);
+    assert.equal(computePasses(moved.passes, "NetParams").length, 0);
     assert.equal(computePasses(moved.passes, "BlendParams").length, 0);
     sameDraws("camera move", moved.passes);
     for (const draw of sceneDraws(moved.passes)) {
@@ -1199,7 +1246,8 @@ const cases = {
         .map(batch => tables ? batch : cached([batch])[0]), tables || {});
     const tables = {object_data: {[H("c")]: objectTable([[4, 1]]), [H("d")]: objectTable([[4, 1]])},
       program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
-    const reads = (passes, name) => computePasses(passes, name).map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer);
+    const reads = (passes, name) => name === "NetParams" ? netEvaluations(passes).map(net => net.source)
+      : computePasses(passes, name).map(pass => pass.draws[0].bindings.get(1).entries[0].resource.buffer);
     const first = await d.renderBytes(frame([.3, .6], tables));
     assert.equal(computePasses(first, "BlendParams").length, 4, "four states, four evaluations");
     const [recordsA, recordsB] = reads(first, "BorderParams"), [rowsA, rowsB] = reads(first, "NetParams");
@@ -1217,7 +1265,7 @@ const cases = {
     const fourth = await d.renderBytes(frame([.3, .7]));
     assert.equal(fourth.filter(pass => pass.compute).length, 0);
     const made = countsDelta(before, d.counts());
-    assert.equal(made.buffers_created, 0, "evaluations write their parameters in place");
+    assert.equal(made.buffers_created, 0, "evaluations write their parameters (and the nets' table) in place");
     assert.equal(made.buffers_destroyed, 0);
     assert.equal(d.cacheMisses(), 0);
     await d.destroy();
@@ -1284,44 +1332,87 @@ const cases = {
     }
   },
   // A border's generation reads the camera position unless its stroke is
-  // flat, and a net's reads its density: moving either evaluates the output
-  // again with the new value, and moving what an output does not read
+  // flat, and a net's reads its steps (B5.5), which follow its density and
+  // the frame scale: moving what an output reads evaluates it again with
+  // the new value, and moving what it does not read (the camera position,
+  // or a density or scale that leaves the steps where they were)
   // evaluates nothing.
   async generationFollowsItsInputs() {
     const d = await driver();
     const tables = {border_data: {[H("c")]: curveRecords(3)}, net_data: {[H("e")]: floats(90, 1)}};
     const run = borderRunFixture(3, 40, H("c")).spec, flat = {...run, uniforms: {flat_stroke: 1}};
-    const net = density => netBatch("net", H("e"), {net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 2, density}});
+    // Capacity 8: one patch of 81 vertices, 384 indices.
+    const net = density => netBatch("net", H("e"), {num_verts: 81, count: 384,
+      net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 8, density}});
     const frame = (camera, density) => formatSeven(cached([run, flat, net(density)]), {}, {camera});
     const first = await d.renderBytes(formatSeven([run, flat, net(0)], tables));
     const [output, flatOutput, netOutput] = sceneDraws(first).map(draw => draw.vertices[0]);
     assert.equal(computePasses(first, "BorderParams").length, 2);
+    assert.deepEqual(netEvaluations(first).map(net => [net.output, net.steps, net.gathered]), [[netOutput, 2, false]],
+      "one net, evaluated in place");
     const written = (passes, name) => computePasses(passes, name).map(pass => pass.draws[0].bindings.get(1).entries[1].resource.buffer);
     const read = (passes, name, offset, count) => computePasses(passes, name)
       .map(pass => Array.from(new Float32Array(pass.draws[0].bindings.get(0).entries[offset].resource.buffer.bytes)).slice(...count));
+    const steps = passes => netEvaluations(passes).map(net => [net.output, net.steps]);
     const moved = {...CAMERA, camera_position: [1, 0, 10]};
     const position = await d.renderBytes(frame(moved, 0));
     assert.deepEqual(written(position, "BorderParams"), [output], "the run whose stroke is not flat, alone");
     assert.deepEqual(read(position, "BorderParams", 0, [20, 23]), [[1, 0, 10]]);
     assert.equal(computePasses(position, "NetParams").length, 0, "a net does not read the camera position");
-    const denser = await d.renderBytes(frame(moved, 1));
-    assert.deepEqual(written(denser, "NetParams"), [netOutput]);
-    assert.deepEqual(read(denser, "NetParams", 1, [8, 9]), [[1]], "the net's parameters carry the density");
+    // 90 pixels per unit (180 rows, rescale 1): steps ceil(sqrt(density * 90 / frame scale)), at least 2.
+    const denser = await d.renderBytes(frame(moved, .2));
+    assert.deepEqual(steps(denser), [[netOutput, 5]], "the net's table carries its steps");
     assert.equal(computePasses(denser, "BorderParams").length, 0);
-    assert.equal((await d.renderBytes(frame(moved, 1))).filter(pass => pass.compute).length, 0);
+    assert.equal((await d.renderBytes(frame(moved, .2))).filter(pass => pass.compute).length, 0);
+    assert.equal((await d.renderBytes(frame(moved, .21))).filter(pass => pass.compute).length, 0,
+      "a density that leaves the steps at five evaluates nothing");
+    const zoomed = await d.renderBytes(frame({...moved, frame_scale: .98}, .21));
+    assert.equal(computePasses(zoomed, "NetParams").length, 0, "nor does a zoom that leaves them");
+    assert.deepEqual(steps(await d.renderBytes(frame({...moved, frame_scale: .5}, .21))), [[netOutput, 7]],
+      "a zoom that moves them evaluates again");
+    assert.deepEqual(steps(await d.renderBytes(frame({...moved, frame_scale: .1}, .21))), [[netOutput, 8]],
+      "at most the capacity");
     const back = await d.renderBytes(frame(moved, 0));
-    assert.deepEqual(read(back, "NetParams", 1, [8, 9]), [[0]]);
+    assert.deepEqual(steps(back), [[netOutput, 2]]);
     assert.ok(!flatOutput.destroyed);
     assert.equal(d.cacheMisses(), 0);
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
+  // The net stage's one dispatch (B5.5) splits where the scratch would
+  // pass the budget (here a device whose storage bindings hold two nets'
+  // vertices): five changed nets in three dispatches that share the
+  // scratch, each net read from its own source and copied into its own
+  // output, drawn as one dispatch draws them.
+  async netsInSeveralDispatches() {
+    const {tracedDriver, renderPasses, firstDifference} = require("./webgpu_trace.cjs");
+    const hashes = ["1", "2", "3", "4", "5"].map(H);
+    const tables = {net_data: Object.fromEntries(hashes.map((hash, i) => [hash, floats(90, i + 1)]))};
+    const nets = hashes.map((hash, i) => netBatch(`net-${i}`, hash));
+    const message = formatSeven(nets, tables);
+    const small = await tracedDriver({limits: {maxStorageBufferBindingSize: 1024}}), wide = await tracedDriver();
+    const passes = await small.renderBytes(message.slice(0));
+    const traced = renderPasses(small.trace());
+    const evaluated = netEvaluations(passes);
+    assert.deepEqual(computePasses(passes, "NetParams").map(pass => pass.draws.length), [1, 1, 1]);
+    assert.deepEqual(evaluated.map(net => net.gathered), [true, true, true, true, false]);
+    const draws = sceneDraws(passes);
+    assert.deepEqual(evaluated.map(net => net.output), draws.map(draw => draw.vertices[0]), "each net into its own output");
+    const sources = evaluated.map(net => net.source);
+    assert.equal(new Set(sources).size, 5, "each net from its own source");
+    await wide.renderBytes(message.slice(0));
+    const found = firstDifference(traced, renderPasses(wide.trace()));
+    assert.equal(found, null, `three dispatches draw what one draws: ${found}`);
+    for (const d of [small, wide]) { await d.destroy(); assert.ok(d.buffers.every(buffer => buffer.destroyed)); }
   },
   // The retained frame draws what a driver with nothing retained draws from
   // the same frame whole. Over full frames that resend a message byte for
   // byte, replace a bordered mover's geometry in place (its slot and output
   // taken over, its new fill copied in), move the camera (its scale, its
   // position, which a flat stroke's border does not read), change a net's
-  // density and programs' scalars (differing, coinciding, parting), insert
+  // density and programs' scalars (differing, coinciding, parting; the nets
+  // evaluated alone in place here where a fresh driver gathers them with
+  // the rest), insert
   // a batch and the same geometry under other overrides, fail after
   // rewriting the uniform sets and return to the camera last submitted,
   // change the sample count and remove batches, every frame's render passes
@@ -1346,7 +1437,8 @@ const cases = {
       {pipeline: "paint", hash: "painted", num_verts: 3, count: 3, paint_hash: H("a")},
       {pipeline: "image", hash: "image", stride: 24, num_verts: 3, count: 3, textures: {Texture: "texture"}},
       run, {...run, uniforms: {flat_stroke: 1}}, patchRun("patch", 4, H("d")),
-      netBatch("net", H("e"), {net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 2, density}}),
+      // Capacity 8, so the density and the scale move its steps (B5.5).
+      netBatch("net", H("e"), {num_verts: 81, count: 384, net: {hash: H("e"), nu: 3, nv: 3, channels: 10, capacity: 8, density}}),
       patchProgram("patch-a", a), patchProgram("patch-b", b),
       {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4, fill_num_verts: 0,
        program: blend([H("1"), H("2")], a, 9, 17)},

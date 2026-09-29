@@ -234,8 +234,9 @@ transport state and preserve the scene/checkpoint. Do not remove Original
 2D or Phase A without Taylor's direction. The flips of the defaults are
 decided on measured gates (the plan's "The flips"), not by this switch; on
 2026-09-28 none passed (nets on camera moves, patches on plays and ticked
-frames, strokes on Python no lower than programs off), so the default is
-Phase A's stack.
+frames, strokes on Python no lower than programs off; B5.5's nets then
+passed the gate's three scenes and failed on scenes that are mostly
+surfaces), so the default is Phase A's stack.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -400,20 +401,32 @@ the net's size (rounded up to odd), `uv_func` is sampled once into the net
 that passes through every sample, and `Transform` aligns nets by exact
 subdivision. The reference renderers draw the net evaluated on the CPU at
 two steps per patch, which is the sample grid to a float32 ulp
-(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` sends the net
-instead and the native driver evaluates it at screen density
-(`net_compute.wgsl`, capacity reserved from the second difference with the
-border stage's headroom, capped per object); a zoomed sphere then shows no
-facets. Both drivers evaluate nets; the default stays `grids`: B5.4's gate
-(`docs/phase_b4_plan.md`, "The flips") passed its pixels and its still,
-ticked and play frames, and failed on camera moves (1.23-1.34× grids'
-complete frame with the GPU part from the attribution runs, as the gate
-reads it; 1.13-1.33× with it from the flag-off wall clock, which the
-attribution runs overstate for a stack of more passes), because a zoom
-changes a net's evaluation state (frame scale, pixels per unit) and
-re-evaluates every net on screen, each in a compute pass of its own (16-19
-ms of flag-off wall clock on B4's heaviest frames, up to 479 spheres),
-though the kernel's output moves only with a net's integer step count. Recordings
+(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` (and the
+Phase B selection) sends the net instead and each driver evaluates it at
+screen density (`net_compute.wgsl`, capacity reserved from the second
+difference with the border stage's headroom, capped per object); a zoomed
+sphere then shows no facets. The default stays `grids`, as does Phase A
+forced. A driver decides a net's steps itself
+(`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
+double-precision rule from the descriptor's density and the packed
+uniforms), so an output depends on its control points, capacity and steps
+alone and a pan, an orbit or a zoom that moves no step count evaluates
+nothing; the nets whose steps or source moved are gathered into one scratch
+buffer, evaluated by one dispatch over a table of them (one workgroup a
+patch) and copied into the outputs their slots own (a net alone is read
+and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). B5.4's
+gate failed nets on camera moves (1.23-1.34× grids' complete frame: a zoom
+re-evaluated every net on screen, each in a pass of its own); B5.5 passed
+it on its three scenes, every class within 1.05 in both formats on the
+orbit demo, EpisodeB3 and B4 (camera moves 0.997-1.046×) and pixels within
+0.31% over 24/255, with the serializer's per-net cost on camera moves and
+still frames made cheaper along the way, and failed it on scenes that are
+mostly surfaces (70 spheres 1.16-1.31× on still and camera frames, 480
+spheres 1.37-1.52× and 0.98% of the pixels;
+`benchmarks/results/b55_nets_one_dispatch_20260928/`): a net draws its
+capacity's triangle pattern (`net_indices(patches, capacity)`, though the
+reservation is twice the steps) in a draw of its own, where grids coalesce,
+so the redraw is the lever left. Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -466,9 +479,9 @@ rows of its own) into the browser-side complete frame per class, with the
 flip's pixels over the pausepoints and the frames strictly inside their
 plays, and beside it the same frames with the GPU part the flag-off runs'
 wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
-flip changes the pass count, as nets and programs do, the attribution run
-overstates the stack with more passes; the gate's text and the measuring
-contract disagree there, and both are quoted), `fixtures` draws every
+flip changes the pass count, as programs do (and nets did before B5.5), the
+attribution run overstates the stack with more passes; the gate's text and
+the measuring contract disagree there, and both are quoted), `fixtures` draws every
 Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and

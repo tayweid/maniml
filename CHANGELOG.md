@@ -7,6 +7,20 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- Surfaces drawn as Bézier nets (the **Phase B** selection, or
+  `MANIML_SURFACE=nets`) no longer cost a camera move a GPU pass per
+  surface (docs/phase_b4_plan.md, "The flips", B5.5): each driver
+  evaluates only the nets whose step count moved, all of them in one
+  dispatch, so a pan, an orbit or a small zoom evaluates nothing, and what
+  surfaces add to the serializer's work on a camera move fell to about a
+  third. Pixels are unchanged. On the three scenes the nets gate is set on,
+  every kind of frame is now within 5% of grids (camera moves
+  0.997-1.046×, where they were 1.23-1.34×), but on scenes that are mostly
+  surfaces nets still cost more to redraw (70 spheres 1.16-1.31× grids on
+  still and camera frames, 480 spheres 1.37-1.52×): a net draws its
+  capacity's triangles, each surface a draw of its own, where grids
+  coalesce. So the Default renderer, `--render`, checkpoint stills and
+  `--export` keep drawing surfaces as CPU grids.
 - `python -m benchmarks.test_point` measures what a lecture frame costs the
   page (docs/phase_b4_plan.md, "The final test point"): Python's serialize,
   the page's JavaScript and the GPU of the same frames, the bytes sent and

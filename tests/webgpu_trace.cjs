@@ -5,7 +5,11 @@
 // objects; every compute dispatch is its kernel and what the kernel reads.
 // Compute writes are simulated: each range a dispatch writes takes a token
 // derived from its inputs, so a draw that reads an output evaluated from
-// other inputs (a stale one, or another object's) traces differently. Two
+// other inputs (a stale one, or another object's) traces differently. A
+// net's evaluation (B5.5) and a copy place their token on the byte span
+// they write, and a read of exactly that span is that token: a net's
+// output traces alike whether it was evaluated alone in place or among
+// others in a scratch buffer and copied out. Two
 // drivers, or one driver with its retained frame and a fresh one given the
 // same frame whole, that trace a frame's render passes alike ask the GPU
 // for the same pixels.
@@ -48,7 +52,9 @@ const UNIFORM_OFFSETS = (() => {
 const KERNEL_READS = {
   BorderParams: ["border_compute.wgsl", ["camera_position", "flat_stroke", "frame_scale", "is_fixed_in_frame",
                                          "joint_type", "scale_stroke_with_zoom"]],
-  NetParams: ["net_compute.wgsl", ["frame_scale"]],
+  // A net's output depends on its control points, capacity and steps (its
+  // table entry) alone; the kernel reads no uniform.
+  NetParams: ["net_compute.wgsl", []],
 };
 for (const [kernel, [file, fields]] of Object.entries(KERNEL_READS)) {
   const read = [...new Set([...wgsl(file).matchAll(/\bu\.(\w+)/g)].map(match => match[1]))].sort();
@@ -78,18 +84,64 @@ function kernelOf(module) {
 
 // A tracer keeps the simulated writes of one device's buffers.
 function tracer() {
-  const writes = new WeakMap(), contents = new WeakMap(), pipelines = new WeakMap();
+  const writes = new WeakMap(), spans = new WeakMap(), contents = new WeakMap(), pipelines = new WeakMap();
 
-  // A buffer's content: its bytes (as the fake device holds them) and the
-  // tokens the simulated kernels wrote into it, by range.
-  function content(buffer) {
+  function bytesOf(buffer) {
     let cached = contents.get(buffer);
     if (!cached || cached.version !== buffer.version) {
       cached = {version: buffer.version, bytes: digest(new Uint8Array(buffer.bytes))};
       contents.set(buffer, cached);
     }
-    const ranges = writes.get(buffer);
-    return ranges ? digest(cached.bytes, [...ranges].sort()) : cached.bytes;
+    return cached.bytes;
+  }
+
+  // The content of `size` bytes of a buffer from `from`: a token placed on
+  // exactly that span stands for it; otherwise its bytes (as the fake
+  // device holds them), the tokens the simulated kernels wrote into the
+  // buffer by named range, and the placed tokens that overlap it, where.
+  function range(buffer, from, size) {
+    const named = writes.get(buffer);
+    const placed = (spans.get(buffer) || []).filter(span => span.start < from + size && span.end > from);
+    if (!named && placed.length === 1 && placed[0].start === from && placed[0].end === from + size) return placed[0].token;
+    if (!named && !placed.length && from === 0 && size === buffer.descriptor.size) return bytesOf(buffer);
+    const bytes = from === 0 && size === buffer.descriptor.size ? bytesOf(buffer)
+      : digest(new Uint8Array(buffer.bytes, from, size));
+    return digest(bytes, named ? [...named].sort() : [],
+                  placed.map(span => [span.start - from, span.end - from, span.token]).sort());
+  }
+
+  const content = buffer => range(buffer, 0, buffer.descriptor.size);
+
+  // A token placed on [start, end): what it overlaps is cut back to what
+  // it leaves, each remnant a token of its own.
+  function place(buffer, start, end, token) {
+    const kept = [];
+    for (const span of spans.get(buffer) || []) {
+      if (span.end <= start || span.start >= end) { kept.push(span); continue; }
+      if (span.start < start) kept.push({start: span.start, end: start, token: digest(span.token, span.start, start)});
+      if (span.end > end) kept.push({start: end, end: span.end, token: digest(span.token, end, span.end)});
+    }
+    kept.push({start, end, token});
+    spans.set(buffer, kept);
+  }
+
+  // A net dispatch (B5.5): per table entry, a token of the kernel, the
+  // entry's shape and steps and the content of the control points it
+  // reads, placed on the vertices it writes.
+  function nets(kernel, draw) {
+    const table = draw.bindings.get(0).entries[0].resource;
+    const words = new Uint32Array(table.buffer.bytes, table.offset ?? 0, table.size / 4);
+    const [source, output] = draw.bindings.get(1).entries.map(entry => entry.resource);
+    const evaluated = [];
+    for (let k = 0; k < words[0]; k++) {
+      const [sourceOffset, outputOffset, nu, nv, channels, capacity, steps] = words.subarray(4 + 8 * k, 11 + 8 * k);
+      const read = range(source.buffer, (source.offset ?? 0) + sourceOffset * 4, nu * nv * channels * 4);
+      const token = digest(kernel.name, kernel.code, [nu, nv, channels, capacity, steps], read);
+      const start = (output.offset ?? 0) + outputOffset * 4;
+      place(output.buffer, start, start + ((nu - 1) / 2) * ((nv - 1) / 2) * (capacity + 1) ** 2 * channels * 4, token);
+      evaluated.push(token);
+    }
+    return [kernel.name, kernel.code, evaluated, draw.count, draw.rows];
   }
 
   function pipeline(object) {
@@ -112,6 +164,7 @@ function tracer() {
 
   function dispatch(draw) {
     const kernel = kernelOf(draw.pipeline.descriptor.compute.module);
+    if (kernel.name === "NetParams") return nets(kernel, draw);
     const inputs = [];
     for (const [index, bound] of [...draw.bindings.entries()].sort((a, b) => a[0] - b[0])) {
       for (const {binding, resource: target} of bound.entries) {
@@ -126,25 +179,27 @@ function tracer() {
     }
     const traced = [kernel.name, kernel.code, inputs, draw.count, draw.rows];
     const token = digest(traced);
-    // The ranges it writes: a border or net dispatch covers a chunk of its
-    // output (the chunk's first curve and count, or first patch and count),
-    // a program kernel the whole binding.
+    // The ranges it writes: a border dispatch covers a chunk of its output
+    // (the chunk's first curve and count), a program kernel the whole binding.
     const params = draw.bindings.get(0).entries;
     const words = params.length > 1 ? new Uint32Array(params[1].resource.buffer.bytes) : null;
     for (const {binding, resource: target} of draw.bindings.get(1).entries) {
       if (!kernel.outputs.includes(binding)) continue;
-      const range = kernel.name === "BorderParams" ? `border:${words[0]}:${words[1]}:${target.offset ?? 0}`
-        : kernel.name === "NetParams" ? `net:${words[6]}:${words[7]}` : `${kernel.name}:${binding}`;
+      const named = kernel.name === "BorderParams" ? `border:${words[0]}:${words[1]}:${target.offset ?? 0}`
+        : `${kernel.name}:${binding}`;
       if (!writes.has(target.buffer)) writes.set(target.buffer, new Map());
-      writes.get(target.buffer).set(range, digest(token, range));
+      writes.get(target.buffer).set(named, digest(token, named));
     }
     return traced;
   }
 
   function pass(object) {
     if (object.copy) {
+      // A copy carries the content of the span it reads to the span it writes.
       const [source, from, target, to, size] = object.copy;
-      return ["copy", content(source), from, to, size, target.descriptor.size];
+      const copied = range(source, from, size);
+      place(target, to, to + size, copied);
+      return ["copy", copied, from, to, size, target.descriptor.size];
     }
     if (object.compute) return ["compute", object.draws.map(dispatch)];
     const {colorAttachments, depthStencilAttachment: depth} = object.descriptor;

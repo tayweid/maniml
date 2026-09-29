@@ -16,7 +16,9 @@ teaches from it until he runs `git -C
 b4-integration`). The browser and native movie/checkpoint output share the
 Phase A triangle WebGPU backend, and the **Default** renderer draws Phase A's
 stack (Lyon meshes, surface grids, no GPU programs): no Phase B default
-passed its gate ([the B4 plan](docs/phase_b4_plan.md), "The flips"). The
+passed its gate ([the B4 plan](docs/phase_b4_plan.md), "The flips"; B5.5's
+nets passed on the gate's three scenes and failed on scenes that are mostly
+surfaces). The
 viewer's selector keeps **Default**, **Phase A**, **Phase B** and **Original
 2D** (the last for dogfood comparison, as Taylor asked on 2026-09-10). Python
 retains the frame and prepares only what changed (tier 1), and a page that
@@ -207,10 +209,15 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
 - **Shipped.** B4's retained frame (Python prepares only what changed,
   byte-identical on the wire) and format 8 (a negotiated page is sent a
   delta per change, and nothing at rest).
-- **Gated and not flipped** (B5.4, "The flips"): nets on camera moves
-  (1.25-1.34× grids' complete frame), patches on both episodes' plays and
-  ticked frames (1.15× and 1.48× Phase A's plays), strokes programs on
-  Python no lower than programs off.
+- **Gated and not flipped** (B5.4, "The flips"): patches on both episodes'
+  plays and ticked frames (1.15× and 1.48× Phase A's plays), strokes
+  programs on Python no lower than programs off. Nets failed on camera
+  moves (1.25-1.34× grids); B5.5 evaluated a frame's changed nets in one
+  dispatch keyed on their step counts and passed the gate's three scenes
+  (camera moves 0.997-1.046×), then failed on scenes that are mostly
+  surfaces (70 spheres 1.16-1.31× on still and camera frames, 480 spheres
+  1.37-1.52× and 0.98% of the pixels): a net draws its capacity's
+  triangles in a draw of its own, where grids coalesce.
 - **Measured whole** (B6, "The final test point"): the numbers under
   "Where things stand" above.
 
@@ -224,12 +231,19 @@ reading has the rest):
    patch fill nor nets. Being fixed in its own session (started
    2026-09-28: `pack_rows` writing a source's base-point rows from its
    first point); B6's figures predate it.
-2. **One dispatch per kernel** for a frame's rows, programs and nets, in
-   both drivers. It stands in front of all three flips: Phase B's plays pay
-   1.5-2.4 ms of program passes and 1.7-1.9 ms of border passes a frame
-   (GPU 9.4-9.7 ms against Phase A's 4.3-5.4), B5.1's rows ~10 ms a frame
-   on 8.a's play, and a zoom re-evaluates every net in a pass of its own.
-   Keying a net's evaluation on its step count goes with it.
+2. **One dispatch per kernel** for a frame's rows and programs, in both
+   drivers, as B5.5 made it for nets (a table the kernel reads, the inputs
+   gathered and the outputs copied into what their slots own, the state
+   keyed on exactly what the output reads). It stands in front of the
+   patches and programs flips: Phase B's plays pay 1.5-2.4 ms of program
+   passes and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against
+   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play. The
+   nets flip waits on the redraw instead: each net drawn with the index
+   pattern of its current steps rather than its capacity's (the
+   reservation is twice the steps, so three quarters of its triangles have
+   zero area), net batches that share a pipeline and uniforms coalesced
+   into one draw as grids are, and a scene that is mostly surfaces added
+   to the gate's timed set before it is taken again.
 3. **A mover's batch keeping its identity**, its program scalars or rows an
    op: a program is a batch of its own, encoded and diffed every frame
    (5.a's play under Phase B: 18.7 ms of encode and 3.3 of diff of 26.5).

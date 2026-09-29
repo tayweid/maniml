@@ -5,6 +5,44 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A frame's nets in one dispatch; surfaces stay grids by default (2026-09-28)
+
+B5.5 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b55_nets_one_dispatch_20260928/`). B5.4 measured the
+nets flip failing only on camera moves, 1.25-1.34× grids' complete frame,
+because a zoom re-evaluated every net on screen, each in a compute pass of
+its own, though the kernel read the camera only to choose a net's integer
+step count. So each driver now decides the steps itself, by one rule in
+double precision from the same inputs, and keys an output's evaluation on
+exactly what it reads (its control points, capacity and steps); and the
+nets whose state moved are evaluated in one dispatch over a table, their
+inputs gathered into one scratch buffer and their vertices copied into
+the outputs their slots own, rather than an arena the render pass would
+have to address (tier 2's slot ownership stays as it was). A net alone is
+read and written in place. The gate taken again as B5.4 took it then
+failed only on the serializer's per-net Python (the orbit demo's still,
+B4's camera moves and format 7 plays), which was made cheaper byte for
+byte, and taken once more: every class within 1.05 in both formats on its
+three scenes, pixels within 0.31%.
+
+The default was not flipped. A default reaches every scene the Default,
+`--render`, checkpoint stills and `--export` draw, and the gate's three
+scenes are ones where surfaces are a small share of the frame. On scenes
+that are mostly surfaces the same recipe fails: the orbs fixture as a scene
+(70 spheres) 1.16-1.31× grids on still and camera frames, a lattice of 480
+small spheres 1.37-1.52× and 0.98% of its pixels over 24/255 (silhouettes
+where the net is the rounder, drawn the same by B5.4's driver). The cost
+left is the redraw, not the evaluation: a net draws its capacity's
+triangle pattern (the reservation is twice the steps, so three quarters of
+the orbs' net triangles have zero area) in a draw of its own, where grids
+coalesce into one. So `geometry.DEFAULT_SURFACE` stays `grids`; nets are
+what the Phase B selection draws and what `MANIML_SURFACE=nets` selects.
+Before the gate is taken again: a surface-dominated scene in its timed
+set, each net drawn with the index pattern of its current steps, and net
+batches that share a pipeline and uniforms coalesced as grids are. The
+lattice's pixels are a question for the gate as much as for nets: a net
+rounder than the grid fails a gate that measures distance from the grid.
+
 ## The test point: this branch's Default is Phase A's stack, retained and streamed (2026-09-28)
 
 B6 (`docs/phase_b4_plan.md`, "The final test point";

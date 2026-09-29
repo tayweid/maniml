@@ -422,7 +422,8 @@ python -m benchmarks.flip_gates complete --flip patches --serialize <d>/serializ
     --gpu <d>/gpu1 <d>/gpu2 --pixels <d>/frames --limit 1.0 --output <d>/complete
 ```
 
-(`--flip nets` with the variants `nets gpu_border` and `phase_a phase_a_nets`.)
+(`--flip nets` with the variants `nets gpu_border` and `phase_a phase_a_nets`;
+B5.5 took the nets gate again this way, `results/b55_nets_one_dispatch_20260928/`.)
 `serialize` measures the Python part itself: Phase A forced and the flip's
 stack (`browser_frames`' variant's environment on the default renderer),
 each as format 7 full frames and as a negotiated format 8 stream, through a

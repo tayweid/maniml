@@ -184,6 +184,14 @@ class MessageParts:
         self.previous_rows = getattr(cache, "generated_rows", {})
         self.retained_rows, self.row_sources = {}, {}
         self.carried = []
+        # (previous, retained) digest memos by a BatchRecord's table name:
+        # carry reads them for every memo of every batch a message reuses.
+        self.memo_tables = {"payloads": (self.previous_payloads, self.retained_payloads),
+                            "paints": (self.previous_paints, self.retained_paints),
+                            "borders": (self.previous_borders, self.retained_borders),
+                            "objects": (self.previous_objects, self.retained_objects),
+                            "nets": (self.previous_nets, self.retained_nets),
+                            "rows": (self.previous_rows, self.retained_rows)}
 
     def carry(self, record):
         """Name a batch this message reuses from an earlier one, as
@@ -194,16 +202,12 @@ class MessageParts:
         Without this a batch reused frame after frame would drop out of
         what the receiver is recorded as holding after one message."""
         self.carried.append(record.names)
+        tables = self.memo_tables
         for table, key in record.memos:
-            previous, retained = self._memo_tables(table)
+            previous, retained = tables[table]
             entry = previous.get(key)
             if entry is not None:
                 retained[key] = entry
-
-    def _memo_tables(self, table):
-        """(previous, retained) digest memos of ``table``, a BatchRecord's
-        name for one of them."""
-        return (getattr(self, "previous_" + table), getattr(self, "retained_" + table))
 
     def held(self, key):
         """Whether the receiver holds ``key`` from the previous message."""
@@ -738,8 +742,9 @@ class SentBatch:
         """Whether ``other`` resolves to this batch's slot: one content,
         one held descriptor, its scalars aside. A batch sent with its bytes
         is never one the receiver held: its hash was not in the cache's
-        ``sent``, which holds every hash of the message before."""
-        return self.hash == other.hash and self.key() == other.key()
+        ``sent``, which holds every hash of the message before. A run the
+        retained frame kept is compared as the object it was last frame."""
+        return other is self or (self.hash == other.hash and self.key() == other.key())
 
 
 class SentFrame:

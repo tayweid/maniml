@@ -707,15 +707,17 @@ class RunMemo:
     encoded descriptor (``batch``, in the form encode_draw wrote it last),
     the camera it was encoded under and whether the descriptor holds under
     any other (``free``), the ``record`` of what it named, and its text
-    once the receiver holds it."""
+    once the receiver holds it, and the SentBatch a format 8 stream
+    compares it by while it stays so (none for a program's, whose scalars
+    move)."""
 
-    __slots__ = ("members", "draw", "key", "assembly", "batch", "camera_key", "free", "record", "held_text")
+    __slots__ = ("members", "draw", "key", "assembly", "batch", "camera_key", "free", "record", "held_text", "sent")
 
     def __init__(self, members, draw):
         self.members = members
         self.draw = draw
         self.key = self.assembly = None
-        self.batch = self.camera_key = self.record = self.held_text = None
+        self.batch = self.camera_key = self.record = self.held_text = self.sent = None
         self.free = False
 
     def held(self):
@@ -1462,7 +1464,11 @@ class RetainedFrame:
                     texts.append(text)
                     parts.carry(memo.record)
                     if stream is not None:
-                        stream.append(SentBatch(memo.batch, text))
+                        sent_batch = memo.sent
+                        if sent_batch is None or sent_batch.batch is not memo.batch or sent_batch.text is not text:
+                            sent_batch = SentBatch(memo.batch, text)
+                            memo.sent = sent_batch if sent_batch.scalars is None else None
+                        stream.append(sent_batch)
                 reused += 1
                 continue
             record = BatchRecord()

@@ -67,6 +67,9 @@ class GeneratedWebGPUCommands(unittest.TestCase):
     def test_camera_position_and_net_density_evaluate_what_reads_them(self):
         self.run_case("generationFollowsItsInputs")
 
+    def test_changed_nets_split_into_dispatches_only_past_the_scratch_budget(self):
+        self.run_case("netsInSeveralDispatches")
+
     def test_retained_frames_draw_what_a_fresh_driver_draws_from_each_frame(self):
         self.run_case("retainedFramesDrawWhatFreshDriversDraw")
 
@@ -361,18 +364,69 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         self.assertGreater(played["skipped"], 3)
 
     def test_surface_net_wire_evaluates_and_regrows_across_a_zoom(self):
-        from maniml.web.geometry import GeometryCache
+        """The port's surfaces scene, zoomed 16x (the reservations grow),
+        then moved at those reservations (B5.5): a pan, a zoom that moves no
+        net's step count and one that moves some. The browser driver
+        evaluates each frame exactly the nets whose steps moved, at the steps
+        Python's rule (gpu_net_geometry.evaluation_steps, the native
+        driver's) gives, in one dispatch."""
+        import json
+        from maniml.web import gpu_net_geometry
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
         from maniml.web.triangle_scene import TriangleMeshCache
+        from maniml.web.wgpu_renderer import pack_uniforms
         from tests.test_wgpu_port import build_surfaces_scene
         scene, cache, wire = build_surfaces_scene(), TriangleMeshCache(), GeometryCache()
-        with tempfile.TemporaryDirectory() as directory:
-            first = Path(directory) / "nets_1.bin"
-            first.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
-            scene.camera.frame.scale(1 / 16)
+
+        def steps_of(header, capacities=None):
+            """Each net's (capacity, steps), at ``capacities`` if given."""
+            nets = []
+            for index, batch in enumerate(header["batches"]):
+                floats = np.frombuffer(pack_uniforms({**header["camera"], **batch.get("uniforms", {})}), dtype="<f4")
+                capacity = batch["net"]["capacity"] if capacities is None else capacities[index]
+                nets.append((capacity, gpu_net_geometry.evaluation_steps(
+                    batch["net"]["density"], floats[17], header["resolution"][1], floats[23], capacity)))
+            return nets
+
+        messages, expected, previous = [], [], None
+        for step in ("first", "zoom", "pan", "still steps", "moved steps"):
+            if step == "zoom":
+                scene.camera.frame.scale(1 / 16)
+            elif step == "pan":
+                scene.camera.frame.shift([.05, -.03, 0])
+            elif step in ("still steps", "moved steps"):
+                # A zoom whose steps, at the reservations standing, did or
+                # did not move: probed through caches of their own.
+                for factor in ((.998, 1.002, .995, 1.005, .99, 1.01) if step == "still steps"
+                               else (.9, 1.1, .8, 1.25, .7)):
+                    scene.camera.frame.scale(factor)
+                    scene.camera.refresh_uniforms()
+                    probe = parse_geometry_message(self._frames(scene, TriangleMeshCache(), GeometryCache(),
+                                                                net_surfaces=True))[0]
+                    probed = steps_of(probe, [capacity for capacity, _ in previous])
+                    if (probed != previous) == (step == "moved steps"):
+                        break
+                    scene.camera.frame.scale(1 / factor)
+                else:
+                    self.fail(f"no zoom found for {step}")
             scene.camera.refresh_uniforms()
-            second = Path(directory) / "nets_2.bin"
-            second.write_bytes(self._frames(scene, cache, wire, net_surfaces=True))
-            self.run_case("netWire", first, second)
+            message = self._frames(scene, cache, wire, net_surfaces=True)
+            nets = steps_of(parse_geometry_message(message)[0])
+            messages.append(message)
+            if step in ("pan", "still steps", "moved steps"):
+                self.assertEqual([capacity for capacity, _ in nets], [capacity for capacity, _ in previous],
+                                 f"{step}: the reservations stand")
+            expected.append([steps for (capacity, steps), before in zip(nets, previous or [None] * len(nets))
+                             if before != (capacity, steps)])
+            previous = nets
+        self.assertEqual([len(steps) for steps in expected], [2, 2, 0, 0, len(expected[4])])
+        self.assertTrue(expected[4], "some step count moved")
+        with tempfile.TemporaryDirectory() as directory:
+            files = []
+            for index, message in enumerate(messages):
+                files.append(Path(directory) / f"nets_{index}.bin")
+                files[-1].write_bytes(message)
+            self.run_case("netWire", json.dumps(expected), *files)
 
 
 @unittest.skipIf(shutil.which("node") is None, "node not available")
