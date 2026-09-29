@@ -373,6 +373,12 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
 
 ## Design questions, not scheduled
 
+- **ManimLive.app** (`docs/app_plan.md`): one Mac app in place of the
+  pip install, the agent and the Chrome PWA — Knuth's shell, a
+  uv-managed Python, the package in the bundle, the `.py` double-click
+  with a real path. WebKit's WebGPU draws every episode tried; its cost
+  shows on the heaviest frames, most of them Phase B's. Taylor's goal
+  (2026-09-28); not started.
 - **Cell-marked scene files.** Stepping runs a whole unit (a `for` loop
   of plays is one press) and a scene opens on an empty frame because
   its `self.add(...)` preamble shares the first play's unit. Both
@@ -387,7 +393,9 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
   engine.
 - **Typst text backend** for Tex/MathTex via mitex: kills the texlive
   install burden, faster builds, the same engine as Plass. Independent
-  of everything above; do whenever. Watch the conformance drift.
+  of everything above; do whenever — except that the app above needs it
+  before it is for anyone without a TeX install. Watch the conformance
+  drift.
 
 Dropped on 2026-09-04 (see DECISIONS.md, "The roadmap is pruned"): the
 snapshot function-rebinding redesign (the instruction stream removes
