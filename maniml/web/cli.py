@@ -21,6 +21,11 @@ from pathlib import Path
 from maniml.web.app import DEFAULT_APP_PORT, AppServer
 from maniml.web.assets import _package_version
 
+# How long an engine ManimLive.app started outlives its last window: long
+# enough for a reload or a scene switch, the same three minutes as the
+# course editor's (Edit <course>.app).
+IDLE_EXIT_SECONDS = 180
+
 
 def running_engine(port: int = DEFAULT_APP_PORT, timeout: float = 1.5) -> str | None:
     """The version a ManimLive engine on `port` is serving, or None.
@@ -95,13 +100,22 @@ def run_app(
     port: int | None = None,
     state_path: str | os.PathLike[str] | None = None,
     offer_agent: bool = False,
+    idle_exit: float | None = None,
 ) -> None:
     if offer_agent and hand_off_to_a_running_engine(root, open_browser):
         return
+    # Started from Finder (ManimLive.app) or launchd, the engine has a bare
+    # PATH, and a scene that needs latex, dvisvgm or ffmpeg would fail where
+    # the same scene in a terminal works. Add the usual places; this changes
+    # nothing for a terminal that already has them.
+    from maniml.agent import search_path
+
+    os.environ["PATH"] = search_path()
     server = AppServer(
         root,
         port=port,
         allow_outside_root=allow_outside_root,
+        idle_exit=idle_exit,
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
@@ -135,7 +149,9 @@ def run_app(
             f"{server.port}. An installed ManimLive opens the one on "
             f"{DEFAULT_APP_PORT}; this one runs in a tab."
         )
-    print(f"maniml app: {server.url}  (scenes under {server.root})")
+    print(f"maniml app: {server.url}  (scenes under {server.root})", flush=True)
+    if idle_exit is not None:
+        print(f"maniml app: stops {idle_exit / 60:g} minutes after its last window closes", flush=True)
     if open_browser:
         webbrowser.open(server.url)
     try:

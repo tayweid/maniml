@@ -23,6 +23,8 @@ App:
   --allow-outside-root
                    Allow the app to open explicitly entered scene paths
                    outside [dir] (off by default)
+  --exit-when-idle Stop 3 minutes after the last window closes (how
+                   ManimLive.app starts the engine; see app/)
   maniml agent install [dir]
                    Keep the app running as a macOS login agent, so
                    http://localhost:8685 is always there
@@ -116,15 +118,19 @@ def main():
         sys.exit(1)
 
     if args and args[0] == "app":
-        from maniml.web.cli import run_app
+        from maniml.web.cli import IDLE_EXIT_SECONDS, run_app
 
+        # ManimLive.app starts the engine this way: no one is at a terminal to
+        # answer the agent offer, and nothing else will ever stop it.
+        from_app = "--exit-when-idle" in flags
         run_app(
             root=args[1] if len(args) > 1 else ".",
             open_browser="--no-browser" not in flags,
             allow_outside_root="--allow-outside-root" in flags,
             # Only the command a person typed may reuse a running engine or
             # ask about the login agent; `maniml agent serve` is the agent.
-            offer_agent=True,
+            offer_agent=not from_app,
+            idle_exit=IDLE_EXIT_SECONDS if from_app else None,
         )
         return
 

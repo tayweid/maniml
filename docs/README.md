@@ -12,7 +12,7 @@ source of current numbers or current direction.
 | Document | What it is |
 | --- | --- |
 | [unified_triangle_renderer_phase_a.md](unified_triangle_renderer_phase_a.md) | The Phase A contract: shared native and browser output, AA, stencil ownership, resource retention, limits and validation. |
-| [app_plan.md](app_plan.md) | ManimLive.app, proposed 2026-09-28: the Knuth/Plass Mac shell around the engine (uv-managed Python, the package in the bundle, grants over stdin since opening a scene runs it), with WebKit's WebGPU measured against Chrome's on three course episodes. Not started. |
+| [app_plan.md](app_plan.md) | ManimLive.app (2026-09-28/29): a launcher script in the shape of Edit <course>.app that starts the engine and opens the page in the installed Chromium browser's app window, with the engine stopping after its last window; WebKit measured against Chrome on three course episodes; the next steps (retire agent and PWA, one-line install, Windows, TeX); notes on a shared platform for the suite. Step 1 built. |
 | [phase_b_plan.md](phase_b_plan.md) | Phase B as decided on 2026-09-11: everything is Bézier control points, evaluated on the GPU at screen density; increments B1 fills, B2 surfaces as nets, B3 animations as programs. B1 is in its prototype week. |
 | [phase_b1_plan.md](phase_b1_plan.md) | B1's design (fan and patch triangles counted on the stencil, decided by Taylor 2026-09-11), the mechanism probe, the prototype week, and its measured results. Phase A stays the default until the patch fill is faster. |
 | [phase_b2_plan.md](phase_b2_plan.md) | B2: surfaces as biquadratic Bézier nets, the CPU grid for the reference renderers, the GPU evaluation behind `MANIML_SURFACE=nets` in both drivers, and the measured results. |

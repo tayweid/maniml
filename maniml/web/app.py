@@ -176,6 +176,7 @@ class AppServer:
         root: str,
         port: int | None = None,
         allow_outside_root: bool = False,
+        idle_exit: float | None = None,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
@@ -200,6 +201,14 @@ class AppServer:
         self._stopped = threading.Event()
         self._loop = None
         self._closing = None
+        # ManimLive.app starts the engine when it opens and nothing stops it
+        # but this: with idle_exit set, the server stops (and takes its scene
+        # processes down) once no window has held a socket to it for that
+        # many seconds, as Edit <course>.app's editor does. Every open page
+        # holds one: the landing page its control socket, a viewer its relay.
+        self.idle_exit = idle_exit
+        self._connections = 0
+        self._idle_since = time.monotonic()
         atexit.register(self.shutdown)
 
         # Bind before starting the server: the origin allowlist needs the
@@ -513,6 +522,15 @@ class AppServer:
                 await ws.close()
 
         async def handler(ws):
+            self._connections += 1
+            try:
+                await serve_connection(ws)
+            finally:
+                self._connections -= 1
+                if self._connections == 0:
+                    self._idle_since = time.monotonic()
+
+        async def serve_connection(ws):
             # The Origin check in the handshake already decided this; a
             # connection that gets here is the page we served.
             path = ws.request.path
@@ -536,6 +554,14 @@ class AppServer:
                 response["id"] = request.get("id")
                 await ws.send(json.dumps(response))
 
+        async def exit_when_idle():
+            while not self._closing.is_set():
+                await asyncio.sleep(min(5.0, self.idle_exit))
+                idle = time.monotonic() - self._idle_since
+                if self._connections == 0 and idle >= self.idle_exit:
+                    print(f"maniml app: no window for {idle:.0f}s, stopping", flush=True)
+                    self._closing.set()
+
         async def main():
             self._loop = asyncio.get_running_loop()
             self._closing = asyncio.Event()
@@ -549,7 +575,11 @@ class AppServer:
                 compression=None,
             ):
                 self._ready.set()
+                if self.idle_exit is not None:
+                    watcher = asyncio.create_task(exit_when_idle())
                 await self._closing.wait()  # released by stop_serving()
+                if self.idle_exit is not None:
+                    watcher.cancel()
 
         def run():
             try:

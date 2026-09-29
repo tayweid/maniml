@@ -1,220 +1,93 @@
-# ManimLive.app: the Mac app
+# ManimLive.app
 
-Written 2026-09-28; the browser engine measured 2026-09-29. Taylor's
-direction, quoted: "getting this more polished is the goal. right now it
-needs the terminal and the app and it's a little clunky feeling." The shape
-is the one Knuth and Plass already ship (`../knuth/docs/APP.md`,
-`../knuth/app/`, `../plass/app/`): a native window around the page the
-engine serves, a Python the app manages itself, built on a GitHub Mac by
-every deploy and installed with one line. Status: plan. Nothing is built,
-and every choice below is a proposal until Taylor makes it.
+Written 2026-09-28, revised 2026-09-29 when the shape was chosen. Taylor's
+direction, quoted: "getting this more polished is the goal. right now it needs
+the terminal and the app and it's a little clunky feeling"; and, choosing:
+"the main goal is getting off the terminal usage. for some reason the fact that
+it needs both the pwa and the terminal maintained separately is annoying and
+feels janky. and then for it to be easily updatable and on a path for
+consistency with knuth and plass so i don't need to understand many systems."
+Status: step 1 built on the `app-plan` branch; steps 2-4 not started.
 
-## What is clunky today
+## The decision
 
-- **Three pieces to install and keep in step.** A pip install from git
-  (which compiles the Lyon helper, so it needs Rust and the command-line
-  tools), the launchd agent or a terminal running `maniml app`, and a
-  Chrome PWA installed from `http://localhost:8685`
-  (`~/Applications/Chrome Apps.localized/ManimLive.app`).
-- **A scene cannot be double-clicked.** The PWA would receive a browser
-  file handle, which has no path, and the watcher and a scene's
-  `__file__`-relative imports need one (CLAUDE.md, "No `file_handlers`
-  yet"). Opening goes through the page's Open button, which asks the engine
-  to run an `osascript` dialog in another process.
-- **Tools are found by PATH.** A Finder- or launchd-started engine gets
-  `/usr/bin:/bin:/usr/sbin:/sbin`, so `agent.search_path()` exists to find
-  `latex`, `dvisvgm` and `ffmpeg`.
+**ManimLive.app is a launcher script, the shape of Edit <course>.app.** The
+course editor app that started this is a 1.4 KB bash script as the bundle's
+executable: it starts a local server and opens the browser, and the server
+stops itself a few minutes after its last tab closes. ManimLive.app is the
+same (`app/ManimLive`, installed by `app/build.sh`):
 
-None of this is about the browser engine. It is where the engine lives,
-how files reach it, and how it is installed.
+- Opening it starts `maniml app ~ --exit-when-idle` in the background when no
+  engine answers on 8685, then opens the landing page. Opening it again while
+  the engine runs just opens another window.
+- The window belongs to the browser already on the Mac: an app window
+  (`--app=`, no tabs or address bar) of the first Chromium browser installed
+  (Brave, Chrome, Edge, Chromium, Vivaldi), else a Safari tab. So the page
+  runs on V8 and the WebGPU it is developed and measured on, and nothing is
+  bundled. The default browser does not matter: Taylor's is Zen (Firefox 156),
+  which has WebGPU but no app-window mode and has never run the viewer.
+- The engine stops three minutes after its last window closes (the course
+  editor's number), and its scene processes with it: every open page holds a
+  socket, the landing page its control socket and a viewer its relay, so
+  counting them is the whole rule (`AppServer(idle_exit=)`).
+- It runs the maniml that is installed: `app/build.sh` records the Python
+  behind the `maniml` command, so for development the editable checkout's
+  edits reach the app with no rebuild. A Finder launch gets a bare PATH, so
+  the script adds the agent's tool folders (TeX, Homebrew) before Python
+  starts, and `run_app` applies `search_path()` too.
+- `.py` stays Knuth's: scenes are opened from the app's landing page (recents
+  and Open…), never by double-click, so the launcher needs no file-open
+  handling and none of the grant design below.
 
-## The proposal
+This replaces, for daily use, both the launchd agent and the Chrome PWA. While
+the agent holds 8685 the app simply uses it; once the app has proved itself,
+`maniml agent uninstall` and removing the PWA leave one system.
 
-**ManimLive ships as `ManimLive.app`, on the Knuth pattern.** Swift +
-AppKit + WKWebView in one file, built by `app/build.sh` with `swiftc` from
-the command-line tools: no Xcode project, no Electron, no Tauri. The shell
-owns exactly four things: a window per scene file, the native open dialog,
-the engine's lifetime, and the first-launch setup. Everything else is the
-page the engine already serves.
+**The `--app` switch** is an old Chromium command-line switch, not a documented
+API. What Google is retiring is Chrome Apps (the packaged-app platform, end of
+life in stages through 2028), not the switch; if the switch ever went, the
+launcher opens a tab instead, a one-line change.
 
-**The engine is the package in the bundle.** `Contents/Resources/python/
-maniml` is this repository's `maniml/`, with the Lyon helper already built
-beside `web/`. The engine runs it with `PYTHONPATH` on a Python uv
-installed, so the app and its engine are always one version and a pip
-install elsewhere on the Mac can never be what a window talks to. The
-scene subprocesses inherit the environment (`SceneProcess` passes
-`os.environ` through), so they run the same copy.
+## Next
 
-**One question at first launch, in the window.** Knuth asks "install
-Python?" and offers Pyodide as the alternative. ManimLive has no
-alternative to offer — manimpango, wgpu and the Lyon helper cannot run in
-a page — so the setup screen explains uv in two sentences and installs:
-uv (any uv already on the Mac, else Astral's release into
-`~/.local/bin/uv`, as Knuth does), a uv-managed Python 3.13
-(`UV_PYTHON_PREFERENCE=only-managed`), and the dependencies. Everything
-the app installs lives in `~/Library/Application Support/ManimLive`;
-deleting that folder returns it to its first launch.
+1. **Retire the agent and the PWA** once the app is the daily driver (Knuth's
+   step 5 did the same): `maniml agent uninstall`, uninstall the PWA in Chrome,
+   and drop the page's install offer.
+2. **A one-line install for others**, the Knuth/Plass distribution standard:
+   the deploy builds maniml's wheel on a GitHub Mac with the Lyon helper
+   compiled (CI's release-candidate job already does), publishes it beside
+   the site with the app zip, and `curl -fsSL https://maniml.tayweid.io/install
+   | bash` sets up ManimLive's own Python with uv from that wheel (pinned from
+   `uv.lock`) and puts the app in Applications; running it again updates. The
+   launcher already looks for that Python
+   (`~/Library/Application Support/ManimLive/engine/bin/python`) after the
+   recorded one.
+3. **Windows, when students need it**: the same launcher as a PowerShell
+   script with Edge (always installed, Chromium, WebGPU on by default) in
+   `--app` mode, plus a Windows wheel. The engine has Mac-only corners to fix
+   first (the agent, tool discovery; Knuth's report found its `--parent`
+   check uses `os.kill(pid, 0)`, which is not a liveness test on Windows).
+4. **TeX for anyone else**: the course scenes lean on MathTex (B5_Animation.py
+   alone has ~250 lines of it), and maniml runs `latex` and `dvisvgm`. The
+   Typst/mitex backend in TODO.md removes that prerequisite; the `typst`
+   wheel is self-contained. ffmpeg (Present plays the rendered mp4) comes from
+   Homebrew or `imageio-ffmpeg` (a 21 MB arm64 wheel).
 
-**Distribution is Knuth's and Plass's.** A Mac job in the deploy builds the
-app from the pushed commit and publishes `app/ManimLive.app.zip` beside the
-preview site; `curl -fsSL https://maniml.tayweid.io/install | bash` unzips
-it into Applications, and running it again updates. Ad-hoc signed and not
-notarized, as the others are: the curl route is never quarantined, and a
-Developer ID can slot into the job later.
+## Why not a WebKit window of its own
 
-**The browser engine is WebKit's.** Measured against Chrome on three course
-episodes (below): the same frames drawn, GPU cost at parity, the driver's
-JavaScript 2.4–2.9× slower, which costs little on the default stack and
-shows on the heaviest frames, most of them Phase B's. WebGPU is on by default in WebKit
-from the 26 releases (verified on 26.6.2), so the app requires macOS 26
-(Knuth supports 12).
+The first draft of this plan was Knuth's shell: Swift + WKWebView, with the
+page served by the engine. It works, and it was measured before choosing.
 
-## What is different from Knuth
-
-Knuth's shell carries over nearly line for line. Five things do not.
-
-### 1. Opening a scene runs it
-
-Knuth opens `http://127.0.0.1:<port>/?open=<path>`: harmless there, since
-opening reads a document. Here the open op executes the scene, and any
-website can navigate a browser tab to a loopback URL with any query
-string; the Origin check does not help, because the page that then asks
-is the real one. So the path must reach the engine by a channel no web
-page can reach, and the engine must refuse an `?open=` it was not told
-about.
-
-The engine already has the primitive: `AppServer.grant_file()`
-(`maniml/web/app.py`), documented as "a path handed over by Finder or a
-native dialog", uncalled since the desktop bridge was deleted. The shell
-starts the engine with a pipe on its stdin and writes one line per grant
-(Finder open, Open With, the Open panel); the engine grants the file,
-acknowledges on the pipe, and only then does the shell open the window at
-`/?open=<path>`, which `app.html` learns to honor for granted paths only.
-Root confinement stays as it is: the app's engine gets no broad root (not
-`~`), or a `.py` a website dropped into Downloads would become openable.
-Stdin gives the lifetime for free: when the shell dies — quit, crash or
-`kill -9` — the pipe closes, and the engine stops its scene processes and
-exits. That replaces Knuth's `--parent <pid>` polling.
-
-### 2. The environment is twenty times Knuth's
-
-Knuth installs one package (websockets) beside its bundled engine.
-maniml's runtime dependencies come to about 230 MB installed (measured in
-the development venv: scipy 81 MB, matplotlib 28, numpy 25, manimpango 18,
-PyOpenGL 17, Pillow 14, fontTools 13, wgpu 8). So the dependency list is
-pinned, not resolved at install: the build exports it from `uv.lock`
-(`uv export --no-dev --no-emit-project --frozen`) into the bundle, the
-setup runs `uv pip sync` against it, and the shell re-syncs whenever the
-bundled file's hash differs from the one it last synced — which is what an
-app update that changes a dependency looks like. First launch is a longer
-progress bar than Knuth's, once.
-
-**Scenes import more than maniml.** The course scenes import pandas (11
-files) and seaborn (12), which are not maniml dependencies, and the app
-never uses a Python already on the Mac. v1: when a scene fails on
-`ModuleNotFoundError` (`missing_module_hint` already names the module),
-the page offers "Install <module>", and the shell runs `uv pip install`
-into the app's Python — Knuth's "Download with uv", app-wide rather than
-per document. Per-scene PEP 723 headers (Knuth's `ENVIRONMENT.md`) are the
-later, reproducible version; each scene is already its own process, so
-each could have its own environment.
-
-### 3. The Lyon helper is built by the deploy
-
-Today's install compiles it, which is why the README asks for Rust. The
-app job does what CI already does (macOS, rustup 1.97.0), for both
-architectures, and `lipo`s one universal library into the bundled
-package. It is a plain C ABI loaded with ctypes and found by glob
-(`maniml/web/triangle_geometry.py`), so one file serves every Python
-version. The app is then easier to install than the pip route is.
-
-### 4. ffmpeg and LaTeX are programs, not packages
-
-The engine's PATH is composed once, by the shell, from `search_path()`'s
-list (TeX, Homebrew), with the app's own `bin/` first.
-
-- **ffmpeg is on the classroom path**, not only the export one: Present
-  plays the rendered mp4. `SceneFileWriter` runs whatever `ffmpeg` is on
-  PATH. Use the Mac's own if there is one; otherwise the setup installs
-  `imageio-ffmpeg` (0.6.0 ships a 21 MB arm64 wheel) into the app's
-  Python and links its binary into the app's `bin/`. The writer does not
-  change.
-- **LaTeX has no clean answer yet.** The course scenes lean on it
-  (`B5_Animation.py` alone has about 250 lines calling Tex/MathTex), and
-  maniml runs `latex` and `dvisvgm`. On a Mac with MacTeX, which Taylor's
-  has, the app works on day one; the setup screen should detect TeX and
-  say plainly when it is missing, before the first equation fails. For
-  anyone else the answer is TODO.md's Typst/mitex backend: the `typst`
-  wheel is self-contained, so uv installs it like everything else. That
-  item stops being "do whenever" the day the app is for someone other than
-  Taylor.
-
-### 5. Two maniml's on one Mac
-
-The app runs its bundled release; `maniml` in a terminal runs this
-checkout — CLAUDE.md's install trap in a new form. As in Knuth, the app's
-engine keeps its own port (8686, next free if taken: between the
-terminal's 8685 and the scene range from 8687) and never adopts an engine
-it did not start, and the page says which engine it is talking to.
-Development stays on the command line; `MANIML_APP_PACKAGE=<checkout>`
-(read only from `open --env`, never from Finder) points a development
-build of the shell at the working tree.
-
-## What the shell does, exactly
-
-1. On launch: setup if the engine is not installed or its dependency list
-   changed; then start `python -m maniml app --shell` (new: implies
-   `--no-browser`, never offers or hands off to the agent, reads grants
-   from stdin and exits at its EOF) on 8686 as a child, and wait for it to
-   answer.
-2. Finder open, Open With, ⌘O: grant over the pipe, wait for the
-   acknowledgement, open a window at `/?open=<path>`. `.py` is an
-   alternate handler, never the default (Knuth's Info.plist: it appears in
-   Open With; the user can promote it in Get Info). A Dock click with no
-   window opens `/`, the recents page.
-3. Bridge the page's Open button to an `NSOpenPanel` sheet (the same grant
-   path); `desktop.py`'s osascript dialog stays for the terminal route.
-4. Mirror the page title into the window title. WKWebView reports
-   `document.fullscreenEnabled` false unless element fullscreen is turned
-   on, so the viewer hides its fullscreen button there (visible in the
-   measurement's snapshots). `F` should become native fullscreen through
-   the bridge, which gives the projector its own Space.
-5. Hold a display-sleep assertion while the page says it is presenting.
-6. Menu: Open…, Show Log (`~/Library/Logs/ManimLive.log`, shared by shell
-   and engine with `O_APPEND`, as Knuth's is), Open in Browser (the same
-   page in the default browser: Chrome's WebGPU as a cross-check), Quit.
-7. On quit: close the pipe; the engine takes its scene processes down.
-
-## The engine, measured
-
-Taylor asked whether it would be simpler with WebGPU on Chromium than on
-WebKit. Measured 2026-09-29 before answering.
-
-**Method.** One instrumentation script, injected at document start into the
-real viewer in both engines: a WKWebView configured as Knuth's windows are,
-and Google Chrome 154 driven by Playwright with a temporary profile. Per
-frame it times the JavaScript around the driver's `ManimlWGPU.render`
-(excluding time queued behind the previous frame: the boundary
-`benchmarks/browser_frames.py` times in Node), and per submit
-`queue.submit` → `onSubmittedWorkDone`; it records the rAF cadence, the
-depth of the viewer's geometry queue (over 6 is the catch-up that collapses
-states), console errors, GPU validation errors and device loss. Each run
-is a fresh scene process at `efcb262c` (retained frame on, format 8
-deltas), the same plan in both engines — RIGHT through the first five to
-eight pausepoints, and on the 3D episodes a 60-move orbit and eight wheel
-ticks in and out, sent through the page's own `send()` — in ABBA order per
-scene. Apple M3, macOS 26.6.2. The two engines were sent the same stream
-(EpisodeB2: all 410 and 423 messages the same length, in order), so each
-row compares the same frames. "Default" is the viewer's default stack,
-which is Phase A's since no flip passed; "Phase B" is the forced Phase B.
-
-**Everything draws.** Every step of every run settled at the same
-checkpoint in both engines (42/76, 31/58, 32/97), with the same frame
-counts, no catch-up (the queue never passed 2) and no GPU validation
-error; the one device loss per Phase B run is the renderer switch
-replacing the device, identical in both. Snapshots of B4 at 32/97 on
-Phase B after the orbit show the same scene (the orbit left the two
-cameras a few degrees apart).
+**The engine, measured (2026-09-29).** The live viewer in a WKWebView
+configured as Knuth's windows are, against Chrome 154 driven by Playwright,
+with one instrumentation script injected in both: JavaScript around the
+driver's `ManimlWGPU.render` per frame, `queue.submit` → `onSubmittedWorkDone`
+per submit, the rAF cadence, the geometry queue's depth, and every error. Fresh
+scene processes at `efcb262c` (retained frame on, format 8), the same plan in
+both (RIGHT through the first five to eight pausepoints; on the 3D episodes a
+60-move orbit and eight wheel ticks each way), ABBA order, Apple M3, macOS
+26.6.2. The two were sent the same stream (EpisodeB2: all 410 and 423 messages
+the same length, in order).
 
 | Episode, stack | JS ms/frame, WebKit (med / p95 / max) | Chrome | GPU ms/submit, WebKit | Chrome | Late refreshes, WebKit / Chrome |
 | --- | --- | --- | --- | --- | --- |
@@ -226,84 +99,69 @@ cameras a few degrees apart).
 | B4, Phase B | 1 / 18 / 60 | 0.9 / 4.7 / 13.3 | 7 / 15 / 24 | 6.8 / 22.8 / 71.6 | 13 / 1 |
 
 A late refresh is an interval over 1.5× the median rAF interval (16.7 ms).
+Everything draws in both: every step settled at the same checkpoint, same
+frame counts, no catch-up, no GPU validation error (the one device loss per
+Phase B run is the renderer switch replacing the device, in both). The GPU is
+at parity. JavaScriptCore runs the driver 2.4-2.9× slower than V8 over every
+run: inside a refresh on the default stack, but Phase B's largest frames
+(230-450 KB) take 20-40 ms in WebKit against 4-11 in Chrome, and the session's
+first Phase B run had two frames of 111 and 203 ms (Chrome 9-12), consistent
+with the driver building pipelines lazily and synchronously (seven
+`create*Pipeline`, no `…Async`). Caveats: the screen was locked, so WebKit's
+occlusion throttling was switched off in the harness and Chrome ran with
+`--disable-backgrounding-occluded-windows` (cadence synthetic, per-frame costs
+real); WebKit's `performance.now()` is quantized to 1 ms; one repetition. The
+harness lived in the session's scratch space. WKWebView also reports
+`document.fullscreenEnabled` false unless a shell turns element fullscreen on,
+so the viewer hides its fullscreen button there.
 
-**Reading.** The GPU is at parity, WebKit's tails shorter. The JavaScript
-is where the engines differ: JavaScriptCore runs the driver 2.4–2.9×
-slower than V8 over every run. On the default stack that stays inside a
-16.7 ms refresh — 2–3 ms at the median and 11 at p95 — except on the
-largest frames: EpisodeB2's three over 15 ms are its 2.3 MB payloads
-(Chrome: 6 ms). Phase B is the visible cost: its frames with the largest
-payloads (230–450 KB) take 20–40 ms in WebKit against 4–11 in Chrome —
-the same frames are among Chrome's slowest, so the cost is the content's,
-multiplied — which is 13–14 late refreshes a run against 0–2. And in the
-session's first Phase B run two frames took 111 and 203 ms (Chrome: 9–12),
-which later runs, in fresh processes, did not repeat: consistent with
-shader compilation the system then cached, and with the driver building
-pipelines lazily and synchronously (seven `create*Pipeline` calls, no
-`…Async`); not yet attributed.
+So a WebKit shell would have been a second engine to trust on the Mac, with a
+Phase B cost, to buy a window identity. Borrowing the browser's window buys
+V8 and the development engine for nothing. What the WebKit route would still
+want, if it ever comes back: pipelines created with the `…Async` calls and
+warmed at init, and cheaper large frames, which help Chrome too.
 
-**Verdict.** WebKit runs the viewer as it is, correctly and on the GPU as
-fast. Chromium would buy V8's speed on Phase B's heaviest frames, not
-simplicity, at Electron's price. The Phase B tail is a driver item that
-helps both engines — pipelines created with `createRenderPipelineAsync`/
-`createComputePipelineAsync` and warmed at init, and a play's row frames
-made cheaper to apply — and should land before Phase B is the app's
-default.
+**What a native shell needed that the launcher does not.** Opening a scene
+runs it, so a shell that delivers Finder opens as `?open=<path>` must grant
+paths over a channel no web page reaches (the engine's stdin; the unused
+`AppServer.grant_file` exists for it) and give its engine no broad root. The
+launcher opens no paths, so none of that is needed until the app handles
+double-clicks.
 
-**Caveats.** The screen was locked for the run, so WebKit's occlusion
-throttling was switched off in the harness (private setters, as Plass
-reaches `_setEnabled:forFeature:`; harness only) and Chrome ran with
-`--disable-backgrounding-occluded-windows`: the refresh cadence is
-therefore synthetic in both, while the per-frame JavaScript and GPU costs
-are not. WebKit's `performance.now()` is quantized to 1 ms on this page
-(Chrome's to 0.1 ms), so its small medians are coarse. One repetition in
-ABBA order; the same pattern held in all three episodes. The harness
-lived in the session's scratch space and is not in the repository.
+## The suite, later
 
-## Deploy
+Taylor would like Plass, Knuth and ManimLive on one cross-platform platform,
+"but it has to make sense." What was learned on 2026-09-29, for when Windows
+matters:
 
-`site.yml` today publishes `site/` on pushes that touch it. It grows an app
-job on a Mac: check out, build the Lyon helper (both targets, `lipo`),
-`app/build.sh` into `$RUNNER_TEMP`, `ditto` the zip, and hand it to the
-deploy beside `site/`, which gains `site/install`. The triggers widen to
-the package, `app/` and `uv.lock`. As in Knuth, a failed app build never
-holds the site: the deploy republishes the zip already live. The site's
-invariants hold — it still reaches no engine and has no manifest
-(`tests/check_site.py` scans only `.html`, `.js` and `.json`, so
-`site/install` passes as it is) — but its docstring's "nothing
-installable" gains a sentence: the one installable thing is the Mac app,
-and it is the local one.
+- **What each app needs.** Plass was built and tested on Chromium (its CI and
+  port audit run Chromium; its file layer is written for Chromium's file API);
+  on the Mac it matches through a private WebKit flag
+  (`SubpixelInlineLayoutEnabled`) whose failure would be silent. Knuth does not
+  care about the engine. ManimLive needs WebGPU and gains from V8.
+- **Tauri 2** (stable) uses the system webview: WKWebView (JavaScriptCore;
+  WebGPU on macOS 26+ only), WebView2 on Windows (Chromium, V8, WebGPU on), and
+  WebKitGTK on Linux (no WebGPU; Plass's parity there "would say nothing"). A
+  page on `http://127.0.0.1` can call the shell with an explicit `remote`
+  capability (Tauri ≥ 2.11.1). Knuth v1's Tauri pain came from Tauri serving
+  the whole UI and doing all file I/O in Rust; a thin shell over an engine
+  mostly avoids it.
+- **Tauri 3** (alpha since 2026-09-13) picks the runtime per app,
+  system webview or CEF (Chromium 152), behind one API. CEF adds ~150-170 MB
+  per app; the bundler's shared-CEF option is for development, not users.
+  Early: no Windows sandbox under CEF, intermittent child-process
+  disconnects on macOS.
+- **Electron 44** is Chromium 152, a 124-130 MB zip per app per OS, a new
+  major every eight weeks with three supported, and no shared runtime.
+- **The installed browser** (this launcher) costs nothing and gives each app
+  the Chromium it was built on, at the price of the window belonging to the
+  browser. Frameworks built on the idea (Lorca, Carlo, Eel) are archived.
+- **Distribution holds either way**: GitHub Pages deploys through Actions take
+  a ~1 GB artifact with no 100 MB per-file limit, so even a ~150 MB zip can sit
+  beside the site under the Knuth/Plass standard.
 
-## Risks and open questions
-
-- **WebKit is a second WebGPU implementation.** Every frame dogfooded
-  before this, and the browser gates in `phase_b1_plan.md`, ran on
-  Chrome's. The measurement above is the evidence so far; "Open in
-  Browser" is the escape hatch while trust builds. If WebKit fails on
-  something real, the fallback is Electron: the rest of this plan (engine,
-  grants, setup, deploy) is unchanged by it, at the cost of a ~100 MB
-  download, a Node toolchain and shipping Chromium's security updates
-  ourselves.
-- **Phase B in WebKit**: the tail above, before Phase B is the default.
-- **LaTeX** decides the audience (above).
-- **The wire keeps moving.** The measurement ran on the retained frame and
-  format 8; re-run it when the stream changes shape again.
-- **Gatekeeper.** Unsigned, as Knuth and Plass are; the curl route avoids
-  the prompt, and a downloaded zip needs Privacy & Security → Open Anyway
-  once.
-
-## Order
-
-1. Engine: `maniml app --shell` (stdin grants and lifetime), `?open=` in
-   `app.html` for granted paths, PATH composition shared with the agent,
-   ffmpeg resolution, the install-a-module hook. Unit tests over the real
-   socket, as the app's tests are now.
-2. Shell: `app/Sources/main.swift` from Knuth's, minus its Pyodide mode
-   and file operations; `Info.plist`; `app/build.sh` (+ the helper build);
-   the setup page.
-3. Deploy: the app job and `site/install`.
-4. Retire the PWA surface (manifest, `sw.js`, the install offer) once the
-   app is the daily driver, as Knuth's step 5 does; `maniml app` in a tab
-   stays for Linux, Windows and the terminal-inclined, and the agent stays
-   optional.
-5. The Typst text backend, if the app is for anyone but Taylor.
+A plausible path, not a decision: the launcher shape for ManimLive now; Tauri
+3 with CEF for the apps that need Chromium and the system webview for Knuth
+once it is stable; one page-to-shell protocol across the three pages (dialogs,
+files by path, grants, fullscreen, keep-awake, opened-file events) so that a
+shell change rewrites only the host side.
