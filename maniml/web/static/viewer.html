@@ -477,8 +477,9 @@
 
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
       <select id="renderer-select" aria-label="Scene renderer" disabled>
-        <option value="triangles" selected>Phase A</option>
-        <option value="phase_b">Phase B</option>
+        <option value="triangles" selected>Default</option>
+        <option value="phase_a">Phase A</option>
+        <option value="phase_b" title="Fills as patches sent as their paths' rows, surfaces as nets, animations as GPU programs">Phase B</option>
         <option value="winding">Original 2D</option>
       </select>
       <span id="glwarn"></span>
@@ -778,21 +779,28 @@ async function handleFrame(blob) {
 const glWarn = document.getElementById("glwarn");
 const rendererSelect = document.getElementById("renderer-select");
 const rendererOrigin = crypto.randomUUID();
-// Phase B is the same driver as Phase A fed the whole Phase B stack by the
-// engine (patch fills, net surfaces, GPU programs); the frames say which
-// selection produced them, so a switch drops the other's frames as usual.
+// Default, Phase A and Phase B are one driver fed three stacks by the
+// engine: the defaults, Phase A forced and the whole Phase B stack forced
+// (patch fills sent as their paths' rows, which the driver finalizes; net
+// surfaces; GPU programs; docs/phase_b4_plan.md B5.6); the frames say which
+// selection produced them, so a switch drops the other's frames as usual
+// (renderer_selection.js has the one exception, Phase A's).
 const rendererSession = new ManimlRendererSelection(canvas, {
-  triangles: ManimlWGPU, phase_b: ManimlWGPU, winding: ManimlWindingWGPU,
+  triangles: ManimlWGPU, phase_a: ManimlWGPU, phase_b: ManimlWGPU, winding: ManimlWindingWGPU,
 });
 for (const driver of Object.values(rendererSession.drivers)) {
   driver.onCacheMiss = () => send({ type: "geometry_reset" });
 }
+// Every mode message says the page reads geometry format 8: the engine
+// sends a stream of deltas once every tab connected has said so, and
+// nothing at all for a frame that changes nothing (webgpu.js applies them).
+const GEOMETRY_FORMAT = 8;
 
 function sendRendererMode() {
   if (!rendererNegotiated) return;
   // Readiness and playback resumption never select a renderer. Only an
   // explicit dropdown change may change the engine's shared selection.
-  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback" });
+  send({ type: "mode", geometry: rendererSession.ready && stageSource !== "playback", format: GEOMETRY_FORMAT });
   if (rendererSession.ready && stageSource !== "playback") send({ type: "geometry_request" });
 }
 
@@ -803,7 +811,7 @@ async function startRenderer(mode = rendererSession.mode, announce = true) {
   if (changed) geometryQueue = [];
   if (announce) {
     pendingRendererRequest = ++rendererRequest;
-    send({ type: "mode", geometry: false, renderer: mode,
+    send({ type: "mode", geometry: false, format: GEOMETRY_FORMAT, renderer: mode,
            renderer_origin: rendererOrigin, renderer_request: pendingRendererRequest });
   }
   rendererSelect.value = mode;
@@ -848,8 +856,15 @@ function setRenderError(error) {
 }
 
 function handleGeometry(arrayBuffer) {
+  // Each drawn frame is a "maniml:render" span in DevTools' Performance
+  // panel: the selection's routing and the driver's render, plus any wait
+  // behind an earlier frame in the session's chain.
+  // benchmarks/browser_frames.py times the same two headlessly (page_ms).
+  const started = performance.now();
   rendererSession.render(arrayBuffer).then((header) => {
     if (!header) return;
+    performance.measure("maniml:render", { start: started, end: performance.now(),
+      detail: { batches: header.batches.length, bytes: arrayBuffer.byteLength } });
     setRenderError(null);
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";
@@ -1058,7 +1073,7 @@ async function enterPlayback({ freshExport = false } = {}) {
     playbackMeta = meta;
     stageSource = "playback";
     document.body.classList.add("playback");
-    send({ type: "mode", geometry: false });  // engine sleeps
+    send({ type: "mode", geometry: false, format: GEOMETRY_FORMAT });  // engine sleeps
     playbackVideo.src = scenePrefix + "/present/scene.mp4";
     const startIndex = Math.min(
       lastLiveState ? Math.max(0, lastLiveState.current) : 0,

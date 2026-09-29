@@ -66,14 +66,14 @@ class Transform(Animation):
             self.target_copy = self.target_mobject.copy()
         self.mobject.align_data_and_family(self.target_copy)
         super().begin()
-        if programs.mode() != "off":
-            programs.freshen(self.starting_mobject)
-            programs.freshen(self.target_copy)
+        self.program_sources = programs.begin(self.starting_mobject, self.target_copy)
         if not self.mobject.has_updaters():
             self.mobject.lock_matching_data(
                 self.starting_mobject,
                 self.target_copy,
             )
+        # Last, since the locks move the revisions too.
+        programs.stamp(self)
 
     def finish(self) -> None:
         super().finish()
@@ -175,8 +175,8 @@ class Transform(Animation):
         # path only; an arc, and any endpoint pair whose rows do not align,
         # interpolate on the CPU as before.
         mode = programs.mode()
-        if (mode != "off" and self.path_func is straight_path
-                and submob.blend_program(start, target_copy, alpha, defer=mode == "gpu")):
+        if (programs.admits(mode, self, submob, start) and self.path_func is straight_path
+                and submob.blend_program(start, target_copy, alpha, defer=programs.deferred(mode))):
             return self
         submob.interpolate(start, target_copy, alpha, self.path_func)
         return self

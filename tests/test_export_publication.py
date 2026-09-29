@@ -88,7 +88,7 @@ class ExportPublicationTests(unittest.TestCase):
             (self.destination / "scene.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            metadata["format_version"], web_export.GEOMETRY_FORMAT_VERSION
+            metadata["format_version"], web_export.FULL_FRAME_FORMAT_VERSION
         )
         self.assertEqual(metadata["scene"], "FakeScene")
         self.assertEqual(metadata["segments"], 1)

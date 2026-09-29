@@ -1,0 +1,212 @@
+{
+ "cases": {
+  "EpisodeB2": {
+   "frames": {
+    "00 pausepoint 12": {
+     "phase_a": "99449d14595901eef7d280f3ec78c583",
+     "phase_b": "d4a83c3d5390779143190731936a21df"
+    },
+    "01 pausepoint 44": {
+     "phase_a": "001fb2eb47fa4e69c621e40019896e66",
+     "phase_b": "0598a4eefbdf73e4695bd5d17baba1c4"
+    },
+    "02 pausepoint 76": {
+     "phase_a": "9dae9bab59ab8edd85c38925377afff6",
+     "phase_b": "9594b40b2d10a30debcfa14f7eda89ab"
+    },
+    "03 pausepoint 103": {
+     "phase_a": "ca7c88a745bb02b3a9aceaaa933b1876",
+     "phase_b": "2cb6539ffc5bf3b3e34486518c672bd8"
+    },
+    "04 pausepoint 120": {
+     "phase_a": "147eb22e4bc38177559b267d98b5e5f6",
+     "phase_b": "372e273a3ad8e79bcaaf1e30e39fea3c"
+    },
+    "05 pausepoint 140": {
+     "phase_a": "3fd5ece3fa7479dfb56d66d6487dad5a",
+     "phase_b": "31458225fd13391e6ac46a3a5a191424"
+    },
+    "06 pausepoint 157": {
+     "phase_a": "b879ac9721c40086aeffb79728c427cb",
+     "phase_b": "0f8e4b1f952a9b60a498b78d3ba3debf"
+    },
+    "07 pausepoint 177": {
+     "phase_a": "5d5c2881c4d76690fbc15c02ed05de73",
+     "phase_b": "f3bc1cce6e76a384ab1f10283e388b3d"
+    },
+    "08 pausepoint 194": {
+     "phase_a": "9dfe525d7f4674e6a2885655a5c47151",
+     "phase_b": "72ed809ffa1833da5294ce1fe4576293"
+    },
+    "09 pausepoint 258": {
+     "phase_a": "d7068785c10f3754ef31f5840b7a8732",
+     "phase_b": "e4148106453f8a98e64822b0fb0088f9"
+    },
+    "10 pausepoint 277": {
+     "phase_a": "de56953951f3a0eb6db81ee2cdcfa355",
+     "phase_b": "aea3608ca888188ffab72c7cc06c3072"
+    },
+    "11 pausepoint 307": {
+     "phase_a": "edb8ae94e43099a0baf554b535bd536e",
+     "phase_b": "da5b6cf416e8582d7f93257eef69bb45"
+    },
+    "12 pausepoint 307 ticked": {
+     "phase_a": "a1754797560ee2977601c7f376a47904",
+     "phase_b": "0605bed950d24a3187bc11fe261b4f1d"
+    },
+    "13 play 306 frame 0": {
+     "phase_a": "e22d19f2c5c85a27ea4bbd680d3358cc",
+     "phase_b": "b9c2be983444e0518bbe0ef36b69e56e"
+    },
+    "14 play 306 frame 2": {
+     "phase_a": "9799c9a42887f2723def46784590eebb",
+     "phase_b": "5f492569cff4af7cdc445cec34d7c287"
+    },
+    "15 play 306 frame 5": {
+     "phase_a": "cd75fb567def04a8a2ed70a3e6db3baa",
+     "phase_b": "ad1e0393580552f4b2b9c8ff7d543aa9"
+    },
+    "16 play 306 frame 7": {
+     "phase_a": "807077f33796dc1c327b285d0c1b8cc7",
+     "phase_b": "3a5bc56efb58323dc603a8c3828ad5f6"
+    },
+    "17 play 306 frame 10": {
+     "phase_a": "869f47ad347b7b86524de24550ac7b1f",
+     "phase_b": "da1a2bff41431b14fe80629e22f45661"
+    },
+    "18 play 306 frame 12": {
+     "phase_a": "79cff0961c635c3064b4183da34ecdf3",
+     "phase_b": "efc06af6565eae18fa73f34e5710ebfb"
+    },
+    "19 play 306 frame 15": {
+     "phase_a": "10b043150182cdd39dff4fc40c44d126",
+     "phase_b": "0f39a3ae1a04d2541d399cdd859470e5"
+    },
+    "20 play 306 frame 17": {
+     "phase_a": "0107daeb147b2a314dbdcee25a6b16e2",
+     "phase_b": "312c5086d70ce069d9d488c0c2fbf34c"
+    },
+    "21 play 306 frame 20": {
+     "phase_a": "80c4b2d694390b44ee804fdfdc3680c7",
+     "phase_b": "f2368e5959022eb79fcebaba2fa27d6c"
+    },
+    "22 play 306 frame 22": {
+     "phase_a": "eb241c52574be3485456acc3d310aa1e",
+     "phase_b": "5b7615379d77efc25d434745381665ba"
+    },
+    "23 pausepoint 307 after the play": {
+     "phase_a": "fe0e8784fa45090c1022755866cc8881",
+     "phase_b": "88c6477d15390e348e880058db165fac"
+    }
+   },
+   "input": {
+    "source": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff"
+   }
+  },
+  "PriceDiscovery": {
+   "frames": {
+    "00 pausepoint 9": {
+     "phase_a": "e650403b950f9044307eda259bbd4950",
+     "phase_b": "4df668b3ff1701343b1be52604345d7d"
+    },
+    "01 pausepoint 19": {
+     "phase_a": "a0fa2ce40997d93083df57f969366214",
+     "phase_b": "10980ccb282311e419ebf4d36f44b029"
+    },
+    "02 pausepoint 35": {
+     "phase_a": "6714f6e83a3e880316ecde7f82a17790",
+     "phase_b": "54f31ea8cb8cf68a40bf1a4f2095c1cd"
+    },
+    "03 pausepoint 48": {
+     "phase_a": "734ce07b4ecd465109f46807f4bf8921",
+     "phase_b": "bd4746e1d7920305c02b6657b474cc8c"
+    },
+    "04 pausepoint 58": {
+     "phase_a": "5a05c1ca9be4e457753a2707bac19aa6",
+     "phase_b": "a4a43a159f7693beacf78141e09f4e90"
+    },
+    "05 pausepoint 63": {
+     "phase_a": "e718bc981579fbe6174fb35e298d2432",
+     "phase_b": "515731b9a719e449ffc1f7ebe169fc41"
+    },
+    "06 pausepoint 68": {
+     "phase_a": "72edece92ac57ac13f8b44f515834410",
+     "phase_b": "35a2849653a125facc6b78397f42c2e6"
+    },
+    "07 pausepoint 86": {
+     "phase_a": "6415d4b5f71e3fd6b721d6a83ff04b5c",
+     "phase_b": "59f45370182e098bc2da15ef677b6c4d"
+    },
+    "08 pausepoint 98": {
+     "phase_a": "a79c33b9460f60e45d961e47e4959a31",
+     "phase_b": "dccd46db3fb8f6fb5a3d8d3713f88041"
+    },
+    "09 pausepoint 109": {
+     "phase_a": "5f92aa1b570d0a62adc1d32f5d8dd855",
+     "phase_b": "78254bec0a6582f7df2c7901ed45f17f"
+    },
+    "10 pausepoint 115": {
+     "phase_a": "70d99f9efadc53b92d2cf4e4cb0eac28",
+     "phase_b": "dddf75d1e203b4bf818c4dee2cbb79e2"
+    },
+    "11 pausepoint 123": {
+     "phase_a": "2e7a752b068610f52415a47693528148",
+     "phase_b": "789896c07d04be25c7ad7805ae60b8b0"
+    },
+    "12 pausepoint 130": {
+     "phase_a": "d6a9fc4d591dedd8c82af1ec7129465c",
+     "phase_b": "b1a174dbd3fc71e5345609e04b8c360a"
+    },
+    "13 pausepoint 63 ticked": {
+     "phase_a": "b7ab2442b7b4e8c23c9c8d7eb93afdff",
+     "phase_b": "ce66f2c99c3fa90e72c69a4aaa268c50"
+    },
+    "14 play 62 frame 0": {
+     "phase_a": "d6c458e0f4c776bd9622c16ea76f13a8",
+     "phase_b": "f671b847b4f09439de26e03f2e586e30"
+    },
+    "15 play 62 frame 1": {
+     "phase_a": "a985591bbc60fcc82a48d2d4ba2be9c5",
+     "phase_b": "5274dbf93d6a637aa7b3d12c41ef3731"
+    },
+    "16 play 62 frame 2": {
+     "phase_a": "cc7c5728f178458932dce4384c932986",
+     "phase_b": "fb46356f3686b54dfb05677f26f758d7"
+    },
+    "17 play 62 frame 3": {
+     "phase_a": "924bd7bb545c61063ef4688e2b51e08e",
+     "phase_b": "959b886643c06daf38763036d4abf461"
+    },
+    "18 play 62 frame 4": {
+     "phase_a": "a14d33de65155d49d4b862a7eb6b0408",
+     "phase_b": "19f28dee24217863b4ff29a4ed6c77b0"
+    },
+    "19 play 62 frame 5": {
+     "phase_a": "9f0da301afa76bb69c7f85ecdbfff518",
+     "phase_b": "1ac5054d07c31b4488f4076857711ce5"
+    },
+    "20 play 62 frame 6": {
+     "phase_a": "66e7d2203f35f1bc3a19f4b12f42ed5d",
+     "phase_b": "a2f66d332ea9bb9fe379505de8e2eafd"
+    },
+    "21 play 62 frame 7": {
+     "phase_a": "93b80c30781f7f291a8ce063f6ab0f63",
+     "phase_b": "5d2c0b8c78cb6ca71521ae5d1b9e5259"
+    },
+    "22 play 62 frame 8": {
+     "phase_a": "490487c12c39ecec0344b57ce00832c1",
+     "phase_b": "f35c2c8e4d1c79d4bbc6eb6fcf6a1fda"
+    },
+    "23 pausepoint 63 after the play": {
+     "phase_a": "a579978f9439ce1a87994da30e8ee527",
+     "phase_b": "b2e5f969270ecb98b5b6f205c7279e33"
+    }
+   },
+   "input": {
+    "source": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2"
+   }
+  }
+ },
+ "format_version": 7,
+ "recorded_with": "python -m tests.test_retained_frame --record"
+}

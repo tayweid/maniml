@@ -42,19 +42,24 @@ class Rotating(Animation):
         )
 
     def begin(self) -> None:
-        self._program_frames = 0
+        self._frames = 0
         super().begin()
+        self.program_sources = programs.begin(self.starting_mobject)
         if programs.mode() != "off":
-            programs.freshen(self.starting_mobject)
             # After the first frame the CPU path's rotate recomputes the
             # box it rotates about from the rows, which are the start's;
             # the start copy's box, recomputed, is that box.
             self.starting_mobject.refresh_bounding_box(recurse_down=True)
+        programs.stamp(self)
 
     def interpolate_mobject(self, alpha: float) -> None:
         angle = self.rate_func(self.time_spanned_alpha(alpha)) * self.angle
         mode = programs.mode()
-        if mode != "off" and self._program_frame(angle, mode):
+        # Counted whichever path draws it: a program may follow CPU frames
+        # (programs.admits), and after any frame the box is the start's.
+        first = self._frames == 0
+        self._frames += 1
+        if mode != "off" and self._program_frame(angle, mode, first):
             return
         pairs = zip(
             self.mobject.family_members_with_points(),
@@ -70,7 +75,7 @@ class Rotating(Animation):
             about_edge=self.about_edge,
         )
 
-    def _program_frame(self, angle: float, mode: str) -> bool:
+    def _program_frame(self, angle: float, mode: str, first: bool) -> bool:
         """The frame as an affine program on every member (docs/phase_b3_plan.md):
         the start's points rotated about the point the CPU path rotates
         about, which is the start's, since the points are the start's when
@@ -78,7 +83,8 @@ class Rotating(Animation):
         all align keeps the CPU path."""
         pairs = list(zip(self.mobject.family_members_with_points(),
                          self.starting_mobject.family_members_with_points()))
-        if not pairs or not all(hasattr(sm, "affine_program") and sm._aligned_source(start) for sm, start in pairs):
+        if not pairs or not all(hasattr(sm, "affine_program") and sm._aligned_source(start)
+                                and programs.admits(mode, self, sm, start) for sm, start in pairs):
             return False
         about_point = self.about_point
         if about_point is None and self.about_edge is not None:
@@ -86,12 +92,11 @@ class Rotating(Animation):
             # does (nothing is pending yet, so the read costs nothing);
             # every later frame's CPU box is recomputed from the start's
             # points, which the refreshed start copy holds.
-            source = self.mobject if self._program_frames == 0 else self.starting_mobject
+            source = self.mobject if first else self.starting_mobject
             about_point = source.get_bounding_box_point(self.about_edge)
-        self._program_frames += 1
         rot_matrix_T = rotation_matrix_transpose(angle, self.axis)
         for sm, start in pairs:
-            sm.affine_program(start, rot_matrix_T, about_point, defer=mode == "gpu")
+            sm.affine_program(start, rot_matrix_T, about_point, defer=programs.deferred(mode))
         self.mobject.refresh_bounding_box(recurse_down=True)
         # As VMobject.rotate flags the whole family's normals.
         for member in self.mobject.get_family():

@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 
 from maniml.web.geometry import (
-    GEOMETRY_FORMAT_VERSION,
+    FULL_FRAME_FORMAT_VERSION,
     GeometryCache,
     serialize_scene,
 )
@@ -170,7 +170,9 @@ def _write_export(scene, recorder: GeometryRecorder, staging: Path) -> None:
 
     checkpoints = scene.animation_checkpoints
     meta = {
-        "format_version": GEOMETRY_FORMAT_VERSION,
+        # The recorder never negotiates format 8: its frames are full
+        # frames, format 7's.
+        "format_version": FULL_FRAME_FORMAT_VERSION,
         "scene": type(scene).__name__,
         "fps": int(scene.camera.fps),
         "frames": [

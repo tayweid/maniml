@@ -111,6 +111,129 @@ class NetAlignment(unittest.TestCase):
         self.assertEqual(coarse.get_num_points(), fine.get_num_points())
 
 
+class NetCacheAccounting(unittest.TestCase):
+    def test_a_dead_surfaces_entry_is_taken_off_when_its_id_comes_back(self):
+        # CPython hands a dead object's id to the next one made, so a
+        # surface replaced between two frames can find its predecessor's
+        # entry at its own id before any finish_frame saw that one die.
+        # The entry was overwritten with its bytes still counted: the
+        # budget filled with nothing until it evicted every live net.
+        import gc
+        from maniml.web.gpu_net_geometry import NetRecipeCache
+
+        def net(cache, surface):
+            return cache.source(surface, revision=surface.revision, pixels_per_unit=100, frame_scale=1)
+
+        def program(cache, surface):
+            rows = np.zeros((surface.get_num_points(), surface.data.dtype.itemsize // 4), dtype="f4")
+            return cache.program_entry(surface, [rows, rows], pixels_per_unit=100, frame_scale=1)
+
+        for what, read in (("source", net), ("program_entry", program)):
+            with self.subTest(what):
+                cache, surface = NetRecipeCache(), Sphere(resolution=(7, 5))
+                cache.begin_frame()
+                net(cache, Sphere(resolution=(9, 9)))   # dies before the frame ends
+                gc.collect()
+                entry = cache.entries.pop(next(iter(cache.entries)))
+                self.assertIsNone(entry.owner())
+                cache.entries[id(surface)] = entry   # the state an id reuse leaves
+                read(cache, surface)
+                self.assertIs(cache.entries[id(surface)].owner(), surface)
+                self.assertEqual(cache.nbytes, sum(held.net.nbytes for held in cache.entries.values()))
+                cache.finish_frame()
+                self.assertEqual(cache.nbytes, sum(held.net.nbytes for held in cache.entries.values()))
+
+
+class NetCacheSweep(unittest.TestCase):
+    """finish_frame sweeps only where an entry went unused (B5.5: a frame
+    that used every entry, the still frame's case, sweeps nothing), and
+    the reservation's rules give what they gave before their memos."""
+
+    def test_an_unused_entry_is_swept_and_a_frame_that_used_all_is_not(self):
+        from maniml.web.gpu_net_geometry import NetRecipeCache
+        cache, a, b = NetRecipeCache(), Sphere(resolution=(7, 5)), Sphere(resolution=(9, 5))
+
+        def read(surface, keep=False):
+            if keep:
+                return cache.keep(surface)
+            return cache.source(surface, revision=surface.revision, pixels_per_unit=100, frame_scale=1)
+
+        cache.begin_frame()
+        read(a), read(b), read(a)
+        self.assertEqual(cache._used, 2, "an entry used twice counts once")
+        cache.finish_frame()
+        self.assertEqual(len(cache.entries), 2)
+        cache.begin_frame()
+        read(a, keep=True), read(a, keep=True)
+        cache.finish_frame()
+        self.assertEqual(list(cache.entries), [id(a)], "the unused entry is swept")
+        self.assertEqual(cache.nbytes, sum(entry.net.nbytes for entry in cache.entries.values()))
+        cache.begin_frame()
+        read(a, keep=True)
+        b.shift(RIGHT)
+        read(b), read(b)
+        a.shift(RIGHT)
+        read(a)   # a new net at a used place counts as the one it replaces
+        self.assertEqual(cache._used, 2)
+        cache.finish_frame()
+        self.assertEqual(set(cache.entries), {id(a), id(b)})
+        self.assertEqual(cache.nbytes, sum(entry.net.nbytes for entry in cache.entries.values()))
+
+    def test_the_memoized_rules_are_the_rules(self):
+        import numpy as np
+        from maniml.web import gpu_net_geometry as g
+        for density, ppu, scale in ((0.0, 270.0, 1.0), (.013, 270.0, 1.0), (.2, 270.0, .02), (3.1, 540.0, 1 / 64),
+                                    (1e-3, 1e3, 1e-9), (float("inf"), 1.0, 1.0)):
+            pixels = float(density) * float(ppu) / float(scale)
+            expected = (g.MIN_NET_STEPS if not np.isfinite(pixels) or pixels <= 4.0 else
+                        int(min(g.MAX_NET_STEPS, max(g.MIN_NET_STEPS, np.ceil(np.sqrt(np.float32(pixels)))))))
+            self.assertEqual(g.steps_needed(np.float32(density), ppu, scale), g.steps_needed(density, ppu, scale))
+            self.assertEqual(g.steps_needed(density, ppu, scale), expected)
+        uniforms = {"frame_rescale_factors": np.array([.25, 1 / 3, 1.0], dtype=np.float32)}
+        self.assertEqual(g.pixels_per_unit(uniforms, (960, 540)),
+                         float(np.asarray(uniforms["frame_rescale_factors"], dtype=float)[1]) * 540 / 2.0)
+        for needed, previous, cap in ((3, None, 32), (3, 8, 32), (9, 8, 32), (20, None, 12), (20, 12, 12)):
+            self.assertEqual(g._reserve(needed, previous, cap), g.reserve_steps(needed, previous, cap))
+
+
+class NetEvaluationPlan(unittest.TestCase):
+    """What both drivers decide before the net stage's one dispatch
+    (docs/phase_b4_plan.md, B5.5): the steps, and the grouping."""
+
+    def test_steps_follow_the_kernels_rule_and_stay_within_the_capacity(self):
+        from maniml.web.gpu_net_geometry import evaluation_steps
+        # 90 pixels per unit at frame scale 1 (180 rows, rescale 1).
+        self.assertEqual(evaluation_steps(0, 1.0, 180, 1.0, 8), 2)
+        self.assertEqual(evaluation_steps(4 / 90, 1.0, 180, 1.0, 8), 2, "four pixels or fewer: two steps")
+        self.assertEqual(evaluation_steps(.2, 1.0, 180, 1.0, 8), 5, "ceil(sqrt(18))")
+        self.assertEqual(evaluation_steps(.4, 1.0, 180, 1.0, 8), 6, "sqrt(36) is exactly six")
+        self.assertEqual(evaluation_steps(.2, 1.0, 180, .5, 8), 6, "a zoom in raises the pixels per unit")
+        self.assertEqual(evaluation_steps(.2, 1.0, 180, .1, 8), 8, "at most the capacity")
+        self.assertEqual(evaluation_steps(1e300, 1e300, 180, 1e-30, 8), 8, "an overflow is the capacity")
+        self.assertEqual(evaluation_steps(float("nan"), 1.0, 180, 1.0, 8), 2)
+        with self.assertRaises(ValueError):
+            evaluation_steps(.2, 1.0, 180, 1.0, 40)
+
+    def test_a_frames_nets_group_into_dispatches_within_the_budget(self):
+        from maniml.web.gpu_net_geometry import dispatch_shape, pack_table, plan_evaluation
+        # One dispatch, each source gathered once, outputs and patches in order.
+        plan = plan_evaluation([("a", 100, 400, 2), ("b", 60, 400, 3), ("a", 100, 800, 2)], budget=1 << 20)
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0]["sources"], [("a", 0, 100), ("b", 100, 60)])
+        self.assertEqual(plan[0]["entries"], [(0, 0, 0, 0), (1, 25, 100, 2), (2, 0, 200, 5)])
+        self.assertEqual((plan[0]["input_bytes"], plan[0]["output_bytes"], plan[0]["patches"]), (160, 1600, 7))
+        # Past the budget in either scratch buffer, the next dispatch; a net
+        # larger than the budget alone (read and written in place).
+        plan = plan_evaluation([("a", 100, 400, 2), ("b", 100, 400, 3), ("a", 100, 400, 2), ("c", 1000, 4000, 5),
+                                ("d", 100, 400, 1)], budget=1000)
+        self.assertEqual([[entry[0] for entry in dispatch["entries"]] for dispatch in plan], [[0, 1], [2], [3], [4]])
+        self.assertEqual([dispatch["entries"][0][1:] for dispatch in plan[1:]], [(0, 0, 0)] * 3)
+        table = np.frombuffer(pack_table([[0, 0, 3, 3, 10, 2, 2, 0], [9, 90, 3, 5, 10, 4, 3, 1]], 3), dtype="<u4")
+        self.assertEqual(table.tolist(), [2, 3, 0, 0, 0, 0, 3, 3, 10, 2, 2, 0, 9, 90, 3, 5, 10, 4, 3, 1])
+        self.assertEqual(dispatch_shape(7, 65535), (7, 1))
+        self.assertEqual(dispatch_shape(70000, 65535), (65535, 2))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -183,6 +306,94 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
                 self.assertLess(smooth, facets / ratio)
                 self.assertLessEqual(smooth, .005)
                 self.assertGreater(header["batches"][0]["net"]["capacity"], 4)
+
+    def test_every_surface_fixture_is_within_the_flip_gate(self):
+        """B5.4's nets gate (docs/phase_b4_plan.md, "The flips"): every
+        Surface fixture drawn from nets is within 0.5% of pixels over 24/255
+        of Phase A's grids, each drawing its surfaces as nets there and as
+        grids here."""
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.surface_fixtures import PIXEL_LIMIT, SURFACE_FIXTURES, nets_against_grids
+
+        nets = WgpuRenderer()
+        try:
+            for name in SURFACE_FIXTURES:
+                with self.subTest(fixture=name):
+                    result = nets_against_grids(name, self.driver, nets)
+                    self.assertGreater(result["grid_batches"], 0)
+                    self.assertGreater(result["net_batches"], 0)
+                    self.assertLessEqual(result["fraction_pixels_rgb_over24"], PIXEL_LIMIT)
+        finally:
+            nets.close()
+
+    def test_one_dispatch_evaluates_what_changed_and_a_small_zoom_nothing(self):
+        """B5.5: every changed net of a frame in one dispatch, gathered and
+        copied out, pixel for pixel what evaluating each alone in place
+        draws; a pan or a zoom that moves no step count evaluates nothing,
+        and a driver that kept its outputs across the moves draws what a
+        fresh driver draws."""
+        from unittest.mock import patch
+        from maniml.web import gpu_net_geometry
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.surface_fixtures import NETS, orbs
+
+        scene, drivers = orbs(), [WgpuRenderer(), WgpuRenderer(), WgpuRenderer()]
+        caches = {id(driver): GeometryCache() for driver in drivers}
+        evaluated = [[], [], []]
+        for driver, calls in zip(drivers, evaluated):
+            original = driver._evaluate_nets
+
+            def counting(changed, *args, original=original, calls=calls, **kwargs):
+                calls.append(len(gpu_net_geometry.plan_evaluation(
+                    [(id(net["source"]), net["source_bytes"], net["size"], net["patches"]) for net in changed],
+                    min(gpu_net_geometry.NET_SCRATCH_BUDGET, args[2]))))
+                return original(changed, *args, **kwargs)
+            driver._evaluate_nets = counting
+
+        def draw(driver, budget=None):
+            with patch.dict(os.environ, NETS):
+                header, payload = parse_geometry_message(serialize_scene(scene, caches[id(driver)],
+                                                                         renderer="triangles"))
+            with patch.object(gpu_net_geometry, "NET_SCRATCH_BUDGET", budget or gpu_net_geometry.NET_SCRATCH_BUDGET):
+                return np.asarray(driver.render(header, payload)), header
+
+        try:
+            gathered, header = draw(drivers[0])
+            alone, _ = draw(drivers[1], budget=1)
+            # A budget of a few nets: several dispatches reuse one scratch.
+            several, _ = draw(drivers[2], budget=400_000)
+            self.assertEqual(sum("net" in batch for batch in header["batches"]), 70)
+            self.assertEqual(evaluated[:2], [[1], [70]], "one dispatch; seventy when none may share")
+            self.assertGreater(evaluated[2][0], 5)
+            self.assertTrue(np.array_equal(gathered, alone), "gathered and copied out, or evaluated in place")
+            self.assertTrue(np.array_equal(gathered, several), "in one dispatch or in several")
+            for move, evaluates in (("pan", False), (.98, False), (1 / .98, False), (.5, True), (2.2, True)):
+                with self.subTest(move=move):
+                    if move == "pan":
+                        scene.camera.frame.shift([.2, -.1, 0])
+                    else:
+                        scene.camera.frame.scale(move)
+                    scene.camera.refresh_uniforms()
+                    before = [len(calls) for calls in evaluated]
+                    kept, _ = draw(drivers[0])
+                    self.assertEqual(len(evaluated[0]) > before[0], evaluates)
+                    fresh_driver = WgpuRenderer()
+                    try:
+                        with patch.dict(os.environ, NETS):
+                            header, payload = parse_geometry_message(
+                                serialize_scene(scene, GeometryCache(), renderer="triangles"))
+                        fresh = np.asarray(fresh_driver.render(header, payload))
+                    finally:
+                        fresh_driver.close()
+                    # After the zoom out a fresh cache reserves for this
+                    # zoom alone and the kept one keeps its larger
+                    # reservation: the same steps, the same pixels.
+                    self.assertTrue(np.array_equal(kept, fresh), "the kept outputs are what a fresh driver draws")
+            self.assertTrue(all(count == 1 for count in evaluated[0]), "each evaluating frame is one dispatch")
+        finally:
+            for driver in drivers:
+                driver.close()
 
     def test_camera_changes_resend_nothing_and_a_zoom_grows_the_reservation(self):
         from maniml.web.geometry import GeometryCache

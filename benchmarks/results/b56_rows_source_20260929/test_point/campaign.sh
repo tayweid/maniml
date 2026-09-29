@@ -1,0 +1,47 @@
+#!/bin/zsh
+# B5.6 fix pass: B6's recipe (benchmarks/README.md "The test point") retaken
+# with five stacks, the forced Phase B as the selection sends it (rows) and
+# phase_b_records beside it; one run at a time, the conditions at each
+# run's start and end. The instrumented python run is left out (optional).
+set -u
+cd /Users/taylorjweidman/Projects/ManimLive/maniml-b4i
+PY=/Users/taylorjweidman/Projects/ManimLive/maniml/.venv/bin/python
+D=/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5_work/b56_fix/runs
+E=/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/episodes
+mkdir -p $D
+for v in ${(k)parameters[(I)MANIML_*]}; do unset $v; done
+F=(--tick-updaters --play-frames)
+B=(phase_b_retained phase_b_retained_records)
+conditions() {
+  { echo "== $1 $(date '+%Y-%m-%dT%H:%M:%S')"; uptime;
+    for i in 1 2 3; do ioreg -r -c IOAccelerator -d 1 | grep -o '"Device Utilization %"=[0-9]*'; sleep 1; done;
+    ps -Ao pcpu,pid,comm -r | awk 'NR>1 && $1>10'; } >> $D/conditions.log
+}
+run() {
+  local name=$1; shift
+  conditions "start $name"
+  "$@" > $D/$name.log 2>&1
+  echo "exit $? $name" >> $D/conditions.log
+  conditions "end $name"
+}
+scene() {
+  local tag=$1 file=$2 cls=$3
+  local S=($file $cls)
+  local d=$D/$tag
+  mkdir -p $d
+  run ${tag}_frames_a $PY -m benchmarks.episode_frames --scene $S --variants retained default gpu_border $F --output $d/frames_a
+  run ${tag}_frames_b $PY -m benchmarks.episode_frames --scene $S --variants $B gpu_border $F --output $d/frames_b
+  run ${tag}_gpu1 $PY -m benchmarks.episode_frames --scene $S --variants gpu_border retained default $B $F --gpu-timestamps --output $d/gpu1
+  run ${tag}_browser $PY -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced phase_b_forced_records $F --deltas --realm main --rounds 5 --output $d/browser
+  run ${tag}_page $PY -m benchmarks.test_point page --stream $d/browser/phase_a --revision main --rounds 5 --output $d/page
+  run ${tag}_serialize $PY -m benchmarks.test_point serialize --scene $S $F --output $d/serialize
+  run ${tag}_gpu2 $PY -m benchmarks.episode_frames --scene $S --variants gpu_border retained default $B $F --gpu-timestamps --output $d/gpu2
+  run ${tag}_table $PY -m benchmarks.test_point table --serialize $d/serialize --browser $d/browser --page $d/page --gpu $d/gpu1 $d/gpu2 --pixels $d/frames_b $d/frames_a --output $d/table
+}
+for which in "$@"; do
+  case $which in
+    b2) scene b2 $E/Blocks/B2_Supply/03_Code.py EpisodeB2 ;;
+    b3) scene b3 $E/Blocks/B3_Equilibrium/Animate.py PriceDiscovery ;;
+  esac
+done
+echo "all done $(date)" >> $D/conditions.log

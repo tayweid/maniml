@@ -1,0 +1,148 @@
+<!doctype html>
+<!--
+  The browser driver on a real WebGPU device, as run for B6
+  (docs/phase_b4_plan.md, "The final test point"): what a message costs the
+  page's JavaScript with Dawn behind it, and how long after its submit the
+  device reports the work done. The fake device (benchmarks/browser_frames.py)
+  has no Dawn; B4.9 (render bundles) is conditional on Dawn's per-draw cost
+  at 911 slots, which only a real device shows.
+  Serve it from a folder that also holds:
+    webgpu.js        maniml/web/static/webgpu.js of the tree measured;
+    wgsl/            maniml/web/static/wgsl;
+    streams/<name>/  browser_frames.py stream folders (scene.json +
+                     scene.bin.gz), e.g. b2_phase_b_forced.
+  Then, in a WebGPU browser's console: await measure("b2_phase_b_forced", 5)
+  plays the stream through the driver in order, round after round (the
+  driver destroyed and made again between rounds, as a page reload would),
+  and returns per message its median js_ms (performance.now around the
+  driver's render: the header parse or the resend's comparison, the slots'
+  resolution, the encode loop and the submit, each WebGPU call serialized
+  for Dawn's wire as it is made) and its median done_ms (from the render's
+  end to device.queue.onSubmittedWorkDone: Dawn's validation and Metal
+  encode in the GPU process, then the GPU's own work), with every uncaptured
+  validation error. A message the stream did not send is skipped.
+  await redraw("b2_phase_b_forced", 314, 200, 3) redraws one message back
+  to back (its comment below). measureAndSave(name, rounds) POSTs
+  measure()'s result to save/<name>, which needs a server that stores a
+  POST (B6 used http.server with a do_POST writing results/<name>.json);
+  measure() and redraw() need only static serving on loopback.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Device redraw</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; } }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+  canvas { width: 480px; height: 270px; border: 1px solid #888; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>The browser driver plays a recorded stream on this device; each message is timed in JavaScript and to the device's completion.</p>
+<canvas id="stage"></canvas>
+<pre id="log">idle</pre>
+<script src="webgpu.js"></script>
+<script>
+  const errors = [];
+  let device = null;
+  const requestDevice = GPUAdapter.prototype.requestDevice;
+  GPUAdapter.prototype.requestDevice = async function (...args) {
+    device = await requestDevice.apply(this, args);
+    device.addEventListener("uncapturederror", event => errors.push(String(event.error.message)));
+    return device;
+  };
+  const log = text => { document.getElementById("log").textContent = text; };
+
+  async function loadStream(name) {
+    const meta = await (await fetch(`streams/${name}/scene.json`)).json();
+    const compressed = (await fetch(`streams/${name}/scene.bin.gz`)).body;
+    const data = new Uint8Array(await new Response(compressed.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const frames = [];
+    let offset = 0;
+    for (const frame of meta.frames) {
+      frames.push(frame.len ? data.buffer.slice(offset, offset + frame.len) : null);
+      offset += frame.len;
+    }
+    if (offset !== data.length) throw new Error("incomplete stream");
+    return {meta, frames};
+  }
+
+  const median = values => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  };
+
+  async function measure(name, rounds = 5) {
+    const {meta, frames} = await loadStream(name);
+    const canvas = document.getElementById("stage");
+    const timings = frames.map(() => ({js: [], done: []}));
+    errors.length = 0;
+    for (let round = 0; round < rounds; round++) {
+      await ManimlWGPU.init(canvas);
+      for (const [index, bytes] of frames.entries()) {
+        if (bytes === null) continue;
+        // The driver keeps the caller's buffer (a resend is compared with
+        // it), so each render is handed a copy of its own, as the socket
+        // hands the page a new one per message.
+        const message = bytes.slice(0);
+        const began = performance.now();
+        await ManimlWGPU.render(message);
+        const rendered = performance.now();
+        await device.queue.onSubmittedWorkDone();
+        const done = performance.now();
+        timings[index].js.push(rendered - began);
+        timings[index].done.push(done - rendered);
+      }
+      await ManimlWGPU.destroy();
+      log(`${name}: round ${round + 1} of ${rounds}`);
+    }
+    const rows = timings.map((timing, index) => timing.js.length
+      ? {index, js_ms: median(timing.js), done_ms: median(timing.done), n: timing.js.length} : null);
+    log(`${name}: done, ${errors.length} errors`);
+    return {stream: name, rounds, adapter: navigator.userAgent, frames: meta.frames.length, rows, errors: [...errors]};
+  }
+
+  // One message redrawn back to back: the stream played up to and including
+  // message ``index`` (a format 7 full frame, so each resend of it redraws
+  // the retained slots), then ``count`` resends, each a copy. js_ms is the
+  // resends' JavaScript over count (the page's clock is too coarse for one);
+  // frame_ms the time from the first resend to the device's completion of
+  // the last, over count: the sustained cost of a redraw, whichever of the
+  // page, Dawn's GPU process and the GPU bounds it.
+  async function redraw(name, index, count = 200, rounds = 5) {
+    const {frames} = await loadStream(name);
+    const canvas = document.getElementById("stage");
+    const js = [], frame = [];
+    errors.length = 0;
+    for (let round = 0; round < rounds; round++) {
+      await ManimlWGPU.init(canvas);
+      for (let i = 0; i <= index; i++) {
+        if (frames[i] !== null) await ManimlWGPU.render(frames[i].slice(0));
+      }
+      await device.queue.onSubmittedWorkDone();
+      const copies = Array.from({length: count}, () => frames[index].slice(0));
+      const began = performance.now();
+      for (const message of copies) await ManimlWGPU.render(message);
+      const encoded = performance.now();
+      await device.queue.onSubmittedWorkDone();
+      frame.push((performance.now() - began) / count);
+      js.push((encoded - began) / count);
+      await ManimlWGPU.destroy();
+    }
+    return {stream: name, index, count, rounds, js_ms: median(js), frame_ms: median(frame), js, frame,
+            errors: [...errors]};
+  }
+
+  // measure(), then the result POSTed to the serving folder's results/
+  // (serve.py), returning only its size and errors.
+  async function measureAndSave(name, rounds = 5) {
+    const result = await measure(name, rounds);
+    await fetch(`save/${name}`, {method: "POST", body: JSON.stringify(result)});
+    return {stream: name, rows: result.rows.filter(Boolean).length, errors: result.errors.slice(0, 3)};
+  }
+</script>
+</body>
+</html>

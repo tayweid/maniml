@@ -76,11 +76,13 @@ def wire_metadata(message, header, payload):
             "paint_definition_bytes": sum(ref["nbytes"] for ref in header.get("paint_data", {}).values())}
 
 
-def wire_sample(scene, variant, cache, stages):
+def wire_sample(scene, variant, cache, stages, *, retained="0"):
     stages.reset()
-    started = perf_counter()
-    message = serialize_scene(scene, cache, renderer=variant)
-    serialized = perf_counter()
+    # The whole-frame path unless ``retained`` is "1" (gpu_borders.sample).
+    with patch.dict("os.environ", MANIML_RETAINED_FRAME=retained):
+        started = perf_counter()
+        message = serialize_scene(scene, cache, renderer=variant)
+        serialized = perf_counter()
     header, payload = parse_geometry_message(message)
     parsed = perf_counter()
     ms = stages.milliseconds

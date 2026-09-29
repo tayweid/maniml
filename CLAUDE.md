@@ -123,7 +123,7 @@ All of this lives in `maniml/`:
    - **Copy discipline**: `SceneState` stores direct references; isolation happens by deep-copying state+namespace *together* at save time. Anything restored for display (UP/DOWN/LEFT, undo/redo) goes through a thaw copy so on-screen mutation can never corrupt stored history; `run_next_animation` thaws the checkpoint before exec for the same reason, except at the frontier, where the live graph *is* what the checkpoint was frozen from.
    - **The ledger** (`CheckpointLedger` in `checkpoints.py`, DECISIONS.md "Checkpoints are a ledger"): a save copies only what changed. `Mobject.revision` is bumped by every mutation a checkpoint must see (`note_changed_data`, `note_changed_family`, `note_changed_state`; a child bumps its ancestors); the save pre-seeds the deep copy's memo so an unchanged mobject and everything it references reuse their previous frozen copy. Frozen graphs have no parent links and read-only arrays (`Mobject.__deepcopy__` under `copy_mode("freeze")`); a thaw (`copy_mode("thaw")`) rebuilds the links. Mutating mobject state through a path that bumps nothing makes a stale checkpoint — run with `MANIML_VERIFY_LEDGER=1` to have such a miss raise `LedgerStale` naming the attribute.
 
-4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off; navigation is the viewer's rail, and the viewer plays the recorded mp4 once every endpoint is prebuilt); `--render` → `_render_all()` headless (frames to `SceneFileWriter`); `--export-checkpoints` → the same `_render_all()` with `_render_checkpoints` on, which additionally writes one PNG per checkpoint (intermediate loop checkpoints are restored individually for their snapshots) — on its own it skips the movie (`write_to_movie=False`), and the two flags combine. Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through.
+4. **Run modes** (dispatched in `Scene.run()`): default interactive; `--present` → `_prepare_presentation()` (fast-forward all units via `temp_skip`, rewind to checkpoint 0, watcher off; navigation is the viewer's rail, and the viewer plays the recorded mp4 once every endpoint is prebuilt); `--render` → `_render_all()` headless (frames to `SceneFileWriter`); `--export-checkpoints` → the same `_render_all()` with `_render_checkpoints` on, which additionally writes one PNG per checkpoint (intermediate loop checkpoints are restored individually for their snapshots) — on its own it skips the movie (`write_to_movie=False`), and the two flags combine. Note `config.py`'s import-time parser uses `parse_known_args` (and `add_help=False`) so maniml-only flags and `--help` pass through, and reads `sys.argv` only when maniml is the program, as the console script or `python -m maniml` (`cli_arguments`): a test runner's or a benchmark's flags are not maniml's (`unittest discover -t .` once gave every scene the suite built a transparent background).
 
 5. **Click-to-inspect / drag** (development mode): left-press hit-tests top-down via `point_to_mobject` (bbox + SMALL_BUFF; camera frame and fixed-in-frame excluded; in present mode a press does nothing — navigation is the rail). Prints the variable name (scanned from `_live_namespace` — the exec namespace of the last-run unit, kept alive precisely for this; identity lookups against stored checkpoints fail because those are deep copies) and center; drag moves the mobject (pan is suppressed while grabbing); release prints a paste-ready `name.move_to([x, y, z])`. Navigation keeps names resolvable by restoring state+namespace together (`_restore_checkpoint_for_display`). Where `drag_to_orbit` is set (`ThreeDScene`), a plain drag turns the camera instead (`_orbit`: theta and phi about the frame's centre; shift-drag pans, alt-press grabs) — a plain press cannot grab there because the bounding-box hit test lets 3D axes claim nearly every press. The orbit is a look, not an edit: the frame's orientation is checkpoint state, so every navigation path restores the authored camera. **Handles**: `Mobject.set_draggable(along=, on_drag=)` is plain state on the mobject (copied with every checkpoint, deliberately not the inherited `EVENT_DISPATCHER` listeners, which hold object identities that every thaw replaces); `_find_handle_at` searches the flagged family members first, in every mode including present, and `on_mouse_motion` reports the hovered handle's name through `WebViewer.set_hover` (a `{"type": "hover", "label"}` message, once per change; the page draws the chip and the cursor). The state message carries `draggable`, and the page then presents from the live stage instead of entering playback.
 
@@ -152,13 +152,13 @@ keeps that name. Module map:
 
 `server.py` runs one daemon thread: a `websockets` server that answers plain GETs for `static/viewer.html` and its assets (`web/assets.py`, via `process_request`) on the very port that carries the frame/event protocol — page and socket are one origin, so the client derives `wsUrl` from `window.location`. The WebSocket handshake requires the server's exact Origin — the page it served — before it sends frames or accepts events (`web/security.py`); there is no token and no authentication message, so the first thing a connected client receives is `{"type": "ready", "capabilities": [...]}`.
 
-**Wire protocol.** Server→client: binary geometry frames (1 header byte, 0x03; the 0x01 JPEG / 0x02 PNG pixel frames were deleted 2026-09-02) plus state JSON `{current, count, lines, units, future}` and move JSON `{from, to, back, unit}`. Client→server: `{"type": "mode", "geometry": bool}` once its WebGPU is up (or asleep behind recorded playback), `geometry_request` / `geometry_reset`, and key/pointer/chip JSON with pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping.
+**Wire protocol.** Server→client: binary geometry frames (1 header byte, 0x03; the 0x01 JPEG / 0x02 PNG pixel frames were deleted 2026-09-02) plus state JSON `{current, count, lines, units, future}` and move JSON `{from, to, back, unit}`. Client→server: `{"type": "mode", "geometry": bool, "format": 8}` once its WebGPU is up (or asleep behind recorded playback), `geometry_request` / `geometry_reset`, and key/pointer/chip JSON with pointer coords normalized to the frame [0,1] y-up, so no window-size bookkeeping. The `format` a mode message announces is per client (the server numbers its clients and tags each event `_client`): once every connected client has announced format 8, the geometry frames are a stream of deltas (Stage 2, below), and until then every client is sent format 7 full frames.
 
 **Moving between pausepoints.** `current_animation_index` only advances when `play()` saves its checkpoint, so a rail driven by state alone sits still for a whole animation and then teleports. `begin_animation`/`end_animation` (already called from `pre_play`/`post_play`) therefore send their own `{"type": "move", "from", "to", "back"}` — its own message for two reasons: a *state* change forces a full payload under the streaming policy below, and this has to reach the client when the play starts rather than on whatever frame is sent next. It names the stretch being crossed and says nothing about progress through it: the animation is on screen at full size already, and any claim would have to hold up through skipped fast-forwards, which are suppressed entirely. (The `back` field is currently always false — backward navigation is an instant jump — but stays in the protocol for the recorded-playback layer, whose reverse playback will light the rail from the other end.) The client lights the link between the two chips and lifts the position ring off the chip being left.
 
 **A chip is a source statement, not a checkpoint.** The rail groups consecutive checkpoints sharing a `unit_index` into one chip, so a loop that stood as one stacked chip before it ran is still one stacked chip after — otherwise the rail swells as you step through it and every chip you were aiming at moves. That is why the state carries `units` and the move carries `unit`: a forward play's destination checkpoint does not exist yet, so only the statement being played can say whether the move stays inside the stack (the chip pulses, there being no stretch between two chips to light) or crosses to the next one.
 
-**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket; a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Readiness is one flag for the whole viewer, not per client (with two tabs the last `mode` message speaks for both), but it does not outlive the clients that reported it: a client arriving at an empty viewer (`_connect` with `alone`) clears it, so a reloading page gets no payload before its renderer is up. Input events drain inside `on_frame_rendered` — during the render tick — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
+**Streaming policy**, in `WebViewer.on_frame_rendered` (hooked after every frame; `Scene.update_frame` skips `camera.capture` entirely while a client renders, via `can_skip_native_capture`): a geometry payload while animating / input events arriving / any top-level mobject `has_updaters()`, throttled outside a play (`MIN_SEND_INTERVAL`) so the idle loop stays off the socket, and under format 8 not sent at all when the frame changed nothing (`transport.geometry_skipped`: an idle tick of updaters that move nothing costs the socket and the page nothing); a forced payload on any checkpoint-state change (covers present-mode prep and watcher replays, which repaint without input events); nothing when no client is connected, and only state and console output for a client that reported no WebGPU. Readiness is one flag for the whole viewer, not per client (with two tabs the last `mode` message speaks for both), but it does not outlive the clients that reported it: a client arriving at an empty viewer (`_connect` with `alone`) clears it, so a reloading page gets no payload before its renderer is up. Input events drain inside `on_frame_rendered` — during the render tick — with a re-entrancy guard so a RIGHT-key `run_next_animation` doesn't recursively drain.
 
 **The console.** Output rides the same socket: `OutputTap` tees `sys.stdout`/`sys.stderr` in the scene process (writes still reach the real stream, so the app can scrape the launch line) into a bounded `LogBuffer`, and `_broadcast_logs` sends new lines as `{"type": "log", "lines": [...]}` — deliberately *before* the "has anything changed" test, since an idle scene can still be printing, and with the full backlog on connect. This is the only way to see a running scene's output in app mode at all: the child's stdout is a pipe into the app process, read only when a scene fails to start. The panel is toggle-only (`C`), never automatic — stepping a scene prints on every arrow key. In full screen it rides with the rest of the chrome rather than being suppressed, overlaying rather than reflowing so the frame is not resized every time the pointer nears an edge.
 
@@ -174,9 +174,13 @@ The geometry player produced by `--export` is WebGPU-only. If WebGPU is not
 available it says so directly and points to the MP4 presentation export; it
 does not fall back to another graphics API. The preserved winding WebGPU code reads older recordings. The student
 bundle (`--export-present`) is ordinary video and needs no browser GPU.
-`GEOMETRY_FORMAT_VERSION` appears in every geometry header and in the
-export's `scene.json`; the player checks the metadata before loading frames
-and tells an incompatible folder to re-export instead of rendering garbage.
+A version appears in every geometry header and in the export's
+`scene.json`; the player checks the metadata before loading frames and tells
+an incompatible folder to re-export instead of rendering garbage. Full
+frames are format 7 (`geometry.FULL_FRAME_FORMAT_VERSION`) for every receiver
+that has not negotiated format 8 (`GEOMETRY_FORMAT_VERSION`): native capture,
+the export recorder (its `scene.json` says 7) and a viewer with any tab that
+has not; the player reads formats 1-8.
 
 Winding fills carry optional `fill_rect` screen bounds, calculated together
 by `web/fill_bounds.py` from shader geometry and current camera uniforms.
@@ -200,19 +204,44 @@ resources belong to the reference camera, not mobjects or checkpoints. Frozen
 GL and winding implementations under `tests/` remain independent comparison
 references and are excluded from wheels.
 
-The viewer's **Scene renderer** selector retains **Original 2D** for dogfood
-comparisons. It uses `winding_geometry.py`, `static/winding_webgpu.js` and
-`static/winding_wgsl/`. Mode changes reset transport state and preserve the
-scene/checkpoint; native and baked exports explicitly choose Phase A. Do not
-remove this comparison option without Taylor's direction. The selector's
-**Phase B** (renderer name `phase_b`, `geometry.RENDERERS`) is the Phase A
-driver fed the whole Phase B stack: `_serialize_triangle_scene(phase_b=True)`
-forces patches + nets + GPU programs and stamps the header `phase_b`, and the
-viewer sets `programs.set_override("gpu")` while it is selected so the plays
-write programs too. The environment flags keep governing Phase A
-(`programs.env_mode()`), so an export made while Phase B is on screen is
-unaffected. The flips of the defaults are decided on measurements, not by
-this switch (TODO.md, "After").
+The viewer's **Scene renderer** selector offers **Default**, **Phase A**,
+**Phase B** and **Original 2D** (renderer names `triangles`, `phase_a`,
+`phase_b`, `winding`; `geometry.RENDERERS`, B5.4 in
+`docs/phase_b4_plan.md`, "The flips"). The first three are one driver fed
+three stacks. `triangles` is the default stack: whatever the generators'
+defaults are (`geometry.DEFAULT_FILL`, `geometry.DEFAULT_SURFACE`,
+`programs.DEFAULT_MODE`), each overridden by its environment flag
+(`MANIML_FILL`, `MANIML_SURFACE`, `MANIML_PROGRAMS`); native capture and the
+export recorder draw it, so a default that flips flips there too. `phase_a`
+forces Phase A (meshes, grids, programs off) and `phase_b` the whole Phase
+B stack (patches, nets, GPU programs), whatever the defaults or the
+environment say about the fill, surface and programs
+(`geometry.FORCED_STACKS`; both still read the border generator and the
+patch source, ways to send the same pixels, so Phase B's patches go as
+their paths' rows by `geometry.DEFAULT_PATCH_SOURCE`), so both ends stay
+selectable whichever way a default goes, and the viewer sets
+`programs.set_override("off")` or `("gpu")` while one is selected so its
+plays write what it draws; the default follows the environment
+(`programs.env_mode()`), so an export made while a forced renderer is on
+screen is unaffected. The golden pin (`tests/test_retained_frame.py`) holds
+`phase_a` and `phase_b` under the switches it was recorded with (programs
+off and the records packed, both stated), so no flip can move a pinned
+byte. A frame's
+header names the selection that made it, so the page's selection drops
+another's frames across a switch, with one exception: Phase A's frames are
+stamped `triangles`, the bytes Phase A always wrote (the pin's digests,
+and every recording names no other), and `renderer_selection.js` reads
+them as Phase A's (`FRAMES_OF`); a default frame still in flight across a
+switch to Phase A is drawn once before the switch's full frame replaces
+it. Original 2D uses `winding_geometry.py`, `static/winding_webgpu.js` and
+`static/winding_wgsl/` for dogfood comparisons. Mode changes reset
+transport state and preserve the scene/checkpoint. Do not remove Original
+2D or Phase A without Taylor's direction. The flips of the defaults are
+decided on measured gates (the plan's "The flips"), not by this switch; on
+2026-09-28 none passed (nets on camera moves, patches on plays and ticked
+frames, strokes on Python no lower than programs off; B5.5's nets then
+passed the gate's three scenes and failed on scenes that are mostly
+surfaces), so the default is Phase A's stack.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -234,9 +263,93 @@ steps its curves need at the current zoom, doubled for headroom and capped at
 64; the reservation grows only when a zoom outgrows it, and nothing is
 resent when it does. Only fill indices travel on the wire (format 6): each
 driver expands the per-object strip pattern from the run layout itself.
-Both drivers retire absent sources/outputs after submission and roll back new
+The native driver retires absent sources/outputs after submission. The
+browser driver retains the last submitted frame instead (B4.7,
+`docs/phase_b4_plan.md`): an ordered list of slots, each batch resolved
+once to its pipelines, bind groups, geometry and its own border, net and
+program outputs; shared resources are counted per slot and destroyed after
+the submit that follows their last release; uniforms live in one buffer
+per override set, rewritten in place when the camera moves; a full frame
+is diffed against the slots (`applyFull`), so an unchanged batch costs its
+draws and a byte-identical format 7 message redraws the slots without a
+parse (the driver keeps the caller's buffer, so a caller hands it over; the
+viewer's `renderer_selection.js` reads the renderer from the header's first
+bytes, where it follows integer fields only, and never parses a whole
+header itself). A failed frame releases what it made and leaves every
+uniform set to be repacked by the next. `tests/webgpu_trace.cjs` traces
+submissions by content, and the command cases check the retained frame
+against a fresh driver given each frame whole. Both drivers roll back new
 resources on failure. Recordings reconstruct sources for arbitrary seeks;
-formats 1–6 remain readable. These resources never enter checkpoints.
+formats 1–8 remain readable (full frames: a recording holds no delta).
+These resources never enter checkpoints.
+
+**Format 8: the browser is sent only what changed** (B4.8,
+`docs/phase_b4_plan.md`). A viewer whose clients all announced format 8
+sends a stream: every message carries its `epoch` (bumped by every reset: a
+connect, a renderer or generator change, `geometry_reset`, a serializer
+failure, a change in what the clients negotiated, `geometry_request`) and
+`frame` number; an epoch opens with a full frame (format 7's with
+`"format_version": 8, "epoch", "frame"` where the version was), and each
+later message is a delta against the one before it (`base`): `splices`
+(`[at, removed, batches]` against the last frame's batch list, the batches
+as encode_draw writes them, offsets into this message's payload), `scalars`
+ops (`[index, scalars]`, a kept program run whose scalars moved), each of
+camera, background, resolution, samples, supersample and limitations only
+when its text changed, and the definition tables the receivers lack. A frame
+that changes nothing is no message (`serialize_scene` returns None). The
+diff is `generated_geometry.diff_runs`, shared by both serializer paths
+(the lockstep and the golden pin hold the stream to the format 7 bytes:
+`geometry.expand_delta` applied to a delta gives the pinned frame exactly).
+In the browser `expandDelta` rebuilds the frame from the retained slots and
+`applyDelta` keeps every slot the delta did not splice without comparing
+it; a delta against a frame the driver did not draw, or one that fails,
+asks for a full frame through `onCacheMiss` (the viewer's
+`geometry_reset`), once per epoch. A full frame that fails asks nothing, as
+a format 7 frame's failure does: the full frame that answered it would fail
+alike (an image the browser cannot decode, a device limit), and the page
+and the engine would ask and answer for as long as the scene rested; the
+epoch's first delta asks instead, once. `tests/generated_webgpu_commands.cjs
+deltaEqualsFull` holds a stream to the format 7 frames of the same history
+(same slots, same live buffers, same submissions after every message).
+
+**The frame is retained in Python** (`web/retained_frame.py`, Phase B4 tier 1,
+`docs/phase_b4_plan.md`; the default since 2026-09-27). A `GeometryCache`
+keeps, per drawn leaf, the draws `prepare_leaf` made and what they were made
+under (`cache.retained_frame`); each frame re-walks the draw order and prepares
+again only the leaves it cannot keep: a revision that moved over the same rows
+keeps its leaf (most updater bumps change no byte), a camera move keeps every
+leaf whose mesh, reservation and stroke count it leaves alone, coalesced runs
+and their encoded descriptors are reused by member identity, and a path that
+leaves the frame is parked under a digest of its content, so the equal path a
+seek or a restart puts back adopts it instead of a new Lyon mesh. The wire does
+not change: every message is byte-for-byte the one `MANIML_RETAINED_FRAME=0`
+(the whole-frame path, `prepare_triangle_frame` + `serialize_generated_frame`)
+writes for the same cache history, which the golden digests and the lockstep
+tests in `tests/test_retained_frame.py` assert frame by frame, so the browser,
+native capture and recordings are untouched. On EpisodeB2's 531-object 8.a a
+still frame serializes in ~1.7 ms instead of ~19 and a seek in ~8 instead of
+~100; a play where most things move costs what it did, and one where every leaf
+moves ~16% more (the bookkeeping on leaves it cannot keep; an open item, see the
+plan's "B4 tier 1: shipped"). **The trust surface
+is wider than the caches'**: a kept leaf skips classify, the mesh and border
+reads and its stroke's shader-data read, so an in-place write that bumps no
+revision (a direct `data[...]` write, a uniform written into
+`mobject.uniforms`, a write through a view of `get_points()`) is not drawn
+until the revision moves, where the whole-frame path draws it on the next
+frame. What no revision covers is checked every frame (a getter that is not the
+library's own, reassigned `depth_test`/`stroke_behind`, rewritten texture
+files). **The verify rule**: under `MANIML_VERIFY_LEDGER=1` the frame keeps
+exactly what it would keep without it, then reads each kept leaf again in its
+place through the same caches, with nothing written to the leaf or stamped on
+the caches for it first, and holds its draws (and the rows a moved revision was
+judged by) to that read's, raising `RenderCacheStale` naming the leaf, its
+place in the draw order and what moved; the message says whether a write that
+bumped nothing is to blame (the keep rested on the revision alone) or the
+retained frame's own rule (it judged a moved revision or a camera move
+harmless). A leaf that would adopt is prepared instead, and the parked draws
+and uniform set held to that read. `MANIML_RENDER_CACHE=bytes` keeps, parks and
+adopts nothing. A write that bumps nothing is the mutator's bug, as it is for
+the ledger; run the scene under verify to find it.
 
 `MANIML_FILL=patches` (Phase B1, `docs/phase_b1_plan.md`; needs the GPU
 border generator) prepares no fill mesh at all: every filled path is a
@@ -247,7 +360,58 @@ high bit, and covers once per sample. Nothing about it depends on zoom, and a
 morph uploads only control points. Both drivers draw it (the browser mirror
 in `webgpu.js`, command-tested on real frames in
 `tests/generated_webgpu_commands.cjs` and pixel-matched live against the
-native render); it is measured, not the default, which stays `meshes`.
+native render); it is measured, not the default, which stays `meshes`:
+B5.4's gate (Taylor's browser-side complete frame at or below Phase A's
+per class on both episodes; `docs/phase_b4_plan.md`, "The flips") failed on
+both episodes' plays (1.15× and 1.48× Phase A in format 8, the serialize's:
+a mover's records packed every frame) and ticked frames, its pixels
+Phase A's but two pixels over 287 frames, 263 of them inside plays.
+
+Rows are the patch source wherever patches are drawn (B5.1, the default
+since B5.6, `docs/phase_b4_plan.md`; `geometry.DEFAULT_PATCH_SOURCE`, read
+by the forced Phase B and by any stack that selects patches, and nowhere
+else; `MANIML_PATCH_SOURCE=records` packs the records instead, the override
+the harnesses compare against): a path is sent as its rows in place of its
+fill's curve records and its stroke's instances, VMobject's seventeen
+float32 columns as the read of its shader data leaves them (unit normal,
+joint angles and base points refreshed), copied once, in `program_data` by
+content hash, which a patch or stroke batch names in its `rows` (a patch
+run's border hash is `gpu_program_geometry.rows_key` of them). Each driver
+finalizes each rows once (`row_finalize.wgsl`, B3's kernel) into curve
+records and stroke instances, shared by every batch that names the rows; a
+run of several objects copies its objects' outputs into a buffer of its
+own; the border stage, the patch fill and the stroke pipeline read them as
+they read a program's. Python keeps what the draw counts need (the active
+curves, the reservation's density summary, the stroke's count), the
+validation and the planar refusal (unchanged; a path whose points share one
+z is not fitted, since it lies in that plane), and the object record, whose
+base words stay zero (nothing reads them) and whose winding sign is
+computed only for an object that may share a stencil count. A path whose
+rows cannot stand for its records (a getter of its own, another dtype, an
+edited outer-vertex pattern) keeps its records, and closes the rows run
+around it (`run_kind`'s `patch_rows` and `stroke_rows` never join a records
+run), so the draw counts are the records' only where every path is
+row-sourced. A stroke's rows are compared every frame, as its shader data
+is read every frame on the records' side; a fill's are trusted at an
+unchanged revision, as its records are. Pixels are the records'
+(identical on both episodes' pausepoints and plays, and on every frame of
+the golden pin, which states `MANIML_PATCH_SOURCE=records` as its digests
+were recorded). The harnesses' forced Phase B follows the selection (the
+patch source taken out of the environment), and their `_records` twins and
+the variants older archives measured state records (`benchmarks/README.md`,
+"The patch source in the harnesses"). What it costs: each driver finalizes
+every changed rows with a dispatch of its own in one compute pass, and a
+path's rows carry its paint and are keyed with it, so a change of paint
+alone (a dim at a pausepoint) sends and finalizes them again where its
+records would stay cached. On the 8.a play (~360 rows a frame, its movers
+not programs) that is ~6 ms more GPU and ~16 ms more native `render()`
+against ~52 ms less serialize (the test point's complete frame 127.3 → 80.5 ms in
+format 8), every other class's median within 0.5 ms, while a navigation,
+where every path arrives at once, costs the forced Phase B's native
+complete frame 15-28% more (EpisodeB2 29.9 → 38.3 ms) and the page's
+JavaScript up to ~0.8 ms more. One dispatch for a frame's rows and the
+finalized geometry keyed on the geometry columns alone are the open fixes
+(the plan's B5.1, "The negatives", and B5.6).
 
 A `Surface`'s points are a biquadratic Bézier net (Phase B2,
 `docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
@@ -255,11 +419,32 @@ the net's size (rounded up to odd), `uv_func` is sampled once into the net
 that passes through every sample, and `Transform` aligns nets by exact
 subdivision. The reference renderers draw the net evaluated on the CPU at
 two steps per patch, which is the sample grid to a float32 ulp
-(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` sends the net
-instead and the native driver evaluates it at screen density
-(`net_compute.wgsl`, capacity reserved from the second difference with the
-border stage's headroom, capped per object); a zoomed sphere then shows no
-facets. Both drivers evaluate nets; the default stays `grids`. Recordings
+(`get_grid_data`, cached per revision). `MANIML_SURFACE=nets` (and the
+Phase B selection) sends the net instead and each driver evaluates it at
+screen density (`net_compute.wgsl`, capacity reserved from the second
+difference with the border stage's headroom, capped per object); a zoomed
+sphere then shows no facets. The default stays `grids`, as does Phase A
+forced. A driver decides a net's steps itself
+(`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
+double-precision rule from the descriptor's density and the packed
+uniforms), so an output depends on its control points, capacity and steps
+alone and a pan, an orbit or a zoom that moves no step count evaluates
+nothing; the nets whose steps or source moved are gathered into one scratch
+buffer, evaluated by one dispatch over a table of them (one workgroup a
+patch) and copied into the outputs their slots own (a net alone is read
+and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). B5.4's
+gate failed nets on camera moves (1.23-1.34× grids' complete frame: a zoom
+re-evaluated every net on screen, each in a pass of its own); B5.5 passed
+it on its three scenes, every class within 1.05 in both formats on the
+orbit demo, EpisodeB3 and B4 (camera moves 0.997-1.046×) and pixels within
+0.31% over 24/255, with the serializer's per-net cost on camera moves and
+still frames made cheaper along the way, and failed it on scenes that are
+mostly surfaces (70 spheres 1.16-1.31× on still and camera frames, 480
+spheres 1.37-1.52× and 0.98% of the pixels;
+`benchmarks/results/b55_nets_one_dispatch_20260928/`): a net draws its
+capacity's triangle pattern (`net_indices(patches, capacity)`, though the
+reservation is twice the steps) in a draw of its own, where grids coalesce,
+so the redraw is the lever left. Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -285,6 +470,54 @@ run — the recipe is in `benchmarks/README.md` ("GPU pass timestamps",
 "Episode frames"), and `benchmarks/episode_frames.py` applies it to frames of
 a real episode. Never compare `gpu_` columns across runs taken under
 different machine load: the GPU clock follows the load.
+`benchmarks/browser_frames.py` measures the browser's side of the same
+frames without a GPU: it records each frame as the viewer would send it,
+in the export recorder's format, and plays the stream through the real
+`webgpu.js` in Node on the counting fake device
+(`tests/webgpu_fake_device.cjs`) through the viewer's renderer selection,
+reporting per frame the driver's JS milliseconds, the page's (`page_ms`,
+the selection's routing included) and WebGPU call counts; `--play-edges`
+adds a play's first frame and its landing as classes, `--camera-moves` a
+pan, a zoom and the camera put back, `--deltas` records the same frames as
+the format 8 stream too and replays it beside the format 7 one (a frame it
+did not send is a row of zeros), and `--rounds N` replays the streams in
+turns and reports each frame's median. The live viewer marks
+each drawn frame as a `maniml:render` span for DevTools' Performance
+panel. The driver runs in a vm sandbox there unless `--realm main`, and the
+sandbox makes every global lookup an interceptor call: read its
+milliseconds against its own past, and the main realm's `page_ms` for what
+a page pays.
+`benchmarks/flip_gates.py` holds a default flip to its gate (the plan's
+"The flips"): `serialize` times Phase A forced and the flip's stack as a
+viewer's cache pays them (format 7 and a negotiated format 8 stream, the
+four serializers taking turns as first readers of what moved), `complete`
+adds per frame `browser_frames`' `page_ms` and the GPU from
+`episode_frames`' attribution runs (`--camera-moves` gives a camera move GPU
+rows of its own) into the browser-side complete frame per class, with the
+flip's pixels over the pausepoints and the frames strictly inside their
+plays, and beside it the same frames with the GPU part the flag-off runs'
+wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
+flip changes the pass count, as programs do (and nets did before B5.5), the
+attribution run overstates the stack with more passes; the gate's text and
+the measuring contract disagree there, and both are quoted), `fixtures` draws every
+Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
+`programs` reduces `play_frames --every-play` runs (the opening mode
+alternating play by play) to Python ms per play frame, order-balanced, and
+play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
+`benchmarks/test_point.py` reads that complete frame for five stacks at
+once (today's: Phase A without the retained frame in format 7, drawn by
+`main`'s page; Phase A retained; the Default; Phase B forced, its plays
+recording GPU programs, as the selection sends it; the same with its
+records packed, B6's Phase B), the last four in both formats, with the wire per
+message, the pixels against today's, and an instrumented run that names
+where each stack's Python goes (the scene's own updaters, Lyon, the
+comparisons of a moved revision, the encode, the diff);
+`benchmarks/README.md`, "The test point", has the commands, and the B4
+plan's "The final test point" the reading. Its GPU part, like the flip
+gates', is the native driver's `gpu_total_ms`, not the page's: a real
+device (Chrome's Dawn on the same M3) sustains a redraw of EpisodeB2's 8.a
+in at most 1.35 ms where the native driver's GPU is 4.85, so a ratio the
+GPU part drives reads the gate as defined, not what the page pays.
 
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a
@@ -302,10 +535,55 @@ not, and `Mobject.data` materializes a pending program on read with the
 CPU path's own arithmetic (every accessor and direct `data[...]` read
 goes through the property; counts do not), so a reader mid-play sees
 what is drawn; a CPU mutation supersedes the program (`note_changed_data`),
-so animations that write rows compose as before. `Animation.finish`
+so animations that write rows compose as before. And an animation records
+a program only over a member it left as it is: `programs.stamp` notes its
+family's revisions after its begin and after each frame, and
+`programs.admits` compares them, so where another writer changed the
+member since (a second animation of the mobject in the same play, an
+updater) that frame is the CPU path's, which composes the two, and not a
+program drawn from the animation's own sources over the other's fill or
+opacity (the review of B5.3 found that, in every mode). `Animation.finish`
 writes the final rows, so the state after a play is byte-identical in
 every mode. Pixels match the CPU path at every alpha in both drivers; the
 default stays `off`.
+
+`MANIML_PROGRAMS=strokes` (B5.3, `docs/phase_b4_plan.md`) needs no patch
+fill: it is `gpu` for a path without fill only, the one program Phase A
+can draw (its stroke from the program's finalized instances; a Lyon mesh
+has no program input). An animation decides at its begin where a program
+may stand (`programs.begin`: the places in the families it zips where
+every source is a path without fill, or has no points, which it returns
+as `Animation.program_sources` and freshens; `programs.admits` asks per
+frame, the revision rule above included), so a filled member's animation,
+sources included, is the CPU path's exactly, frame by frame.
+`maniml.animation.rotation`'s `Rotate`/`Rotating` stay all or nothing, so
+one of a group holding a filled member is the CPU's whole; the CE-compat
+`Rotate` a `from manim import *` scene gets (`maniml/compatibility.py`,
+the episodes' spelling) is a straight `Transform`, so a `blend` admitted
+place by place. The serializer draws a filled path's program only under
+patches, and from its rows otherwise (`_program_draws`); a path without
+fill whose unseen fill colour varies (a gradient `set_color` writes both)
+is drawn as its program, since a stroke's instances never read the fill.
+A program leaf is the retained frame's own kind, prepared every frame it
+is one, and a format 8 stream sends a kept program run's scalars as a
+`scalars` op. Pixels match programs off at ten alphas in the native
+driver within the gate, and to 1/255 on the tested cases but where a
+lagged write's partial path ends mid-curve: the partial kernel places
+that tip in float32, a pixel or two from the CPU's (up to 12/255 on two
+pixels in the tests; 17 under Phase B, whose kernel it is). The default
+stays `off`; it saves Python where a play is strokes and costs the GPU a
+compute pass a program (`benchmarks/play_frames.py`,
+`benchmarks/results/b53_strokes_20260927/`). B5.4 measured it as the default
+over every play of both episodes (`docs/phase_b4_plan.md`, "The flips"):
+pixels within 1/255 on every play frame, but Python ms per play frame,
+order-balanced (the mode that opens a play alternating, since the turn
+order alone moves the ratio by up to half a percent), no lower than
+programs off: -0.03% on
+EpisodeB2 in format 8 and +0.05% to +0.32% in the other three runs, each
+within about half a percent of nothing (on these episodes the plays that
+record a program are mostly glyphs and fills), against a native complete
+frame 1.4-1.8% dearer over every play (2.4-6.4% on the plays that record
+one); not flipped.
 
 ## Delivery: one artifact, local only
 

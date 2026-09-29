@@ -5,6 +5,262 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase B sends a patch as its rows (2026-09-29)
+
+B5.6 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b56_rows_source_20260929/`). B5.1 built rows on the
+wire under patches and proved them pixel for pixel the records' and about
+half the serialize on heavy plays, but kept them behind a switch so the
+Phase B measured on 2026-09-26/27 stayed reproducible. Taylor, having
+driven the Phase B selection (sharper surfaces zoomed in, no difference
+felt in zooms and pans), asked whether its open issues could be fixed
+before both stacks go to main behind the selector; this increment is one
+of those. So `geometry.DEFAULT_PATCH_SOURCE` is `rows`: wherever patches
+are drawn (the forced Phase B, any stack that selects them) a path is sent
+as its rows, and `MANIML_PATCH_SOURCE=records` is the override. The forced
+stacks fix the fill, the surface and the programs, not how the bytes are
+made: they read the patch source as they read the border generator.
+
+The golden pin was not re-recorded: it states
+`MANIML_PATCH_SOURCE=records`, as its phase_b digests were recorded, beside
+`MANIML_PROGRAMS=off`. It clears its switches, so without the statement 246
+of its 251 phase_b digests would have followed the default for a change
+that moves no pixel; a first pass re-recorded them and the review sent it
+back, since a golden is never re-recorded. Every pin frame was drawn both
+ways, identical. The harnesses' instruments named for the selection follow
+it (their forced Phase B takes the patch source out), and `_records` twins
+reproduce B6's Phase B, so the test point reads five stacks. The program
+tests' CPU path states records, so a fault in `row_finalize.wgsl` cannot
+cancel on both sides.
+
+The cost moved rather than vanished. B6's test point retaken: 8.a's play,
+whose movers are not programs, 127.3 → 80.5 ms (format 8); every class's
+median within 0.5 ms of records on both episodes. A navigation costs the
+native driver more (29.9 → 38.3 ms on EpisodeB2, 25.0 → 28.8 on
+PriceDiscovery), for two reasons: a dispatch per changed rows, and rows
+keyed with their paint, so a dim at a pausepoint resends and refinalizes
+paths whose records would stay cached (EpisodeB2 258 → 277: 176 of 463
+batches cached under records, none under rows). One dispatch for a frame's
+rows and finalized geometry keyed on the geometry columns alone are the
+levers; the records override stays for that comparison.
+
+## A frame's nets in one dispatch; surfaces stay grids by default (2026-09-28)
+
+B5.5 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b55_nets_one_dispatch_20260928/`). B5.4 measured the
+nets flip failing only on camera moves, 1.25-1.34× grids' complete frame,
+because a zoom re-evaluated every net on screen, each in a compute pass of
+its own, though the kernel read the camera only to choose a net's integer
+step count. So each driver now decides the steps itself, by one rule in
+double precision from the same inputs, and keys an output's evaluation on
+exactly what it reads (its control points, capacity and steps); and the
+nets whose state moved are evaluated in one dispatch over a table, their
+inputs gathered into one scratch buffer and their vertices copied into
+the outputs their slots own, rather than an arena the render pass would
+have to address (tier 2's slot ownership stays as it was). A net alone is
+read and written in place. The gate taken again as B5.4 took it then
+failed only on the serializer's per-net Python (the orbit demo's still,
+B4's camera moves and format 7 plays), which was made cheaper byte for
+byte, and taken once more: every class within 1.05 in both formats on its
+three scenes, pixels within 0.31%.
+
+The default was not flipped. A default reaches every scene the Default,
+`--render`, checkpoint stills and `--export` draw, and the gate's three
+scenes are ones where surfaces are a small share of the frame. On scenes
+that are mostly surfaces the same recipe fails: the orbs fixture as a scene
+(70 spheres) 1.16-1.31× grids on still and camera frames, a lattice of 480
+small spheres 1.37-1.52× and 0.98% of its pixels over 24/255 (silhouettes
+where the net is the rounder, drawn the same by B5.4's driver). The cost
+left is the redraw, not the evaluation: a net draws its capacity's
+triangle pattern (the reservation is twice the steps, so three quarters of
+the orbs' net triangles have zero area) in a draw of its own, where grids
+coalesce into one. So `geometry.DEFAULT_SURFACE` stays `grids`; nets are
+what the Phase B selection draws and what `MANIML_SURFACE=nets` selects.
+Before the gate is taken again: a surface-dominated scene in its timed
+set, each net drawn with the index pattern of its current steps, and net
+batches that share a pipeline and uniforms coalesced as grids are. The
+lattice's pixels are a question for the gate as much as for nets: a net
+rounder than the grid fails a gate that measures distance from the grid.
+
+## The test point: this branch's Default is Phase A's stack, retained and streamed (2026-09-28)
+
+B6 (`docs/phase_b4_plan.md`, "The final test point";
+`benchmarks/results/phase_b_test_point_20260927/`) is the table B4 and B5
+built toward: per class, the browser-side complete frame (Python's
+serialize, the page's JavaScript, the GPU), the wire and the pixels, for
+today's state (Phase A without the retained frame, format 7, `main`'s page),
+Phase A retained, the Default and Phase B forced, on both gate episodes.
+It records the state; it decides nothing Taylor has not.
+
+**What it shows.** A lecture frame on this branch, against today: a still
+pausepoint 11.10 → 0.78 ms (EpisodeB2) and 8.26 → 0.78 (PriceDiscovery),
+nothing sent; a pausepoint whose updaters tick 31.24 → 3.02 and 12.29 →
+1.05, nothing sent; a play frame 22.75 → 14.83 and 13.52 → 7.86. The
+Default is Phase A's stack because no flip passed its gate (B5.4); its
+pixels are Phase A's exactly and its costs Phase A's to the noise. Phase B
+forced is cheaper than the Default on EpisodeB2's plays (0.84×, its GPU
+programs taking the serialize from 7.46 to 2.58 ms while the GPU rises
+5.39 → 9.70) and dearer on PriceDiscovery's (1.79×) and on both episodes'
+ticked frames (1.24×, 1.13×). The GPU part is the native driver's, as the
+gate defines it, and the page's is far smaller: on this machine's WebGPU a
+redraw of 8.a sustains 1.29-1.35 ms (Phase A) and 1.74-1.78 (Phase B), GPU
+and all, where the table charges 4.85 and 6.44 ms natively. So the play
+ratios and every format 7 ratio carry GPU cost the page does not pay (at
+8.a at least 3.5 ms a drawn frame; natively Phase A's GPU is ~4.1 ms even
+at 46 draws); the page's GPU per class was not measured.
+
+**What it found.** Phase B's GPU programs draw a PriceDiscovery play wrong
+(2.02% of the pixels, measured before the fix: rays fading in drawn opaque
+in a neighbouring dashed line's paint), which neither the retained frame,
+the patch fill nor nets cause; the fix is its own session's, not in B6's
+commit, and every B6 figure was measured without it (the archive's README
+says so number by number). Of the plan's two conditional increments, B5.2's
+condition (the draw count mattering once the draw list is retained) is not
+met: ~0.8 ms of native GPU out pass and ~0.8 ms of page per drawn Phase B
+frame, none at rest, while Phase B's play gap is its per-program passes.
+B4.9's (Dawn's per-draw cost above 1 ms at 911 slots) is not shown either
+way: the page's side of Dawn's wire is 0.89 ms a redraw of 911 slots at
+the median (0.10 at 444), its rounds 0.64-1.19 ms, taken at load 5-9; the
+GPU process's side was not isolated. It is settled by a quiet retake with
+the GPU process's time isolated (a redraw at a tiny resolution, or a
+Chrome trace). Nothing at rest is redrawn under format 8 either way.
+
+**What stands between this and the end state.** On the wire and in the
+browser a frame that changes nothing costs nothing; Python does not yet
+stay silent. Its measured per-frame costs: the walk that finds nothing
+changed (0.8-2.4 ms a still frame); the episode's own updaters (20.7 ms a
+tick at 8.a, four and a half times its serialize); the revision counter's
+over-signalling (415 of 531 leaves compared per 8.a tick, 1.83 ms); in
+plays Lyon on Phase A movers (11 ms of 8.a's play), the rest of a Phase A
+mover's preparation (~200 µs a leaf) and, under Phase B, a program's
+encode or a non-program mover's packed records. Each is named with its
+size in the plan's reading, which is where the next increment is chosen
+from. Nothing is merged; `main` stays frozen until Taylor chooses, and the
+plan's section ends with the merge command.
+
+## Deltas are negotiated; full frames stay format 7 (2026-09-27)
+
+B4.8 (`docs/phase_b4_plan.md`, "B4.8: shipped") makes the geometry a stream
+for a page that asks for it: format 8 messages carry an epoch and a frame
+number, and after an epoch's full frame each is a delta against the one
+before, or nothing when nothing changed. Three choices, each on evidence.
+
+**Negotiated per client, one cache.** The page announces format 8 in its
+mode message, and the viewer streams deltas only while every connected
+client has: a delta against a frame a tab never drew is a corrupt picture,
+and one cache with one broadcast is what the viewer is (a second tab's
+connect already resets everyone). A tab that has not announced it gets
+format 7 full frames, and so do its neighbours until it goes.
+
+**Full frames keep format 7 until a client negotiates.** The alternative,
+every full frame format 8 with the golden pin's digests taken of normalised
+messages, would have put a frame number into every message of every
+consumer that never reads one (native capture, the recorder, a tab that has
+not negotiated), which makes no two messages of such a stream equal: B4.7's
+byte-identical redraw (0.09 against 0.85 ms at 8.a) would have gone for
+them, and recordings would have changed for nothing. Instead a cache that
+has not negotiated writes format 7's bytes exactly, so the pin stands with
+no normalisation, and a format 8 full frame is the format 7 frame with its
+two keys: the pin streams every golden case as format 8 too and holds each
+full frame to its pinned bytes with the keys taken out, and each delta,
+expanded against the frame before it, to the pinned bytes exactly.
+
+**The diff is the encoder's, not the retained frame's.** The plan named it
+`RetainedFrame.diff`. It is `generated_geometry.diff_runs`, used by both
+serializer paths, so `MANIML_RETAINED_FRAME=0` streams the same deltas byte
+for byte and stays the path the retained frame is held to; and it compares a
+run by its content hash and held descriptor rather than its `RunMemo`,
+because a program run is a new memo every frame and must still resolve to
+its slot and travel as a scalars op. A kept run hands the same text object
+back each frame, so the comparison costs what identity would.
+
+## The frame is retained in Python (2026-09-27)
+
+Taylor's direction for Phase B4, quoted in `docs/phase_b4_plan.md`: "maniml
+uses python to send to the gpu the bezier control points, and then the gpu
+does everything else. and it only ever directs the gpu what to change", and,
+on the way there, "keep Phase A as solid and build toward a final test point
+in Phase B." The measurement that set the order was
+`benchmarks/results/gpu_timestamps_20260926/`: a still frame of EpisodeB2's
+531-object 8.a cost ~37 ms natively, ~20 of them Python preparing and
+serializing a frame nothing had changed, ~4 GPU.
+
+So the frame is retained in Python first (tier 1, B4.0-B4.5, the default
+since this date; `web/retained_frame.py`): a `GeometryCache` keeps each drawn
+leaf's draws and what they were made under, and a frame prepares again only
+the leaves it cannot keep. A still 8.a frame serializes in ~1.7 ms against
+~19, a tick of its updaters in ~3.7 against ~31, a pan in ~3.8, a seek in ~8
+against ~100; a play where most things move costs what it did, and one
+where every leaf moves ~16% more, tier 1's bookkeeping on leaves it cannot
+keep. The flip takes that cost as measured (a `--render` of whole-scene
+moves pays it too); whether it stands is Taylor's to weigh, and the plan's
+"B4 tier 1: shipped" names the fast path that would take it back.
+`MANIML_RETAINED_FRAME=0` is the whole-frame path.
+
+**Why tier 1 before tier 2.** Tier 2, the browser owning the frame and
+Python sending deltas, is where "if nothing changes, python isn't even
+talking to the gpu" is met, and it is next (B4.6-B4.9). It comes second
+because the Python cost was the measured cost, and tier 1 removes it without
+changing anything any consumer reads: no wire format, no driver, no
+recorder, no player, no negotiation, so it could ship alone and pay for
+itself. Tier 2 also needs it: the kept leaves, their identities and the run
+memos are what a delta is computed from (`RetainedFrame.diff`, B4.8), and a
+delta against the wrong base is a new class of failure better introduced over
+a base already proven. The rejected minimal-delta design went the other way,
+moving the wire grammar, both drivers, the recorder and the player in one
+increment, and still left a seek at ~100 ms of regenerations for zero wire
+bytes.
+
+**Why byte identity is the gate.** Every tier 1 message is the one the
+whole-frame path writes for the same cache history, byte for byte, asserted
+frame by frame (the golden digests recorded before the first increment, and
+lockstep tests driving two scenes, flag on and flag off, through scripted
+histories, seeks, replays and restarts). Equal bytes are equal pixels in
+every consumer at once, so the retained frame needed no pixel test of its
+own and the default could flip without moving a Phase A pixel. The check is
+exact: a difference is a bug with a first differing byte to show, never a
+tolerance to argue. And it made every trust decision answer to what
+`prepare_leaf` would actually read, including the caches' history (recency,
+evictions, reservations), which is why the caches gained `keep` and `adopt`
+methods that mirror their reads rather than approximate them. Held to that,
+the reviews found what a looser gate would have shipped: a leaf read through
+a getter of its own, rows a cached read hands back without looking, a
+reservation whose source the budget let go; and the pin found flag-off bugs
+of its own (style written to an empty path, a thaw handing back an object
+whose references pointed outside the thawed graph, uniform-only plays that
+bumped nothing).
+
+**Digest adoption over ledger lineage.** A seek thaws copies of the
+checkpoint's objects, so almost every leaf on screen is a new object equal
+to one the last frame drew. The ledger knows which frozen copy each thawed
+object came from, and the retained frame could have followed that lineage
+back to the leaf it drew. It follows content instead: a path that leaves
+the frame is parked under a blake2b digest of its type name, the text of its
+own uniforms, its flags and its non-derived columns, and a new path of equal
+digest adopts the entry once its rows compare equal in full and the caches
+would make nothing different for it (the mesh generated at this camera, the
+first reservation at this zoom, the stroke count at this scale). Content
+covers every way an equal path comes back, not only a thaw: a watcher's
+restart rebuilds every mobject from source and adopts all of them, and an
+edit's replay does the same. It keeps the renderer's correctness off the
+checkpoint system's bookkeeping, whose hand-back of live objects depends on
+when the collector last ran and whose copies may carry derived columns and
+refresh flags the frozen copy does not; a lineage match would need the same
+full comparison anyway. The cost is ~12 µs a new leaf (its uniforms' text,
+the digest, the full comparison, its cache entries installed), about 6 of a
+seek's 8 ms at 8.a.
+
+**The trust surface**, accepted: a kept leaf skips its reads, so an
+in-place write that bumps no revision is not drawn until the revision
+moves, where the whole-frame path draws it on the next frame. Under
+`MANIML_VERIFY_LEDGER=1` the frame keeps what it keeps without it, reads
+every kept leaf again before anything is written or stamped for it, and
+raises `RenderCacheStale` naming the leaf and what moved, and whether a
+write that bumped nothing or the retained frame's own rule is to blame; it
+prepares what it would adopt and compares. `MANIML_RENDER_CACHE=bytes`
+keeps nothing. The suite runs green three ways (flag off, on, on under
+verify), and CI runs the pin all three.
+
 ## The fan closes an open subpath through its own start (2026-09-11)
 
 B1's patch fill drew every curve's fan triangle from one base point per

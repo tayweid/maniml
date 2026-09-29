@@ -1575,6 +1575,17 @@ class Mobject(object):
 
     # Color functions
 
+    def _style_rows(self) -> np.ndarray:
+        """The rows a style write lands in: the data, or, while there are
+        no points, the one-row defaults the first points are made from.
+        The defaults are checkpoint state that ``affects_family_data``
+        never reaches (it bumps the members with points), so writing them
+        bumps this member itself."""
+        if self.has_points():
+            return self.data
+        self.note_changed_state()
+        return self._data_defaults
+
     @affects_family_data
     def set_rgba_array(
         self,
@@ -1583,8 +1594,7 @@ class Mobject(object):
         recurse: bool = False
     ) -> Self:
         for mob in self.get_family(recurse):
-            data = mob.data if mob.get_num_points() > 0 else mob._data_defaults
-            data[name][:] = rgba_array
+            mob._style_rows()[name][:] = rgba_array
         return self
 
     def set_color_by_rgba_func(
@@ -1622,8 +1632,10 @@ class Mobject(object):
         name: str = "rgba",
         recurse: bool = True
     ) -> Self:
+        if color is None and opacity is None:
+            return self   # set_stroke(width=...) and the like write no colour
         for mob in self.get_family(recurse):
-            data = mob.data if mob.has_points() > 0 else mob._data_defaults
+            data = mob._style_rows()
             if color is not None:
                 rgbs = np.array(list(map(color_to_rgb, listify(color))))
                 if 1 < len(rgbs):
@@ -2081,7 +2093,12 @@ class Mobject(object):
             if performance.enabled:
                 performance.note_read("raw")   # both endpoints' arrays
             self._interpolate_data(mobject1, mobject2, alpha, path_func, keys)
-        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func)
+        if self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func) and not keys:
+            # Every column locked, a uniform moving (a play of
+            # anti_alias_width or shading alone): nothing above bumped,
+            # and a renderer that trusts the revision would keep drawing
+            # the first frame's uniforms.
+            self.note_changed_state()
         return self
 
     def _interpolate_data(self, mobject1, mobject2, alpha, path_func, keys) -> None:
@@ -2145,7 +2162,8 @@ class Mobject(object):
             self.record_program("blend", (mobject1, mobject2), [alpha], evaluate, defer=defer)
         elif "_program" in self.__dict__:
             del self._program  # every column locked: the rows are the blend already
-        self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func)
+        if self._interpolate_uniforms_and_box(mobject1, mobject2, alpha, path_func) and not keys:
+            self.note_changed_state()   # as interpolate: no program recorded, no bump
         return True
 
     def _materialize_program(self) -> None:
@@ -2171,13 +2189,17 @@ class Mobject(object):
             self._drop_program()
         return self
 
-    def _interpolate_uniforms_and_box(self, mobject1, mobject2, alpha, path_func) -> None:
+    def _interpolate_uniforms_and_box(self, mobject1, mobject2, alpha, path_func) -> bool:
+        """Lerp the unlocked uniforms and the bounding box; whether a
+        uniform was written, which the callers bump for when no row was."""
+        wrote = False
         for key in self.uniforms:
             if key in self.locked_uniform_keys:
                 continue
             if key not in mobject1.uniforms or key not in mobject2.uniforms:
                 continue
             self.uniforms[key] = (1 - alpha) * mobject1.uniforms[key] + alpha * mobject2.uniforms[key]
+            wrote = True
         # Interpolate from the endpoints' COMPUTED boxes, not their raw
         # cache arrays: an endpoint copy that never computed its box
         # still holds init-time zeros with the dirty flag set, and
@@ -2187,6 +2209,7 @@ class Mobject(object):
         self.bounding_box[:] = path_func(
             mobject1.get_bounding_box(), mobject2.get_bounding_box(), alpha
         )
+        return wrote
 
     def pointwise_become_partial(self, mobject, a, b) -> Self:
         """

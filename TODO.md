@@ -10,15 +10,34 @@ architecture after the beeline lives beside this repo in
 
 ## Where things stand
 
-The browser and native movie/checkpoint output share the Phase A triangle
-WebGPU backend. Source points and general fill generation remain on the CPU;
-fill-border expansion now runs on the GPU. The
-viewer retains **Original 2D** for dogfood comparison, as Taylor requested on
-2026-09-10; **Phase A** is the default. Native GL is restored to the package
-as the explicit `NativeGLCamera` reference, including its original shaders,
-public `ShaderWrapper` and runtime dependencies. See the
-[cutover record](docs/unified_triangle_renderer_phase_a.md) for validation and
-explicit limits.
+As of 2026-09-28, on `b4-integration` (not merged: `main` stays as Taylor
+teaches from it until he runs `git -C
+/Users/taylorjweidman/Projects/ManimLive/maniml merge --no-ff
+b4-integration`). The browser and native movie/checkpoint output share the
+Phase A triangle WebGPU backend, and the **Default** renderer draws Phase A's
+stack (Lyon meshes, surface grids, no GPU programs): no Phase B default
+passed its gate ([the B4 plan](docs/phase_b4_plan.md), "The flips"; B5.5's
+nets passed on the gate's three scenes and failed on scenes that are mostly
+surfaces). The
+viewer's selector keeps **Default**, **Phase A**, **Phase B** and **Original
+2D** (the last for dogfood comparison, as Taylor asked on 2026-09-10). Python
+retains the frame and prepares only what changed (tier 1), and a page that
+negotiates format 8 is sent only what changed (tier 2): a frame that changes
+nothing sends nothing and the page draws nothing. Source points, updaters
+and general fill generation remain on the CPU; fill-border expansion runs on
+the GPU. Native GL is the explicit `NativeGLCamera` reference. See the
+[cutover record](docs/unified_triangle_renderer_phase_a.md) for Phase A's
+validation and limits.
+
+**The final test point** (the B4 plan's section of that name, 2026-09-28)
+measured what a lecture frame costs the page, against today's `main`: a
+still pausepoint 11.10 → 0.78 ms (EpisodeB2) and 8.26 → 0.78
+(PriceDiscovery), nothing sent; a pausepoint whose updaters tick 31.24 →
+3.02 and 12.29 → 1.05, nothing sent; a play frame 22.75 → 14.83 and 13.52
+→ 7.86 ms (the GPU part the native driver's, as the gate defines it; the
+page's GPU pays less, the plan's reading). Found there: the forced Phase B's
+GPU programs draw a PriceDiscovery play wrong (2.02% of the pixels, measured
+before the fix), being fixed in a session of its own.
 
 ## Now: the dogfood pause
 
@@ -173,47 +192,118 @@ Windows/Linux packaging remains separate follow-up work.
 
 Decided 2026-09-11 (DECISIONS.md, "Everything is Bézier control points"):
 one representation for paths and surfaces, evaluated on the GPU at screen
-density, no tracer and no fallback representation. The increments, in
-order, are in [the Phase B plan](docs/phase_b_plan.md): B1 fills that never
-depend on zoom, B2 surfaces as control nets, B3 animations as GPU programs.
-B1 is a fan and a count, not a mesh (DECISIONS.md, same day); its prototype
-is built behind `MANIML_FILL=patches` in the native mirror and measured in
-[the B1 plan](docs/phase_b1_plan.md); Phase A stays the default until it is
-faster. B2 made every `Surface` a control net (its reference-renderer grid
-unchanged) with the GPU evaluation behind `MANIML_SURFACE=nets`, measured
-in [the B2 plan](docs/phase_b2_plan.md); both browser mirrors landed the
-same day. B3a made a straight-path `Transform` a GPU blend of its endpoints'
-rows behind `MANIML_PROGRAMS` (shadow, then the flip with `Mobject.data`
-materializing a pending program on read; both drivers, measured in
-[the B3 plan](docs/phase_b3_plan.md): per-frame Python 23.6 → 2.4 ms on
-text, play-phase raw reads down to the camera's). B3b added `affine`
-(Rotate), `paint` (VFadeIn/Out) and `partial` (ShowCreation, Write's border
-phase) the same day, with the composition rule that a CPU write supersedes
-a program, and fixed two things its gate found: the fan closes an open
-subpath through its start, and Write's outline is no longer drawn edge-on
-(DECISIONS.md). Next: B3c. Open: `MoveAlongPath` and the per-point
-functions stay on the CPU; the recording player for `patch`, `net` and
-program batches (done 2026-09-26); the default flips, which are Taylor's — measured from the viewer's **Phase B**
-selector (2026-09-26), which runs the whole stack on any scene without the
-environment flags; the gates are B1's frame time against Phase A on text
-and on a course episode, the pixel gate on the episode, and the recording
-player for `patch`, `net` and program batches. **Measured 2026-09-26**
-(docs/phase_b1_plan.md, "GPU timestamps, and the gate on two course
-episodes"; archive `benchmarks/results/gpu_timestamps_20260926/`): pixels
-pass everywhere; on the controls the still-text gap is 0.30 ms of GPU time
-plus a readback quantum the browser never pays; on the episodes the patch
-fill loses by up to 28 ms on a full diagram (B2 8.a) because its runs
-fragment — twice Phase A's batches, four times its draws — and the CPU
-encodes per draw; the GPU share there is +0.9 to +2.1 ms. The lever is
-the run rule (per-object colour and opacity into the object record so a
-frame's opaque patch objects are one group); the decision is Taylor's. **Superseded the same evening by
-[the B4 plan](docs/phase_b4_plan.md)**: the retained frame first (Python
-silent at rest, only movers cost), then the flips, then one final test point
-with the whole stack; the patch run rule becomes B5.2, conditional. The
-recording player learned the batches the same day (`geometry_recording.js`
-indexes `object_data`, `net_data` and `program_data`, and a Phase B
-`--export` plays and seeks). The paragraphs below are the
-earlier framing and remain the contracts for resources, counts and recovery.
+density, no tracer and no fallback representation. Taylor's end state, as
+the B4 plan quotes it: Python sends the control points once and only directs
+the GPU what to change; if nothing changes, Python is silent. Where that
+stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/phase_b1_plan.md),
+[B2](docs/phase_b2_plan.md), [B3](docs/phase_b3_plan.md),
+[B4 and after](docs/phase_b4_plan.md)):
+
+- **Built behind flags, measured, not the default.** B1's patch fill
+  (`MANIML_FILL=patches`: a fan and a count, no mesh), B2's surfaces as
+  control nets (`MANIML_SURFACE=nets`), B3's animations as GPU programs
+  (`MANIML_PROGRAMS=shadow|gpu`, and B5.3's `strokes` on Phase A). Both
+  drivers draw all of them and the recording player reads them. The
+  viewer's **Phase B** selection runs them together on any scene, its
+  patches sent as rows: B5.1's rows on the wire are the patch source
+  wherever patches are drawn since B5.6 (`MANIML_PATCH_SOURCE=records` the
+  override), pixels identical, the golden pin untouched (it states
+  records). B6's test point retaken with both: 8.a's play 127.3 → 80.5 ms,
+  every class's median within 0.5 ms; navigations +15-28% natively until
+  item 2's levers.
+- **Shipped.** B4's retained frame (Python prepares only what changed,
+  byte-identical on the wire) and format 8 (a negotiated page is sent a
+  delta per change, and nothing at rest).
+- **Gated and not flipped** (B5.4, "The flips"): patches on both episodes'
+  plays and ticked frames (1.15× and 1.48× Phase A's plays), strokes
+  programs on Python no lower than programs off. Nets failed on camera
+  moves (1.25-1.34× grids); B5.5 evaluated a frame's changed nets in one
+  dispatch keyed on their step counts and passed the gate's three scenes
+  (camera moves 0.997-1.046×), then failed on scenes that are mostly
+  surfaces (70 spheres 1.16-1.31× on still and camera frames, 480 spheres
+  1.37-1.52× and 0.98% of the pixels): a net draws its capacity's
+  triangles in a draw of its own, where grids coalesce.
+- **Measured whole** (B6, "The final test point"): the numbers under
+  "Where things stand" above.
+
+What is left, from B6's reading, each with its measured size (the plan's
+reading has the rest):
+
+1. **Fixed 2026-09-28 (c787d9d1): Phase B's GPU programs drew a
+   PriceDiscovery play wrong**: the rays of a lagged fade-in drawn opaque
+   in a neighbouring dashed line's paint, 2.02% of the pixels as B6
+   measured it, where the CPU path draws them nearly transparent.
+   `pack_rows` now writes a source's base-point rows from its first point,
+   as the CPU path's read does; the GPU path against the CPU path on the
+   plays into 48, 58, 68, 86 and 109 is 0 pixels. B6's Phase B play pixels
+   predate the fix; B5.6's retake of the test point has them after it.
+2. **One dispatch per kernel** for a frame's rows and programs, in both
+   drivers, as B5.5 made it for nets (a table the kernel reads, the inputs
+   gathered and the outputs copied into what their slots own, the state
+   keyed on exactly what the output reads). It stands in front of the
+   patches and programs flips: Phase B's plays pay 1.5-2.4 ms of program
+   passes and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against
+   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play; since
+   B5.6 made rows Phase B's patch source, a navigation pays them too (the
+   native render of a restored pausepoint 22.1 → 31.1 ms on EpisodeB2,
+   17.7 → 21.5 on PriceDiscovery). Rows need a second lever beside the
+   dispatch: a path's rows carry its paint (stroke and fill RGBA) and are
+   keyed by content with it, so a change of paint alone (a dim or undim at
+   a pausepoint) sends and finalizes the rows again and the batch is no
+   longer cached, where the records stay cached and only the object table
+   moves (EpisodeB2 258 → 277: 176 of 463 batches cached under records, 0
+   under rows). Key the finalized geometry on the geometry columns only and
+   take the colour from the object table or the paint, as records do; count
+   finalizes per navigation, not only dispatches, when it is measured. The
+   nets flip waits on the redraw instead: each net drawn with the index
+   pattern of its current steps rather than its capacity's (the
+   reservation is twice the steps, so three quarters of its triangles have
+   zero area), net batches that share a pipeline and uniforms coalesced
+   into one draw as grids are, and a scene that is mostly surfaces added
+   to the gate's timed set before it is taken again.
+3. **A mover's batch keeping its identity**, its program scalars or rows an
+   op: a program is a batch of its own, encoded and diffed every frame
+   (5.a's play under Phase B: 18.7 ms of encode and 3.3 of diff of 26.5).
+4. **Updaters on the GPU's clock.** The episode's own updaters are now the
+   largest Python cost at rest: 20.7 ms a tick at 8.a against 4.6 ms of
+   serialize; 1.45 ms on PriceDiscovery. This is the instruction stream's
+   step (below).
+5. **The revision counter's over-signalling**: a tick at 8.a bumps 415 of
+   531 leaves and changes no byte, 1.83 ms of its 4.59 ms serialize to
+   compare and keep them. The fix is upstream in the mutators and changes
+   the contract the ledger relies on.
+6. **The walk that finds nothing changed**: 0.8-2.4 ms a still frame,
+   which the viewer runs for every prompted frame (input, at most 45 a
+   second). Silence in Python means not walking at all.
+7. **A Phase A mover**: Lyon's 11 ms and ~200 µs a leaf besides on 8.a's
+   play (84.6 ms of preparation); the retained frame's bookkeeping where
+   every leaf moves (5.a's play 85.2 → 93.3 ms against today; tier 1's
+   named fast path). B5.1's rows halve 8.a's play under patches. Taylor's
+   call, still open: whether the retained frame's flip stands for
+   `--render`, where a render made mostly of whole-scene moves pays that
+   bookkeeping (5.a's play +16%).
+8. **B3c, the declarative updaters** (`always_shift`, `always_rotate`,
+   `f_always`, and the reductions streamed back with an evaluation stamp;
+   [the B3 plan](docs/phase_b3_plan.md)), the next B3 step and still
+   unbuilt: it is what puts item 4's updaters on the GPU where they are the
+   library's. Open beside it: `MoveAlongPath`, `Homotopy` and the other
+   per-point functions stay on the CPU.
+
+B5.2, the patch run rule, is not warranted by its condition (B6: the draw
+count costs ~0.8 ms of native GPU and of page per drawn Phase B frame, none
+at rest). The condition of B4.9, render bundles, is not shown either way: a
+redraw of 911 slots on this machine's WebGPU costs the page 0.89 ms of
+JavaScript at the median (rounds 0.64-1.19 ms, taken at load 5-9, the
+renderer side of Dawn's wire only), and Dawn's GPU-process side was not
+isolated; a quiet retake with it isolated (a redraw at a tiny resolution,
+or a Chrome trace) settles it. Nothing is redrawn at rest under format 8
+either way. Open from B4.8 and tier 1, as the plan records them:
+EpisodeB2's dearest play frames stay over B4.8's play gates (their uploads),
+its Phase A seeks cost the page ~0.1 ms more under format 8, and the 8.a
+seek-up gate (≤ 8 ms) is unverified until it runs on a quiet machine.
+
+The paragraphs below are the earlier framing and remain the contracts for
+resources, counts and recovery.
 
 [GPU architecture](/Users/taylorjweidman/Projects/ManimLive/simlab/ARCHITECTURE.md):
 source points and supported operations live on the GPU. Map/reduce operations

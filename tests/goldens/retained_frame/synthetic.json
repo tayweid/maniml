@@ -1,0 +1,264 @@
+{
+ "cases": {
+  "run_cap": {
+   "frames": {
+    "00 cold": {
+     "phase_a": "545115e2559c6707668c03f544eaaee6",
+     "phase_b": "b707a7e73871428bd9c8fc42865e2577"
+    },
+    "01 still": {
+     "phase_a": "5897ddde2d9d7dbc5c2507bd65c1e107",
+     "phase_b": "f28460105f4c7428f24bcf305dc1ad8f"
+    },
+    "02 pan": {
+     "phase_a": "de180faced86ba84bd641981a264b093",
+     "phase_b": "61f942c990041c55761af3cbae8aeb0f"
+    },
+    "03 zoom out": {
+     "phase_a": "a7d83e8ed54e07b9a5f79067c46ec987",
+     "phase_b": "f2611e7dd9c356bd1ffd5987003b564b"
+    },
+    "04 zoom back": {
+     "phase_a": "de180faced86ba84bd641981a264b093",
+     "phase_b": "61f942c990041c55761af3cbae8aeb0f"
+    },
+    "05 zoom in 3x": {
+     "phase_a": "788febc39fe5d46d4df040060fff9c7c",
+     "phase_b": "f32030f69537437d5966cd980d67452c"
+    },
+    "06 zoom back": {
+     "phase_a": "628ee7e8a723af4410570f59dd7525ba",
+     "phase_b": "4ffedac289dc08b4ad408aae0844138f"
+    }
+   },
+   "input": {
+    "cap": 40000,
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ]
+   }
+  },
+  "scene_render_groups": {
+   "frames": {
+    "00 cold": {
+     "phase_a": "16759bf3627556abfbc6cdae89f3bd16",
+     "phase_b": "f9e70e3198303fe78d44caa2cbc1c3e2"
+    },
+    "01 still": {
+     "phase_a": "5888f526e15eea0af54e4aeadae823e8",
+     "phase_b": "c1bb6c0efa3c1d233ec82f75a9bee147"
+    },
+    "02 pan under the fixed overlay": {
+     "phase_a": "e93a44d8a7e85c73643ab31d66e5d018",
+     "phase_b": "dc866a938a767975e1199d4f9e395d08"
+    },
+    "03 overlay unfixed": {
+     "phase_a": "a741511989cc247a383ec775a8de0a08",
+     "phase_b": "65a7435034a2b098c785c791ad63a4ca"
+    },
+    "04 overlay fixed again": {
+     "phase_a": "2eda10b37c7b0024ed12595cf559be88",
+     "phase_b": "1d343ef9072f0675ae16198f04197463"
+    },
+    "05 b z_index -1": {
+     "phase_a": "e93a44d8a7e85c73643ab31d66e5d018",
+     "phase_b": "dc866a938a767975e1199d4f9e395d08"
+    },
+    "06 b added again": {
+     "phase_a": "b0f9157531ea7f4c75b4505441cf8023",
+     "phase_b": "df602ba332f1805dd650f88b3ae0d361"
+    },
+    "07 a program play begins": {
+     "phase_a": "21ca5c79ff837fe0ea50163ecfac337c",
+     "phase_b": "3804dd0ff37bade625888ab9a5974de3"
+    },
+    "08 a program play at 0.25": {
+     "phase_a": "45cf8544b599e1ac4c5a673ee138c1cb",
+     "phase_b": "efa5ccea17d579b3b31937ed2fc84945"
+    },
+    "09 a program play at 0.5": {
+     "phase_a": "867eeba2dbfe370c3699060e9577ba13",
+     "phase_b": "e54b143852186fbe629596dff1c6e3a9"
+    },
+    "10 a program play at 0.75": {
+     "phase_a": "8ef2235211d1fffbcaeaaee0de47ef0b",
+     "phase_b": "033feea94f027f84793c26febf5b2c3c"
+    },
+    "11 a program play lands": {
+     "phase_a": "893a8a3e92590f2cdb63c2c71d23baeb",
+     "phase_b": "c0dbe55d2b49386c48243dea0fa32285"
+    },
+    "12 still": {
+     "phase_a": "aaf6b68e2eb2cd15fbcc9f18308c1c2c",
+     "phase_b": "58f4b7737a4ea643c0e6c482d38f8111"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ]
+   }
+  },
+  "scripted_sequence": {
+   "frames": {
+    "00 cold": {
+     "phase_a": "f21c43fbf48a71bc098f829a3c26609f",
+     "phase_b": "b7e21b07528714cc6b1f06ef9695dcff"
+    },
+    "01 still": {
+     "phase_a": "3a24a9802ef60da8f56a8938b97eaa54",
+     "phase_b": "e698523414ed42863fbb702bd2d110e2"
+    },
+    "02 still": {
+     "phase_a": "3a24a9802ef60da8f56a8938b97eaa54",
+     "phase_b": "e698523414ed42863fbb702bd2d110e2"
+    },
+    "03 still": {
+     "phase_a": "3a24a9802ef60da8f56a8938b97eaa54",
+     "phase_b": "e698523414ed42863fbb702bd2d110e2"
+    },
+    "04 add a square": {
+     "phase_a": "54e83f1772bd41e10d28bc1f30526178",
+     "phase_b": "ac7b509174c646284d14fb317fc50201"
+    },
+    "05 remove the path": {
+     "phase_a": "d1ea494f91c6a0e94641ce52c2913ec2",
+     "phase_b": "9d5be47f4365656c00175c630d40d757"
+    },
+    "06 child z_index 5": {
+     "phase_a": "0ab07a346af8a925a4e340cafcc46e08",
+     "phase_b": "2d0eb848d757a4d79013436db0d32ad4"
+    },
+    "07 child z_index 0": {
+     "phase_a": "d1ea494f91c6a0e94641ce52c2913ec2",
+     "phase_b": "90bdedc01cc78bc57cb9c3cf5c405c58"
+    },
+    "08 shift the family": {
+     "phase_a": "b75240c6a1ec32d859118946a7021cb7",
+     "phase_b": "93aa1a005e2104fba9426942216fa9ea"
+    },
+    "09 stroke behind": {
+     "phase_a": "6d22b9c486e2e3031c51cf86255707e3",
+     "phase_b": "c5b38f68ce5decfb7fcb4e2c329c731c"
+    },
+    "10 still": {
+     "phase_a": "6d22b9c486e2e3031c51cf86255707e3",
+     "phase_b": "16d4861ae616d6e4bcb2d4d43cefc59c"
+    },
+    "11 stroke in front": {
+     "phase_a": "05c61392424563109bd74fd941b21ce9",
+     "phase_b": "78f25877493be380731765a311e6a375"
+    },
+    "12 still": {
+     "phase_a": "05c61392424563109bd74fd941b21ce9",
+     "phase_b": "179c40001cf3aa7d85a5251af930819e"
+    },
+    "13 pan": {
+     "phase_a": "a1bc018f2e7642488637930960a78dee",
+     "phase_b": "a202fb197c967f2042500402feb1cd3b"
+    },
+    "14 zoom out": {
+     "phase_a": "51d5db3859ca9708327f1da57855a63c",
+     "phase_b": "29abecfc44018e8acb2ac1d1e81a7bde"
+    },
+    "15 zoom back": {
+     "phase_a": "a1bc018f2e7642488637930960a78dee",
+     "phase_b": "a202fb197c967f2042500402feb1cd3b"
+    },
+    "16 after a cache reset": {
+     "phase_a": "7754655053564e1ae077fcc2a1f62419",
+     "phase_b": "ed260a9d8258216629741b1debc961a5"
+    },
+    "17 still": {
+     "phase_a": "a1bc018f2e7642488637930960a78dee",
+     "phase_b": "a202fb197c967f2042500402feb1cd3b"
+    },
+    "18 re-add the path": {
+     "phase_a": "a4db39258489d185038bc10c8239820a",
+     "phase_b": "4a1bd3a8553b693560febf44a3dee5a3"
+    },
+    "19 empty the cloud": {
+     "phase_a": "1637c1a3fd3e1b97a2bf65bca84d953d",
+     "phase_b": "810c481cb9ab1a0b4f839a64a635e709"
+    },
+    "20 refill the cloud": {
+     "phase_a": "bcacbe56e65394a7837f26ce0de985c1",
+     "phase_b": "7bfed1217f2be5a587517414fcb490f6"
+    },
+    "21 zoom in 6x": {
+     "phase_a": "43cd16fb3f07f1f640a9088d07a137de",
+     "phase_b": "18a18d67c1008b78ae7a5f1b9027a0d7"
+    },
+    "22 zoom back": {
+     "phase_a": "371a25dd5476949c4d6e42a6ba9d3b1b",
+     "phase_b": "1203d724179936557500cad5438d49d2"
+    },
+    "23 a uniforms-only play begins": {
+     "phase_a": "371a25dd5476949c4d6e42a6ba9d3b1b",
+     "phase_b": "1203d724179936557500cad5438d49d2"
+    },
+    "24 a uniforms-only play at 0.25": {
+     "phase_a": "d0e1d4b0d9f385ac1f6091fe71eacb74",
+     "phase_b": "b1bef2804c201089ba08f42d62fb9758"
+    },
+    "25 a uniforms-only play at 0.5": {
+     "phase_a": "daeba61ce65c18098421556eaa79c8b5",
+     "phase_b": "aaa229f9766b6abb492a053d272f20e8"
+    },
+    "26 a uniforms-only play at 0.75": {
+     "phase_a": "dfb2013208c7ddea8a4ef5b6fd62015c",
+     "phase_b": "c7d91f29bc70394683ee6caa17b5bb13"
+    },
+    "27 a uniforms-only play lands": {
+     "phase_a": "459bd7bb133374028cf22c9ca97e4f0e",
+     "phase_b": "0a11002091a5c0a7d6e5a66ff9296e23"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ]
+   }
+  },
+  "textures": {
+   "frames": {
+    "00 cold": {
+     "phase_a": "d0892e97100920ec6cf233d8d5618901",
+     "phase_b": "77942a552d2c49c531b04e969d6db2fe"
+    },
+    "01 still": {
+     "phase_a": "889ff5656034c7341a4f21275ac90a4f",
+     "phase_b": "87b88107819ef6e25b384dbf26c4f337"
+    },
+    "02 move the image": {
+     "phase_a": "f6ff1d795b1fad93ad2cadfaf3cf4502",
+     "phase_b": "bb63e38edadd76c719852753463c8221"
+    },
+    "03 after a cache reset": {
+     "phase_a": "16aecc08388c2187d18e07b0fdf4faa6",
+     "phase_b": "e944f85c14c19de0cbf0142139efc1df"
+    },
+    "04 still": {
+     "phase_a": "8ddc4fa8565487ae29106a5761f0acfa",
+     "phase_b": "9703871b64e1a8c07c2bca340a556b8a"
+    }
+   },
+   "input": {
+    "frame": [
+     1920,
+     1080,
+     8.0
+    ],
+    "texture": "47b3254316d221fae3de7cb22fd83d79542cfd1430f4c7951f381c7366335205"
+   }
+  }
+ },
+ "format_version": 7,
+ "recorded_with": "python -m tests.test_retained_frame --record"
+}

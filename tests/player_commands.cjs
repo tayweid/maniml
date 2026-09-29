@@ -91,6 +91,9 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
     const base={kind:'generated',stride:40,uniforms:{},instances:1,indexed:false,index_count:0,fill_num_verts:0};
     const program={kind:'blend',sources:[hash('f'),hash('0')],scalars:[frameId/10],rows:5,channels:17};
     const netProgram={kind:'blend',sources:[hash('5'),hash('6')],scalars:[frameId/10],rows:9,channels:10};
+    // Row sources (B5.1): a run of two objects' rows (five rows, two curves;
+    // three rows, one curve) and a stroke of the first's.
+    const rowsHash=n=>(n+'9'+v).repeat(8);
     header.batches=[
       {...base,pipeline:'patch',hash:hash('a'),num_verts:capacity*4,count:4*(6+strip),
        border:{hash:hash('b'),num_curves:4,capacity},objects:{hash:hash('c'),count:1}},
@@ -100,10 +103,16 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
        border:{hash:hash('3'),num_curves:2,capacity},objects:{hash:hash('4'),count:1}},
       {...base,pipeline:'surface',hash:hash('7'),num_verts:9,count:24,program:netProgram,
        net:{hash:hash('8'),nu:3,nv:3,channels:10,capacity:2,density:0}},
+      {...base,pipeline:'patch',hash:rowsHash('a1'),num_verts:capacity*3,count:3*(6+strip),rows:[rowsHash('b1'),rowsHash('b2')],
+       border:{hash:rowsHash('c1'),num_curves:3,capacity},objects:{hash:rowsHash('d1'),count:2}},
+      {...base,pipeline:'stroke',stride:68,hash:rowsHash('a2'),num_verts:6,instances:2,count:4,rows:[rowsHash('b1')]},
     ];
     for(const batch of header.batches) {
       if(cached) batch.cached=true;
-      else {batch.offset=raw.length; if(batch.border) batch.border.layout=[[batch.border.num_curves,1,0]];}
+      else {
+        batch.offset=raw.length;
+        if(batch.border) batch.border.layout=batch.rows&&batch.border.num_curves===3?[[2,1,0],[1,1,1]]:[[batch.border.num_curves,1,0]];
+      }
     }
     if(definition) {
       define('border_data',hash('b'),border(4)); define('object_data',hash('c'),objects(4));
@@ -111,6 +120,10 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
       define('program_data',hash('f'),floats(85,word)); define('program_data',hash('0'),floats(85,word+10));
       define('object_data',hash('4'),objects(2));
       define('program_data',hash('5'),floats(90,word)); define('program_data',hash('6'),floats(90,word+10));
+      define('program_data',rowsHash('b1'),floats(85,word+20)); define('program_data',rowsHash('b2'),floats(51,word+30));
+      const table=Buffer.concat([objects(2),objects(1)]);
+      table.writeFloatLE(2,32+12);
+      define('object_data',rowsHash('d1'),table);
     }
   }
   mutate(header);
@@ -135,11 +148,16 @@ function phaseBRecords(header, frame, length) {
       assert.equal(rows.byteLength,batch.program.rows*batch.program.channels*4);
       found.push(['rows',rows.getFloat32(0,true)]);
     }
+    if(batch.rows) for(const hash of batch.rows) {
+      const rows=span('program_data',hash,'row source');
+      assert.equal(rows.byteLength%68,0);
+      found.push(['rows',rows.getFloat32(0,true)]);
+    }
     if(patch) {
       const table=span('object_data',batch.objects.hash,'object table');
       assert.equal(table.byteLength,32*batch.border.layout.length,'a rehydrated patch run carries its layout');
       found.push(['objects',table.getFloat32(0,true)]);
-      if(!batch.program) {
+      if(!batch.program&&!batch.rows) {
         const curves=span('border_data',batch.border.hash,'border definition');
         assert.equal(curves.byteLength,176*batch.border.num_curves);
         found.push(['border',curves.getFloat32(40*4,true)]);
@@ -248,12 +266,12 @@ async function run(format, messages, transformMeta=x=>x) {
     await page.tick();
     assert.deepEqual(page.frameIds,[0,1,2,3]);
   } else if(mode==='formats') {
-    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding'],[5,'triangles','triangles'],[5,'winding','winding'],[6,'triangles','triangles'],[6,'winding','winding'],[7,'triangles','triangles'],[7,'winding','winding']]) {
+    for(const [format,renderer,expected] of [[1,null,'winding'],[2,'triangles','triangles'],[2,'winding','winding'],[3,'triangles','triangles'],[3,'winding','winding'],[4,'triangles','triangles'],[4,'winding','winding'],[5,'triangles','triangles'],[5,'winding','winding'],[6,'triangles','triangles'],[6,'winding','winding'],[7,'triangles','triangles'],[7,'winding','winding'],[8,'triangles','triangles']]) {
       const page=await run(format,[message(renderer)]);
       assert.deepEqual(page.initialized,[expected]);
       assert.deepEqual(page.rendered,[expected]);
     }
-    const future=await run(8,[message('triangles')]);
+    const future=await run(9,[message('triangles')]);
     assert.equal(future.initialized.length,0);
     assert.equal(future.elements.get('status').textContent,'Re-export required');
   } else if(mode==='paint') {
@@ -306,7 +324,8 @@ async function run(format, messages, transformMeta=x=>x) {
     // each; a forward tick, a segment jump and reverse seeks must all restore
     // the definitions of the frame shown, never the last ones sent.
     const expected=v=>[['objects',v],['border',v],['net',v],['rows',v],['rows',v+10],
-      ['rows',v],['rows',v+10],['objects',v],['rows',v],['rows',v+10]];
+      ['rows',v],['rows',v+10],['objects',v],['rows',v],['rows',v+10],
+      ['rows',v+20],['rows',v+30],['objects',v],['rows',v+20]];
     const page=await run(7,[phaseBMessage('a',0),phaseBMessage('a',1,{cached:true,definition:false}),
       phaseBMessage('a',2,{empty:true}),phaseBMessage('b',3),phaseBMessage('b',4,{cached:true,definition:false})],
       meta=>({...meta,segments:3,lines:[1,2,3],frames:meta.frames.map((frame,i)=>({...frame,segment:[0,0,1,2,2][i]}))}));
@@ -382,6 +401,9 @@ async function run(format, messages, transformMeta=x=>x) {
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[2].program.rows=7;}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[3].border.num_curves=3;}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[4].program.channels=17;}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[5].rows.reverse();}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[6].instances=3; header.batches[6].num_verts=9;}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{delete header.program_data[header.batches[5].rows[1]];}})]],
     ];
     for(const args of cases) {
       const page=await run(...args);

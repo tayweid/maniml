@@ -556,7 +556,7 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
 
     def test_geometry_snapshot(self):
         import numpy as np
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, parse_geometry_message
+        from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION, parse_geometry_message
         with self._connect() as ws:
             self._collect(ws, 2)  # drain connect frame/state
             # Make the test self-contained: when run alone this executes the
@@ -582,7 +582,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertGreater(len(header["batches"]), 0)
             self.assertEqual(header["unsupported"], [])
             self.assertEqual(header["renderer"], "triangles")
-            self.assertEqual(header["format_version"], GEOMETRY_FORMAT_VERSION)
+            # A client that announced no format is sent format 7 full frames.
+            self.assertEqual(header["format_version"], FULL_FRAME_FORMAT_VERSION)
             spans = []
 
             def span(offset, size, label):
@@ -1336,6 +1337,122 @@ class RendererDemo(Scene):
                 self.assertIsNotNone(state, "no state for " + mode)
                 self.assertEqual(state["current"], 0)
                 self.assertEqual(state["scene"], "RendererDemo")
+
+
+class DeltaStreamE2E(_ViewerHarness, unittest.TestCase):
+    """Format 8 (docs/phase_b4_plan.md, B4.8) over the socket: a client
+    whose mode message announces it is sent a full frame, then deltas, and
+    nothing at all while no byte changes; a tab that has not announced it
+    has everyone sent format 7 full frames, one broadcast for both.
+
+    The scene's updater writes its dot where it already is on every idle
+    frame, as most of an episode's updaters do: the viewer serializes the
+    scene at its send rate, and the bytes never change."""
+
+    SOURCE = """
+from manim import *
+class StreamDemo(Scene):
+    def setup(self):
+        dot = Dot().shift(RIGHT)
+        dot.add_updater(lambda m: m.move_to(RIGHT))
+        self.add(Square(fill_opacity=1, stroke_width=2), dot)
+    def construct(self):
+        self.wait(.1)
+"""
+    SCENE = "StreamDemo"
+    NEGOTIATED = {"type": "mode", "geometry": True, "format": 8}
+
+    def geometry(self, ws, seconds):
+        """The geometry messages arriving within ``seconds``: (header, size)."""
+        from maniml.web.geometry import parse_geometry_message
+        frames, _ = self._collect(ws, seconds)
+        return [(parse_geometry_message(frame)[0], len(frame)) for frame in frames if frame[0] == 0x03]
+
+    def assertFull(self, header, epoch_after=None):
+        self.assertEqual(header["format_version"], 8)
+        self.assertNotIn("base", header)
+        self.assertEqual(header["frame"], 0)
+        self.assertTrue(header["batches"])
+        if epoch_after is not None:
+            self.assertGreater(header["epoch"], epoch_after, "every reset opens an epoch")
+
+    def test_a_negotiated_client_is_sent_changes_only(self):
+        with self._connect() as ws:
+            self._collect(ws, .3)
+            # Connect: the page's renderer comes up and asks for a snapshot.
+            ws.send(json.dumps(self.NEGOTIATED))
+            ws.send(json.dumps({"type": "geometry_request"}))
+            frames = self.geometry(ws, 1)
+            self.assertEqual(len(frames), 1, "the updater ticked and changed no byte: nothing after the full frame")
+            full = frames[0][0]
+            self.assertFull(full)
+            # Still, the updater ticking: nothing is sent.
+            self.assertEqual(self.geometry(ws, .6), [])
+            # A pan (a drag from empty space): a delta against the full
+            # frame, the camera in it and no batch, under a kilobyte.
+            for event in ({"action": "down", "button": 0, "x": .02, "y": .02},
+                          {"action": "move", "buttons": 1, "x": .05, "y": .02, "dx": .03, "dy": 0},
+                          {"action": "up", "button": 0, "x": .05, "y": .02}):
+                ws.send(json.dumps({"type": "pointer", **event}))
+            frames = self.geometry(ws, 1)
+            self.assertEqual(len(frames), 1)
+            delta, size = frames[0]
+            self.assertEqual((delta["epoch"], delta["frame"], delta["base"]), (full["epoch"], 1, 0))
+            self.assertIn("camera", delta)
+            self.assertEqual((delta["splices"], delta["scalars"]), ([], []))
+            self.assertNotIn("batches", delta)
+            self.assertLess(size, 1024)
+            # A zoom: the next delta, whatever the zoom made again.
+            ws.send(json.dumps({"type": "pointer", "action": "wheel", "x": .5, "y": .5, "wx": 0, "wy": 40}))
+            frames = self.geometry(ws, 1)
+            self.assertEqual(len(frames), 1)
+            delta = frames[0][0]
+            self.assertEqual((delta["epoch"], delta["frame"], delta["base"]), (full["epoch"], 2, 1))
+            self.assertIn("camera", delta)
+            # A renderer switch: a full frame of the new renderer.
+            ws.send(json.dumps({**self.NEGOTIATED, "renderer": "phase_b"}))
+            frames = self.geometry(ws, 1.2)
+            self.assertEqual(len(frames), 1)
+            switched = frames[0][0]
+            self.assertEqual(switched["renderer"], "phase_b")
+            self.assertFull(switched, epoch_after=delta["epoch"])
+            # Phase A forced: a full frame of a new epoch, stamped as the
+            # bytes Phase A always wrote ("triangles").
+            ws.send(json.dumps({**self.NEGOTIATED, "renderer": "phase_a"}))
+            frames = self.geometry(ws, 1.2)
+            self.assertEqual(len(frames), 1)
+            forced = frames[0][0]
+            self.assertEqual(forced["renderer"], "triangles")
+            self.assertFull(forced, epoch_after=switched["epoch"])
+            # A client's geometry_reset: a full frame, every batch sent whole.
+            ws.send(json.dumps({"type": "geometry_reset"}))
+            frames = self.geometry(ws, 1)
+            self.assertEqual(len(frames), 1)
+            reset = frames[0][0]
+            self.assertFull(reset, epoch_after=forced["epoch"])
+            self.assertFalse(any(batch.get("cached") for batch in reset["batches"]))
+
+    def test_a_tab_that_has_not_negotiated_has_both_sent_full_frames(self):
+        with self._connect() as first:
+            self._collect(first, .3)
+            first.send(json.dumps(self.NEGOTIATED))
+            frames = self.geometry(first, 1)
+            self.assertEqual(len(frames), 1)
+            self.assertFull(frames[0][0])
+            with self._connect() as second:
+                second.send(json.dumps({"type": "mode", "geometry": True}))
+                for ws in (second, first):
+                    frames = self.geometry(ws, 1)
+                    self.assertGreater(len(frames), 3, "the updater's frames are sent while a tab reads format 7")
+                    self.assertEqual({(header["format_version"], "epoch" in header) for header, _ in frames},
+                                     {(7, False)})
+            # The tab gone, the stream resumes with a full frame, and then
+            # nothing (format 7 frames already on their way may come first).
+            frames = self.geometry(first, 1)
+            resumed = [header for header, _ in frames if header["format_version"] == 8]
+            self.assertEqual(len(resumed), 1)
+            self.assertIs(frames[-1][0], resumed[0])
+            self.assertFull(resumed[0])
 
 
 if __name__ == "__main__":

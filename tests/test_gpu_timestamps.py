@@ -195,7 +195,7 @@ class TimestampCommands(unittest.TestCase):
                      "_generated_paints", "_generated_paint_bindings", "_border_sources",
                      "_border_outputs", "_object_tables", "_patch_uniforms", "_net_sources",
                      "_net_outputs", "_program_sources", "_program_outputs", "_program_pipelines",
-                     "texture_cache"):
+                     "_row_outputs", "_row_runs", "_net_scratch", "texture_cache"):
             setattr(renderer, name, {})
         renderer._patch_layouts = renderer._net_compute_pipeline = renderer._border_compute_pipeline = None
         renderer._stale_index_buffers = []

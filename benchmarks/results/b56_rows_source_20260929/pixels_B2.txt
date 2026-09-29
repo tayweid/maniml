@@ -1,0 +1,109 @@
+pausepoint 12 (0.a)          over24   0.0000%  max   0  rows batches 423
+pausepoint 20 (1.a)          over24   0.0000%  max   0  rows batches 165
+pausepoint 25 (2.a)          over24   0.0000%  max   0  rows batches 7
+pausepoint 30 (2.b)          over24   0.0000%  max   0  rows batches 91
+pausepoint 33 (2.d)          over24   0.0000%  max   0  rows batches 151
+pausepoint 36 (2.e)          over24   0.0000%  max   0  rows batches 32
+pausepoint 39 (2.f)          over24   0.0000%  max   0  rows batches 8
+pausepoint 41 (2.g)          over24   0.0000%  max   0  rows batches 8
+pausepoint 44 (2.h)          over24   0.0000%  max   0  rows batches 124
+pausepoint 48 (3.a)          over24   0.0000%  max   0  rows batches 241
+pausepoint 53 (3.b)          over24   0.0000%  max   0  rows batches 243
+pausepoint 57 (3.c)          over24   0.0000%  max   0  rows batches 229
+pausepoint 62 (3.d)          over24   0.0000%  max   0  rows batches 229
+pausepoint 68 (3.e)          over24   0.0000%  max   0  rows batches 180
+pausepoint 72 (3.f)          over24   0.0000%  max   0  rows batches 182
+pausepoint 76 (3.i)          over24   0.0000%  max   0  rows batches 274
+pausepoint 79 (3.j)          over24   0.0000%  max   0  rows batches 286
+pausepoint 82 (3.k)          over24   0.0000%  max   0  rows batches 298
+pausepoint 85 (3.l)          over24   0.0000%  max   0  rows batches 286
+pausepoint 92 (3.m)          over24   0.0000%  max   0  rows batches 286
+pausepoint 94 (3.n)          over24   0.0000%  max   0  rows batches 343
+pausepoint 98 (4.a)          over24   0.0000%  max   0  rows batches 125
+pausepoint 101 (4.b.1)       over24   0.0000%  max   0  rows batches 8
+pausepoint 103 (4.c.1)       over24   0.0000%  max   0  rows batches 10
+pausepoint 106 (4.d.1)       over24   0.0000%  max   0  rows batches 12
+pausepoint 108 (4.d.1.price-low) over24   0.0000%  max   0  rows batches 12
+pausepoint 110 (4.d.1.no-sale) over24   0.0000%  max   0  rows batches 6
+pausepoint 112 (4.d.1.price-high) over24   0.0000%  max   0  rows batches 12
+pausepoint 114 (4.d.1.price-reset) over24   0.0000%  max   0  rows batches 12
+pausepoint 117 (4.return.1)  over24   0.0000%  max   0  rows batches 128
+pausepoint 120 (4.b.2)       over24   0.0000%  max   0  rows batches 8
+pausepoint 122 (4.c.2)       over24   0.0000%  max   0  rows batches 10
+pausepoint 124 (4.d.2)       over24   0.0000%  max   0  rows batches 12
+pausepoint 127 (4.return.2)  over24   0.0000%  max   0  rows batches 130
+pausepoint 130 (4.b.3)       over24   0.0000%  max   0  rows batches 8
+pausepoint 132 (4.c.3)       over24   0.0000%  max   0  rows batches 10
+pausepoint 134 (4.d.3)       over24   0.0000%  max   0  rows batches 12
+pausepoint 137 (4.return.3)  over24   0.0000%  max   0  rows batches 134
+pausepoint 140 (4.b.4)       over24   0.0000%  max   0  rows batches 8
+pausepoint 142 (4.c.4)       over24   0.0000%  max   0  rows batches 10
+pausepoint 144 (4.d.4)       over24   0.0000%  max   0  rows batches 12
+pausepoint 147 (4.return.4)  over24   0.0000%  max   0  rows batches 138
+pausepoint 150 (4.b.5)       over24   0.0000%  max   0  rows batches 8
+pausepoint 152 (4.c.5)       over24   0.0000%  max   0  rows batches 10
+pausepoint 154 (4.d.5)       over24   0.0000%  max   0  rows batches 12
+pausepoint 157 (4.return.5)  over24   0.0000%  max   0  rows batches 142
+pausepoint 160 (4.b.6)       over24   0.0000%  max   0  rows batches 8
+pausepoint 162 (4.c.6)       over24   0.0000%  max   0  rows batches 10
+pausepoint 164 (4.d.6)       over24   0.0000%  max   0  rows batches 12
+pausepoint 167 (4.return.6)  over24   0.0000%  max   0  rows batches 146
+pausepoint 170 (4.b.7)       over24   0.0000%  max   0  rows batches 8
+pausepoint 172 (4.c.7)       over24   0.0000%  max   0  rows batches 10
+pausepoint 174 (4.d.7)       over24   0.0000%  max   0  rows batches 12
+pausepoint 177 (4.return.7)  over24   0.0000%  max   0  rows batches 150
+pausepoint 180 (4.b.8)       over24   0.0000%  max   0  rows batches 8
+pausepoint 182 (4.c.8)       over24   0.0000%  max   0  rows batches 10
+pausepoint 184 (4.d.8)       over24   0.0000%  max   0  rows batches 12
+pausepoint 187 (4.return.8)  over24   0.0000%  max   0  rows batches 154
+pausepoint 190 (4.b.9)       over24   0.0000%  max   0  rows batches 8
+pausepoint 192 (4.c.9)       over24   0.0000%  max   0  rows batches 10
+pausepoint 194 (4.d.9)       over24   0.0000%  max   0  rows batches 12
+pausepoint 197 (4.return.9)  over24   0.0000%  max   0  rows batches 158
+pausepoint 200 (4.b.10)      over24   0.0000%  max   0  rows batches 8
+pausepoint 202 (4.c.10)      over24   0.0000%  max   0  rows batches 10
+pausepoint 204 (4.d.10)      over24   0.0000%  max   0  rows batches 12
+pausepoint 247 (4.e)         over24   0.0000%  max   0  rows batches 244
+pausepoint 251 (4.g)         over24   0.0000%  max   0  rows batches 361
+pausepoint 256 (4.g.1)       over24   0.0000%  max   0  rows batches 363
+pausepoint 258 (4.h)         over24   0.0000%  max   0  rows batches 363
+pausepoint 260 (4.i)         over24   0.0000%  max   0  rows batches 363
+pausepoint 263 (4.j)         over24   0.0000%  max   0  rows batches 363
+pausepoint 265 (4.j.1)       over24   0.0000%  max   0  rows batches 365
+pausepoint 268 (4.j.2)       over24   0.0000%  max   0  rows batches 365
+pausepoint 271 (4.k)         over24   0.0000%  max   0  rows batches 364
+pausepoint 275 (4.l)         over24   0.0000%  max   0  rows batches 364
+pausepoint 277 (5.a)         over24   0.0000%  max   0  rows batches 463
+pausepoint 281 (6.a)         over24   0.0000%  max   0  rows batches 361
+pausepoint 283 (6.b)         over24   0.0000%  max   0  rows batches 361
+pausepoint 285 (6.b.1)       over24   0.0000%  max   0  rows batches 397
+pausepoint 289 (6.c)         over24   0.0000%  max   0  rows batches 397
+pausepoint 292 (6.d)         over24   0.0000%  max   0  rows batches 451
+pausepoint 294 (6.e)         over24   0.0000%  max   0  rows batches 453
+pausepoint 299 (7.a)         over24   0.0000%  max   0  rows batches 617
+pausepoint 307 (8.a)         over24   0.0000%  max   0  rows batches 911
+→ Running animation 306
+play into 307, frame 0       over24   0.0000%  max   0  rows batches 887
+play into 307, frame 1       over24   0.0000%  max   0  rows batches 887
+play into 307, frame 2       over24   0.0000%  max   0  rows batches 887
+play into 307, frame 3       over24   0.0000%  max   0  rows batches 891
+play into 307, frame 4       over24   0.0000%  max   0  rows batches 891
+play into 307, frame 5       over24   0.0000%  max   0  rows batches 891
+play into 307, frame 6       over24   0.0000%  max   0  rows batches 891
+play into 307, frame 7       over24   0.0000%  max   0  rows batches 895
+play into 307, frame 8       over24   0.0000%  max   0  rows batches 895
+play into 307, frame 9       over24   0.0000%  max   0  rows batches 895
+play into 307, frame 10      over24   0.0000%  max   0  rows batches 899
+play into 307, frame 11      over24   0.0000%  max   0  rows batches 899
+play into 307, frame 12      over24   0.0000%  max   0  rows batches 903
+play into 307, frame 13      over24   0.0000%  max   0  rows batches 903
+play into 307, frame 14      over24   0.0000%  max   0  rows batches 907
+play into 307, frame 15      over24   0.0000%  max   0  rows batches 907
+play into 307, frame 16      over24   0.0000%  max   0  rows batches 907
+play into 307, frame 17      over24   0.0000%  max   0  rows batches 907
+play into 307, frame 18      over24   0.0000%  max   0  rows batches 911
+play into 307, frame 19      over24   0.0000%  max   0  rows batches 911
+play into 307, frame 20      over24   0.0000%  max   0  rows batches 911
+play into 307, frame 21      over24   0.0000%  max   0  rows batches 911
+play into 307, frame 22      over24   0.0000%  max   0  rows batches 911
+{"scene": "EpisodeB2", "frames": 107, "pausepoints": 84, "worst": {"frame": "pausepoint 12 (0.a)", "over_24": 0.0, "max": 0, "rows_batches": 423, "record_rows_batches": 0}, "max_over_24": 0.0, "max_channel": 0, "seconds": 23.9}

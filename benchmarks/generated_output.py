@@ -18,6 +18,7 @@ import math
 import os
 from pathlib import Path
 from time import perf_counter
+from unittest.mock import patch
 
 import numpy as np
 
@@ -41,6 +42,11 @@ WARMUPS = 3
 
 class StageObserver:
     """Observe existing production stages without retaining recorder history."""
+    # Performance.enabled as a recorder without a path has it: the code it
+    # stands in for skips work done only for a gauge (the retained frame's
+    # bytes), which this observer drops.
+    enabled = False
+
     def __init__(self):
         self.reset()
 
@@ -176,13 +182,15 @@ def resources(renderer, cache, header):
     }
 
 
-def sample(scene, variant, renderer, cache, stages, queue):
+def sample(scene, variant, renderer, cache, stages, queue, *, retained="0"):
     stages.reset()
     queue.reset()
-    started = perf_counter()
-    message = (serialize_scene(scene, cache) if variant == "triangles" else
-               serialize_winding(scene, cache, renderer="winding"))
-    serialized = perf_counter()
+    # The whole-frame path unless ``retained`` is "1" (gpu_borders.sample).
+    with patch.dict(os.environ, MANIML_RETAINED_FRAME=retained):
+        started = perf_counter()
+        message = (serialize_scene(scene, cache) if variant == "triangles" else
+                   serialize_winding(scene, cache, renderer="winding"))
+        serialized = perf_counter()
     header, payload = parse_geometry_message(message)
     parsed = perf_counter()
     image = renderer.render(header, payload)  # Both routes perform full RGBA readback.

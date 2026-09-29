@@ -17,7 +17,7 @@ from maniml.mobject.types.image_mobject import ImageMobject
 from maniml.mobject.types.surface import Surface, TexturedSurface
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.types.vectorized_mobject import VMobject
-from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _texture_refs
+from maniml.web.geometry import SURFACE_DTYPE, _jsonable, _stroke_verts, _stroke_verts_at, _texture_refs
 from maniml.web.triangle_geometry import TessellationError
 from maniml.web.border_geometry import (
     BorderSource, MAX_BORDER_TRIANGLES, RenderCacheStale, emit_border_triangles,
@@ -25,8 +25,8 @@ from maniml.web.border_geometry import (
 )
 from maniml.web.fill_paint import MAX_PAINT_SAMPLES, build_paint
 from maniml.web.gpu_border_geometry import (
-    BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, indices_per_curve,
-    patch_draw_count,
+    BorderRecipeCache, MAX_RUN_OUTPUT_BYTES, MAX_VERTICES_PER_CURVE, ROW_DTYPE, STROKE_INSTANCE_BYTES,
+    indices_per_curve, patch_draw_count, row_source_ready,
 )
 from maniml.web.gpu_net_geometry import NetRecipeCache, indices_per_patch, pixels_per_unit
 from maniml.web import gpu_program_geometry
@@ -49,6 +49,10 @@ def _standard_mesh_getters(mobject):
         standard = _STANDARD_MESH_CLASSES[cls] = all(
             getattr(cls, name, None) is method for name, method in _STANDARD_MESH_GETTERS)
     return standard and not (_STANDARD_MESH_NAMES & mobject.__dict__.keys())
+
+
+# The columns classify_source reads.
+CLASSIFY_COLUMNS = ("fill_rgba", "fill_border_width", "stroke_width", "stroke_rgba")
 
 
 def classify_source(mobject):
@@ -102,9 +106,119 @@ class TriangleDraw:
     # "scalars": [...]}; the draw's records, strokes or net come from the
     # driver's evaluation of it.
     program: dict | None = None
+    # Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1):
+    # the rows of each of the draw's objects, in order, which the driver
+    # finalizes into the patch run's curve records or the stroke's
+    # instances; such a draw has no vertices and no curve records of its own.
+    rows: tuple | None = None
 
 
-def coalesce_draws(draws, *, border_cache=None):
+def run_kind(draw):
+    """The kind of run ``draw`` can join, or None when it is a run of its own.
+
+    A function of the draw alone, so a caller that keeps draws across frames
+    may memoize it on them (docs/phase_b4_plan.md).
+    """
+    if draw.program is not None:
+        return None  # one evaluated program per draw
+    if draw.net is not None:
+        return None  # one evaluated net per draw
+    if draw.rows is not None:
+        # A run of row sources, whose records or instances the driver
+        # finalizes into one buffer; a painted patch stays a run of its own.
+        if draw.fill_objects is not None:
+            return "patch_rows" if draw.paint is None else None
+        return "stroke_rows"
+    if draw.fill_objects is not None:
+        # A material run binds one paint field, so a painted patch
+        # draw stays a run of its own.
+        return "patch" if draw.paint is None else None
+    if draw.border_sources is not None:
+        return None if draw.coverage else "border"
+    if draw.coverage:
+        return None  # A stencil reference belongs to exactly one object.
+    if draw.pipeline in ("surface", "surface_depth") and draw.instances == 1:
+        if (draw.indices is not None and draw.count == len(draw.indices)
+                and draw.count % 3 == 0):
+            return "indexed"
+        if (draw.indices is None and draw.count == len(draw.vertices)
+                and draw.count % 3 == 0):
+            return "triangles"
+    if (draw.pipeline in ("stroke", "stroke_depth") and draw.indices is None
+            and len(draw.vertices) == 3 * draw.instances
+            and draw.count >= 4 and draw.count % 2 == 0):
+        return "stroke"
+    return None
+
+
+def patch_parts(run):
+    """What BorderRecipeCache.assemble_patches takes for a patch run: under
+    row sources, each object's rows in place of its curve records."""
+    return [(draw.border_sources if draw.rows is None else draw.rows[0], draw.border_capacity,
+             draw.fill_objects, draw.patch_layout[0][1], draw.patch_layout[0][2])
+            for draw in run]
+
+
+def draw_curves(draw):
+    """The curves a border or patch draw's records cover: its own records',
+    or under row sources its objects'."""
+    if draw.border_sources is not None:
+        return len(draw.border_sources)
+    return sum(curves for curves, _, _ in draw.patch_layout)
+
+
+def border_parts(run):
+    """What BorderRecipeCache.assemble takes for a border run."""
+    return [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
+            for draw in run]
+
+
+def combine_run(run, kind, *, border_cache=None):
+    """The one draw a run of ``kind`` (from run_kind) is drawn as.
+
+    Border and patch runs are assembled by ``border_cache``, which retains
+    the assembly: the same member arrays in the same order give back the
+    same arrays. Other runs allocate frame-owned arrays, and a run of one
+    is that draw itself.
+    """
+    if run[0].program is not None:
+        return run[0]  # evaluated by the driver; nothing to assemble
+    if run[0].fill_objects is not None:
+        rows = run[0].rows is not None
+        curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run), rows=rows)
+        return replace(run[0], border_capacity=capacity, patch_layout=layout, fill_objects=objects,
+                       count=patch_draw_count(layout, capacity),
+                       **({"rows": curves} if rows else {"border_sources": curves}))
+    if run[0].rows is not None:
+        # A stroke's instances: the driver finalizes each object's rows into
+        # the run's buffer, so nothing is joined here.
+        if len(run) == 1:
+            return run[0]
+        return replace(run[0], rows=tuple(rows for draw in run for rows in draw.rows),
+                       count=max(draw.count for draw in run), instances=sum(draw.instances for draw in run))
+    if run[0].border_sources is not None:
+        vertices, indices, curves, capacity, layout = border_cache.assemble(border_parts(run))
+        return replace(run[0], vertices=vertices, indices=indices, border_sources=curves,
+                       border_capacity=capacity, border_layout=layout,
+                       count=len(indices) + indices_per_curve(capacity) * len(curves))
+    if len(run) == 1:
+        return run[0]
+    first = run[0]
+    vertices = np.concatenate([draw.vertices for draw in run])
+    if kind == "indexed":
+        # Draw indices are uint32 in the shared surface pipeline.
+        offsets = np.cumsum([0, *(len(draw.vertices) for draw in run[:-1])], dtype="u8")
+        indices = np.concatenate([draw.indices + np.uint32(offset)
+                                  for draw, offset in zip(run, offsets)])
+        return replace(first, vertices=vertices, indices=indices,
+                       count=sum(draw.count for draw in run))
+    return replace(first, vertices=vertices,
+                   count=max(draw.count for draw in run) if kind == "stroke"
+                   else sum(draw.count for draw in run),
+                   instances=sum(draw.instances for draw in run) if kind == "stroke" else 1)
+
+
+def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_run):
     """Join consecutive compatible draws without changing primitive order.
 
     Full normalized uniforms, vertex layout and depth pipeline must agree.
@@ -113,99 +227,50 @@ def coalesce_draws(draws, *, border_cache=None):
     vertices to a degenerate tail, so a run can use its largest strip count.
     Unknown pipelines and partial draw ranges remain separate. Runs allocate
     frame-owned arrays; a single draw retains its original array identities.
+    ``kind`` and ``combine`` are run_kind and combine_run, or memoized
+    stand-ins with their signatures from a caller that keeps draws across
+    frames; either way the rule that closes a run is this loop's alone.
     """
-    def kind(draw):
-        if draw.program is not None:
-            return None  # one evaluated program per draw
-        if draw.net is not None:
-            return None  # one evaluated net per draw
-        if draw.fill_objects is not None:
-            # A material run binds one paint field, so a painted patch
-            # draw stays a run of its own.
-            return "patch" if draw.paint is None else None
-        if draw.border_sources is not None:
-            return None if draw.coverage else "border"
-        if draw.coverage:
-            return None  # A stencil reference belongs to exactly one object.
-        if draw.pipeline in ("surface", "surface_depth") and draw.instances == 1:
-            if (draw.indices is not None and draw.count == len(draw.indices)
-                    and draw.count % 3 == 0):
-                return "indexed"
-            if (draw.indices is None and draw.count == len(draw.vertices)
-                    and draw.count % 3 == 0):
-                return "triangles"
-        if (draw.pipeline in ("stroke", "stroke_depth") and draw.indices is None
-                and len(draw.vertices) == 3 * draw.instances
-                and draw.count >= 4 and draw.count % 2 == 0):
-            return "stroke"
-        return None
-
-    def combine(run, run_kind):
-        if run[0].program is not None:
-            return run[0]  # evaluated by the driver; nothing to assemble
-        if run[0].fill_objects is not None:
-            curves, capacity, layout, objects = border_cache.assemble_patches(
-                [(draw.border_sources, draw.border_capacity, draw.fill_objects,
-                  draw.patch_layout[0][1], draw.patch_layout[0][2])
-                 for draw in run])
-            return replace(run[0], border_sources=curves, border_capacity=capacity,
-                           patch_layout=layout, fill_objects=objects,
-                           count=patch_draw_count(layout, capacity))
-        if run[0].border_sources is not None:
-            vertices, indices, curves, capacity, layout = border_cache.assemble(
-                [(draw.vertices, draw.indices, draw.border_sources, draw.border_capacity)
-                 for draw in run])
-            return replace(run[0], vertices=vertices, indices=indices, border_sources=curves,
-                           border_capacity=capacity, border_layout=layout,
-                           count=len(indices) + indices_per_curve(capacity) * len(curves))
-        if len(run) == 1:
-            return run[0]
-        first = run[0]
-        vertices = np.concatenate([draw.vertices for draw in run])
-        if run_kind == "indexed":
-            # Draw indices are uint32 in the shared surface pipeline.
-            offsets = np.cumsum([0, *(len(draw.vertices) for draw in run[:-1])], dtype="u8")
-            indices = np.concatenate([draw.indices + np.uint32(offset)
-                                      for draw, offset in zip(run, offsets)])
-            return replace(first, vertices=vertices, indices=indices,
-                           count=sum(draw.count for draw in run))
-        return replace(first, vertices=vertices,
-                       count=max(draw.count for draw in run) if run_kind == "stroke"
-                       else sum(draw.count for draw in run),
-                       instances=sum(draw.instances for draw in run) if run_kind == "stroke" else 1)
-
-    result, run, run_kind, vertex_count = [], [], None, 0
+    result, run, current, vertex_count = [], [], None, 0
     curve_count, run_capacity = 0, 0
 
     def border_run_bytes(draw):
         # A run reserves its largest member's capacity for every curve.
         capacity = max(run_capacity, draw.border_capacity)
-        curves = curve_count + len(draw.border_sources)
+        curves = curve_count + draw_curves(draw)
         return (vertex_count + len(draw.vertices) + capacity * curves) * 40
 
     for draw in draws:
         draw_kind = kind(draw)
-        compatible = (run and run_kind is not None and draw_kind == run_kind
+        # Identical uniforms are equal ones (a dict compares its values
+        # identity first); a caller that shares one dict between draws with
+        # equal uniforms skips comparing them key by key.
+        compatible = (run and current is not None and draw_kind == current
                       and draw.pipeline == run[0].pipeline
                       and draw.vertices.dtype == run[0].vertices.dtype
-                      and draw.uniforms == run[0].uniforms
+                      and (draw.uniforms is run[0].uniforms or draw.uniforms == run[0].uniforms)
                       and draw.textures == run[0].textures
-                      and (draw_kind not in ("border", "patch") or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind not in ("border", "patch", "patch_rows")
+                           or border_run_bytes(draw) <= MAX_RUN_OUTPUT_BYTES)
+                      and (draw_kind != "stroke_rows"
+                           or (curve_count + draw.instances) * STROKE_INSTANCE_BYTES <= MAX_RUN_OUTPUT_BYTES)
                       and (draw_kind != "indexed" or
                            (draw.indices.dtype == np.dtype("u4")
                             and run[0].indices.dtype == np.dtype("u4")
                             and vertex_count + len(draw.vertices) <= 2 ** 32)))
         if run and not compatible:
-            result.append(combine(run, run_kind))
+            result.append(combine(run, current, border_cache=border_cache))
             run, vertex_count, curve_count, run_capacity = [], 0, 0, 0
         run.append(draw)
-        run_kind = draw_kind
+        current = draw_kind
         vertex_count += len(draw.vertices)
-        if draw.border_sources is not None:
-            curve_count += len(draw.border_sources)
+        if draw.border_sources is not None or draw_kind == "patch_rows":
+            curve_count += draw_curves(draw)
             run_capacity = max(run_capacity, draw.border_capacity)
+        elif draw_kind == "stroke_rows":
+            curve_count += draw.instances
     if run:
-        result.append(combine(run, run_kind))
+        result.append(combine(run, current, border_cache=border_cache))
     return result
 
 
@@ -229,6 +294,58 @@ class TriangleFrame:
                    + (0 if draw.border_sources is None else draw.border_sources.nbytes)
                    for draw in self.draws)
 
+    def note(self, message):
+        """Record a limitation once, where it first occurs in draw order."""
+        if message not in self.limitations:
+            self.limitations.append(message)
+
+    def texture_refs(self, sm):
+        """``sm``'s sampler -> texture hash map, its payloads noted."""
+        return _texture_refs(sm, self.texture_data)
+
+    def add_leaf(self, leaf):
+        """Append a leaf prepared on its own (a LeafDraws) after the leaves
+        before it, as if it had been prepared into this frame."""
+        self.draws.extend(leaf.draws)
+        self.source_bytes += leaf.source_bytes
+        for message in leaf.limitations:
+            self.note(message)
+        if leaf.textures:
+            self.texture_data.update(leaf.textures)
+
+
+@dataclass(slots=True)
+class LeafDraws:
+    """One leaf prepared on its own, for a caller that keeps leaves across
+    frames (docs/phase_b4_plan.md): its draws in order, the source bytes
+    they read, and the frame-level notes they carry, the limitations they
+    are drawn under and the payloads of the textures they name (hash ->
+    bytes). It takes prepare_leaf's writes as a TriangleFrame does, and
+    TriangleFrame.add_leaf merges it into one.
+
+    A frame that reuses the draws repeats the limitations with them, but
+    must not trust the texture references: rewriting an image file moves
+    its hash and bumps no revision, so a reused textured leaf's references
+    are resolved again every frame (texture_refs), and the leaf is rebuilt
+    when they moved. The payloads are carried all the same, because the
+    module's read cache is bounded and may have let the file go.
+    """
+    draws: list = field(default_factory=list)
+    source_bytes: int = 0
+    # Few leaves carry notes; neither is allocated until one does.
+    limitations: tuple = ()
+    textures: dict | None = None
+
+    def note(self, message):
+        if message not in self.limitations:
+            self.limitations += (message,)
+
+    def texture_refs(self, sm):
+        """``sm``'s sampler -> texture hash map, its payloads noted."""
+        if self.textures is None:
+            self.textures = {}
+        return _texture_refs(sm, self.textures)
+
 
 def _readonly(array):
     """Own immutable backing bytes: callers cannot re-enable array writes."""
@@ -238,6 +355,7 @@ def _readonly(array):
 
 # A patch fill draw owns no vertices; every one shares this empty array.
 _NO_VERTICES = _readonly(np.zeros(0, dtype=SURFACE_DTYPE))
+_NO_ROWS = _readonly(np.zeros(0, dtype=ROW_DTYPE))
 
 
 @dataclass
@@ -250,15 +368,16 @@ class _MeshSource:
     contour_rule: object = None
 
     @classmethod
-    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None, trusted=False):
+    def read(cls, mobject, border_settings=(0.0, "bevel"), *, previous=None, trusted=False, verify=None):
         """Snapshot the fill's source. ``trusted`` says the caller saw the
         same ``Mobject.revision`` as when ``previous`` was read: the snapshot
         is reused without reading the arrays, unless a custom getter or
         contour rule could depend on other state. Under MANIML_VERIFY_LEDGER=1
-        the arrays are read anyway and a stale reuse raises."""
+        (``verify``, as the caller's cache read it for the frame; None asks
+        the environment) the arrays are read anyway and a stale reuse raises."""
         if (trusted and previous is not None and previous.contour_rule is _DEFAULT_CONTOUR_METHOD
                 and _standard_mesh_getters(mobject)):
-            if verify_render_cache():
+            if verify_render_cache() if verify is None else verify:
                 fresh = cls.read(mobject, border_settings, previous=previous)
                 for name, kept, live in (("points", previous.points, fresh.points),
                                          ("fill_rgba", previous.rgba, fresh.rgba),
@@ -403,7 +522,8 @@ def _prepare_border_geometry(records, mesh_cache):
         previous = None if entry is None else entry.coverage_geometry
         source = BorderSource.read(mobject, uniforms,
                                    previous=None if previous is None else previous.source,
-                                   trusted=previous is not None and mesh_cache.trusts(mobject))
+                                   trusted=previous is not None and mesh_cache.trusts(mobject),
+                                   verify=None if mesh_cache is None else mesh_cache.verify)
         if previous is not None and previous.source == source:
             count = previous.border_vertex_count
             border = previous.vertices[-count:] if count else previous.vertices[:0]
@@ -460,6 +580,13 @@ class _MeshEntry:
     # Whether every fill vertex carries the source's first color (set at
     # generation and after a paint refresh), for the opaque-painter test.
     uniform_vertex_color: bool = False
+    # (projection key, pixel tolerance) of the camera the mesh was generated
+    # at: a generation is a function of the source, that camera and the
+    # cache's tessellator and refinement, so another object with the same
+    # source is given exactly this mesh there (TriangleMeshCache.made_under).
+    # None once a paint refresh has rewritten the vertex colours, which a
+    # generation takes from the tessellator instead.
+    made_under: tuple | None = None
 
     @property
     def nbytes(self):
@@ -543,6 +670,7 @@ class TriangleMeshCache:
         self._totals = {"hits": 0, "regenerations": 0, "evictions": 0, "paint_updates": 0,
                         "border_regenerations": 0}
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
 
     @property
     def stats(self):
@@ -578,7 +706,9 @@ class TriangleMeshCache:
             self._generator_key = key
         self._frame += 1
         self._projections.clear()
+        # Read once per frame: the preparation loop asks per leaf.
         self.policy = render_cache_policy()
+        self.verify = verify_render_cache()
         for owner_id, entry in list(self._entries.items()):
             if entry.owner() is None:
                 self._remove(owner_id)
@@ -591,7 +721,7 @@ class TriangleMeshCache:
         held = self._classes.get(owner_id)
         if (held is not None and self.policy == "revision" and held[0]() is mobject
                 and held[1] == mobject.revision):
-            if verify_render_cache():
+            if self.verify:
                 fresh = classify_source(mobject)
                 if fresh != held[2]:
                     raise RenderCacheStale(
@@ -645,6 +775,156 @@ class TriangleMeshCache:
         return (self.policy == "revision" and entry is not None and entry.owner() is mobject
                 and entry.revision == mobject.revision)
 
+    def read_at(self, mobject):
+        """Whether the cache holds a read of ``mobject`` made at its current
+        revision, its classification or its fill mesh's source, which the
+        revision policy's next read hands back without reading the arrays:
+        that read gives what they held when it was made. For a caller that
+        keeps the leaf's draws across frames (docs/phase_b4_plan.md) and
+        must know what they were made from."""
+        if self.policy != "revision":
+            return False
+        owner_id, revision = id(mobject), mobject.revision
+        held = self._classes.get(owner_id)
+        if held is not None and held[0]() is mobject and held[1] == revision:
+            return True
+        entry = self._entries.get(owner_id)
+        return entry is not None and entry.owner() is mobject and entry.revision == revision
+
+    def held(self, mobject):
+        """(mesh entry, classification) this frame read for ``mobject``, each
+        None when it read none: what a caller that keeps the leaf's draws
+        across frames (docs/phase_b4_plan.md) records beside them, to
+        compare with what ``keep`` answers on a later frame. An entry this
+        frame did not read is the sweep's, not the leaf's."""
+        entry = self._entries.get(id(mobject))
+        if entry is None or entry.owner() is not mobject or entry.last_frame != self._frame:
+            entry = None
+        held = self._classes.get(id(mobject))
+        classes = held[2] if held is not None and held[0]() is mobject and held[3] == self._frame else None
+        return entry, classes
+
+    def keep(self, mobject, *, revision=None, camera=None, stamp=True):
+        """Mark what the cache holds for ``mobject`` used in this frame, as
+        prepare_leaf's reads of it would (the mesh entry's recency, the
+        classification's stamp), for a caller that reuses the leaf's draws
+        without preparing it. Returns (mesh entry, classification) as
+        ``held`` does: unless they are what the draws were made from, the
+        cache has let something go and the caller prepares the leaf.
+
+        ``revision``: the caller found the mobject's rows at this revision
+        byte for byte the rows the entry and the classification were read
+        from, so both stand for it, as the reads that would have compared
+        them leave them (mesh()'s hit stamps the entry, classify stores its
+        answer at the revision).
+        ``camera``: (uniforms, resolution, pixel_tolerance) of a frame whose
+        camera moved since the mesh was last read. The mesh is kept only
+        where mesh() would hit: its source the one read at the revision
+        (the entry's, or ``revision`` on the caller's word, which covers a
+        unit normal the leaf's read would refresh to the same bytes) and
+        its error bound, taken as mesh() takes it, within the tolerance.
+        Where it would not, only the classification is marked and (None,
+        classification) returned, the entry left for mesh() to replace
+        when the caller prepares the leaf; the bound it memoized is the one
+        mesh() then finds. Under verification mesh() compares the arrays
+        as well, which a hit rests on no less, so the mesh is kept there
+        too, and a caller that reads the kept mesh through mesh() has it
+        checked.
+        ``stamp``: False takes ``revision`` as the caller's word for this
+        frame's decision and writes it nowhere, for a caller that reads the
+        mobject through the cache in this frame all the same and has that
+        read compare the arrays (verification) rather than trust a stamp."""
+        owner_id = id(mobject)
+        held = self._classes.get(owner_id)
+        classes = None
+        stamped = revision if stamp else None
+        if held is not None and held[0]() is mobject:
+            self._classes[owner_id] = (held[0], held[1] if stamped is None else stamped, held[2], self._frame)
+            classes = held[2]
+        entry = self._entries.get(owner_id)
+        if entry is None or entry.owner() is not mobject:
+            return None, classes
+        if stamped is not None:
+            entry.revision = stamped
+        if camera is not None:
+            uniforms, resolution, pixel_tolerance = camera
+            # mesh()'s read at the revision it was made at: the snapshot
+            # reused without a comparison, so the hit rests on the error
+            # bound alone.
+            at = entry.revision if revision is None else revision
+            if (self.policy != "revision" or at != mobject.revision
+                    or revision is None and mobject.needs_new_unit_normal
+                    or entry.source.contour_rule is not _DEFAULT_CONTOUR_METHOD
+                    or not _standard_mesh_getters(mobject)
+                    or entry.pixel_error(entry.source, uniforms, resolution,
+                                         projection_cache=self._projections) > pixel_tolerance):
+                return None, classes
+        entry.last_frame = self._frame
+        self._entries.move_to_end(owner_id)
+        # As mesh()'s hit: a no-op unless the budget moved since the last read.
+        while self._bytes > self.max_bytes:
+            self._remove(next(iter(self._entries)))
+        return entry, classes
+
+    def knows(self, mobject):
+        """Whether the cache holds a classification or a mesh of this very
+        mobject: a read of it would find its own entries, whatever
+        another object's say."""
+        owner_id = id(mobject)
+        held = self._classes.get(owner_id)
+        entry = self._entries.get(owner_id)
+        return (held is not None and held[0]() is mobject) or (entry is not None and entry.owner() is mobject)
+
+    def made_under(self, uniforms, resolution, pixel_tolerance):
+        """What a mesh mesh() generates now for these uniforms is made under
+        (_MeshEntry.made_under), or None where mesh() would refuse the
+        camera: an entry made under it (another object's, retired with the
+        same source) is exactly the mesh a new object is given here. For a
+        caller that adopts a retired leaf's draws (docs/phase_b4_plan.md,
+        B4.4) rather than generating them again. Never raises: a camera
+        mesh() refuses is its to refuse."""
+        try:
+            return _projection_state(uniforms, resolution, self._projections)[0], pixel_tolerance
+        except (UnsupportedPrototype, KeyError, TypeError, ValueError):
+            return None
+
+    def adopt(self, mobject, classes, entry=None, *, paint=False):
+        """Hold ``classes`` and ``entry`` (a classification and a mesh read
+        for another object whose rows were the same bytes, the mesh one
+        generated under this camera's made_under) for ``mobject``, which
+        the cache knows nothing of: what classify and mesh() would store
+        for it, with the arrays shared rather than generated again. The
+        entry is a new one, so the other object's stays where it is until
+        the sweep, as it would; the budget is kept as mesh()'s insertion
+        keeps it, a mesh it would not retain is not held (None: the caller
+        adopts none, whose draws would hold frozen arrays where mesh()'s
+        are made anew), and ``paint`` (the leaf reads a paint field) adds
+        the entry's field as paint() would build it. Returns the new
+        entry, or None without one."""
+        owner_id = id(mobject)
+        ref = weakref.ref(mobject)
+        self._classes[owner_id] = (ref, mobject.revision, classes, self._frame)
+        if entry is None:
+            return None
+        if owner_id in self._entries:
+            # mesh() replaces what a dead object left under this id.
+            self._remove(owner_id)
+        held = _MeshEntry(ref, entry.source, entry.geometry, self._frame, revision=mobject.revision,
+                          uniform_vertex_color=entry.uniform_vertex_color, made_under=entry.made_under)
+        nbytes = held.nbytes
+        if not self.max_entries or nbytes > self.max_bytes:
+            return None
+        while len(self._entries) >= self.max_entries or self._bytes + nbytes > self.max_bytes:
+            self._remove(next(iter(self._entries)))
+        self._entries[owner_id] = held
+        self._bytes += nbytes
+        if paint:
+            held.paint_field = entry.paint_field
+            self._bytes += held.paint_field.nbytes
+            while self._bytes > self.max_bytes:
+                self._remove(next(iter(self._entries)))
+        return held
+
     def finish_frame(self, before):
         for owner_id, entry in list(self._entries.items()):
             if entry.last_frame != self._frame:
@@ -665,7 +945,8 @@ class TriangleMeshCache:
         source = _MeshSource.read(mobject, border_settings,
                                   previous=entry.source if held else None,
                                   trusted=held and self.trusts(mobject)
-                                  and not mobject.needs_new_unit_normal)
+                                  and not mobject.needs_new_unit_normal,
+                                  verify=self.verify)
         if entry is not None:
             same_paint = entry.source.rgba is source.rgba or np.array_equal(entry.source.rgba, source.rgba)
             paint_refresh = same_paint or (len(source.rgba) > 0 and np.isfinite(source.rgba).all()
@@ -687,6 +968,7 @@ class TriangleMeshCache:
                     entry.source = replace(entry.source, rgba=_readonly(source.rgba))
                     entry.paint_field = None
                     entry.uniform_vertex_color = True
+                    entry.made_under = None
                     self._bytes += entry.nbytes - old_bytes
                     self._totals["paint_updates"] += 1
                 self._totals["hits"] += 1
@@ -708,10 +990,13 @@ class TriangleMeshCache:
             while (len(self._entries) >= self.max_entries
                    or self._bytes + nbytes > self.max_bytes):
                 self._remove(next(iter(self._entries)))
+            # None for a camera mesh() refuses, which only a path too short
+            # to fill (its empty mesh never projected) gets this far with.
             entry = _MeshEntry(weakref.ref(mobject), source.frozen(),
                                geometry.frozen(), self._frame, revision=mobject.revision,
                                uniform_vertex_color=bool(len(source.rgba)) and bool(
-                                   np.all(geometry.vertices["rgba"] == source.rgba[0])))
+                                   np.all(geometry.vertices["rgba"] == source.rgba[0])),
+                               made_under=self.made_under(uniforms, resolution, pixel_tolerance))
             self._entries[owner_id] = entry
             self._bytes += entry.nbytes
             geometry = entry.geometry
@@ -1018,18 +1303,28 @@ def _program_recipe(cache, sm, sources):
     return recipe
 
 
-def _program_draws(frame, sm, pending, uniforms, depth_suffix, cache):
-    """Append the fill and stroke draws of a VMobject under a program, or
-    return False when the program does not apply (rows not aligned, or the
-    path needs what a program cannot supply), so the caller draws its rows."""
+def _program_draws(into, sm, pending, uniforms, depth_suffix, ctx):
+    """Add the fill and stroke draws of a VMobject under a program to
+    ``into`` (prepare_leaf's), or return False when the program does not
+    apply (rows not aligned, or the path needs what a program cannot
+    supply), so the caller draws its rows."""
+    cache = ctx.program_cache
     sources = [_program_rows(cache, endpoint) for endpoint in pending["sources"]]
     # Counts and dtypes only: reading the rows would materialize the program.
     rows, dtype = sm.get_num_points(), sm._data.dtype
     recipe = _program_recipe(cache, sm, sources)
     if dtype.itemsize // 4 != gpu_program_geometry.ROW_FLOATS or recipe.rows != rows or not recipe.aligned:
         return False
-    if not recipe.uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
-        return False  # a paint field over blended rows is B3b's work
+    if (recipe.has_fill and not recipe.uniform_fill) or bool(np.any(uniforms.get("shading", (0, 0, 0)))):
+        # A paint field over blended rows is B3b's work. A stroke's
+        # instances never read the fill columns, so a path without fill
+        # whose invisible fill colour varies (set_color with a gradient
+        # writes both) is still drawn as its program.
+        return False
+    if recipe.has_fill and not ctx.patch_fills:
+        # Only a patch fill draws from a program's curve records; a Lyon
+        # mesh is made of the rows (docs/phase_b4_plan.md, B5.3).
+        return False
     program = {"kind": pending["kind"], "sources": sources,
                "scalars": gpu_program_geometry.wire_scalars(pending["kind"], pending["scalars"], rows)}
     frame_scale = uniforms["frame_scale"]
@@ -1045,26 +1340,292 @@ def _program_draws(frame, sm, pending, uniforms, depth_suffix, cache):
                               count=recipe.stroke_vertices(frame_scale), instances=recipe.curves,
                               program=program)
     ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
-    frame.draws.extend(draw for draw in ordered if draw is not None)
-    frame.source_bytes += sum(s.nbytes for s in sources)
+    into.draws.extend(draw for draw in ordered if draw is not None)
+    into.source_bytes += sum(s.nbytes for s in sources)
     return True
 
 
-def _note_paint_cost(frame, paint):
+def _note_paint_cost(into, paint):
     """A non-affine paint field is supported with a known interpolation and
-    cost limit; it is recorded on the frame, not rejected."""
+    cost limit; it is noted as a limitation of the frame, not rejected."""
     if paint is not None and paint[11] == 1:
-        message = ("non-affine fill paint uses inverse-distance interpolation "
-                   f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
-                   "fragment cost grows with node_count")
-        if message not in frame.limitations:
-            frame.limitations.append(message)
+        into.note("non-affine fill paint uses inverse-distance interpolation "
+                  f"(mode=1, node_count={int(paint[7])}, maximum_nodes={MAX_PAINT_SAMPLES}); "
+                  "fragment cost grows with node_count")
+
+
+@dataclass(slots=True)
+class LeafContext:
+    """One frame's preparation state, shared by every prepare_leaf call:
+    the output resolution and camera, the options prepare_triangle_frame
+    was given, and the caches the leaves read and fill this frame."""
+    resolution: tuple[int, int]
+    camera_uniforms: dict
+    tessellator: object
+    pixel_tolerance: float = 0.25
+    diagnostic: bool = False
+    fill_builder: object = None
+    fill_borders: bool = False
+    gpu_borders: bool = False
+    patch_fills: bool = False
+    patch_rows: bool = False
+    programs: bool = False
+    mesh_cache: TriangleMeshCache | None = None
+    border_cache: BorderRecipeCache | None = None
+    net_cache: NetRecipeCache | None = None
+    program_cache: dict = field(default_factory=dict)
+    # The CPU border reference's expansions, prepared for the whole frame
+    # at once: id(leaf) -> (source, vertices).
+    borders: dict = field(default_factory=dict)
+    # The mesh cache's statistics when the frame began, which the frame's
+    # are reported against.
+    stats_before: dict | None = None
+
+
+def draw_order(scene):
+    """The leaves a triangle frame draws, in the order it draws them.
+
+    Our historical native camera paints fixed-frame groups last. Phase A
+    shares that policy across native/browser output; Original 2D receives
+    the scene's historical browser z/add order without this partition.
+    Within a render group's family, z_index orders the leaves stably
+    (DECISIONS.md, "Family draw order is CE's").
+    """
+    groups = sorted(scene.render_groups, key=lambda group: group.is_fixed_in_frame())
+    families, previous_key = [], None
+    for group in groups:
+        key = getattr(group, "_triangle_batch_key", None)
+        members = group.family_members_with_points()
+        if families and key is not None and key == previous_key:
+            # The cutover partitioned before Scene batching. Preserve its
+            # family z-sort when an intervening overlay moves out of the way.
+            families[-1].extend(members)
+        else:
+            families.append(list(members))
+        previous_key = key
+    return [sm for family in families
+            for sm in sorted(family, key=lambda obj: obj.z_index)
+            if not isinstance(sm, CameraFrame)]
+
+
+def prepare_leaf(sm, uniforms, ctx, into=None):
+    """One leaf's draws, as prepare_triangle_frame's per-leaf step makes
+    them: ``uniforms`` are the camera's with the leaf's own over them, and
+    ``ctx`` is the frame's LeafContext. The draws, the source bytes they
+    read and their notes go to ``into``, which is returned: the frame
+    itself, as prepare_triangle_frame passes it, or by default a new
+    LeafDraws.
+
+    The caches are read and filled exactly as the frame's loop does, and
+    every entry the leaf reads is marked used in this frame as it is read.
+    The caches' end-of-frame sweeps drop each entry a frame did not use, so
+    a caller that skips a leaf it trusts must mark that leaf's entries used
+    in every cache (its mesh entry and classify memo, its border source and
+    reservation, its net entry), in draw order, since recency decides what
+    a budget evicts: each cache's ``keep``, as the retained frame does.
+    Otherwise the leaf's next rebuild regenerates where the frame's loop
+    would have refreshed, and its bytes differ.
+    """
+    if into is None:
+        into = LeafDraws()
+    mesh_cache, border_cache, net_cache = ctx.mesh_cache, ctx.border_cache, ctx.net_cache
+    depth_suffix = "_depth" if sm.depth_test else ""
+    pending = getattr(sm, "_program", None) if ctx.programs else None
+    if isinstance(sm, (DotCloud, Surface, ImageMobject)):
+        pipeline = ("dot" if isinstance(sm, DotCloud) else
+                    "image" if isinstance(sm, ImageMobject) else
+                    "texsurface" if isinstance(sm, TexturedSurface) else "surface")
+        if (pending is not None and pending["kind"] == "blend" and net_cache is not None
+                and pipeline in ("surface", "texsurface") and getattr(sm, "net", False) and sm.has_points()):
+            sources = [_program_rows(ctx.program_cache, endpoint) for endpoint in pending["sources"]]
+            entry = net_cache.program_entry(sm, sources,
+                                            pixels_per_unit=pixels_per_unit(ctx.camera_uniforms, ctx.resolution),
+                                            frame_scale=uniforms["frame_scale"])
+            if entry is not None:
+                patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+                into.draws.append(TriangleDraw(
+                    pipeline + depth_suffix, np.zeros(0, dtype=sm._data.dtype), uniforms,
+                    count=patches * indices_per_patch(entry.capacity), instances=1,
+                    textures=into.texture_refs(sm) if pipeline == "texsurface" else {},
+                    net_shape=(entry.nu, entry.nv, entry.channels),
+                    net_capacity=entry.capacity, net_density=entry.density,
+                    program={"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}))
+                return into
+        if (net_cache is not None and pipeline in ("surface", "texsurface")
+                and getattr(sm, "net", False) and sm.has_points()):
+            entry = net_cache.source(sm, revision=sm.revision,
+                                     pixels_per_unit=pixels_per_unit(ctx.camera_uniforms, ctx.resolution),
+                                     frame_scale=uniforms["frame_scale"])
+            patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
+            into.draws.append(TriangleDraw(
+                pipeline + depth_suffix, np.zeros(0, dtype=sm.data.dtype), uniforms,
+                count=patches * indices_per_patch(entry.capacity), instances=1,
+                textures=into.texture_refs(sm) if pipeline == "texsurface" else {},
+                net=entry.net, net_shape=(entry.nu, entry.nv, entry.channels),
+                net_capacity=entry.capacity, net_density=entry.density))
+            into.source_bytes += entry.net.nbytes
+            return into
+        data = np.ascontiguousarray(sm.get_shader_data()).copy()
+        if not len(data):
+            return into
+        into.draws.append(TriangleDraw(
+            pipeline + depth_suffix, data, uniforms,
+            count=4 if pipeline == "dot" else len(data),
+            instances=len(data) if pipeline == "dot" else 1,
+            textures=into.texture_refs(sm) if pipeline in ("image", "texsurface") else {}))
+        into.source_bytes += data.nbytes
+        return into
+    if not isinstance(sm, VMobject):
+        raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
+    if pending is not None and _program_draws(into, sm, pending, uniforms, depth_suffix, ctx):
+        return into
+    # The data read materializes any pending program this leaf is not drawn
+    # from (Mobject.data), so the rows drawn below are the CPU path's.
+    into.source_bytes += sm.data.nbytes
+    fill = None
+    border_curves = None
+    border_source, border_vertices = ctx.borders.get(id(sm), (None, None))
+    has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
+        mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
+    # Under row sources (MANIML_PATCH_SOURCE=rows) a path's rows stand for
+    # its fill's curve records and its stroke's instances, which the driver
+    # makes of them (docs/phase_b4_plan.md, B5.1): what changes in a moved
+    # path is one copy of its rows. A stroke's rows are compared every
+    # frame, as its shader data is read every frame on the records' side;
+    # a fill's alone are trusted at an unchanged revision, as its records are.
+    rows = (border_cache.rows(sm, uniforms, revision=None if has_stroke else sm.revision)
+            if ctx.patch_rows and (has_fill or has_stroke) and row_source_ready(sm) else None)
+    if has_fill and rows is not None:
+        if not rows.widths_valid:
+            raise ValueError("fill border widths must be nonnegative")
+        material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+        # The winding sign groups only an object that may share a stencil
+        # count (below), so only such an object's record carries one.
+        shareable = int(not material and opaque_alpha and not sm.depth_test)
+        record = border_cache.fill_record(sm, lambda: _refuse_nonplanar(sm.get_points()), sign=bool(shareable))
+        paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                 if material else None)
+        _note_paint_cost(into, paint)
+        capacity = border_cache.capacity(sm)
+        layout = ((rows.curves, int(has_border and rows.bordered), shareable),)
+        fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
+                            paint=paint, border_capacity=capacity, fill_objects=record, patch_layout=layout,
+                            rows=(rows.rows,))
+    elif has_fill and ctx.patch_fills:
+        material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+        curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
+        if len(curves):
+            record = border_cache.fill_record(sm, lambda: planar_coordinates(sm.get_points()))
+            paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                     if material else None)
+            _note_paint_cost(into, paint)
+            bordered = bool(has_border and np.any(curves[:, 37]))
+            capacity = border_cache.capacity(sm)
+            # Before assembly the layout's third field says whether the
+            # object may share a stencil count with its neighbours: an
+            # opaque, uniformly coloured, unshaded painter object whose
+            # count never changes sign (the record's winding sign).
+            shareable = int(not material and opaque_alpha and not sm.depth_test)
+            layout = ((len(curves), int(bordered), shareable),)
+            fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
+                                paint=paint, border_sources=curves, border_capacity=capacity,
+                                fill_objects=record, patch_layout=layout)
+    elif has_fill:
+        material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
+        if material and ctx.fill_builder is not None:
+            _limitation(ctx, into, "per-point fill paint uses endpoint interpolation; interior parity unproved")
+        if has_border:
+            if not ctx.fill_borders:
+                _limitation(ctx, into, "fill-border coverage is disabled for this triangle frame")
+            else:
+                if ctx.gpu_borders:
+                    border_curves = border_cache.source(sm, uniforms, revision=sm.revision)
+                else:
+                    border_source = ctx.borders[id(sm)][0] if id(sm) in ctx.borders else BorderSource.read(sm, uniforms)
+        if ctx.fill_builder is not None:
+            fill = ctx.fill_builder(sm, uniforms, ctx.resolution, ctx.pixel_tolerance)
+        else:
+            mesh_function = mesh_cache.mesh if mesh_cache is not None else mesh_mobject
+            vertices, indices = mesh_function(sm, ctx.tessellator, uniforms,
+                                              ctx.resolution, ctx.pixel_tolerance)
+            # Surface shading has no AA/alpha multiplier. For a uniform,
+            # opaque, unshaded painter object, every surviving fragment
+            # writes the same color, so its fill/border overlap needs no
+            # stencil ownership. Check the smaller fill mesh as well as
+            # the exact source style; border composition explicitly assigns
+            # this source RGBA to every border vertex. Source order remains
+            # unchanged when these operations coalesce, even if different
+            # objects have different colors or overlap one another.
+            opaque_painter = (not material and not sm.depth_test and opaque_alpha
+                              and (mesh_cache.uniform_vertex_color(sm) if mesh_cache is not None
+                                   else bool(np.all(vertices["rgba"] == sm.data["fill_rgba"][0]))))
+            coverage = False
+            if ctx.gpu_borders:
+                if mesh_cache is not None:
+                    mesh_cache.coverage(sm, vertices, indices, uniforms, None)
+                coverage = border_curves is not None and len(border_curves) > 0
+            elif mesh_cache is not None:
+                vertices, indices, coverage = mesh_cache.coverage(
+                    sm, vertices, indices, uniforms, border_source, border_vertices=border_vertices)
+            elif border_source is not None:
+                vertices, indices, border_count = _combine_border(
+                    vertices, indices, border_source, uniforms, sm.data["fill_rgba"][0],
+                    border_vertices=border_vertices)
+                coverage = bool(border_count)
+            if len(indices) or (border_curves is not None and len(border_curves)):
+                paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
+                          build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
+                         if material else None)
+                _note_paint_cost(into, paint)
+                fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
+                                    vertices, uniforms, indices, len(indices), paint=paint,
+                                    coverage=coverage and not opaque_painter,
+                                    border_sources=border_curves if coverage else None,
+                                    border_capacity=(border_cache.capacity(sm)
+                                                     if ctx.gpu_borders and coverage
+                                                     else MAX_VERTICES_PER_CURVE))
+    stroke = None
+    if has_stroke and rows is not None:
+        # The rows read validated the frame scale (its reservation), so the
+        # count follows from the largest curve alone.
+        stroke = TriangleDraw("stroke" + depth_suffix, _NO_ROWS, uniforms,
+                              count=_stroke_verts_at(rows.sqrt_area, uniforms["frame_scale"]),
+                              instances=rows.curves, rows=(rows.rows,))
+    elif has_stroke:
+        data = np.ascontiguousarray(sm.get_shader_data()).copy()
+        stroke = TriangleDraw("stroke" + depth_suffix, data, uniforms,
+                              count=_stroke_verts(data, uniforms["frame_scale"]),
+                              instances=len(data) // 3)
+    ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
+    into.draws.extend(draw for draw in ordered if draw is not None)
+    return into
+
+
+def _refuse_nonplanar(points):
+    """planar_coordinates' refusal alone, for a patch fill, which uses
+    nothing else of it: a path whose points share one z lies in that plane,
+    so the fit's residual is zero to rounding and the refusal never fires,
+    and only another path is fitted."""
+    points = np.asarray(points)
+    if len(points) and np.all(points[:, 2] == points[0, 2]):
+        if not np.isfinite(points).all():
+            raise UnsupportedPrototype("nonfinite source points")
+        return
+    planar_coordinates(points)
+
+
+def _limitation(ctx, into, message):
+    """What the requested appearance cannot promise: an error, or in a
+    diagnostic frame a recorded omission."""
+    if not ctx.diagnostic:
+        raise UnsupportedPrototype(message)
+    into.note(message)
 
 
 def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
                            diagnostic=False, mesh_cache=None, fill_builder=None,
                            coalesce=True, fill_borders=False, gpu_borders=False,
-                           patch_fills=False, net_surfaces=False, programs=False):
+                           patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
     """Prepare ordered operations for the shared triangle pipelines.
 
     Supports planar vector fills, existing strokes, surfaces, textured surfaces,
@@ -1078,12 +1639,19 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``patch_fills=True`` (with GPU borders) prepares no fill mesh at all: each
     filled path becomes a patch draw the driver builds from its curve records
     on the GPU (docs/phase_b1_plan.md); the CPU keeps only the planar refusal.
+    ``patch_rows=True`` (with patch fills) sends a path's rows for its fill's
+    curve records and its stroke's instances, which the driver finalizes
+    (docs/phase_b4_plan.md, B5.1); a path whose rows cannot stand for them
+    keeps its records.
     ``net_surfaces=True`` sends each surface's control net instead of its
     evaluated grid; the driver evaluates it at screen density
     (docs/phase_b2_plan.md). ``programs=True`` sends a mobject that carries
     a pending program (``mobject._program``, set by a supported animation)
-    as that program over its endpoints' rows rather than as its own rows;
-    it needs patch fills for filled paths and nets for surfaces.
+    as that program over its endpoints' rows rather than as its own rows
+    where it can: a filled path's program needs patch fills and a surface's
+    nets, and without them the leaf is drawn from its rows, so a path
+    without fill is the only program Phase A draws (docs/phase_b4_plan.md,
+    B5.3).
     An optional TriangleMeshCache retains per-path fills across calls. Its frame
     statistics count cache hits, successful regenerations, and discarded entries;
     retained_bytes includes source snapshots and mesh metadata as well as draws.
@@ -1095,6 +1663,33 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
     ``coalesce=False`` retains per-object draws for diagnostics. Coalesced arrays
     belong to the returned frame and are not included in retained cache bytes.
     """
+    frame, context = begin_triangle_frame(
+        scene, tessellator, pixel_tolerance=pixel_tolerance, diagnostic=diagnostic,
+        mesh_cache=mesh_cache, fill_builder=fill_builder, fill_borders=fill_borders,
+        gpu_borders=gpu_borders, patch_fills=patch_fills, patch_rows=patch_rows, net_surfaces=net_surfaces,
+        programs=programs)
+    records = [(sm, {**context.camera_uniforms,
+                     **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
+               for sm in draw_order(scene)]
+    if mesh_cache is not None:
+        mesh_cache.bound_errors(records, frame.resolution)
+    if fill_borders and fill_builder is None and not gpu_borders:
+        context.borders = _prepare_border_geometry(records, mesh_cache)
+    for sm, uniforms in records:
+        prepare_leaf(sm, uniforms, context, frame)
+    return finish_triangle_frame(frame, context, coalesce=coalesce)
+
+
+def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic=False,
+                         mesh_cache=None, fill_builder=None, fill_borders=False, gpu_borders=False,
+                         patch_fills=False, patch_rows=False, net_surfaces=False, programs=False):
+    """The empty frame prepare_triangle_frame fills and the LeafContext its
+    leaves share, every cache begun for the frame; the options are
+    prepare_triangle_frame's. The context's ``borders`` are the caller's to
+    fill, being prepared from the frame's records. Split from
+    prepare_triangle_frame, with finish_triangle_frame, for the retained
+    frame (docs/phase_b4_plan.md), which prepares only some of the leaves
+    between the same two ends."""
     camera = scene.camera
     if not np.isfinite(pixel_tolerance) or pixel_tolerance <= 0:
         raise ValueError("pixel_tolerance must be finite and positive")
@@ -1104,8 +1699,8 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
         raise ValueError("GPU borders require the standard fill builder and fill_borders=True")
     if patch_fills and not gpu_borders:
         raise ValueError("patch fills require gpu_borders=True")
-    if programs and not patch_fills:
-        raise ValueError("programs require patch_fills=True")
+    if patch_rows and not patch_fills:
+        raise ValueError("row sources require patch_fills=True")
     program_cache = mesh_cache.program_sources if mesh_cache is not None else {}
     camera.refresh_uniforms()
     frame = TriangleFrame(tuple(camera.draw_fbo.size), tuple(camera.background_rgba),
@@ -1120,184 +1715,29 @@ def prepare_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25,
             border_cache.max_bytes = max(0, mesh_cache.max_bytes - mesh_cache._bytes) if mesh_cache.max_entries else 0
         border_cache.begin_frame()
     camera_uniforms = {key: _jsonable(value) for key, value in camera.uniforms.items()}
+    return frame, LeafContext(
+        frame.resolution, camera_uniforms, tessellator, pixel_tolerance, diagnostic=diagnostic,
+        fill_builder=fill_builder, fill_borders=fill_borders, gpu_borders=gpu_borders,
+        patch_fills=patch_fills, patch_rows=patch_rows, programs=programs, mesh_cache=mesh_cache,
+        border_cache=border_cache, net_cache=net_cache, program_cache=program_cache,
+        stats_before=cache_before)
 
-    def limitation(message):
-        if not diagnostic:
-            raise UnsupportedPrototype(message)
-        if message not in frame.limitations:
-            frame.limitations.append(message)
 
-    # Our historical native camera paints fixed-frame groups last. Phase A
-    # shares that policy across native/browser output; Original 2D receives
-    # the scene's historical browser z/add order without this partition.
-    groups = sorted(scene.render_groups, key=lambda group: group.is_fixed_in_frame())
-    families, previous_key = [], None
-    for group in groups:
-        key = getattr(group, "_triangle_batch_key", None)
-        members = group.family_members_with_points()
-        if families and key is not None and key == previous_key:
-            # The cutover partitioned before Scene batching. Preserve its
-            # family z-sort when an intervening overlay moves out of the way.
-            families[-1].extend(members)
-        else:
-            families.append(list(members))
-        previous_key = key
-    records = [(sm, {**camera_uniforms,
-                     **{key: _jsonable(value) for key, value in sm.uniforms.items()}})
-               for family in families
-               for sm in sorted(family, key=lambda obj: obj.z_index)
-               if not isinstance(sm, CameraFrame)]
+def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combine=combine_run):
+    """End the frame begin_triangle_frame began, once its leaves are
+    prepared: the caches' end-of-frame sweeps, the draws coalesced (by
+    coalesce_draws, with its ``kind`` and ``combine``), the caches'
+    statistics on the frame. Returns the frame."""
+    mesh_cache, border_cache, net_cache = context.mesh_cache, context.border_cache, context.net_cache
     if mesh_cache is not None:
-        mesh_cache.bound_errors(records, frame.resolution)
-    borders = (_prepare_border_geometry(records, mesh_cache)
-               if fill_borders and fill_builder is None and not gpu_borders else {})
-    for sm, uniforms in records:
-        depth_suffix = "_depth" if sm.depth_test else ""
-        pending = getattr(sm, "_program", None) if programs else None
-        if isinstance(sm, (DotCloud, Surface, ImageMobject)):
-            pipeline = ("dot" if isinstance(sm, DotCloud) else
-                        "image" if isinstance(sm, ImageMobject) else
-                        "texsurface" if isinstance(sm, TexturedSurface) else "surface")
-            if (pending is not None and pending["kind"] == "blend" and net_cache is not None
-                    and pipeline in ("surface", "texsurface") and getattr(sm, "net", False) and sm.has_points()):
-                sources = [_program_rows(program_cache, endpoint) for endpoint in pending["sources"]]
-                entry = net_cache.program_entry(sm, sources,
-                                                pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
-                                                frame_scale=uniforms["frame_scale"])
-                if entry is not None:
-                    patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
-                    frame.draws.append(TriangleDraw(
-                        pipeline + depth_suffix, np.zeros(0, dtype=sm._data.dtype), uniforms,
-                        count=patches * indices_per_patch(entry.capacity), instances=1,
-                        textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
-                        net_shape=(entry.nu, entry.nv, entry.channels),
-                        net_capacity=entry.capacity, net_density=entry.density,
-                        program={"kind": pending["kind"], "sources": sources, "scalars": list(pending["scalars"])}))
-                    continue
-            if (net_cache is not None and pipeline in ("surface", "texsurface")
-                    and getattr(sm, "net", False) and sm.has_points()):
-                entry = net_cache.source(sm, revision=sm.revision,
-                                         pixels_per_unit=pixels_per_unit(camera_uniforms, frame.resolution),
-                                         frame_scale=uniforms["frame_scale"])
-                patches = ((entry.nu - 1) // 2) * ((entry.nv - 1) // 2)
-                frame.draws.append(TriangleDraw(
-                    pipeline + depth_suffix, np.zeros(0, dtype=sm.data.dtype), uniforms,
-                    count=patches * indices_per_patch(entry.capacity), instances=1,
-                    textures=_texture_refs(sm, frame.texture_data) if pipeline == "texsurface" else {},
-                    net=entry.net, net_shape=(entry.nu, entry.nv, entry.channels),
-                    net_capacity=entry.capacity, net_density=entry.density))
-                frame.source_bytes += entry.net.nbytes
-                continue
-            data = np.ascontiguousarray(sm.get_shader_data()).copy()
-            if not len(data):
-                continue
-            frame.draws.append(TriangleDraw(
-                pipeline + depth_suffix, data, uniforms,
-                count=4 if pipeline == "dot" else len(data),
-                instances=len(data) if pipeline == "dot" else 1,
-                textures=_texture_refs(sm, frame.texture_data) if pipeline in ("image", "texsurface") else {}))
-            frame.source_bytes += data.nbytes
-            continue
-        if not isinstance(sm, VMobject):
-            raise UnsupportedPrototype(f"{type(sm).__name__} awaits primitive integration")
-        if pending is not None and _program_draws(frame, sm, pending, uniforms, depth_suffix, program_cache):
-            continue
-        frame.source_bytes += sm.data.nbytes
-        fill = None
-        border_curves = None
-        border_source, border_vertices = borders.get(id(sm), (None, None))
-        has_fill, uniform_fill, has_border, opaque_alpha, has_stroke = (
-            mesh_cache.classify(sm) if mesh_cache is not None else classify_source(sm))
-        if has_fill and patch_fills:
-            material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
-            curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
-            if len(curves):
-                record = border_cache.fill_record(sm, lambda: planar_coordinates(sm.get_points()))
-                paint = (border_cache.paint(sm, lambda: build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
-                         if material else None)
-                _note_paint_cost(frame, paint)
-                bordered = bool(has_border and np.any(curves[:, 37]))
-                capacity = border_cache.capacity(sm)
-                # Before assembly the layout's third field says whether the
-                # object may share a stencil count with its neighbours: an
-                # opaque, uniformly coloured, unshaded painter object whose
-                # count never changes sign (the record's winding sign).
-                shareable = int(not material and opaque_alpha and not sm.depth_test)
-                layout = ((len(curves), int(bordered), shareable),)
-                fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
-                                    paint=paint, border_sources=curves, border_capacity=capacity,
-                                    fill_objects=record, patch_layout=layout)
-        elif has_fill:
-            material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
-            if material and fill_builder is not None:
-                limitation("per-point fill paint uses endpoint interpolation; interior parity unproved")
-            if has_border:
-                if not fill_borders:
-                    limitation("fill-border coverage is disabled for this triangle frame")
-                else:
-                    if gpu_borders:
-                        border_curves = border_cache.source(sm, uniforms, revision=sm.revision)
-                    else:
-                        border_source = borders[id(sm)][0] if id(sm) in borders else BorderSource.read(sm, uniforms)
-            if fill_builder is not None:
-                fill = fill_builder(sm, uniforms, frame.resolution, pixel_tolerance)
-            else:
-                mesh_function = mesh_cache.mesh if mesh_cache is not None else mesh_mobject
-                vertices, indices = mesh_function(sm, tessellator, uniforms,
-                                                  frame.resolution, pixel_tolerance)
-                # Surface shading has no AA/alpha multiplier. For a uniform,
-                # opaque, unshaded painter object, every surviving fragment
-                # writes the same color, so its fill/border overlap needs no
-                # stencil ownership. Check the smaller fill mesh as well as
-                # the exact source style; border composition explicitly assigns
-                # this source RGBA to every border vertex. Source order remains
-                # unchanged when these operations coalesce, even if different
-                # objects have different colors or overlap one another.
-                opaque_painter = (not material and not sm.depth_test and opaque_alpha
-                                  and (mesh_cache.uniform_vertex_color(sm) if mesh_cache is not None
-                                       else bool(np.all(vertices["rgba"] == sm.data["fill_rgba"][0]))))
-                coverage = False
-                if gpu_borders:
-                    if mesh_cache is not None:
-                        mesh_cache.coverage(sm, vertices, indices, uniforms, None)
-                    coverage = border_curves is not None and len(border_curves) > 0
-                elif mesh_cache is not None:
-                    vertices, indices, coverage = mesh_cache.coverage(
-                        sm, vertices, indices, uniforms, border_source, border_vertices=border_vertices)
-                elif border_source is not None:
-                    vertices, indices, border_count = _combine_border(
-                        vertices, indices, border_source, uniforms, sm.data["fill_rgba"][0],
-                        border_vertices=border_vertices)
-                    coverage = bool(border_count)
-                if len(indices) or (border_curves is not None and len(border_curves)):
-                    paint = ((mesh_cache.paint(sm) if mesh_cache is not None else
-                              build_paint(sm.get_points(), sm.data["fill_rgba"]).wire())
-                             if material else None)
-                    _note_paint_cost(frame, paint)
-                    fill = TriangleDraw(("paint" if material else "surface") + depth_suffix,
-                                        vertices, uniforms, indices, len(indices), paint=paint,
-                                        coverage=coverage and not opaque_painter,
-                                        border_sources=border_curves if coverage else None,
-                                        border_capacity=(border_cache.capacity(sm)
-                                                         if gpu_borders and coverage
-                                                         else MAX_VERTICES_PER_CURVE))
-        stroke = None
-        if has_stroke:
-            data = np.ascontiguousarray(sm.get_shader_data()).copy()
-            stroke = TriangleDraw("stroke" + depth_suffix, data, uniforms,
-                                  count=_stroke_verts(data, uniforms["frame_scale"]),
-                                  instances=len(data) // 3)
-        ordered = (stroke, fill) if sm.stroke_behind else (fill, stroke)
-        frame.draws.extend(draw for draw in ordered if draw is not None)
-    if mesh_cache is not None:
-        frame.mesh_cache_stats = mesh_cache.finish_frame(cache_before)
+        frame.mesh_cache_stats = mesh_cache.finish_frame(context.stats_before)
     if net_cache is not None:
         net_cache.finish_frame()
         frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
                                       retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
-        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache)
-    elif gpu_borders:
+        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache, kind=kind, combine=combine)
+    elif context.gpu_borders:
         frame.draws = [coalesce_draws([draw], border_cache=border_cache)[0] for draw in frame.draws]
     if border_cache is not None:
         if mesh_cache is not None:

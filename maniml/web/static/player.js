@@ -4,7 +4,7 @@
 "use strict";
 
 (async () => {
-  const EXPORT_FORMAT_VERSION = 7;
+  const EXPORT_FORMAT_VERSION = 8;
   const stage = document.getElementById("stage");
   const chipsEl = document.getElementById("chips");
   const playBtn = document.getElementById("playbtn");
@@ -22,7 +22,9 @@
   const meta = await (await fetch("scene.json")).json();
   document.title = meta.scene;
   document.getElementById("scene-name").textContent = meta.scene;
-  if (![1, 2, 3, 4, 5, 6, EXPORT_FORMAT_VERSION].includes(meta.format_version)) {
+  // The export writes format 7 full frames; a recording of format 8 full
+  // frames (geometry.FULL_FRAME_FORMAT_VERSION's comment) reads alike.
+  if (![1, 2, 3, 4, 5, 6, 7, EXPORT_FORMAT_VERSION].includes(meta.format_version)) {
     showPlayerError(
       "This scene export uses an incompatible format. Re-export this scene "
         + "with the current ManimLive version.",

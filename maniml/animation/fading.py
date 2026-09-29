@@ -165,8 +165,8 @@ class VFadeIn(Animation):
 
     def begin(self) -> None:
         super().begin()
-        if programs.mode() != "off":
-            programs.freshen(self.starting_mobject)
+        self.program_sources = programs.begin(self.starting_mobject)
+        programs.stamp(self)
 
     def interpolate_submobject(
         self,
@@ -182,17 +182,20 @@ class VFadeIn(Animation):
         # below composes with by materializing it first.
         mode = programs.mode()
         pending = submob._program
-        if mode != "off" and not self.mobject.has_updaters() and hasattr(submob, "paint_program"):
+        if (programs.admits(mode, self, submob, start) and not self.mobject.has_updaters()
+                and hasattr(submob, "paint_program")):
             if not submob.has_points():
                 # What set_stroke/set_fill write for a member without
                 # points, without recursing: the members with points are
                 # each their own program, and a family-wide bump would
-                # supersede the ones already recorded this frame.
-                submob._data_defaults["stroke_rgba"][:, 3] = stroke
-                submob._data_defaults["fill_rgba"][:, 3] = fill
+                # supersede the ones already recorded this frame. The
+                # member's own bump supersedes nothing.
+                defaults = submob._style_rows()
+                defaults["stroke_rgba"][:, 3] = stroke
+                defaults["fill_rgba"][:, 3] = fill
                 return
             if ((pending is None or (pending["kind"] == "paint" and pending["sources"] == (start,)))
-                    and submob.paint_program(start, stroke, fill, defer=mode == "gpu")):
+                    and submob.paint_program(start, stroke, fill, defer=programs.deferred(mode))):
                 return
         submob.set_stroke(opacity=stroke)
         submob.set_fill(opacity=fill)

@@ -29,8 +29,19 @@ _HASH = re.compile(r"[0-9a-f]{32}")
 
 
 def pack_rows(mobject):
-    """A mobject's data as an immutable float32 (rows, channels) array."""
-    data = np.ascontiguousarray(mobject.data)
+    """A mobject's data as an immutable float32 (rows, channels) array.
+
+    A VMobject's base point rows are its first point, as
+    VMobject.get_shader_data writes them on every read of the CPU path:
+    each row kernel takes them from its sources so (a blend lerps them,
+    an affine map moves them with the points), and the patch fill fans
+    from them. ``programs.freshen`` writes them at an animation's begin,
+    but a source rebuilt after it (an updater's become() on a starting
+    or target copy, which Animation.update_mobjects runs every frame)
+    holds whatever the rows it copied held."""
+    data = np.array(mobject.data)
+    if "base_normal" in (data.dtype.names or ()) and len(data):
+        data["base_normal"][0::2] = data["point"][0]
     channels = data.dtype.itemsize // 4
     rows = data.view(np.float32).reshape(len(data), channels)
     if not np.isfinite(rows).all():
@@ -49,6 +60,17 @@ def program_key(kind, source_hashes):
     """The identity of a program apart from its per-frame scalars."""
     digest = hashlib.blake2b(digest_size=16)
     digest.update(b"maniml.program.v1\0" + kind.encode() + b"\0")
+    for source in source_hashes:
+        digest.update(source.encode() + b"\0")
+    return digest.hexdigest()
+
+
+def rows_key(source_hashes):
+    """The name of the curve records a run of row sources finalizes into
+    (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1): its objects'
+    rows, in order, stand for them, so it is a digest of their hashes."""
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(b"maniml.rows.run.v1\0")
     for source in source_hashes:
         digest.update(source.encode() + b"\0")
     return digest.hexdigest()
@@ -127,6 +149,9 @@ class ProgramRecipe:
         self.aligned = bool(self.sources) and self.curves > 0 and all(
             s.shape == (rows, ROW_FLOATS) for s in self.sources)
         self.capacity = None
+        # The stroke count at the last frame scale asked for, which a play
+        # rarely moves: (frame_scale, count).
+        self._stroke_count = (None, None)
         if not self.aligned:
             return
         self.has_fill = any(bool(np.any(s[:, 12] != 0)) for s in self.sources)
@@ -146,8 +171,12 @@ class ProgramRecipe:
         """The strip vertex count a stroke draw reserves: twice the largest
         count either endpoint needs at this zoom, capped at the shader's
         64, so the bulge a blend can make between them is covered."""
-        counts = _density_counts(np.asarray([self.stroke_density], dtype="f4"), frame_scale)
-        return int(min(64, 2 * max(2, 2 * int(counts.max()))))
+        scale, count = self._stroke_count
+        if scale != frame_scale:
+            counts = _density_counts(np.asarray([self.stroke_density], dtype="f4"), frame_scale)
+            count = int(min(64, 2 * max(2, 2 * int(counts.max()))))
+            self._stroke_count = (frame_scale, count)
+        return count
 
     def border_capacity(self, frame_scale):
         """The border reservation at this zoom: twice the endpoints' need,

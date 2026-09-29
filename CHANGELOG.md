@@ -7,6 +7,127 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The **Phase B** selection sends each filled or stroked path as its rows,
+  which the page and the native driver finalize themselves, instead of
+  the curve records Python packed (docs/phase_b4_plan.md, "The flips",
+  B5.6); so does any stack that draws fills as patches
+  (`MANIML_FILL=patches`). The pixels are exactly what they were. A play
+  that moves many paths the GPU programs do not take costs Python about
+  half (EpisodeB2's 8.a: serialize 105 → 52 ms, the frame 127 → 81), other frames
+  within half a millisecond, while a jump to a pausepoint, where every path
+  arrives at once, costs the native driver 15-28% more on the course
+  episodes, until the drivers finalize a frame's rows together and stop
+  resending a path whose paint alone changed. `MANIML_PATCH_SOURCE=records`
+  sends the packed records again, for comparison. Phase A, the Default and
+  Original 2D are unchanged.
+- Surfaces drawn as Bézier nets (the **Phase B** selection, or
+  `MANIML_SURFACE=nets`) no longer cost a camera move a GPU pass per
+  surface (docs/phase_b4_plan.md, "The flips", B5.5): each driver
+  evaluates only the nets whose step count moved, all of them in one
+  dispatch, so a pan, an orbit or a small zoom evaluates nothing, and what
+  surfaces add to the serializer's work on a camera move fell to about a
+  third. Pixels are unchanged. On the three scenes the nets gate is set on,
+  every kind of frame is now within 5% of grids (camera moves
+  0.997-1.046×, where they were 1.23-1.34×), but on scenes that are mostly
+  surfaces nets still cost more to redraw (70 spheres 1.16-1.31× grids on
+  still and camera frames, 480 spheres 1.37-1.52×): a net draws its
+  capacity's triangles, each surface a draw of its own, where grids
+  coalesce. So the Default renderer, `--render`, checkpoint stills and
+  `--export` keep drawing surfaces as CPU grids.
+- `python -m benchmarks.test_point` measures what a lecture frame costs the
+  page (docs/phase_b4_plan.md, "The final test point"): Python's serialize,
+  the page's JavaScript and the GPU of the same frames, the bytes sent and
+  the pixels, per kind of frame, for the state `main` teaches from, Phase A
+  retained, the Default and Phase B. On the course episodes a still
+  pausepoint costs 0.8 ms where it cost 8-11 ms and sends nothing where it
+  sent 21-69 KB, a pausepoint whose updaters tick 1-3 ms where it cost
+  12-31, and a play frame 8-15 ms where it cost 14-23 (the GPU part as the
+  native driver draws the frame; the page's GPU pays less). It also found
+  that the Phase B selection's GPU programs drew one of PriceDiscovery's
+  fading plays wrong (rays drawn opaque in another line's colour, 2% of the
+  pixels), as measured before a fix now in progress; the Default and Phase
+  A are unaffected.
+- The viewer's **Scene renderer** selector offers **Default**, **Phase A**,
+  **Phase B** and **Original 2D** (docs/phase_b4_plan.md, "The flips").
+  Default is the default stack, whatever the generators' defaults are and
+  what `MANIML_FILL`, `MANIML_SURFACE` and `MANIML_PROGRAMS` say, and it is
+  what `--render`, checkpoint stills and `--export` draw; Phase A and
+  Phase B force the two ends whatever the defaults or the environment say,
+  so Phase A stays selectable whichever way a default goes. `MANIML_RENDERER`
+  and the viewer take the names `triangles` (the default), `phase_a`,
+  `phase_b` and `winding`. Phase A's frames are byte for byte what Phase A
+  always sent, and the serializer's golden digests pin Phase A and Phase B
+  by these forced names, so a default that flips moves none of them.
+  The three flips were then measured against their gates (2026-09-28) and
+  none passed, so the defaults are unchanged: surfaces as nets match the
+  grids' pixels but cost 23-34% more of the page's complete frame on camera
+  moves (13-33% with the GPU timed without per-pass timestamps, which
+  overstate a frame of many passes), since a zoom evaluates every net on
+  screen again, each in a pass of its own;
+  fills as patches cost 15-48% more on the course episodes' plays; and
+  strokes animated as GPU programs make those plays' Python no cheaper
+  (within half a percent either way) while costing the GPU a pass a
+  program. `python -m
+  benchmarks.flip_gates` measures the browser-side complete frame a flip is
+  judged on (Python, the page's JavaScript and the GPU of the same frames),
+  `benchmarks/episode_frames.py --camera-moves` gives a camera move GPU
+  rows of its own, and `benchmarks/play_frames.py --every-play` measures
+  every play of an episode.
+- The viewer sends the browser only what changed (docs/phase_b4_plan.md,
+  B4.8, geometry format 8). A page announces format 8 in its mode message;
+  once every tab connected has, each geometry message after the first is a
+  delta against the one before it (the batches that changed, a play's
+  program scalars, the camera when it moved), and a frame that changes
+  nothing is not sent at all. On a 531-object course diagram a tick of its
+  updaters that moves nothing sends 0 bytes where it sent 183 KB, a pan
+  456 bytes, and the page runs no JavaScript at rest; a play under the
+  Phase B stack sends about a kilobyte a frame. A tab that has not
+  announced it (and native capture, and `--export`) is sent format 7 full
+  frames, byte for byte as before; recordings stay format 7, and the
+  player reads formats 1-8. A delta the page cannot apply (a dropped
+  frame, a reconnect) asks for a full frame through the existing reset.
+- The serializer keeps each drawn object's draws across frames, by default
+  (docs/phase_b4_plan.md, tier 1; `MANIML_RETAINED_FRAME=0` turns it off): a
+  frame prepares again only the objects whose rows or own uniforms changed,
+  whose mesh, border reservation or stroke count a camera move changes,
+  whose cache entries were evicted, whose depth test or stroke-behind flag
+  was reassigned, or whose rows come through a getter of their own (a
+  subclass's `get_shader_data` or `get_points`, say), and reuses a coalesced
+  run and its encoded descriptor while its members are unchanged, across
+  camera moves too. A revision that moves over the same bytes, as most
+  updaters' do, keeps the object's draws, and an object that leaves the
+  frame is kept by its content, so the equal copy that a step between
+  checkpoints, a replay or a watcher's restart puts back reuses its mesh
+  rather than tessellating again. The message is byte-for-byte the one the
+  switch off writes for the same history, asserted frame by frame, so the
+  browser, native capture and recordings see nothing new. On a 531-object
+  course diagram a still frame serializes in ~1.7 ms instead of ~19, a frame
+  of its updaters ticking in ~3.7 ms instead of ~31, a pan or zoom in ~4 ms
+  instead of ~20, and a step between checkpoints in ~8 ms instead of ~100;
+  a play that moves most of the diagram costs what it did, and one that
+  moves all of it ~16% more (the bookkeeping on objects it cannot keep). An
+  in-place write to an object's arrays or uniforms that bumps no revision is
+  not seen until the revision moves (the switch off draws it on the next
+  frame): under `MANIML_VERIFY_LEDGER=1` the frame keeps what it keeps
+  without it and reads every kept object again, and such a write raises
+  `RenderCacheStale` naming the object and what moved (or, where the
+  retained frame judged a moved revision or a camera move harmless, naming
+  its own rule), and `MANIML_RENDER_CACHE=bytes` keeps nothing.
+  `benchmarks/episode_frames.py` measures it as the variant `retained`; the
+  other harnesses (`gpu_borders`, `paint_retention`, `generated_output`)
+  keep measuring the whole-frame path unless told otherwise.
+- The serializer's bytes are pinned. `tests/test_retained_frame.py` asserts
+  blake2b digests of every frame's message over the renderer fixtures,
+  scripted synthetic sequences (among them a real `Scene`'s render groups,
+  textures, a run split at its output cap, uniforms-only plays and GPU
+  program draws) and frames of two course episodes, for Phase A and
+  Phase B, through one persistent geometry cache per case, recorded
+  before the first increment of the retained frame (docs/phase_b4_plan.md,
+  B4.0). The render caches read the cache policy and the verify switch once
+  per frame rather than once per leaf.
+- A surface net cache no longer loses count of its bytes when a replaced
+  surface inherits a dead one's id between frames; the leak filled the
+  64 MiB budget until every live net was evicted each frame.
 - The native renderer can time its GPU passes. `MANIML_GPU_TIMESTAMPS=1`
   requests Metal/WebGPU timestamp queries when the adapter offers them and,
   after every frame, `WgpuRenderer.gpu_timings` gives each pass's span and
@@ -161,6 +282,31 @@ interfaces may still change before the first public release.
 
 ### Compatibility and reliability
 
+- A style set on a path or group that has no points yet is checkpoint
+  state: colour, opacity, stroke width, border width and `stroke_behind`
+  written there bump its revision. Only members with points were bumped,
+  so the save after such a write reused the frozen copy, and a seek back
+  and a replay drew the path grey, thin and unfilled. A `Surface`'s
+  per-revision grid cache is render state the ledger's verify mode no
+  longer names.
+- A seek back no longer hands back a live object whose references point
+  outside the restored checkpoint. A mobject kept alive off screen while
+  the one it follows (`tent.follow = body`) was restored as a newer copy
+  came back pointing at that copy's later state; the thaw now reuses a
+  live object only when its submobjects and references are the objects
+  standing in for its frozen copy's.
+- A play that moves only uniforms (`.animate.set_anti_alias_width`,
+  `set_shading`) bumps the revision every frame, as a play that moves rows
+  does.
+- `PGroup.sort_points` and `filter_out` bump the revision of every member
+  they rewrite, a member filtered down to no points included. Only the
+  group was bumped, so the save after either reused each member's old
+  frozen copy.
+- maniml parses its command line only when it is the program. The config
+  is read at import, so a host program's flags were taken as maniml's:
+  `python -m unittest discover -s tests -t .` gave every scene the suite
+  built a transparent background. `python -m maniml`, as the app and the
+  viewer launch a scene, and the `maniml` command parse the same one.
 - `Surface` accepts CE's spelling — `Surface(func, u_range, v_range,
   resolution=32, fill_color=..., fill_opacity=...)` — beside GL's (colour
   first, `uv_func` a method); CE's stroke, checkerboard and piece options

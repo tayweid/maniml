@@ -59,9 +59,10 @@ class WebExportE2E(unittest.TestCase):
 
             with open(os.path.join(out, "scene.json")) as f:
                 meta = json.load(f)
-            from maniml.web.geometry import GEOMETRY_FORMAT_VERSION
+            # The recorder never negotiates format 8: full frames, format 7.
+            from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION
 
-            self.assertEqual(meta["format_version"], GEOMETRY_FORMAT_VERSION)
+            self.assertEqual(meta["format_version"], FULL_FRAME_FORMAT_VERSION)
             self.assertEqual(meta["scene"], "ExportDemo")
             self.assertEqual(meta["segments"], 2)
             self.assertGreater(len(meta["frames"]), 10)
@@ -85,7 +86,7 @@ class WebExportE2E(unittest.TestCase):
                 offset += frame["len"]
                 header, vertex_bytes = parse_geometry_message(message)
                 self.assertEqual(
-                    header["format_version"], GEOMETRY_FORMAT_VERSION)
+                    header["format_version"], FULL_FRAME_FORMAT_VERSION)
                 self.assertEqual(header["unsupported"], [])
                 self.assertEqual(header["renderer"], "triangles")
                 self.assertEqual((header["samples"], header["supersample"]), (4, 2))
@@ -150,11 +151,15 @@ class PhaseBWebExportE2E(unittest.TestCase):
         import gzip
         import tempfile
         from unittest.mock import patch
-        from maniml.web.geometry import GEOMETRY_FORMAT_VERSION, parse_geometry_message
+        from maniml.web.geometry import FULL_FRAME_FORMAT_VERSION, parse_geometry_message
 
+        # The records packed (MANIML_PATCH_SOURCE=records, the override
+        # since B5.6 made rows the source wherever patches are drawn): the
+        # curve records' tables a seek must fill back in. The rows' export
+        # is the next test.
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
                 os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets",
-                MANIML_PROGRAMS="gpu", MANIML_BORDER_GENERATOR="gpu"):
+                MANIML_PROGRAMS="gpu", MANIML_BORDER_GENERATOR="gpu", MANIML_PATCH_SOURCE="records"):
             scene_path = os.path.join(tmp, "phase_b_scene.py")
             with open(scene_path, "w") as f:
                 f.write(PHASE_B_SCENE_SOURCE)
@@ -166,7 +171,7 @@ class PhaseBWebExportE2E(unittest.TestCase):
             out = os.path.join(tmp, "media", "PhaseBDemo_web")
             with open(os.path.join(out, "scene.json")) as f:
                 meta = json.load(f)
-            self.assertEqual((meta["format_version"], GEOMETRY_FORMAT_VERSION), (7, 7))
+            self.assertEqual((meta["format_version"], FULL_FRAME_FORMAT_VERSION), (7, 7))
             with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
                 blob = f.read()
 
@@ -223,6 +228,59 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 self.assertGreaterEqual(report["rendered"], 2 * len(meta["frames"]))
                 if mode == "export":
                     self.assertEqual(set(report["tags"]), {"objects", "border", "net", "rows"})
+
+    def test_a_row_sourced_export_records_rows_and_replays_through_the_indexer(self):
+        """B5.1 (docs/phase_b4_plan.md): with MANIML_PATCH_SOURCE=rows (the
+        default wherever patches are drawn since B5.6) the patch fills and
+        strokes name their objects' rows in the program sources' table,
+        and a seek must carry them into its frame. The switch is stated,
+        so the case holds whatever the default is."""
+        import gzip
+        import tempfile
+        from unittest.mock import patch
+        from maniml.web.geometry import parse_geometry_message
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu",
+                MANIML_BORDER_GENERATOR="gpu", MANIML_PATCH_SOURCE="rows"):
+            scene_path = os.path.join(tmp, "phase_b_scene.py")
+            with open(scene_path, "w") as f:
+                f.write(PHASE_B_SCENE_SOURCE)
+            result = subprocess.run(
+                [sys.executable, "-m", "maniml", scene_path, "PhaseBDemo", "--export"],
+                cwd=tmp, env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            out = os.path.join(tmp, "media", "PhaseBDemo_web")
+            with open(os.path.join(out, "scene.json")) as f:
+                meta = json.load(f)
+            with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
+                blob = f.read()
+            defined, seen, relied, offset = set(), set(), False, 0
+            for frame in meta["frames"]:
+                header, _ = parse_geometry_message(blob[offset:offset + frame["len"]])
+                offset += frame["len"]
+                defined.update(header["program_data"])
+                self.assertEqual(header["border_data"], {}, "no curve records travel")
+                for batch in header["batches"]:
+                    if "rows" not in batch:
+                        continue
+                    seen.add(batch["pipeline"] + (" cached" if batch.get("cached") else ""))
+                    for key in batch["rows"]:
+                        self.assertIn(key, defined)
+                        relied = relied or key not in header["program_data"]
+            self.assertLessEqual({"patch", "patch cached", "stroke", "stroke cached"}, seen)
+            self.assertTrue(relied, "a frame names rows an earlier frame defined")
+            for harness, mode in (("player_commands.cjs", "export"),
+                                  ("generated_webgpu_commands.cjs", "recordingReplay")):
+                replay = subprocess.run(
+                    ["node", os.path.join(REPO_ROOT, "tests", harness), mode, out],
+                    input="", capture_output=True, text=True, timeout=60)
+                self.assertEqual(replay.returncode, 0, f"{mode}: {replay.stdout}{replay.stderr}")
+                report = json.loads(replay.stdout)
+                self.assertEqual(report["frames"], len(meta["frames"]))
+                if mode == "export":
+                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows"})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6707 @@
+{
+ "about": "B4.8 (docs/phase_b4_plan.md): each episode's frames as format 7 full frames and as the format 8 stream, replayed alternately in five rounds in Node's own realm (README.md, 'After B4.8').",
+ "gate_8a": "rounds after the seek to 8.a (checkpoint 307): wire_bytes over every one of them; page_ms over the timed rounds, the warmup rounds left out as the classes leave them out; first_round_after_seek is the round after the seek's own (a warmup), whose format 7 message is not the seek's and so is matched batch by batch, where every later round is a byte-identical resend B4.7 redraws. rest_page_ms_max likewise leaves the warmup rounds out.",
+ "proof_delta_equals_full": {
+  "EpisodeB2": {
+   "phase_a": {
+    "frames": 414,
+    "deltas": 242,
+    "skipped": 171
+   },
+   "phase_b": {
+    "frames": 414,
+    "deltas": 245,
+    "skipped": 168
+   }
+  },
+  "PriceDiscovery": {
+   "phase_a": {
+    "frames": 400,
+    "deltas": 228,
+    "skipped": 171
+   },
+   "phase_b": {
+    "frames": 400,
+    "deltas": 231,
+    "skipped": 168
+   }
+  }
+ },
+ "episodes": {
+  "EpisodeB2": {
+   "recorded_utc": "2026-09-27T21:05:39.149439+00:00",
+   "command": [
+    "/Users/taylorjweidman/Projects/ManimLive/maniml-b4i/benchmarks/browser_frames.py",
+    "--scene",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py",
+    "EpisodeB2",
+    "--output",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B2",
+    "--samples",
+    "12",
+    "--warmups",
+    "3",
+    "--max-frames",
+    "12",
+    "--tick-updaters",
+    "--play-frames",
+    "--play-edges",
+    "--camera-moves",
+    "--deltas",
+    "--realm",
+    "main",
+    "--rounds",
+    "5"
+   ],
+   "git": {
+    "commit": "1cf482b207f40f65d614006f115e7759fb71eeb1",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "machine": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "node": "macbook.local"
+   },
+   "python": "3.13.9",
+   "numpy": "2.5.2",
+   "node": "v22.16.0",
+   "samples": 12,
+   "warmups": 3,
+   "max_frames": 12,
+   "tick_updaters": true,
+   "play_frames": true,
+   "play_edges": true,
+   "camera_moves": true,
+   "deltas": true,
+   "rounds": "Each variant's streams were replayed 5 times, taking turns within a round; js_ms and page_ms are each frame's median over the rounds, every other column the same in every round (checked).",
+   "realm": "main",
+   "source_files_sha256": {
+    "benchmarks/browser_frames.py": "00474b73b0bd46c439cd7e670328b4483d6a99ce34c16e57abdf289237faf05d",
+    "benchmarks/browser_frames.cjs": "935c47d4e8febdf66a59338ab004796e0b84c48eaf94e376f5b635016b097fa7",
+    "tests/webgpu_fake_device.cjs": "1411feeba9da4778e53c585ed60fa705428d960b857d2ba6a423cd28a337a3bc",
+    "benchmarks/episode_frames.py": "c1faf9aa72ffba8aa00e1b0131e69044586485bd49409ac1b8259f8ea4160e55",
+    "maniml/web/static/webgpu.js": "33d3a9521c08568f5a3f40a867cc78f3646fc0972bb92e628d1f1c427448af13",
+    "maniml/web/static/renderer_selection.js": "3ff49571945434ddabfd70f312b2962d769d19c21036dae1029b3a9345daa3a6",
+    "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+    "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+    "maniml/web/viewer.py": "7e3378cbd6dcf04fe59664c4bd48becd6d48e6a308241498b009f7d93739a98a",
+    "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+    "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+    "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+    "maniml/web/generated_geometry.py": "f1b90d65007f3432d2e9cf5acf57f82dbc27d7dd2c98135ed376ae6dce44f780",
+    "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+    "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+    "maniml/web/gpu_program_geometry.py": "1ffcd54c4c0e557a09ae25543d66c6b19cbb7a9cc3c9e467986aa118b63207fd",
+    "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+    "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+    "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+    "maniml/web/triangle_scene.py": "c6a825d92725629dd5b1f4e587806fabe472e361481e25b2929c64d61e539156",
+    "maniml/web/gpu_border_geometry.py": "69062f20c7f5a670da03ab3f302aec4d4a285fd7b497cccb2f49e110628921b5",
+    "maniml/web/geometry.py": "617939180c827b2a24e2d6d0e6709b7dc4ed1a86f0ab4d95a195f94f003b9cd5",
+    "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+    "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+    "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+    "maniml/web/gpu_net_geometry.py": "f53d958645ebc5b9c2db1cdebb5972b52ff49be98ad2e56c3af5ebae1b3f015c",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "717cf480044dea246723c967215dc3fbe97959cabb1af5efa12fb2a2637be93b",
+    "maniml/web/retained_frame.py": "3912bee6e3d0c4d53f72b0a7a1dbbdf9e5466799040401147c9497f3a4964b0c",
+    "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+    "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+    "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+    "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+    "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+    "maniml/web/static/wgsl/net_compute.wgsl": "965a1f55cc589bfd4cfe11d9534dd7caa9ee645a644ec8c77ca6262412c5b30f",
+    "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+    "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+    "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+    "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+    "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+    "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+    "/Users/taylorjweidman/Projects/econ-0100/Blocks/B2_Supply/03_Code.py": "7e105159fedfb428b50a4994e4152fa5642f7700cb3a134c4f1f29a861ab89ff"
+   },
+   "source_files_unchanged_during_run": true,
+   "stream_format": "With --deltas each variant's frames are also recorded as the format 8 stream (docs/phase_b4_plan.md, B4.8) of a second GeometryCache whose receivers negotiated it, each frame serialized right after the format 7 one from the scene as that serialization left it (the format 7 stream is byte-identical to one recorded alone): the variant named with '_delta', a full frame and then a delta per message, or no message where the frame changed nothing (wire_bytes 0, js_ms and page_ms 0, every count 0: the page runs nothing, and batches is the frame on screen). A delta row carries splices, spliced_batches and scalars_ops. The delta stream's serialize_ms follows the format 7 serialization of the same frame and is not Python's cost of the stream alone; episode_frames.py owns the Python measurement.",
+   "class_scope": "pausepoint: the still redraw rounds after the warmups; ticked: the same rounds on a frame whose updaters tick before each; play: the recorded middle frames of the play into the pausepoint; cold: the first message after each restore, delta-encoded against the previous message of the stream as a seek is against the frame on screen, so it uploads what the cache no longer held (cached_batches and bytes_uploaded say how much; only the stream's first message, or a frame whose objects all changed, uploads every batch), its own class and excluded from the others. Warmup rounds are excluded from every class but cold. play_entry: a play's first frame, following the checkpoint before it (one row per play); landing: the destination after the play's last frame (one row per play). The source still and the last frame they follow (play_source, play_last) are rows of no class. camera: with --camera-moves, after each frame's pausepoint rounds, a pan of 5% of the frame's width, a 2% zoom out and the camera restored as it was (move pan, zoom, back), one message each.",
+   "measured_checkpoints": [
+    12,
+    44,
+    76,
+    103,
+    120,
+    140,
+    157,
+    177,
+    194,
+    258,
+    277,
+    307
+   ],
+   "streams": {
+    "phase_a": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B2/phase_a",
+      "frames": 414,
+      "sent": 414,
+      "bytes": 129103689,
+      "gzip_bytes": 23044162,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.257125000000002
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.024541999999996733,
+        "min": 0.007540999999974929,
+        "n": 120
+       },
+       "page_ms": {
+        "p50": 0.025937499999997726,
+        "min": 0.008832999999981439,
+        "n": 120
+       },
+       "serialize_ms": {
+        "p50": 0.697874987963587,
+        "min": 0.3276659408584237,
+        "n": 120
+       },
+       "wire_bytes": {
+        "p50": 70882.0,
+        "min": 23633.0,
+        "n": 120
+       },
+       "batches": {
+        "p50": 165.5,
+        "min": 45.0,
+        "n": 120
+       },
+       "cached_batches": {
+        "p50": 165.5,
+        "min": 45.0,
+        "n": 120
+       },
+       "draws": {
+        "p50": 166.5,
+        "min": 46.0,
+        "n": 120
+       },
+       "set_pipeline_calls": {
+        "p50": 137.5,
+        "min": 14.0,
+        "n": 120
+       },
+       "pipeline_switches": {
+        "p50": 137.5,
+        "min": 14.0,
+        "n": 120
+       },
+       "set_bind_group_calls": {
+        "p50": 137.5,
+        "min": 14.0,
+        "n": 120
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 120
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.04539599999998245,
+        "min": 0.02375000000000682,
+        "n": 24
+       },
+       "page_ms": {
+        "p50": 0.04841649999998765,
+        "min": 0.025166999999981954,
+        "n": 24
+       },
+       "serialize_ms": {
+        "p50": 2.6394794695079327,
+        "min": 1.03704200591892,
+        "n": 24
+       },
+       "wire_bytes": {
+        "p50": 132157.5,
+        "min": 81081.0,
+        "n": 24
+       },
+       "batches": {
+        "p50": 313.5,
+        "min": 183.0,
+        "n": 24
+       },
+       "cached_batches": {
+        "p50": 313.5,
+        "min": 183.0,
+        "n": 24
+       },
+       "draws": {
+        "p50": 314.5,
+        "min": 184.0,
+        "n": 24
+       },
+       "set_pipeline_calls": {
+        "p50": 271.0,
+        "min": 134.0,
+        "n": 24
+       },
+       "pipeline_switches": {
+        "p50": 271.0,
+        "min": 134.0,
+        "n": 24
+       },
+       "set_bind_group_calls": {
+        "p50": 271.0,
+        "min": 134.0,
+        "n": 24
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 24
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.8962914999999612,
+        "min": 0.1416250000000332,
+        "n": 114
+       },
+       "page_ms": {
+        "p50": 0.8984375,
+        "min": 0.14370800000000372,
+        "n": 114
+       },
+       "serialize_ms": {
+        "p50": 7.352542015723884,
+        "min": 0.9751659817993641,
+        "n": 114
+       },
+       "wire_bytes": {
+        "p50": 416648.0,
+        "min": 56956.0,
+        "n": 114
+       },
+       "batches": {
+        "p50": 214.0,
+        "min": 37.0,
+        "n": 114
+       },
+       "cached_batches": {
+        "p50": 48.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "draws": {
+        "p50": 215.0,
+        "min": 38.0,
+        "n": 114
+       },
+       "set_pipeline_calls": {
+        "p50": 181.0,
+        "min": 15.0,
+        "n": 114
+       },
+       "pipeline_switches": {
+        "p50": 181.0,
+        "min": 15.0,
+        "n": 114
+       },
+       "set_bind_group_calls": {
+        "p50": 211.0,
+        "min": 16.0,
+        "n": 114
+       },
+       "bind_groups_created": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_created": {
+        "p50": 99.0,
+        "min": 1.0,
+        "n": 114
+       },
+       "buffers_destroyed": {
+        "p50": 99.0,
+        "min": 9.0,
+        "n": 114
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_dispatches": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_passes": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 114
+       },
+       "bytes_uploaded": {
+        "p50": 375604.0,
+        "min": 12444.0,
+        "n": 114
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 1.1565204999999992,
+        "min": 0.2891660000000229,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.158708500000003,
+        "min": 0.291499999999985,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 35.343958472367376,
+        "min": 6.389208021573722,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 665196.5,
+        "min": 156067.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 30.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 185.0,
+        "min": 46.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 160.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 160.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 171.5,
+        "min": 32.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 37.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 259.0,
+        "min": 29.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 92.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 17.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 20.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 20.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 1108802.0,
+        "min": 105596.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 0.6626035000000172,
+        "min": 0.2057500000000232,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.6648960000000272,
+        "min": 0.20716700000002675,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 13.730374572332948,
+        "min": 4.434832953847945,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 320375.0,
+        "min": 115040.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 198.5,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 41.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 199.5,
+        "min": 46.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 162.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 162.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 185.0,
+        "min": 32.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 20.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 153.0,
+        "min": 20.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 23.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 9.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 13.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 13.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 297112.0,
+        "min": 75800.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.29916650000001255,
+        "min": 0.14762499999994816,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.30227100000001883,
+        "min": 0.1490000000000009,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 8.988958434201777,
+        "min": 1.8954589031636715,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 125632.5,
+        "min": 61812.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 178.5,
+        "min": 36.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 185.0,
+        "min": 46.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 147.0,
+        "min": 22.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 147.0,
+        "min": 22.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 152.0,
+        "min": 28.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 19.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 19.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 90580.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.2862915000000328,
+        "min": 0.0917919999999981,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.28839599999999166,
+        "min": 0.09299999999996089,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 2.030624949838966,
+        "min": 0.7748749339953065,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 80561.5,
+        "min": 23633.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 185.0,
+        "min": 46.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 175.0,
+        "min": 14.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 175.0,
+        "min": 14.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 205.5,
+        "min": 14.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 40.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 40.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 384.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 414,
+     "frames": 414,
+     "play_bound_ms": 2.0,
+     "play_frames_over_bound": [
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 3,
+       "page_ms": 4.859125000000006,
+       "js_ms": 4.853499999999997,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 4,
+       "page_ms": 4.854458000000022,
+       "js_ms": 4.850500000000011,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 5,
+       "page_ms": 6.056375000000003,
+       "js_ms": 6.052249999999958,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 6,
+       "page_ms": 4.392083000000014,
+       "js_ms": 4.3845830000000205,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 7,
+       "page_ms": 4.4933750000000146,
+       "js_ms": 4.488749999999982,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 8,
+       "page_ms": 4.41983300000004,
+       "js_ms": 4.417041999999981,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 9,
+       "page_ms": 4.452666000000022,
+       "js_ms": 4.449374999999975,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 10,
+       "page_ms": 4.494708000000003,
+       "js_ms": 4.489790999999968,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 11,
+       "page_ms": 4.520250000000033,
+       "js_ms": 4.516333999999972,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 12,
+       "page_ms": 5.518500000000017,
+       "js_ms": 5.51437500000003,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 13,
+       "page_ms": 4.684374999999989,
+       "js_ms": 4.679458000000011,
+       "wire_bytes": 2524049,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 14,
+       "page_ms": 5.148124999999993,
+       "js_ms": 5.140833999999984,
+       "wire_bytes": 2480250,
+       "buffers_created": 946,
+       "bytes_uploaded": 3968932,
+       "batches": 469,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 0,
+       "page_ms": 5.19983400000001,
+       "js_ms": 5.195959000000016,
+       "wire_bytes": 2524049,
+       "buffers_created": 1606,
+       "bytes_uploaded": 3539908,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "landing",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": null,
+       "page_ms": 2.4361659999999574,
+       "js_ms": 2.431500000000028,
+       "wire_bytes": 1371704,
+       "buffers_created": 398,
+       "bytes_uploaded": 2573232,
+       "batches": 495,
+       "cached_batches": 337
+      }
+     ],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.8984375,
+       "max": 6.056375000000003
+      },
+      "play_entry": {
+       "p50": 0.6648960000000272,
+       "max": 5.19983400000001
+      },
+      "landing": {
+       "p50": 0.30227100000001883,
+       "max": 2.4361659999999574
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 222396,
+       "p50": 80545.5
+      },
+      "zoom": {
+       "max": 222457,
+       "p50": 80606.5
+      },
+      "back": {
+       "max": 222367,
+       "p50": 80516.5
+      }
+     },
+     "rest_wire_bytes_max": 222367,
+     "rest_page_ms_max": 0.2286670000000015,
+     "gate_8a": {
+      "ticked_rounds": 14,
+      "wire_bytes": [
+       183234
+      ],
+      "timed_rounds": 12,
+      "page_ms_p50": 0.0612704999999778,
+      "page_ms_max": 0.06370899999996027,
+      "first_round_after_seek": {
+       "wire_bytes": 183234,
+       "page_ms": 0.5774999999999864
+      },
+      "camera": {
+       "pan": {
+        "wire_bytes": 183263,
+        "page_ms": 0.5888749999999732
+       },
+       "zoom": {
+        "wire_bytes": 183324,
+        "page_ms": 0.5747499999999945
+       },
+       "back": {
+        "wire_bytes": 183234,
+        "page_ms": 0.5745829999999614
+       }
+      }
+     }
+    },
+    "phase_a_delta": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B2/phase_a_delta",
+      "frames": 414,
+      "sent": 243,
+      "bytes": 99289203,
+      "gzip_bytes": 20633656,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.1969590000000068
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "serialize_ms": {
+        "p50": 0.7386454963125288,
+        "min": 0.3415830433368683,
+        "n": 120
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "batches": {
+        "p50": 165.5,
+        "min": 45.0,
+        "n": 120
+       },
+       "cached_batches": {
+        "p50": 30.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "serialize_ms": {
+        "p50": 2.2074159933254123,
+        "min": 0.9863750310614705,
+        "n": 24
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "batches": {
+        "p50": 313.5,
+        "min": 183.0,
+        "n": 24
+       },
+       "cached_batches": {
+        "p50": 61.5,
+        "min": 0.0,
+        "n": 24
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.7502704999999992,
+        "min": 0.06704100000001745,
+        "n": 114
+       },
+       "page_ms": {
+        "p50": 0.7523120000000034,
+        "min": 0.06845900000001848,
+        "n": 114
+       },
+       "serialize_ms": {
+        "p50": 7.513583404943347,
+        "min": 0.9746249997988343,
+        "n": 114
+       },
+       "wire_bytes": {
+        "p50": 293225.0,
+        "min": 13370.0,
+        "n": 114
+       },
+       "batches": {
+        "p50": 214.0,
+        "min": 37.0,
+        "n": 114
+       },
+       "cached_batches": {
+        "p50": 48.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "draws": {
+        "p50": 215.0,
+        "min": 38.0,
+        "n": 114
+       },
+       "set_pipeline_calls": {
+        "p50": 181.0,
+        "min": 15.0,
+        "n": 114
+       },
+       "pipeline_switches": {
+        "p50": 181.0,
+        "min": 15.0,
+        "n": 114
+       },
+       "set_bind_group_calls": {
+        "p50": 211.0,
+        "min": 16.0,
+        "n": 114
+       },
+       "bind_groups_created": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_created": {
+        "p50": 99.0,
+        "min": 1.0,
+        "n": 114
+       },
+       "buffers_destroyed": {
+        "p50": 99.0,
+        "min": 9.0,
+        "n": 114
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_dispatches": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_passes": {
+        "p50": 10.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 114
+       },
+       "bytes_uploaded": {
+        "p50": 375604.0,
+        "min": 12444.0,
+        "n": 114
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 1.2720000000000056,
+        "min": 0.2785829999999976,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.2735835000000009,
+        "min": 0.2798750000000041,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 33.974041405599564,
+        "min": 6.029459065757692,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 654042.5,
+        "min": 144915.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 30.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 185.0,
+        "min": 46.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 160.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 160.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 171.5,
+        "min": 32.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 37.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 259.0,
+        "min": 29.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 92.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 17.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 20.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 20.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 1108802.0,
+        "min": 105596.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 0.5002915000000314,
+        "min": 0.10991699999999582,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.5028749999999889,
+        "min": 0.11308300000001736,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 14.24389547901228,
+        "min": 4.499875009059906,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 253148.5,
+        "min": 48480.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 198.5,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 41.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 199.5,
+        "min": 46.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 162.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 162.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 185.0,
+        "min": 32.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 20.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 153.0,
+        "min": 20.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 23.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 9.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 13.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 13.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 297112.0,
+        "min": 75800.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.11277050000003896,
+        "min": 0.0,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.11520799999999554,
+        "min": 0.0,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 8.330458484124392,
+        "min": 1.8078749999403954,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 61578.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 178.5,
+        "min": 25.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 57.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 27.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 27.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 35.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 19.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 19.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 90580.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.09125000000000227,
+        "min": 0.03608299999999076,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.09322949999999253,
+        "min": 0.03758400000000961,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.9819579902105033,
+        "min": 0.8300000336021185,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 454.0,
+        "min": 423.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 184.0,
+        "min": 45.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 185.0,
+        "min": 46.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 175.0,
+        "min": 14.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 175.0,
+        "min": 14.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 205.5,
+        "min": 14.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 40.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 40.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 384.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 243,
+     "frames": 414,
+     "play_bound_ms": 2.0,
+     "play_frames_over_bound": [
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 3,
+       "page_ms": 5.175791000000004,
+       "js_ms": 5.167957999999999,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 4,
+       "page_ms": 4.6576670000000036,
+       "js_ms": 4.652999999999963,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 5,
+       "page_ms": 4.828042000000039,
+       "js_ms": 4.824457999999993,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 6,
+       "page_ms": 4.765457999999967,
+       "js_ms": 4.760249999999985,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 7,
+       "page_ms": 4.791958000000022,
+       "js_ms": 4.786624999999958,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 8,
+       "page_ms": 4.6139160000000174,
+       "js_ms": 4.610666999999978,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 9,
+       "page_ms": 4.674832999999978,
+       "js_ms": 4.670082999999977,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 10,
+       "page_ms": 4.606207999999981,
+       "js_ms": 4.602666999999997,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 11,
+       "page_ms": 4.617166999999995,
+       "js_ms": 4.610625000000027,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 12,
+       "page_ms": 4.424249999999972,
+       "js_ms": 4.420957999999985,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 13,
+       "page_ms": 4.398374999999987,
+       "js_ms": 4.393000000000029,
+       "wire_bytes": 2523533,
+       "buffers_created": 1148,
+       "bytes_uploaded": 3532580,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 14,
+       "page_ms": 4.090709000000004,
+       "js_ms": 4.085667000000001,
+       "wire_bytes": 2479734,
+       "buffers_created": 946,
+       "bytes_uploaded": 3968932,
+       "batches": 469,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 0,
+       "page_ms": 4.570625000000007,
+       "js_ms": 4.567250000000001,
+       "wire_bytes": 2523533,
+       "buffers_created": 1606,
+       "bytes_uploaded": 3539908,
+       "batches": 537,
+       "cached_batches": 0
+      },
+      {
+       "phase": "landing",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": null,
+       "page_ms": 2.5658339999999953,
+       "js_ms": 2.560625000000016,
+       "wire_bytes": 1371188,
+       "buffers_created": 398,
+       "bytes_uploaded": 2573232,
+       "batches": 495,
+       "cached_batches": 337
+      }
+     ],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.7523120000000034,
+       "max": 5.175791000000004
+      },
+      "play_entry": {
+       "p50": 0.5028749999999889,
+       "max": 4.570625000000007
+      },
+      "landing": {
+       "p50": 0.11520799999999554,
+       "max": 2.5658339999999953
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 456,
+       "p50": 454.0
+      },
+      "zoom": {
+       "max": 517,
+       "p50": 515.0
+      },
+      "back": {
+       "max": 427,
+       "p50": 425.0
+      }
+     },
+     "rest_wire_bytes_max": 0,
+     "rest_page_ms_max": 0.0,
+     "gate_8a": {
+      "ticked_rounds": 14,
+      "wire_bytes": [
+       0
+      ],
+      "timed_rounds": 12,
+      "page_ms_p50": 0.0,
+      "page_ms_max": 0.0,
+      "first_round_after_seek": {
+       "wire_bytes": 0,
+       "page_ms": 0.0
+      },
+      "camera": {
+       "pan": {
+        "wire_bytes": 456,
+        "page_ms": 0.1754160000000411
+       },
+       "zoom": {
+        "wire_bytes": 517,
+        "page_ms": 0.09766700000000128
+       },
+       "back": {
+        "wire_bytes": 427,
+        "page_ms": 0.10337499999997135
+       }
+      }
+     }
+    },
+    "phase_b": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B2/phase_b",
+      "frames": 414,
+      "sent": 414,
+      "bytes": 104974379,
+      "gzip_bytes": 13534503,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.2227919999999983
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.030395999999996093,
+        "min": 0.004874999999998408,
+        "n": 120
+       },
+       "page_ms": {
+        "p50": 0.03297900000001164,
+        "min": 0.0061249999999972715,
+        "n": 120
+       },
+       "serialize_ms": {
+        "p50": 0.7085000397637486,
+        "min": 0.292791984975338,
+        "n": 120
+       },
+       "wire_bytes": {
+        "p50": 65337.0,
+        "min": 4592.0,
+        "n": 120
+       },
+       "batches": {
+        "p50": 133.0,
+        "min": 8.0,
+        "n": 120
+       },
+       "cached_batches": {
+        "p50": 133.0,
+        "min": 8.0,
+        "n": 120
+       },
+       "draws": {
+        "p50": 305.0,
+        "min": 53.0,
+        "n": 120
+       },
+       "set_pipeline_calls": {
+        "p50": 305.0,
+        "min": 53.0,
+        "n": 120
+       },
+       "pipeline_switches": {
+        "p50": 305.0,
+        "min": 53.0,
+        "n": 120
+       },
+       "set_bind_group_calls": {
+        "p50": 233.0,
+        "min": 46.0,
+        "n": 120
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 120
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.11706250000000296,
+        "min": 0.07366700000000037,
+        "n": 24
+       },
+       "page_ms": {
+        "p50": 0.11929150000001698,
+        "min": 0.07529199999999037,
+        "n": 24
+       },
+       "serialize_ms": {
+        "p50": 3.457562532275915,
+        "min": 1.1854999465867877,
+        "n": 24
+       },
+       "wire_bytes": {
+        "p50": 288886.5,
+        "min": 133653.0,
+        "n": 24
+       },
+       "batches": {
+        "p50": 592.5,
+        "min": 274.0,
+        "n": 24
+       },
+       "cached_batches": {
+        "p50": 592.5,
+        "min": 274.0,
+        "n": 24
+       },
+       "draws": {
+        "p50": 1217.0,
+        "min": 593.0,
+        "n": 24
+       },
+       "set_pipeline_calls": {
+        "p50": 1217.0,
+        "min": 593.0,
+        "n": 24
+       },
+       "pipeline_switches": {
+        "p50": 1217.0,
+        "min": 593.0,
+        "n": 24
+       },
+       "set_bind_group_calls": {
+        "p50": 916.5,
+        "min": 450.0,
+        "n": 24
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 24
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.6475415000000027,
+        "min": 0.03904099999999744,
+        "n": 114
+       },
+       "page_ms": {
+        "p50": 0.6507284999999996,
+        "min": 0.04045800000000099,
+        "n": 114
+       },
+       "serialize_ms": {
+        "p50": 2.4788330192677677,
+        "min": 0.5700000328943133,
+        "n": 114
+       },
+       "wire_bytes": {
+        "p50": 136655.0,
+        "min": 8371.0,
+        "n": 114
+       },
+       "batches": {
+        "p50": 278.0,
+        "min": 14.0,
+        "n": 114
+       },
+       "cached_batches": {
+        "p50": 199.0,
+        "min": 14.0,
+        "n": 114
+       },
+       "draws": {
+        "p50": 613.0,
+        "min": 81.0,
+        "n": 114
+       },
+       "set_pipeline_calls": {
+        "p50": 813.0,
+        "min": 90.0,
+        "n": 114
+       },
+       "pipeline_switches": {
+        "p50": 813.0,
+        "min": 90.0,
+        "n": 114
+       },
+       "set_bind_group_calls": {
+        "p50": 902.0,
+        "min": 88.0,
+        "n": 114
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "uniform_writes": {
+        "p50": 29.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_dispatches": {
+        "p50": 99.0,
+        "min": 9.0,
+        "n": 114
+       },
+       "compute_passes": {
+        "p50": 66.0,
+        "min": 6.0,
+        "n": 114
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 114
+       },
+       "bytes_uploaded": {
+        "p50": 528.0,
+        "min": 48.0,
+        "n": 114
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 2.525208500000005,
+        "min": 0.9480420000000152,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 2.5286664999999857,
+        "min": 0.9495840000000157,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 28.917042014654726,
+        "min": 6.922874948941171,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 919922.0,
+        "min": 399287.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 1.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 418.0,
+        "min": 57.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 418.0,
+        "min": 57.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 409.0,
+        "min": 54.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 217.5,
+        "min": 9.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 429.0,
+        "min": 21.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 859.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 71.5,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 73.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 73.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 1826460.0,
+        "min": 1003196.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 1.4394169999999917,
+        "min": 0.2603749999999536,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.4425624999999513,
+        "min": 0.2631250000000591,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 9.346958016976714,
+        "min": 2.2820840822532773,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 457545.0,
+        "min": 114123.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 194.0,
+        "min": 14.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 6.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 492.0,
+        "min": 81.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 712.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 712.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 792.0,
+        "min": 90.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 218.5,
+        "min": 23.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 375.5,
+        "min": 41.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 59.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 93.5,
+        "min": 10.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 62.5,
+        "min": 7.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 792628.0,
+        "min": 118160.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.9173335000000407,
+        "min": 0.18058299999995597,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.9201669999999922,
+        "min": 0.1824579999999969,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 4.348082991782576,
+        "min": 1.4370409771800041,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 322208.5,
+        "min": 111267.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 418.0,
+        "min": 55.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 418.0,
+        "min": 55.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 409.0,
+        "min": 50.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 7.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 15.5,
+        "min": 1.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 373.5,
+        "min": 47.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 1.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 736840.0,
+        "min": 816.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.3014790000000147,
+        "min": 0.03066599999999653,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.3039164999999855,
+        "min": 0.03245899999998869,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.2778330128639936,
+        "min": 0.4296660190448165,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 71703.0,
+        "min": 4592.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 408.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 408.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 399.0,
+        "min": 46.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 384.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 414,
+     "frames": 414,
+     "play_bound_ms": 4.0,
+     "play_frames_over_bound": [
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 7,
+       "page_ms": 4.913125000000036,
+       "js_ms": 4.907541999999978,
+       "wire_bytes": 1095400,
+       "buffers_created": 1410,
+       "bytes_uploaded": 935596,
+       "batches": 895,
+       "cached_batches": 194
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 8,
+       "page_ms": 4.425000000000011,
+       "js_ms": 4.418334000000016,
+       "wire_bytes": 1093300,
+       "buffers_created": 1400,
+       "bytes_uploaded": 933564,
+       "batches": 895,
+       "cached_batches": 196
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 9,
+       "page_ms": 4.430916000000025,
+       "js_ms": 4.424583000000041,
+       "wire_bytes": 1091198,
+       "buffers_created": 1396,
+       "bytes_uploaded": 931628,
+       "batches": 895,
+       "cached_batches": 198
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 10,
+       "page_ms": 5.695124999999962,
+       "js_ms": 5.684374999999989,
+       "wire_bytes": 1094296,
+       "buffers_created": 1410,
+       "bytes_uploaded": 932556,
+       "batches": 899,
+       "cached_batches": 198
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 11,
+       "page_ms": 4.466666000000032,
+       "js_ms": 4.461041000000023,
+       "wire_bytes": 1092196,
+       "buffers_created": 1400,
+       "bytes_uploaded": 930524,
+       "batches": 899,
+       "cached_batches": 200
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 12,
+       "page_ms": 4.3619580000000155,
+       "js_ms": 4.357582999999977,
+       "wire_bytes": 1093194,
+       "buffers_created": 1410,
+       "bytes_uploaded": 929516,
+       "batches": 903,
+       "cached_batches": 202
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 13,
+       "page_ms": 5.339165999999977,
+       "js_ms": 5.330041999999992,
+       "wire_bytes": 1091094,
+       "buffers_created": 1400,
+       "bytes_uploaded": 927484,
+       "batches": 903,
+       "cached_batches": 204
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 14,
+       "page_ms": 4.203958,
+       "js_ms": 4.198167000000012,
+       "wire_bytes": 1092090,
+       "buffers_created": 1410,
+       "bytes_uploaded": 926476,
+       "batches": 907,
+       "cached_batches": 206
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 15,
+       "page_ms": 5.469041000000004,
+       "js_ms": 5.465041999999983,
+       "wire_bytes": 1092090,
+       "buffers_created": 1404,
+       "bytes_uploaded": 926380,
+       "batches": 907,
+       "cached_batches": 206
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 16,
+       "page_ms": 4.166583000000003,
+       "js_ms": 4.1606669999999895,
+       "wire_bytes": 1089990,
+       "buffers_created": 1400,
+       "bytes_uploaded": 924444,
+       "batches": 907,
+       "cached_batches": 208
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 17,
+       "page_ms": 4.198874999999987,
+       "js_ms": 4.1955409999999915,
+       "wire_bytes": 1087890,
+       "buffers_created": 1396,
+       "bytes_uploaded": 922508,
+       "batches": 907,
+       "cached_batches": 210
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 18,
+       "page_ms": 5.2507080000000315,
+       "js_ms": 5.246499999999969,
+       "wire_bytes": 1090988,
+       "buffers_created": 1410,
+       "bytes_uploaded": 923436,
+       "batches": 911,
+       "cached_batches": 210
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 0,
+       "page_ms": 12.799833000000035,
+       "js_ms": 12.796375000000012,
+       "wire_bytes": 2909520,
+       "buffers_created": 5497,
+       "bytes_uploaded": 5227680,
+       "batches": 692,
+       "cached_batches": 0
+      },
+      {
+       "phase": "landing",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": null,
+       "page_ms": 5.433292000000051,
+       "js_ms": 5.428999999999974,
+       "wire_bytes": 1870195,
+       "buffers_created": 1336,
+       "bytes_uploaded": 4019900,
+       "batches": 463,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 0,
+       "page_ms": 4.525499999999965,
+       "js_ms": 4.516707999999994,
+       "wire_bytes": 1091304,
+       "buffers_created": 1392,
+       "bytes_uploaded": 935772,
+       "batches": 887,
+       "cached_batches": 192
+      }
+     ],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.6507284999999996,
+       "max": 5.695124999999962
+      },
+      "play_entry": {
+       "p50": 1.4425624999999513,
+       "max": 12.799833000000035
+      },
+      "landing": {
+       "p50": 0.9201669999999922,
+       "max": 5.433292000000051
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 444149,
+       "p50": 71687.0
+      },
+      "zoom": {
+       "max": 444210,
+       "p50": 71748.0
+      },
+      "back": {
+       "max": 444120,
+       "p50": 71658.0
+      }
+     },
+     "rest_wire_bytes_max": 444120,
+     "rest_page_ms_max": 0.2305419999999856,
+     "gate_8a": {
+      "ticked_rounds": 14,
+      "wire_bytes": [
+       444120
+      ],
+      "timed_rounds": 12,
+      "page_ms_p50": 0.15270849999996017,
+      "page_ms_max": 0.18479200000001583,
+      "first_round_after_seek": {
+       "wire_bytes": 444120,
+       "page_ms": 1.4136249999999677
+      },
+      "camera": {
+       "pan": {
+        "wire_bytes": 444149,
+        "page_ms": 1.4350000000000023
+       },
+       "zoom": {
+        "wire_bytes": 444210,
+        "page_ms": 1.474207999999976
+       },
+       "back": {
+        "wire_bytes": 444120,
+        "page_ms": 1.4310839999999985
+       }
+      }
+     }
+    },
+    "phase_b_delta": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B2/phase_b_delta",
+      "frames": 414,
+      "sent": 246,
+      "bytes": 58103329,
+      "gzip_bytes": 8666906,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.4260419999999954
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "serialize_ms": {
+        "p50": 0.7022710633464158,
+        "min": 0.29770901892334223,
+        "n": 120
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "batches": {
+        "p50": 133.0,
+        "min": 8.0,
+        "n": 120
+       },
+       "cached_batches": {
+        "p50": 1.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 120
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "serialize_ms": {
+        "p50": 2.951853966806084,
+        "min": 1.174667035229504,
+        "n": 24
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "batches": {
+        "p50": 592.5,
+        "min": 274.0,
+        "n": 24
+       },
+       "cached_batches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 24
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.2865834999999919,
+        "min": 0.017042000000003554,
+        "n": 114
+       },
+       "page_ms": {
+        "p50": 0.28912500000001273,
+        "min": 0.01854099999999903,
+        "n": 114
+       },
+       "serialize_ms": {
+        "p50": 2.7207914390601218,
+        "min": 0.6005000323057175,
+        "n": 114
+       },
+       "wire_bytes": {
+        "p50": 1073.0,
+        "min": 169.0,
+        "n": 114
+       },
+       "batches": {
+        "p50": 278.0,
+        "min": 14.0,
+        "n": 114
+       },
+       "cached_batches": {
+        "p50": 199.0,
+        "min": 14.0,
+        "n": 114
+       },
+       "draws": {
+        "p50": 613.0,
+        "min": 81.0,
+        "n": 114
+       },
+       "set_pipeline_calls": {
+        "p50": 813.0,
+        "min": 90.0,
+        "n": 114
+       },
+       "pipeline_switches": {
+        "p50": 813.0,
+        "min": 90.0,
+        "n": 114
+       },
+       "set_bind_group_calls": {
+        "p50": 902.0,
+        "min": 88.0,
+        "n": 114
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "uniform_writes": {
+        "p50": 29.0,
+        "min": 0.0,
+        "n": 114
+       },
+       "compute_dispatches": {
+        "p50": 99.0,
+        "min": 9.0,
+        "n": 114
+       },
+       "compute_passes": {
+        "p50": 66.0,
+        "min": 6.0,
+        "n": 114
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 114
+       },
+       "bytes_uploaded": {
+        "p50": 528.0,
+        "min": 48.0,
+        "n": 114
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 2.5368335,
+        "min": 1.0024580000000043,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 2.540125500000002,
+        "min": 1.0040839999999918,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 28.38672901270911,
+        "min": 6.2648330349475145,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 919684.0,
+        "min": 398788.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 1.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 418.0,
+        "min": 57.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 418.0,
+        "min": 57.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 409.0,
+        "min": 54.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 217.5,
+        "min": 9.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 429.0,
+        "min": 21.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 859.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 71.5,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 73.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 73.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 1826460.0,
+        "min": 1003196.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 1.3635209999999915,
+        "min": 0.21879100000001017,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.366041999999993,
+        "min": 0.2212910000000079,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 9.64852049946785,
+        "min": 2.097874996252358,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 396090.5,
+        "min": 53760.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 194.0,
+        "min": 14.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 6.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 492.0,
+        "min": 81.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 712.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 712.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 792.0,
+        "min": 90.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 218.5,
+        "min": 23.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 375.5,
+        "min": 41.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 59.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 93.5,
+        "min": 10.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 62.5,
+        "min": 7.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 792628.0,
+        "min": 118160.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.5166659999999865,
+        "min": 0.1706670000000372,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.5183964999999944,
+        "min": 0.1721249999999941,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 3.8177709793671966,
+        "min": 1.2367500457912683,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 311279.5,
+        "min": 57152.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 418.0,
+        "min": 55.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 418.0,
+        "min": 55.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 409.0,
+        "min": 50.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 7.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 15.5,
+        "min": 1.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 373.5,
+        "min": 47.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 1.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 736840.0,
+        "min": 816.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.11839599999999706,
+        "min": 0.019833999999974594,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.12091699999999861,
+        "min": 0.021250000000009095,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.3428335078060627,
+        "min": 0.43345801532268524,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 454.0,
+        "min": 423.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 146.0,
+        "min": 8.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 345.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 408.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 408.0,
+        "min": 53.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 399.0,
+        "min": 46.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 384.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 246,
+     "frames": 414,
+     "play_bound_ms": 4.0,
+     "play_frames_over_bound": [
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 7,
+       "page_ms": 6.689792000000011,
+       "js_ms": 6.682290999999992,
+       "wire_bytes": 1093921,
+       "buffers_created": 1410,
+       "bytes_uploaded": 935596,
+       "batches": 895,
+       "cached_batches": 194
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 8,
+       "page_ms": 4.261583999999999,
+       "js_ms": 4.253707999999989,
+       "wire_bytes": 997162,
+       "buffers_created": 1400,
+       "bytes_uploaded": 933564,
+       "batches": 895,
+       "cached_batches": 196
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 9,
+       "page_ms": 4.44270800000001,
+       "js_ms": 4.43829199999999,
+       "wire_bytes": 994084,
+       "buffers_created": 1396,
+       "bytes_uploaded": 931628,
+       "batches": 895,
+       "cached_batches": 198
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 10,
+       "page_ms": 5.838124999999991,
+       "js_ms": 5.832375000000013,
+       "wire_bytes": 1092817,
+       "buffers_created": 1410,
+       "bytes_uploaded": 932556,
+       "batches": 899,
+       "cached_batches": 198
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 11,
+       "page_ms": 4.309541999999965,
+       "js_ms": 4.30420799999996,
+       "wire_bytes": 994106,
+       "buffers_created": 1400,
+       "bytes_uploaded": 930524,
+       "batches": 899,
+       "cached_batches": 200
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 12,
+       "page_ms": 5.737541999999962,
+       "js_ms": 5.730791000000011,
+       "wire_bytes": 1091715,
+       "buffers_created": 1410,
+       "bytes_uploaded": 929516,
+       "batches": 903,
+       "cached_batches": 202
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 13,
+       "page_ms": 4.1337500000000205,
+       "js_ms": 4.129042000000027,
+       "wire_bytes": 991052,
+       "buffers_created": 1400,
+       "bytes_uploaded": 927484,
+       "batches": 903,
+       "cached_batches": 204
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 14,
+       "page_ms": 4.735875000000021,
+       "js_ms": 4.728958999999975,
+       "wire_bytes": 1090611,
+       "buffers_created": 1410,
+       "bytes_uploaded": 926476,
+       "batches": 907,
+       "cached_batches": 206
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 15,
+       "page_ms": 5.437999999999988,
+       "js_ms": 5.430499999999995,
+       "wire_bytes": 991072,
+       "buffers_created": 1404,
+       "bytes_uploaded": 926380,
+       "batches": 907,
+       "cached_batches": 206
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 17,
+       "page_ms": 4.145667000000003,
+       "js_ms": 4.142291999999998,
+       "wire_bytes": 984920,
+       "buffers_created": 1396,
+       "bytes_uploaded": 922508,
+       "batches": 907,
+       "cached_batches": 210
+      },
+      {
+       "phase": "play",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 18,
+       "page_ms": 4.591874999999959,
+       "js_ms": 4.585208000000023,
+       "wire_bytes": 1089509,
+       "buffers_created": 1410,
+       "bytes_uploaded": 923436,
+       "batches": 911,
+       "cached_batches": 210
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": 0,
+       "page_ms": 11.50608299999999,
+       "js_ms": 11.501500000000021,
+       "wire_bytes": 2909024,
+       "buffers_created": 5497,
+       "bytes_uploaded": 5227680,
+       "batches": 692,
+       "cached_batches": 0
+      },
+      {
+       "phase": "landing",
+       "checkpoint": 277,
+       "play_checkpoint": 276,
+       "play_frame": null,
+       "page_ms": 4.906166999999982,
+       "js_ms": 4.9004170000000045,
+       "wire_bytes": 1869698,
+       "buffers_created": 1336,
+       "bytes_uploaded": 4019900,
+       "batches": 463,
+       "cached_batches": 0
+      },
+      {
+       "phase": "play_entry",
+       "checkpoint": 307,
+       "play_checkpoint": 306,
+       "play_frame": 0,
+       "page_ms": 4.551082999999949,
+       "js_ms": 4.545332999999971,
+       "wire_bytes": 997118,
+       "buffers_created": 1392,
+       "bytes_uploaded": 935772,
+       "batches": 887,
+       "cached_batches": 192
+      }
+     ],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.28912500000001273,
+       "max": 6.689792000000011
+      },
+      "play_entry": {
+       "p50": 1.366041999999993,
+       "max": 11.50608299999999
+      },
+      "landing": {
+       "p50": 0.5183964999999944,
+       "max": 4.906166999999982
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 456,
+       "p50": 454.0
+      },
+      "zoom": {
+       "max": 517,
+       "p50": 515.0
+      },
+      "back": {
+       "max": 427,
+       "p50": 425.0
+      }
+     },
+     "rest_wire_bytes_max": 0,
+     "rest_page_ms_max": 0.0,
+     "gate_8a": {
+      "ticked_rounds": 14,
+      "wire_bytes": [
+       0
+      ],
+      "timed_rounds": 12,
+      "page_ms_p50": 0.0,
+      "page_ms_max": 0.0,
+      "first_round_after_seek": {
+       "wire_bytes": 0,
+       "page_ms": 0.0
+      },
+      "camera": {
+       "pan": {
+        "wire_bytes": 456,
+        "page_ms": 0.359375
+       },
+       "zoom": {
+        "wire_bytes": 517,
+        "page_ms": 0.29066700000001333
+       },
+       "back": {
+        "wire_bytes": 427,
+        "page_ms": 0.22666700000002038
+       }
+      }
+     }
+    }
+   }
+  },
+  "PriceDiscovery": {
+   "recorded_utc": "2026-09-27T21:06:41.148040+00:00",
+   "command": [
+    "/Users/taylorjweidman/Projects/ManimLive/maniml-b4i/benchmarks/browser_frames.py",
+    "--scene",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "PriceDiscovery",
+    "--output",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B3",
+    "--samples",
+    "12",
+    "--warmups",
+    "3",
+    "--max-frames",
+    "12",
+    "--tick-updaters",
+    "--play-frames",
+    "--play-edges",
+    "--camera-moves",
+    "--deltas",
+    "--realm",
+    "main",
+    "--rounds",
+    "5"
+   ],
+   "git": {
+    "commit": "1cf482b207f40f65d614006f115e7759fb71eeb1",
+    "branch": "b4-integration",
+    "dirty": true
+   },
+   "machine": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "node": "macbook.local"
+   },
+   "python": "3.13.9",
+   "numpy": "2.5.2",
+   "node": "v22.16.0",
+   "samples": 12,
+   "warmups": 3,
+   "max_frames": 12,
+   "tick_updaters": true,
+   "play_frames": true,
+   "play_edges": true,
+   "camera_moves": true,
+   "deltas": true,
+   "rounds": "Each variant's streams were replayed 5 times, taking turns within a round; js_ms and page_ms are each frame's median over the rounds, every other column the same in every round (checked).",
+   "realm": "main",
+   "source_files_sha256": {
+    "benchmarks/browser_frames.py": "00474b73b0bd46c439cd7e670328b4483d6a99ce34c16e57abdf289237faf05d",
+    "benchmarks/browser_frames.cjs": "935c47d4e8febdf66a59338ab004796e0b84c48eaf94e376f5b635016b097fa7",
+    "tests/webgpu_fake_device.cjs": "1411feeba9da4778e53c585ed60fa705428d960b857d2ba6a423cd28a337a3bc",
+    "benchmarks/episode_frames.py": "c1faf9aa72ffba8aa00e1b0131e69044586485bd49409ac1b8259f8ea4160e55",
+    "maniml/web/static/webgpu.js": "33d3a9521c08568f5a3f40a867cc78f3646fc0972bb92e628d1f1c427448af13",
+    "maniml/web/static/renderer_selection.js": "3ff49571945434ddabfd70f312b2962d769d19c21036dae1029b3a9345daa3a6",
+    "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+    "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+    "maniml/web/viewer.py": "7e3378cbd6dcf04fe59664c4bd48becd6d48e6a308241498b009f7d93739a98a",
+    "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+    "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+    "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+    "maniml/web/generated_geometry.py": "f1b90d65007f3432d2e9cf5acf57f82dbc27d7dd2c98135ed376ae6dce44f780",
+    "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+    "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+    "maniml/web/gpu_program_geometry.py": "1ffcd54c4c0e557a09ae25543d66c6b19cbb7a9cc3c9e467986aa118b63207fd",
+    "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+    "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+    "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+    "maniml/web/triangle_scene.py": "c6a825d92725629dd5b1f4e587806fabe472e361481e25b2929c64d61e539156",
+    "maniml/web/gpu_border_geometry.py": "69062f20c7f5a670da03ab3f302aec4d4a285fd7b497cccb2f49e110628921b5",
+    "maniml/web/geometry.py": "617939180c827b2a24e2d6d0e6709b7dc4ed1a86f0ab4d95a195f94f003b9cd5",
+    "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+    "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+    "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+    "maniml/web/gpu_net_geometry.py": "f53d958645ebc5b9c2db1cdebb5972b52ff49be98ad2e56c3af5ebae1b3f015c",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "717cf480044dea246723c967215dc3fbe97959cabb1af5efa12fb2a2637be93b",
+    "maniml/web/retained_frame.py": "3912bee6e3d0c4d53f72b0a7a1dbbdf9e5466799040401147c9497f3a4964b0c",
+    "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+    "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+    "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+    "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+    "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+    "maniml/web/static/wgsl/net_compute.wgsl": "965a1f55cc589bfd4cfe11d9534dd7caa9ee645a644ec8c77ca6262412c5b30f",
+    "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+    "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+    "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+    "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+    "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+    "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/episodes/Blocks/B3_Equilibrium/Animate.py": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2"
+   },
+   "source_files_unchanged_during_run": true,
+   "stream_format": "With --deltas each variant's frames are also recorded as the format 8 stream (docs/phase_b4_plan.md, B4.8) of a second GeometryCache whose receivers negotiated it, each frame serialized right after the format 7 one from the scene as that serialization left it (the format 7 stream is byte-identical to one recorded alone): the variant named with '_delta', a full frame and then a delta per message, or no message where the frame changed nothing (wire_bytes 0, js_ms and page_ms 0, every count 0: the page runs nothing, and batches is the frame on screen). A delta row carries splices, spliced_batches and scalars_ops. The delta stream's serialize_ms follows the format 7 serialization of the same frame and is not Python's cost of the stream alone; episode_frames.py owns the Python measurement.",
+   "class_scope": "pausepoint: the still redraw rounds after the warmups; ticked: the same rounds on a frame whose updaters tick before each; play: the recorded middle frames of the play into the pausepoint; cold: the first message after each restore, delta-encoded against the previous message of the stream as a seek is against the frame on screen, so it uploads what the cache no longer held (cached_batches and bytes_uploaded say how much; only the stream's first message, or a frame whose objects all changed, uploads every batch), its own class and excluded from the others. Warmup rounds are excluded from every class but cold. play_entry: a play's first frame, following the checkpoint before it (one row per play); landing: the destination after the play's last frame (one row per play). The source still and the last frame they follow (play_source, play_last) are rows of no class. camera: with --camera-moves, after each frame's pausepoint rounds, a pan of 5% of the frame's width, a 2% zoom out and the camera restored as it was (move pan, zoom, back), one message each.",
+   "measured_checkpoints": [
+    9,
+    19,
+    35,
+    48,
+    58,
+    68,
+    86,
+    98,
+    109,
+    115,
+    123,
+    130
+   ],
+   "streams": {
+    "phase_a": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B3/phase_a",
+      "frames": 400,
+      "sent": 400,
+      "bytes": 74698653,
+      "gzip_bytes": 12956764,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.8246249999999975
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.009333499999996775,
+        "min": 0.00899999999998613,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.011125000000006935,
+        "min": 0.010457999999999856,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 0.5975625244900584,
+        "min": 0.5768330302089453,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 21643.0,
+        "min": 21643.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 40.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 40.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 41.0,
+        "min": 41.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 9.0,
+        "min": 9.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 9.0,
+        "min": 9.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 9.0,
+        "min": 9.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.017187500000005684,
+        "min": 0.012208000000001107,
+        "n": 132
+       },
+       "page_ms": {
+        "p50": 0.01860450000000924,
+        "min": 0.013832999999991102,
+        "n": 132
+       },
+       "serialize_ms": {
+        "p50": 0.8577705593779683,
+        "min": 0.49045903142541647,
+        "n": 132
+       },
+       "wire_bytes": {
+        "p50": 45726.0,
+        "min": 28427.0,
+        "n": 132
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 56.0,
+        "n": 132
+       },
+       "cached_batches": {
+        "p50": 105.0,
+        "min": 56.0,
+        "n": 132
+       },
+       "draws": {
+        "p50": 118.0,
+        "min": 64.0,
+        "n": 132
+       },
+       "set_pipeline_calls": {
+        "p50": 50.0,
+        "min": 10.0,
+        "n": 132
+       },
+       "pipeline_switches": {
+        "p50": 50.0,
+        "min": 10.0,
+        "n": 132
+       },
+       "set_bind_group_calls": {
+        "p50": 86.0,
+        "min": 35.0,
+        "n": 132
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 132
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.29904200000000003,
+        "min": 0.1647920000000056,
+        "n": 100
+       },
+       "page_ms": {
+        "p50": 0.30104150000000374,
+        "min": 0.16620900000000915,
+        "n": 100
+       },
+       "serialize_ms": {
+        "p50": 4.143020487390459,
+        "min": 0.8952920325100422,
+        "n": 100
+       },
+       "wire_bytes": {
+        "p50": 188109.5,
+        "min": 56812.0,
+        "n": 100
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 40.0,
+        "n": 100
+       },
+       "cached_batches": {
+        "p50": 83.0,
+        "min": 39.0,
+        "n": 100
+       },
+       "draws": {
+        "p50": 118.0,
+        "min": 41.0,
+        "n": 100
+       },
+       "set_pipeline_calls": {
+        "p50": 53.0,
+        "min": 10.0,
+        "n": 100
+       },
+       "pipeline_switches": {
+        "p50": 53.0,
+        "min": 10.0,
+        "n": 100
+       },
+       "set_bind_group_calls": {
+        "p50": 96.0,
+        "min": 11.0,
+        "n": 100
+       },
+       "bind_groups_created": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_created": {
+        "p50": 14.0,
+        "min": 5.0,
+        "n": 100
+       },
+       "buffers_destroyed": {
+        "p50": 14.0,
+        "min": 6.0,
+        "n": 100
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "bytes_uploaded": {
+        "p50": 154672.0,
+        "min": 38120.0,
+        "n": 100
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 0.714270500000012,
+        "min": 0.2565830000000062,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.7168750000000017,
+        "min": 0.25816699999998605,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 31.497374991886318,
+        "min": 12.069124961271882,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 636564.5,
+        "min": 333487.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 71.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 41.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 54.0,
+        "min": 10.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 54.0,
+        "min": 10.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 105.0,
+        "min": 11.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 14.5,
+        "min": 2.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 58.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 37.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 14.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 8.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 8.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 833164.0,
+        "min": 324020.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 0.3112084999999922,
+        "min": 0.2110839999999996,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.3136455000000069,
+        "min": 0.2141669999999749,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 15.393353998661041,
+        "min": 2.9886660631746054,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 309026.5,
+        "min": 57466.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 80.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 89.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 119.0,
+        "min": 81.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 52.0,
+        "min": 12.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 52.0,
+        "min": 12.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 94.5,
+        "min": 53.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 5.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 21.0,
+        "min": 7.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 3.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 3.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 280398.0,
+        "min": 38184.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.18383350000000576,
+        "min": 0.07150000000001455,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.18612499999998988,
+        "min": 0.0731670000000122,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 9.415166510734707,
+        "min": 2.5679999962449074,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 101904.0,
+        "min": 21643.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 93.5,
+        "min": 40.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 41.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 49.5,
+        "min": 9.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 49.5,
+        "min": 9.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 82.0,
+        "min": 9.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 61968.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.19245850000001496,
+        "min": 0.08362500000001205,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.19437499999997954,
+        "min": 0.08491700000001856,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.6097499756142497,
+        "min": 0.9233750170096755,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 43302.5,
+        "min": 21634.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 41.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 66.5,
+        "min": 9.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 66.5,
+        "min": 9.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 125.0,
+        "min": 9.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 8.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 39.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 39.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 1536.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 400,
+     "frames": 400,
+     "play_bound_ms": 2.0,
+     "play_frames_over_bound": [
+      {
+       "phase": "play_entry",
+       "checkpoint": 19,
+       "play_checkpoint": 18,
+       "play_frame": 0,
+       "page_ms": 2.989709000000005,
+       "js_ms": 2.9841670000000136,
+       "wire_bytes": 666783,
+       "buffers_created": 326,
+       "bytes_uploaded": 922324,
+       "batches": 120,
+       "cached_batches": 54
+      }
+     ],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.30104150000000374,
+       "max": 1.6579580000000078
+      },
+      "play_entry": {
+       "p50": 0.3136455000000069,
+       "max": 2.989709000000005
+      },
+      "landing": {
+       "p50": 0.18612499999998988,
+       "max": 1.152040999999997
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 55840,
+       "p50": 43288.0
+      },
+      "zoom": {
+       "max": 55855,
+       "p50": 43311.0
+      },
+      "back": {
+       "max": 55849,
+       "p50": 43288.5
+      }
+     },
+     "rest_wire_bytes_max": 55849,
+     "rest_page_ms_max": 0.22266700000000128
+    },
+    "phase_a_delta": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B3/phase_a_delta",
+      "frames": 400,
+      "sent": 229,
+      "bytes": 60326591,
+      "gzip_bytes": 11254108,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.278624999999991
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 0.6040000007487833,
+        "min": 0.5843330873176455,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 40.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 37.0,
+        "min": 37.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "serialize_ms": {
+        "p50": 0.8425415144301951,
+        "min": 0.5087499739602208,
+        "n": 132
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 56.0,
+        "n": 132
+       },
+       "cached_batches": {
+        "p50": 72.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.19195850000000547,
+        "min": 0.06329199999998991,
+        "n": 100
+       },
+       "page_ms": {
+        "p50": 0.19610400000000539,
+        "min": 0.06587500000000546,
+        "n": 100
+       },
+       "serialize_ms": {
+        "p50": 3.273812006227672,
+        "min": 0.9128749370574951,
+        "n": 100
+       },
+       "wire_bytes": {
+        "p50": 145474.5,
+        "min": 23866.0,
+        "n": 100
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 40.0,
+        "n": 100
+       },
+       "cached_batches": {
+        "p50": 83.0,
+        "min": 39.0,
+        "n": 100
+       },
+       "draws": {
+        "p50": 118.0,
+        "min": 41.0,
+        "n": 100
+       },
+       "set_pipeline_calls": {
+        "p50": 53.0,
+        "min": 10.0,
+        "n": 100
+       },
+       "pipeline_switches": {
+        "p50": 53.0,
+        "min": 10.0,
+        "n": 100
+       },
+       "set_bind_group_calls": {
+        "p50": 96.0,
+        "min": 11.0,
+        "n": 100
+       },
+       "bind_groups_created": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_created": {
+        "p50": 14.0,
+        "min": 5.0,
+        "n": 100
+       },
+       "buffers_destroyed": {
+        "p50": 14.0,
+        "min": 6.0,
+        "n": 100
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "bytes_uploaded": {
+        "p50": 154672.0,
+        "min": 38120.0,
+        "n": 100
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 0.6576249999999959,
+        "min": 0.18654200000000287,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.6598334999999977,
+        "min": 0.18908400000000825,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 24.81018751859665,
+        "min": 7.8505410347133875,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 635315.0,
+        "min": 321324.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 71.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 41.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 54.0,
+        "min": 10.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 54.0,
+        "min": 10.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 105.0,
+        "min": 11.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 14.5,
+        "min": 2.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 58.0,
+        "min": 8.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 37.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 14.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 8.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 8.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 833164.0,
+        "min": 324020.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 0.17156249999999318,
+        "min": 0.07437500000000341,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.17362500000000125,
+        "min": 0.07633300000000531,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 12.3013750417158,
+        "min": 2.261832938529551,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 291837.0,
+        "min": 24522.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 105.0,
+        "min": 80.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 89.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 119.0,
+        "min": 81.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 52.0,
+        "min": 12.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 52.0,
+        "min": 12.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 94.5,
+        "min": 53.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 5.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 21.0,
+        "min": 7.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 3.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 3.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 280398.0,
+        "min": 38184.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.059708499999999276,
+        "min": 0.0,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.06222899999998788,
+        "min": 0.0,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 7.071457977872342,
+        "min": 1.8896249821409583,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 57802.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 93.5,
+        "min": 39.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 49.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 49.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 82.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 6.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 5.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 61968.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.08506250000000648,
+        "min": 0.026999999999986812,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.08706299999998635,
+        "min": 0.028416999999990367,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.6557289636693895,
+        "min": 0.9375419467687607,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 652.0,
+        "min": 621.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 100.0,
+        "min": 40.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 110.0,
+        "min": 41.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 66.5,
+        "min": 9.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 66.5,
+        "min": 9.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 125.0,
+        "min": 9.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 8.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 39.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 39.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 1536.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 229,
+     "frames": 400,
+     "play_bound_ms": 2.0,
+     "play_frames_over_bound": [],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.19610400000000539,
+       "max": 1.8354579999999885
+      },
+      "play_entry": {
+       "p50": 0.17362500000000125,
+       "max": 1.9023339999999962
+      },
+      "landing": {
+       "p50": 0.06222899999998788,
+       "max": 0.6178339999999878
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 661,
+       "p50": 640.0
+      },
+      "zoom": {
+       "max": 671,
+       "p50": 661.0
+      },
+      "back": {
+       "max": 660,
+       "p50": 638.0
+      }
+     },
+     "rest_wire_bytes_max": 0,
+     "rest_page_ms_max": 0.0
+    },
+    "phase_b": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B3/phase_b",
+      "frames": 400,
+      "sent": 400,
+      "bytes": 42785083,
+      "gzip_bytes": 5872226,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.2560829999999967
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.0284795000000031,
+        "min": 0.02529200000000742,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.029979000000011524,
+        "min": 0.02666600000000585,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 0.588771014008671,
+        "min": 0.5813749739900231,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 22839.0,
+        "min": 22839.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 45.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 45.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 147.0,
+        "min": 147.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 147.0,
+        "min": 147.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 147.0,
+        "min": 147.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 87.0,
+        "min": 87.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.02814599999999956,
+        "min": 0.01304100000000119,
+        "n": 132
+       },
+       "page_ms": {
+        "p50": 0.029624999999988688,
+        "min": 0.014583999999999264,
+        "n": 132
+       },
+       "serialize_ms": {
+        "p50": 1.0065835085697472,
+        "min": 0.5248330999165773,
+        "n": 132
+       },
+       "wire_bytes": {
+        "p50": 65186.0,
+        "min": 13374.0,
+        "n": 132
+       },
+       "batches": {
+        "p50": 132.0,
+        "min": 25.0,
+        "n": 132
+       },
+       "cached_batches": {
+        "p50": 132.0,
+        "min": 25.0,
+        "n": 132
+       },
+       "draws": {
+        "p50": 366.0,
+        "min": 111.0,
+        "n": 132
+       },
+       "set_pipeline_calls": {
+        "p50": 307.0,
+        "min": 105.0,
+        "n": 132
+       },
+       "pipeline_switches": {
+        "p50": 307.0,
+        "min": 105.0,
+        "n": 132
+       },
+       "set_bind_group_calls": {
+        "p50": 235.0,
+        "min": 89.0,
+        "n": 132
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 132
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.3782500000000013,
+        "min": 0.20558400000000177,
+        "n": 100
+       },
+       "page_ms": {
+        "p50": 0.380333499999999,
+        "min": 0.20708299999999724,
+        "n": 100
+       },
+       "serialize_ms": {
+        "p50": 2.5075834710150957,
+        "min": 0.665250001475215,
+        "n": 100
+       },
+       "wire_bytes": {
+        "p50": 77013.5,
+        "min": 45948.0,
+        "n": 100
+       },
+       "batches": {
+        "p50": 148.0,
+        "min": 80.0,
+        "n": 100
+       },
+       "cached_batches": {
+        "p50": 148.0,
+        "min": 80.0,
+        "n": 100
+       },
+       "draws": {
+        "p50": 387.5,
+        "min": 169.0,
+        "n": 100
+       },
+       "set_pipeline_calls": {
+        "p50": 491.0,
+        "min": 116.0,
+        "n": 100
+       },
+       "pipeline_switches": {
+        "p50": 491.0,
+        "min": 116.0,
+        "n": 100
+       },
+       "set_bind_group_calls": {
+        "p50": 560.0,
+        "min": 139.0,
+        "n": 100
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "uniform_writes": {
+        "p50": 52.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "compute_dispatches": {
+        "p50": 140.0,
+        "min": 6.0,
+        "n": 100
+       },
+       "compute_passes": {
+        "p50": 94.0,
+        "min": 4.0,
+        "n": 100
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "bytes_uploaded": {
+        "p50": 880.0,
+        "min": 32.0,
+        "n": 100
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 1.573854499999996,
+        "min": 0.6751670000000161,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.5755625000000038,
+        "min": 0.6767499999999984,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 20.12685447698459,
+        "min": 8.06091702543199,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 417514.0,
+        "min": 190029.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 90.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 356.5,
+        "min": 123.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 356.5,
+        "min": 123.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 323.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 116.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 238.5,
+        "min": 13.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 595.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 54.5,
+        "min": 2.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 51.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 51.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 773550.0,
+        "min": 307864.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 1.1547919999999863,
+        "min": 0.26483399999997914,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.1572914999999853,
+        "min": 0.2668329999999912,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 9.48785402579233,
+        "min": 2.232957980595529,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 251750.5,
+        "min": 75237.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 167.0,
+        "min": 80.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 107.0,
+        "min": 22.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 387.5,
+        "min": 169.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 480.0,
+        "min": 116.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 480.0,
+        "min": 116.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 562.5,
+        "min": 139.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 341.5,
+        "min": 14.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 559.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 10.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 151.5,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 149.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 98.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 272716.0,
+        "min": 55904.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.7153334999999998,
+        "min": 0.21595800000000054,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.7170624999999973,
+        "min": 0.21750000000000114,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 4.913958546239883,
+        "min": 1.4845830155536532,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 185527.5,
+        "min": 65769.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 107.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 306.5,
+        "min": 106.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 306.5,
+        "min": 106.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 248.0,
+        "min": 89.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 17.0,
+        "min": 3.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 44.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 557.0,
+        "min": 24.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 231596.0,
+        "min": 32636.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.340187499999999,
+        "min": 0.1049589999999796,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.3415624999999807,
+        "min": 0.10641699999999332,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.243437989614904,
+        "min": 0.7470829878002405,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 65000.0,
+        "min": 13374.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 378.0,
+        "min": 105.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 378.0,
+        "min": 105.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 306.0,
+        "min": 87.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 45.5,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 61.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 61.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 3408.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 400,
+     "frames": 400,
+     "play_bound_ms": 4.0,
+     "play_frames_over_bound": [],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.380333499999999,
+       "max": 1.6198329999999999
+      },
+      "play_entry": {
+       "p50": 1.1572914999999853,
+       "max": 2.390874999999994
+      },
+      "landing": {
+       "p50": 0.7170624999999973,
+       "max": 1.017541000000051
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 91346,
+       "p50": 64993.5
+      },
+      "zoom": {
+       "max": 91360,
+       "p50": 65008.0
+      },
+      "back": {
+       "max": 91344,
+       "p50": 64997.0
+      }
+     },
+     "rest_wire_bytes_max": 91344,
+     "rest_page_ms_max": 0.24616600000000233
+    },
+    "phase_b_delta": {
+     "stream": {
+      "directory": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/B3/phase_b_delta",
+      "frames": 400,
+      "sent": 232,
+      "bytes": 18723055,
+      "gzip_bytes": 3051715,
+      "resolution": [
+       2160,
+       1080
+      ],
+      "samples": 4,
+      "supersample": 2,
+      "init_ms": 2.278125000000003
+     },
+     "classes": {
+      "pausepoint": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 0.5998539854772389,
+        "min": 0.5912919295951724,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 45.0,
+        "min": 45.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 42.0,
+        "min": 42.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 12
+       }
+      },
+      "ticked": {
+       "js_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "page_ms": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "serialize_ms": {
+        "p50": 0.953291542828083,
+        "min": 0.544083071872592,
+        "n": 132
+       },
+       "wire_bytes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "batches": {
+        "p50": 132.0,
+        "min": 25.0,
+        "n": 132
+       },
+       "cached_batches": {
+        "p50": 90.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "draws": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "set_pipeline_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "pipeline_switches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "set_bind_group_calls": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "uniform_writes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_dispatches": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "compute_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "render_passes": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       },
+       "bytes_uploaded": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 132
+       }
+      },
+      "play": {
+       "js_ms": {
+        "p50": 0.16433350000000502,
+        "min": 0.08270899999999415,
+        "n": 100
+       },
+       "page_ms": {
+        "p50": 0.16629199999999855,
+        "min": 0.08429199999999071,
+        "n": 100
+       },
+       "serialize_ms": {
+        "p50": 2.9342914349399507,
+        "min": 0.7089999271556735,
+        "n": 100
+       },
+       "wire_bytes": {
+        "p50": 1322.0,
+        "min": 144.0,
+        "n": 100
+       },
+       "batches": {
+        "p50": 148.0,
+        "min": 80.0,
+        "n": 100
+       },
+       "cached_batches": {
+        "p50": 148.0,
+        "min": 80.0,
+        "n": 100
+       },
+       "draws": {
+        "p50": 387.5,
+        "min": 169.0,
+        "n": 100
+       },
+       "set_pipeline_calls": {
+        "p50": 491.0,
+        "min": 116.0,
+        "n": 100
+       },
+       "pipeline_switches": {
+        "p50": 491.0,
+        "min": 116.0,
+        "n": 100
+       },
+       "set_bind_group_calls": {
+        "p50": 560.0,
+        "min": 139.0,
+        "n": 100
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 100
+       },
+       "uniform_writes": {
+        "p50": 52.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "compute_dispatches": {
+        "p50": 140.0,
+        "min": 6.0,
+        "n": 100
+       },
+       "compute_passes": {
+        "p50": 94.0,
+        "min": 4.0,
+        "n": 100
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 100
+       },
+       "bytes_uploaded": {
+        "p50": 880.0,
+        "min": 32.0,
+        "n": 100
+       }
+      },
+      "cold": {
+       "js_ms": {
+        "p50": 1.4504165000000029,
+        "min": 0.7731670000000008,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.4521044999999972,
+        "min": 0.7747090000000014,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 18.056687549687922,
+        "min": 7.3607079684734344,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 416453.5,
+        "min": 187525.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 90.0,
+        "min": 0.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 356.5,
+        "min": 123.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 356.5,
+        "min": 123.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 323.0,
+        "min": 91.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 116.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 238.5,
+        "min": 13.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 595.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 54.5,
+        "min": 2.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 51.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 51.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 773550.0,
+        "min": 307864.0,
+        "n": 12
+       }
+      },
+      "play_entry": {
+       "js_ms": {
+        "p50": 1.3713335000000058,
+        "min": 0.2217500000000001,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 1.37337500000001,
+        "min": 0.22495800000000088,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 9.47816699044779,
+        "min": 2.3635829566046596,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 226461.0,
+        "min": 25056.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 167.0,
+        "min": 80.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 107.0,
+        "min": 22.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 387.5,
+        "min": 169.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 480.0,
+        "min": 116.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 480.0,
+        "min": 116.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 562.5,
+        "min": 139.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 341.5,
+        "min": 14.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 559.5,
+        "min": 24.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 10.5,
+        "min": 0.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 151.5,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 149.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 98.0,
+        "min": 4.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 272716.0,
+        "min": 55904.0,
+        "n": 12
+       }
+      },
+      "landing": {
+       "js_ms": {
+        "p50": 0.6418124999999861,
+        "min": 0.12745900000000177,
+        "n": 12
+       },
+       "page_ms": {
+        "p50": 0.6436250000000001,
+        "min": 0.12904199999999832,
+        "n": 12
+       },
+       "serialize_ms": {
+        "p50": 4.479458497371525,
+        "min": 1.595374895259738,
+        "n": 12
+       },
+       "wire_bytes": {
+        "p50": 161126.5,
+        "min": 15587.0,
+        "n": 12
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 12
+       },
+       "cached_batches": {
+        "p50": 107.0,
+        "min": 23.0,
+        "n": 12
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 12
+       },
+       "set_pipeline_calls": {
+        "p50": 306.5,
+        "min": 106.0,
+        "n": 12
+       },
+       "pipeline_switches": {
+        "p50": 306.5,
+        "min": 106.0,
+        "n": 12
+       },
+       "set_bind_group_calls": {
+        "p50": 248.0,
+        "min": 89.0,
+        "n": 12
+       },
+       "bind_groups_created": {
+        "p50": 17.0,
+        "min": 3.0,
+        "n": 12
+       },
+       "buffers_created": {
+        "p50": 44.0,
+        "min": 6.0,
+        "n": 12
+       },
+       "buffers_destroyed": {
+        "p50": 557.0,
+        "min": 24.0,
+        "n": 12
+       },
+       "uniform_writes": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_dispatches": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "compute_passes": {
+        "p50": 11.0,
+        "min": 1.0,
+        "n": 12
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 12
+       },
+       "bytes_uploaded": {
+        "p50": 231596.0,
+        "min": 32636.0,
+        "n": 12
+       }
+      },
+      "camera": {
+       "js_ms": {
+        "p50": 0.13295800000000213,
+        "min": 0.04666699999999935,
+        "n": 36
+       },
+       "page_ms": {
+        "p50": 0.13477100000000064,
+        "min": 0.04870800000000486,
+        "n": 36
+       },
+       "serialize_ms": {
+        "p50": 1.2842295109294355,
+        "min": 0.7480420172214508,
+        "n": 36
+       },
+       "wire_bytes": {
+        "p50": 652.0,
+        "min": 621.0,
+        "n": 36
+       },
+       "batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 36
+       },
+       "cached_batches": {
+        "p50": 131.5,
+        "min": 25.0,
+        "n": 36
+       },
+       "draws": {
+        "p50": 356.0,
+        "min": 111.0,
+        "n": 36
+       },
+       "set_pipeline_calls": {
+        "p50": 378.0,
+        "min": 105.0,
+        "n": 36
+       },
+       "pipeline_switches": {
+        "p50": 378.0,
+        "min": 105.0,
+        "n": 36
+       },
+       "set_bind_group_calls": {
+        "p50": 306.0,
+        "min": 87.0,
+        "n": 36
+       },
+       "bind_groups_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_created": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "buffers_destroyed": {
+        "p50": 0.0,
+        "min": 0.0,
+        "n": 36
+       },
+       "uniform_writes": {
+        "p50": 45.5,
+        "min": 2.0,
+        "n": 36
+       },
+       "compute_dispatches": {
+        "p50": 61.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "compute_passes": {
+        "p50": 61.5,
+        "min": 0.0,
+        "n": 36
+       },
+       "render_passes": {
+        "p50": 2.0,
+        "min": 2.0,
+        "n": 36
+       },
+       "bytes_uploaded": {
+        "p50": 3408.0,
+        "min": 384.0,
+        "n": 36
+       }
+      }
+     },
+     "sent": 232,
+     "frames": 400,
+     "play_bound_ms": 4.0,
+     "play_frames_over_bound": [],
+     "play_page_ms": {
+      "play": {
+       "p50": 0.16629199999999855,
+       "max": 1.076541000000006
+      },
+      "play_entry": {
+       "p50": 1.37337500000001,
+       "max": 2.2737089999999966
+      },
+      "landing": {
+       "p50": 0.6436250000000001,
+       "max": 1.0952910000000031
+      }
+     },
+     "camera_wire_bytes": {
+      "pan": {
+       "max": 661,
+       "p50": 640.0
+      },
+      "zoom": {
+       "max": 671,
+       "p50": 661.0
+      },
+      "back": {
+       "max": 660,
+       "p50": 638.0
+      }
+     },
+     "rest_wire_bytes_max": 0,
+     "rest_page_ms_max": 0.0
+    }
+   }
+  }
+ }
+}

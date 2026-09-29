@@ -6,8 +6,8 @@ global.window = {};
 vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../maniml/web/static/renderer_selection.js'), 'utf8'));
 const Selection = window.ManimlRendererSelection;
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => {resolve=a; reject=b;}); return {promise,resolve,reject}; };
-function payload(mode) {
-  const header = Buffer.from(JSON.stringify({renderer:mode, unsupported:[]}));
+function payload(mode, before = {}) {
+  const header = Buffer.from(JSON.stringify({...before, renderer:mode, unsupported:[]}));
   const data = Buffer.alloc(5+header.length);
   data[0] = 3; data.writeUInt32LE(header.length,1); header.copy(data,5);
   return data.buffer.slice(data.byteOffset, data.byteOffset+data.byteLength);
@@ -50,6 +50,29 @@ function fixture() {
   await assert.rejects(selection.select('__proto__'));
   assert.equal(selection.mode,'triangles');
 
+  // The renderer is read from the start of the header, where the engine
+  // writes it after integer fields only (a format 8 delta's version,
+  // epoch, frame and base), without parsing the rest; a header laid out
+  // otherwise is parsed.
+  const parse = JSON.parse;
+  let parses = 0;
+  JSON.parse = (...args) => { parses++; return parse(...args); };
+  drivers.triangles.render = async () => { calls.push('render:read'); return {}; };
+  try {
+    await selection.render(payload('triangles'));
+    await selection.render(payload('triangles', {format_version: 8, epoch: 3, frame: 12, base: 11}));
+    assert.equal(parses,0);
+    assert.equal(calls.filter(x=>x==='render:read').length,2);
+    assert.equal(await selection.render(payload('winding', {format_version: 7})),null);
+    assert.equal(parses,0);
+    // A renderer nested before the header's own is not taken for it.
+    await selection.render(payload('triangles', {camera: {renderer: 'winding'}}));
+    assert.equal(parses,1);
+    assert.equal(calls.filter(x=>x==='render:read').length,3);
+  } finally {
+    JSON.parse = parse;
+  }
+
   const rapid = fixture();
   const initializing = deferred();
   rapid.drivers.triangles.init = async () => { rapid.calls.push('init:held'); await initializing.promise; };
@@ -67,4 +90,22 @@ function fixture() {
   assert(!failure.selection.ready);
   await failure.selection.select('winding');
   assert.deepEqual(failure.calls,['destroy:triangles','init:winding']);
+
+  // The viewer's four modes, three of them one driver. Phase A draws the
+  // frames the engine stamps "triangles" (its bytes are the ones Phase A
+  // always wrote, which the golden pin holds); Phase B draws only its own,
+  // and the default none of Phase B's.
+  const stacks = fixture();
+  const shared = stacks.drivers.triangles;
+  const four = new Selection({}, {triangles: shared, phase_a: shared, phase_b: shared, winding: stacks.drivers.winding});
+  await four.select('phase_a');
+  assert.notEqual(await four.render(payload('triangles')), null);
+  for (const other of ['phase_a', 'phase_b', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  await four.select('phase_b');
+  assert.notEqual(await four.render(payload('phase_b')), null);
+  for (const other of ['triangles', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  await four.select('triangles');
+  assert.notEqual(await four.render(payload('triangles')), null);
+  for (const other of ['phase_b', 'winding']) assert.equal(await four.render(payload(other)), null, other);
+  assert.equal(stacks.calls.filter(x => x === 'render:triangles').length, 3);
 })().catch(error => { console.error(error); process.exitCode=1; });

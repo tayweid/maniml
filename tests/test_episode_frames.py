@@ -4,16 +4,23 @@ replay runs a real headless Scene from a temp file, as
 tests.test_checkpoint_reload does."""
 
 import json
+import os
 import tempfile
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
-from benchmarks import episode_frames
+from benchmarks import episode_frames, gpu_borders
+from benchmarks.generated_output import StageObserver
 from benchmarks.gpu_borders import gpu_columns
+from maniml.web.triangle_geometry import _packaged_library
+
+requires_lyon = unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _packaged_library(),
+                                    "Lyon helper is neither packaged nor explicitly built")
 
 
 def checkpoints(count, stops=(), run_time=None):
@@ -117,6 +124,155 @@ class PixelPairs(unittest.TestCase):
         with_cpu = episode_frames.pixel_pairs(pictures(patch_fill=(0, 0, 0, 255), cpu_border=(0, 0, 0, 255)))
         self.assertEqual(list(with_cpu), ["patch_vs_cpu"])
         self.assertEqual(episode_frames.pixel_pairs(pictures(original_2d=(0, 0, 0, 255))), {})
+
+    def test_the_retained_frame_is_held_to_phase_a(self):
+        pairs = episode_frames.pixel_pairs(pictures(gpu_border=(0, 0, 0, 255), retained=(0, 0, 0, 255)))
+        self.assertEqual(list(pairs), ["retained_vs_gpu_border"])
+        self.assertEqual(pairs["retained_vs_gpu_border"]["fraction_pixels_rgb_over24"], 0.)
+
+
+class Variants(unittest.TestCase):
+    def test_retained_is_phase_a_with_the_retained_frame_and_the_rest_run_without_it(self):
+        # gpu_borders.sample is told the renderer and the switch; the
+        # retained frame's counts ride on its rows.
+        seen = []
+
+        def sample(scene, name, cache, stages, renderer=None, queue=None, *, retained="0"):
+            seen.append((name, retained))
+            if retained == "1":
+                cache.retained_frame = SimpleNamespace(stats={"leaves_kept": 3})
+            return {}, None, {}
+
+        with patch.object(gpu_borders, "sample", sample):
+            rows = {variant: episode_frames.sample_variant(None, variant, SimpleNamespace(retained_frame=None),
+                                                           None)[0]
+                    for variant in episode_frames.VARIANTS}
+        self.assertEqual(seen, [("patch_fill", "0"), ("gpu_border", "0"), ("gpu_border", "1"), ("cpu_border", "0"),
+                                ("original_2d", "0"), ("nets", "0"), ("default", "1"), ("phase_b", "1"),
+                                ("phase_b_records", "1")])
+        self.assertEqual(rows["retained"], {"retained_frame": {"leaves_kept": 3}})
+        self.assertEqual(rows["gpu_border"], {})
+
+    @requires_lyon
+    def test_the_harnesses_measure_the_whole_frame_path_unless_told(self):
+        # The retained frame is the default (docs/phase_b4_plan.md, B4.5),
+        # and the archived runs of gpu_borders, paint_retention and
+        # generated_output measured the whole-frame path: their samplers
+        # pin MANIML_RETAINED_FRAME to 0 whatever the environment says,
+        # unless told otherwise, and hand the environment back.
+        from benchmarks import paint_retention
+        from maniml.mobject.geometry import Square
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        samplers = {"gpu_borders": lambda scene, cache, stages, retained: gpu_borders.sample(
+                        scene, "gpu_border", cache, stages, retained=retained),
+                    "paint_retention": lambda scene, cache, stages, retained: paint_retention.wire_sample(
+                        scene, "triangles", cache, stages, retained=retained)}
+        for (name, sampler), retained in ((item, retained) for item in samplers.items() for retained in ("0", "1")):
+            with self.subTest(harness=name, retained=retained), patch.dict(os.environ):
+                os.environ.pop("MANIML_RETAINED_FRAME", None)
+                stages, cache = StageObserver(), geometry.GeometryCache()
+                scene = build_scene(Square(fill_opacity=1))
+                with patch.object(geometry, "performance", stages):
+                    for _ in range(2):
+                        sampler(scene, cache, stages, retained)
+                self.assertNotIn("MANIML_RETAINED_FRAME", os.environ)
+                if retained == "0":
+                    self.assertIsNone(cache.retained_frame)
+                else:
+                    self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+
+    @requires_lyon
+    def test_each_variant_draws_its_stack_whatever_the_defaults(self):
+        # B5.4 (docs/phase_b4_plan.md, "The flips"): a default that flips
+        # moves no variant. gpu_border and cpu_border are Phase A forced;
+        # patch_fill is the patches alone and nets the net surfaces alone,
+        # their other switches pinned, whatever the defaults or the
+        # environment say; patch_fill's records packed, as B5.4 measured
+        # them, whatever the patch source's default (rows since B5.6).
+        from maniml.mobject.geometry import Square
+        from maniml.utils import programs
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        expected = {"gpu_border": ("gpu", "meshes", "grids", "off", "records"),
+                    "cpu_border": ("cpu", "meshes", "grids", "off", "records"),
+                    "patch_fill": ("gpu", "patches", "grids", "off", "records"),
+                    "nets": ("gpu", "meshes", "nets", "off", "records")}
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu",
+                        MANIML_PATCH_SOURCE="rows"), \
+                patch.multiple(geometry, DEFAULT_FILL="patches", DEFAULT_SURFACE="nets", DEFAULT_PATCH_SOURCE="rows"), \
+                patch.object(programs, "DEFAULT_MODE", "gpu"):
+            for variant, stack in expected.items():
+                with self.subTest(variant=variant):
+                    stages, cache = StageObserver(), geometry.GeometryCache()
+                    with patch.object(geometry, "performance", stages):
+                        _, _, header = gpu_borders.sample(build_scene(Square(fill_opacity=1)), variant, cache, stages)
+                    self.assertEqual((cache.border_generator, cache.fill_generator, cache.surface_generator,
+                                      cache.program_mode, cache.patch_source), stack)
+                    self.assertEqual(header["renderer"], "triangles")
+
+    @requires_lyon
+    def test_the_test_points_stacks_are_the_viewers_selections(self):
+        # B6 (docs/phase_b4_plan.md): default is the default stack as the
+        # generators' and the programs' defaults leave it, whatever the
+        # environment says (the run's MANIML_PROGRAMS=off included), and
+        # phase_b_retained the forced Phase B, stamped as the page's
+        # selection reads it, its patch source the default's as the
+        # selection's is (B5.6: rows); phase_b_retained_records is the same
+        # with its records packed, the Phase B B6 measured. All three run
+        # the retained frame.
+        from maniml.mobject.geometry import Square
+        from maniml.utils import programs
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        for defaults in (("meshes", "grids", "off", "records"), ("patches", "nets", "strokes", "rows")):
+            fill, surface, mode, source = defaults
+            with patch.dict(os.environ, MANIML_FILL="patches" if fill == "meshes" else "meshes",
+                            MANIML_SURFACE="nets" if surface == "grids" else "grids",
+                            MANIML_PROGRAMS="strokes" if mode == "off" else "off",
+                            MANIML_PATCH_SOURCE="rows" if source == "records" else "records"), \
+                    patch.multiple(geometry, DEFAULT_FILL=fill, DEFAULT_SURFACE=surface,
+                                   DEFAULT_PATCH_SOURCE=source), \
+                    patch.object(programs, "DEFAULT_MODE", mode):
+                # Without patches there is nothing to source: "records".
+                for variant, stack, stamp in (
+                        ("default", ("gpu", fill, surface, mode, source if fill == "patches" else "records"),
+                         "triangles"),
+                        ("phase_b_retained", ("gpu", "patches", "nets", "gpu", source), "phase_b"),
+                        ("phase_b_retained_records", ("gpu", "patches", "nets", "gpu", "records"), "phase_b")):
+                    with self.subTest(defaults=defaults, variant=variant):
+                        stages, cache = StageObserver(), geometry.GeometryCache()
+                        with patch.object(geometry, "performance", stages):
+                            row, _, header = episode_frames.sample_variant(build_scene(Square(fill_opacity=1)),
+                                                                           variant, cache, stages)
+                        self.assertEqual((cache.border_generator, cache.fill_generator, cache.surface_generator,
+                                          cache.program_mode, cache.patch_source), stack)
+                        self.assertEqual(header["renderer"], stamp)
+                        self.assertIn("retained_frame", row)
+                        # Its plays record as the viewer's would: the
+                        # selection's override, the default's mode.
+                        self.assertEqual(episode_frames.play_mode(variant), stack[3])
+                self.assertEqual(os.environ["MANIML_FILL"], "patches" if fill == "meshes" else "meshes",
+                                 "the environment is handed back")
+
+    @requires_lyon
+    def test_the_stage_observer_stands_in_for_the_recorder(self):
+        # The harnesses put a StageObserver where the serializer reads its
+        # recorder, the retained frame's gauge among what it reads.
+        from maniml.mobject.geometry import Square
+        from maniml.web import geometry
+        from tests.renderer_fixtures import build_scene
+
+        stages, cache = StageObserver(), geometry.GeometryCache()
+        scene = build_scene(Square(fill_opacity=1))
+        with patch.object(geometry, "performance", stages), patch.dict(os.environ, MANIML_RETAINED_FRAME="1"):
+            for _ in range(2):
+                geometry.serialize_scene(scene, cache)
+        self.assertEqual(cache.retained_frame.stats["leaves_kept"], 1)
+        self.assertGreater(stages.milliseconds["geometry.triangle_prepare"], 0)
 
 
 class FakeScene:
@@ -319,6 +475,9 @@ class PlayFrames(unittest.TestCase):
         self.assertTrue(all(0 < alpha <= 1 for alpha in first["measured_alphas"] + second["measured_alphas"]))
         self.assertEqual(set(first["variants"]), set(self.variants))
         self.assertEqual(list(second["pixels"]), ["patch_vs_gpu_border"])
+        # Every frame of the window is inside these plays, the warmup too.
+        start = (frames - 3) // 2
+        self.assertEqual(second["pixel_frames"], [start, start + 1, start + 2])
         for variant in self.variants:
             rows = report["variants"][variant]["samples"]
             plays = [row for row in rows if row["phase"] == "play"]
@@ -343,6 +502,154 @@ class PlayFrames(unittest.TestCase):
         low, high = first["measured_alphas"][0], first["measured_alphas"][-1]
         self.assertIn(f"play α {low:.2f}–{high:.2f}", table)
         self.assertIn("| all |  |  |  | plays |", table)
+
+    def test_a_plays_pixels_are_its_worst_frame_strictly_inside_it(self):
+        # A window as long as the play reaches its landing (alpha past 1 at
+        # 24 fps over 0.2 s), the pausepoint's own picture: it is left out.
+        # patch_fill drifts one more pixel from gpu_border every call, so the
+        # worst frame is the last compared.
+        scene = self.scene
+        drift = []
+
+        def sampler(variant):
+            picture = Image.new("RGBA", (64, 36), (0, 0, 0, 255))
+            if variant == "patch_fill":
+                drift.append(1)
+                for x in range(len(drift)):
+                    picture.putpixel((x, 0), (255, 255, 255, 255))
+            row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                   "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+            return row, picture, {"resolution": [64, 36]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = episode_frames.measure(scene, [2], self.variants, samples=8, warmups=1, sampler=sampler,
+                                            output=Path(tmp), report={"variants_in_rotation": list(self.variants)},
+                                            play_frames=True)
+        frame = report["frames"][0]
+        play = frame["play"]
+        frames = episode_frames.play_frame_count(scene.camera.fps, .2)
+        self.assertEqual(play["frames"], frames)
+        self.assertGreaterEqual(frames / scene.camera.fps / .2, 1, "the window's last frame is the landing")
+        self.assertEqual(play["pixel_frames"], list(range(frames - 1)))
+        worst = play["pixels"]["patch_vs_gpu_border"]
+        self.assertEqual(worst["play_frame"], frames - 2)
+        self.assertAlmostEqual(worst["fraction_pixels_rgb_over24"], (9 + frames - 1) / (64 * 36))
+        self.assertLess(worst["fraction_pixels_rgb_over24"], (9 + frames) / (64 * 36), "not the landing's")
+
+    def test_a_variant_whose_plays_record_programs_samples_a_replay_of_its_own(self):
+        # The forced Phase B's plays record GPU programs, as the viewer's
+        # selection has them record, and an animation decides at its begin:
+        # its rows come from a replay under that mode, the others' from one
+        # without programs, and a play's pixel pairs compare the two
+        # replays' same frames. The program replay reads no points (the
+        # source check would materialize what the variant draws).
+        from maniml.utils import programs
+
+        scene = self.scene
+        seen = []
+
+        def sampler(variant):
+            square = scene.mobjects[0]
+            seen.append((variant, programs.mode(), square._program is not None and not square._program["materialized"]))
+            row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                   "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+            picture = Image.new("RGBA", (64, 36), (0, 0, 0, 255))
+            if variant == "phase_b_retained":
+                picture.putpixel((0, 0), (255, 255, 255, 255))
+            return row, picture, {"resolution": [64, 36]}
+
+        variants = ("gpu_border", "phase_b_retained")
+        with patch.dict(os.environ, MANIML_PROGRAMS="off"), tempfile.TemporaryDirectory() as tmp:
+            report = episode_frames.measure(scene, [4], variants, samples=2, warmups=1, sampler=sampler,
+                                            output=Path(tmp), report={"variants_in_rotation": list(variants)},
+                                            play_frames=True)
+        still, play = seen[:6], seen[6:]
+        self.assertEqual({mode for _, mode, _ in still}, {"off"})
+        self.assertEqual([variant for variant, _, _ in play], ["gpu_border"] * 3 + ["phase_b_retained"] * 3,
+                         "the run's own mode replays first, each mode its own replay")
+        self.assertEqual([(mode, pending) for variant, mode, pending in play if variant == "gpu_border"],
+                         [("off", False)] * 3)
+        self.assertEqual([(mode, pending) for variant, mode, pending in play if variant == "phase_b_retained"],
+                         [("gpu", True)] * 3)
+        block = report["frames"][0]["play"]
+        self.assertEqual(len(block["measured_alphas"]), 2, "the alphas of one replay")
+        self.assertEqual(block["pixel_frames"], sorted(set(block["pixel_frames"])))
+        self.assertEqual(len(block["pixel_frames"]), 3)
+        self.assertAlmostEqual(block["pixels"]["phase_b_vs_gpu_border"]["fraction_pixels_rgb_over24"], 1 / (64 * 36))
+        for variant in variants:
+            self.assertEqual(report["variants"][variant]["play_timing_ms"]["prepare_ms"]["n"], 2)
+        self.assertEqual(os.environ.get("MANIML_PROGRAMS"), None, "the environment is handed back")
+        self.assertEqual(scene.current_animation_index, 3)
+
+    def test_the_default_stacks_plays_follow_the_programs_default(self):
+        # The default stack's plays record under programs.DEFAULT_MODE, as a
+        # page on the Default renderer would record them: with the default
+        # "off" they share the run's replay, and a default that flips has
+        # them replay under it, in a replay of their own.
+        from maniml.utils import programs
+
+        scene = self.scene
+        variants = ("gpu_border", "default")
+        for default in ("off", "strokes"):
+            seen = []
+
+            def sampler(variant):
+                seen.append((variant, programs.mode()))
+                row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                       "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+                return row, Image.new("RGBA", (64, 36), (0, 0, 0, 255)), {"resolution": [64, 36]}
+
+            with self.subTest(default=default), patch.object(programs, "DEFAULT_MODE", default), \
+                    patch.dict(os.environ, MANIML_PROGRAMS="off"), tempfile.TemporaryDirectory() as tmp:
+                scope = episode_frames.scope(variants, False, True)
+                episode_frames.measure(scene, [4], variants, samples=2, warmups=1, sampler=sampler,
+                                       output=Path(tmp), report={"variants_in_rotation": list(variants)},
+                                       play_frames=True)
+                still, play = seen[:6], seen[6:]
+                self.assertEqual({mode for _, mode in still}, {"off"})
+                if default == "off":
+                    self.assertEqual(sorted(play), [("default", "off")] * 3 + [("gpu_border", "off")] * 3)
+                    self.assertEqual({variant for variant, _ in play[:2]}, set(variants), "one replay, rotating")
+                    self.assertNotIn("programs_scope", scope)
+                else:
+                    self.assertEqual(play, [("gpu_border", "off")] * 3 + [("default", "strokes")] * 3)
+                    self.assertIn("default: MANIML_PROGRAMS=strokes", scope["programs_scope"])
+
+    def test_camera_moves_are_rounds_of_a_pan_a_zoom_and_the_camera_put_back(self):
+        # browser_frames' moves, as rounds: one rotation of the variants per
+        # move, the warmup rounds left out, and the camera as it was after.
+        scene = self.scene
+        seen = []
+
+        def sampler(variant):
+            seen.append((variant, tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width()))
+            row = {"serialize_through_rgba_image_ms": 5., "submit_through_full_readback_ms": 2.,
+                   "post_readback_ms": .3, "prepare_ms": .5, "render_cpu_encode_ms": .7}
+            return row, Image.new("RGBA", (64, 36), (0, 0, 0, 255)), {"resolution": [64, 36]}
+
+        episode_frames.show_frame(scene, 2)
+        before = (tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width())
+        with tempfile.TemporaryDirectory() as tmp:
+            report = episode_frames.measure(scene, [2], self.variants, samples=2, warmups=1, sampler=sampler,
+                                            output=Path(tmp), report={"variants_in_rotation": list(self.variants)},
+                                            camera_moves=True)
+        self.assertEqual((tuple(scene.camera.frame.get_center()), scene.camera.frame.get_width()), before)
+        moved = seen[2 * 3:]
+        self.assertEqual(len(moved), 2 * 3 * 3, "three rounds of three moves, two variants each")
+        width = before[1]
+        self.assertEqual([round(w / width, 4) for _, _, w in moved[:6:2]], [1, 1.02, 1])
+        self.assertAlmostEqual(moved[0][1][0] - before[0][0], .05 * width)
+        for variant in self.variants:
+            rows = [row for row in report["variants"][variant]["samples"] if row["phase"] == "camera"]
+            self.assertEqual([row["move"] for row in rows], ["pan", "zoom", "back"] * 2)
+            self.assertEqual({row["iteration"] for row in rows}, {1, 2})
+            self.assertEqual(report["variants"][variant]["camera_timing_ms"]["prepare_ms"]["n"], 6)
+            self.assertEqual(report["frames"][0]["camera"][variant]["prepare_ms"]["n"], 6)
+        summary = episode_frames.summary_of(report)
+        self.assertEqual(set(summary["camera_variants"]), set(self.variants))
+        table = episode_frames.markdown_table(summary)
+        self.assertIn("| camera moves |", table)
+        self.assertEqual(sum("camera moves" in line for line in table.splitlines()), 2)
 
 
 if __name__ == "__main__":

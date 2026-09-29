@@ -184,4 +184,18 @@ function fixture(origin) {
     origin: sameRequest.renderer_origin, request: sameRequest.renderer_request });
   await flush();
   assert.equal(concurrentA.element("renderer-select").value, "winding");
+
+  // Default, Phase A and Phase B are one driver (ManimlWGPU) under three
+  // names: an engine state naming Phase A, or a choice of it, selects it
+  // and initializes that driver, as Phase B does.
+  const forced = fixture("forced");
+  forced.ready(); forced.state("phase_a");
+  await flush();
+  assert.equal(forced.element("renderer-select").value, "phase_a");
+  assert.deepEqual(forced.calls, ["init:triangles"]);
+  forced.choose("phase_b");
+  await flush();
+  assert.deepEqual(forced.socket().sent.filter(event => Object.hasOwn(event, "renderer"))
+    .map(event => event.renderer), ["phase_b"]);
+  assert.deepEqual(forced.calls, ["init:triangles", "destroy:triangles", "init:triangles"]);
 })().catch(error => { console.error(error); process.exitCode = 1; });
