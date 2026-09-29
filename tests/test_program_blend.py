@@ -29,7 +29,13 @@ from maniml.web.triangle_scene import TriangleMeshCache, prepare_triangle_frame
 from tests.renderer_fixtures import build_scene
 
 HAVE_LYON = bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
-PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets")
+# The CPU path the blends are held to packs its curve records on the CPU
+# (MANIML_PATCH_SOURCE=records, stated since B5.6 made rows the default
+# wherever patches are drawn), so a fault in row_finalize.wgsl, which
+# finalizes both a program's output and a rows-sourced path, cannot cancel
+# on both sides.
+PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets",
+               MANIML_PATCH_SOURCE="records")
 PHASE_A = dict(MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="grids")
 
 

@@ -148,7 +148,8 @@ class Variants(unittest.TestCase):
                                                            None)[0]
                     for variant in episode_frames.VARIANTS}
         self.assertEqual(seen, [("patch_fill", "0"), ("gpu_border", "0"), ("gpu_border", "1"), ("cpu_border", "0"),
-                                ("original_2d", "0"), ("nets", "0"), ("default", "1"), ("phase_b", "1")])
+                                ("original_2d", "0"), ("nets", "0"), ("default", "1"), ("phase_b", "1"),
+                                ("phase_b_records", "1")])
         self.assertEqual(rows["retained"], {"retained_frame": {"leaves_kept": 3}})
         self.assertEqual(rows["gpu_border"], {})
 
@@ -188,16 +189,20 @@ class Variants(unittest.TestCase):
         # moves no variant. gpu_border and cpu_border are Phase A forced;
         # patch_fill is the patches alone and nets the net surfaces alone,
         # their other switches pinned, whatever the defaults or the
-        # environment say.
+        # environment say; patch_fill's records packed, as B5.4 measured
+        # them, whatever the patch source's default (rows since B5.6).
         from maniml.mobject.geometry import Square
         from maniml.utils import programs
         from maniml.web import geometry
         from tests.renderer_fixtures import build_scene
 
-        expected = {"gpu_border": ("gpu", "meshes", "grids", "off"), "cpu_border": ("cpu", "meshes", "grids", "off"),
-                    "patch_fill": ("gpu", "patches", "grids", "off"), "nets": ("gpu", "meshes", "nets", "off")}
-        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu"), \
-                patch.multiple(geometry, DEFAULT_FILL="patches", DEFAULT_SURFACE="nets"), \
+        expected = {"gpu_border": ("gpu", "meshes", "grids", "off", "records"),
+                    "cpu_border": ("cpu", "meshes", "grids", "off", "records"),
+                    "patch_fill": ("gpu", "patches", "grids", "off", "records"),
+                    "nets": ("gpu", "meshes", "nets", "off", "records")}
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu",
+                        MANIML_PATCH_SOURCE="rows"), \
+                patch.multiple(geometry, DEFAULT_FILL="patches", DEFAULT_SURFACE="nets", DEFAULT_PATCH_SOURCE="rows"), \
                 patch.object(programs, "DEFAULT_MODE", "gpu"):
             for variant, stack in expected.items():
                 with self.subTest(variant=variant):
@@ -205,7 +210,7 @@ class Variants(unittest.TestCase):
                     with patch.object(geometry, "performance", stages):
                         _, _, header = gpu_borders.sample(build_scene(Square(fill_opacity=1)), variant, cache, stages)
                     self.assertEqual((cache.border_generator, cache.fill_generator, cache.surface_generator,
-                                      cache.program_mode), stack)
+                                      cache.program_mode, cache.patch_source), stack)
                     self.assertEqual(header["renderer"], "triangles")
 
     @requires_lyon
@@ -214,22 +219,30 @@ class Variants(unittest.TestCase):
         # generators' and the programs' defaults leave it, whatever the
         # environment says (the run's MANIML_PROGRAMS=off included), and
         # phase_b_retained the forced Phase B, stamped as the page's
-        # selection reads it; both run the retained frame.
+        # selection reads it, its patch source the default's as the
+        # selection's is (B5.6: rows); phase_b_retained_records is the same
+        # with its records packed, the Phase B B6 measured. All three run
+        # the retained frame.
         from maniml.mobject.geometry import Square
         from maniml.utils import programs
         from maniml.web import geometry
         from tests.renderer_fixtures import build_scene
 
-        for defaults in (("meshes", "grids", "off"), ("patches", "nets", "strokes")):
-            with patch.dict(os.environ, MANIML_FILL="patches" if defaults[0] == "meshes" else "meshes",
-                            MANIML_SURFACE="nets" if defaults[1] == "grids" else "grids",
-                            MANIML_PROGRAMS="strokes" if defaults[2] == "off" else "off",
-                            MANIML_PATCH_SOURCE="rows"), \
-                    patch.multiple(geometry, DEFAULT_FILL=defaults[0], DEFAULT_SURFACE=defaults[1]), \
-                    patch.object(programs, "DEFAULT_MODE", defaults[2]):
-                for variant, stack, stamp in (("default", ("gpu", *defaults, "records"), "triangles"),
-                                              ("phase_b_retained", ("gpu", "patches", "nets", "gpu", "records"),
-                                               "phase_b")):
+        for defaults in (("meshes", "grids", "off", "records"), ("patches", "nets", "strokes", "rows")):
+            fill, surface, mode, source = defaults
+            with patch.dict(os.environ, MANIML_FILL="patches" if fill == "meshes" else "meshes",
+                            MANIML_SURFACE="nets" if surface == "grids" else "grids",
+                            MANIML_PROGRAMS="strokes" if mode == "off" else "off",
+                            MANIML_PATCH_SOURCE="rows" if source == "records" else "records"), \
+                    patch.multiple(geometry, DEFAULT_FILL=fill, DEFAULT_SURFACE=surface,
+                                   DEFAULT_PATCH_SOURCE=source), \
+                    patch.object(programs, "DEFAULT_MODE", mode):
+                # Without patches there is nothing to source: "records".
+                for variant, stack, stamp in (
+                        ("default", ("gpu", fill, surface, mode, source if fill == "patches" else "records"),
+                         "triangles"),
+                        ("phase_b_retained", ("gpu", "patches", "nets", "gpu", source), "phase_b"),
+                        ("phase_b_retained_records", ("gpu", "patches", "nets", "gpu", "records"), "phase_b")):
                     with self.subTest(defaults=defaults, variant=variant):
                         stages, cache = StageObserver(), geometry.GeometryCache()
                         with patch.object(geometry, "performance", stages):
@@ -242,7 +255,7 @@ class Variants(unittest.TestCase):
                         # Its plays record as the viewer's would: the
                         # selection's override, the default's mode.
                         self.assertEqual(episode_frames.play_mode(variant), stack[3])
-                self.assertEqual(os.environ["MANIML_FILL"], "patches" if defaults[0] == "meshes" else "meshes",
+                self.assertEqual(os.environ["MANIML_FILL"], "patches" if fill == "meshes" else "meshes",
                                  "the environment is handed back")
 
     @requires_lyon

@@ -1,0 +1,15 @@
+258 records batches 363 cached 0 rows batches 0 rows cached 0 bytes 1229744 program_data 0 border_data 182
+258 rows batches 363 cached 0 rows batches 363 rows cached 0 bytes 959202 program_data 362 border_data 0
+  cached in records, not rows: 0
+277 records batches 463 cached 176 rows batches 0 rows cached 0 bytes 1847852 program_data 0 border_data 232
+277 rows batches 463 cached 0 rows batches 463 rows cached 0 bytes 1459604 program_data 461 border_data 0
+  cached in records, not rows: 176
+  sample records batch keys ['border', 'cached', 'count', 'fill_num_verts', 'hash', 'index_count', 'indexed', 'instances', 'kind', 'num_verts', 'objects', 'pipeline', 'stride', 'uniforms']
+  sample rows batch keys ['border', 'count', 'fill_num_verts', 'hash', 'index_count', 'indexed', 'instances', 'kind', 'num_verts', 'objects', 'offset', 'pipeline', 'rows', 'stride', 'uniforms']
+  pipelines {'patch'}
+157 records batches 142 cached 68 rows batches 0 rows cached 0 bytes 938234 program_data 0 border_data 71
+157 rows batches 142 cached 0 rows batches 142 rows cached 0 bytes 738935 program_data 223 border_data 0
+  cached in records, not rows: 68
+  sample records batch keys ['border', 'cached', 'count', 'fill_num_verts', 'hash', 'index_count', 'indexed', 'instances', 'kind', 'num_verts', 'objects', 'pipeline', 'stride', 'uniforms']
+  sample rows batch keys ['border', 'count', 'fill_num_verts', 'hash', 'index_count', 'indexed', 'instances', 'kind', 'num_verts', 'objects', 'offset', 'pipeline', 'rows', 'stride', 'uniforms']
+  pipelines {'patch'}

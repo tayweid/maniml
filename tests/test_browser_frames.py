@@ -64,12 +64,22 @@ class Variants(unittest.TestCase):
         # B5.4 (docs/phase_b4_plan.md, "The flips"): phase_a is Phase A
         # forced; every other variant is the default renderer under its
         # switches, and names all three, so a default that flips moves no
-        # stream. B6's stacks are the two exceptions: phase_b_forced is
-        # Phase B forced, and default is the default stack with its
-        # switches taken out, so the defaults select it.
-        self.assertEqual(browser_frames.RENDERERS, {"phase_a": "phase_a", "phase_b_forced": "phase_b"})
+        # stream. B6's stacks are the exceptions: phase_b_forced is Phase
+        # B forced with its patch source taken out, as the selection sends
+        # it (rows since B5.6), phase_b_forced_records the same with its
+        # records packed, as B6 measured it, and default is the default
+        # stack with its switches taken out, so the defaults select it.
+        self.assertEqual(browser_frames.RENDERERS, {"phase_a": "phase_a", "phase_b_forced": "phase_b",
+                                                    "phase_b_forced_records": "phase_b"})
         self.assertEqual(browser_frames.UNSET, {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
-                                                            "MANIML_PATCH_SOURCE")})
+                                                            "MANIML_PATCH_SOURCE"),
+                                                "phase_b_forced": ("MANIML_PATCH_SOURCE",)})
+        self.assertNotIn("MANIML_PATCH_SOURCE", browser_frames.ENVIRONMENTS["phase_b_forced"])
+        self.assertEqual(browser_frames.ENVIRONMENTS["phase_b_forced_records"],
+                         dict(browser_frames.ENVIRONMENTS["phase_b_forced"], MANIML_PATCH_SOURCE="records"))
+        # The variants B5.1 and B5.4 measured state their patch source.
+        for variant, source in (("phase_b", "records"), ("phase_b_rows", "rows"), ("phase_a_patches", "records")):
+            self.assertEqual(browser_frames.ENVIRONMENTS[variant]["MANIML_PATCH_SOURCE"], source, variant)
         for variant, environment in browser_frames.ENVIRONMENTS.items():
             if variant in browser_frames.RENDERERS or variant in browser_frames.UNSET:
                 continue

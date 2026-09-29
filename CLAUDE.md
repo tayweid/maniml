@@ -215,13 +215,18 @@ defaults are (`geometry.DEFAULT_FILL`, `geometry.DEFAULT_SURFACE`,
 export recorder draw it, so a default that flips flips there too. `phase_a`
 forces Phase A (meshes, grids, programs off) and `phase_b` the whole Phase
 B stack (patches, nets, GPU programs), whatever the defaults or the
-environment say (`geometry.FORCED_STACKS`), so both ends stay selectable
-whichever way a default goes, and the viewer sets
+environment say about the fill, surface and programs
+(`geometry.FORCED_STACKS`; both still read the border generator and the
+patch source, ways to send the same pixels, so Phase B's patches go as
+their paths' rows by `geometry.DEFAULT_PATCH_SOURCE`), so both ends stay
+selectable whichever way a default goes, and the viewer sets
 `programs.set_override("off")` or `("gpu")` while one is selected so its
 plays write what it draws; the default follows the environment
 (`programs.env_mode()`), so an export made while a forced renderer is on
 screen is unaffected. The golden pin (`tests/test_retained_frame.py`) holds
-`phase_a` and `phase_b`, so no flip can move a pinned byte. A frame's
+`phase_a` and `phase_b` under the switches it was recorded with (programs
+off and the records packed, both stated), so no flip can move a pinned
+byte. A frame's
 header names the selection that made it, so the page's selection drops
 another's frames across a switch, with one exception: Phase A's frames are
 stamped `triangles`, the bytes Phase A always wrote (the pin's digests,
@@ -362,38 +367,51 @@ both episodes' plays (1.15× and 1.48× Phase A in format 8, the serialize's:
 a mover's records packed every frame) and ticked frames, its pixels
 Phase A's but two pixels over 287 frames, 263 of them inside plays.
 
-`MANIML_PATCH_SOURCE=rows` (B5.1, `docs/phase_b4_plan.md`; it sources
-patches, so it applies wherever they are drawn, Phase B included, and
-nowhere else) sends a path's rows in place of its fill's curve records and
-its stroke's instances: VMobject's seventeen float32 columns as the read of
-its shader data leaves them (unit normal, joint angles and base points
-refreshed), copied once, in `program_data` by content hash, which a patch
-or stroke batch names in its `rows` (a patch run's border hash is
-`gpu_program_geometry.rows_key` of them). Each driver finalizes each rows
-once (`row_finalize.wgsl`, B3's kernel) into curve records and stroke
-instances, shared by every batch that names the rows; a run of several
-objects copies its objects' outputs into a buffer of its own; the border
-stage, the patch fill and the stroke pipeline read them as they read a
-program's. Python keeps what the draw counts need (the active curves, the
-reservation's density summary, the stroke's count), the validation and
-the planar refusal (unchanged; a path whose points share one z is not
-fitted, since it lies in that plane), and the object record, whose base
-words stay zero (nothing reads them) and whose winding sign is computed
-only for an object that may share a stencil count. A path whose rows
-cannot stand for its records (a getter of its own, another dtype, an edited
-outer-vertex pattern) keeps its records, and closes the rows run around it
-(`run_kind`'s `patch_rows` and `stroke_rows` never join a records run), so
-the draw counts are the records' only where every path is row-sourced. A
-stroke's rows are compared every frame, as its shader data is read every
-frame on the records' side; a fill's are trusted at an unchanged revision,
-as its records are. Pixels are the records' (identical on both episodes'
-pausepoints and plays); the default stays `records`, and the golden pin
-clears the switch, so Phase B as measured stays reproducible. What it
-costs the GPU: each driver finalizes every changed rows with a dispatch of
-its own in one compute pass, and on the 8.a play (~360 a frame) that is ~10
-ms more GPU and ~15 ms more native `render()` against ~52 ms less
-serialize; one dispatch for a frame's rows is the open fix (the plan's
-B5.1, "The negatives").
+Rows are the patch source wherever patches are drawn (B5.1, the default
+since B5.6, `docs/phase_b4_plan.md`; `geometry.DEFAULT_PATCH_SOURCE`, read
+by the forced Phase B and by any stack that selects patches, and nowhere
+else; `MANIML_PATCH_SOURCE=records` packs the records instead, the override
+the harnesses compare against): a path is sent as its rows in place of its
+fill's curve records and its stroke's instances, VMobject's seventeen
+float32 columns as the read of its shader data leaves them (unit normal,
+joint angles and base points refreshed), copied once, in `program_data` by
+content hash, which a patch or stroke batch names in its `rows` (a patch
+run's border hash is `gpu_program_geometry.rows_key` of them). Each driver
+finalizes each rows once (`row_finalize.wgsl`, B3's kernel) into curve
+records and stroke instances, shared by every batch that names the rows; a
+run of several objects copies its objects' outputs into a buffer of its
+own; the border stage, the patch fill and the stroke pipeline read them as
+they read a program's. Python keeps what the draw counts need (the active
+curves, the reservation's density summary, the stroke's count), the
+validation and the planar refusal (unchanged; a path whose points share one
+z is not fitted, since it lies in that plane), and the object record, whose
+base words stay zero (nothing reads them) and whose winding sign is
+computed only for an object that may share a stencil count. A path whose
+rows cannot stand for its records (a getter of its own, another dtype, an
+edited outer-vertex pattern) keeps its records, and closes the rows run
+around it (`run_kind`'s `patch_rows` and `stroke_rows` never join a records
+run), so the draw counts are the records' only where every path is
+row-sourced. A stroke's rows are compared every frame, as its shader data
+is read every frame on the records' side; a fill's are trusted at an
+unchanged revision, as its records are. Pixels are the records'
+(identical on both episodes' pausepoints and plays, and on every frame of
+the golden pin, which states `MANIML_PATCH_SOURCE=records` as its digests
+were recorded). The harnesses' forced Phase B follows the selection (the
+patch source taken out of the environment), and their `_records` twins and
+the variants older archives measured state records (`benchmarks/README.md`,
+"The patch source in the harnesses"). What it costs: each driver finalizes
+every changed rows with a dispatch of its own in one compute pass, and a
+path's rows carry its paint and are keyed with it, so a change of paint
+alone (a dim at a pausepoint) sends and finalizes them again where its
+records would stay cached. On the 8.a play (~360 rows a frame, its movers
+not programs) that is ~6 ms more GPU and ~16 ms more native `render()`
+against ~52 ms less serialize (the test point's complete frame 127.3 → 80.5 ms in
+format 8), every other class's median within 0.5 ms, while a navigation,
+where every path arrives at once, costs the forced Phase B's native
+complete frame 15-28% more (EpisodeB2 29.9 → 38.3 ms) and the page's
+JavaScript up to ~0.8 ms more. One dispatch for a frame's rows and the
+finalized geometry keyed on the geometry columns alone are the open fixes
+(the plan's B5.1, "The negatives", and B5.6).
 
 A `Surface`'s points are a biquadratic Bézier net (Phase B2,
 `docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
@@ -486,10 +504,11 @@ Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
-`benchmarks/test_point.py` reads that complete frame for four stacks at
+`benchmarks/test_point.py` reads that complete frame for five stacks at
 once (today's: Phase A without the retained frame in format 7, drawn by
 `main`'s page; Phase A retained; the Default; Phase B forced, its plays
-recording GPU programs), the last three in both formats, with the wire per
+recording GPU programs, as the selection sends it; the same with its
+records packed, B6's Phase B), the last four in both formats, with the wire per
 message, the pixels against today's, and an instrumented run that names
 where each stack's Python goes (the scene's own updaters, Lyon, the
 comparisons of a moved revision, the encode, the diff);

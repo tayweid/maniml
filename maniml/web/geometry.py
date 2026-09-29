@@ -225,11 +225,17 @@ def serialize_scene(scene: Scene, cache: GeometryCache | None = None, *,
 # (MANIML_FILL, MANIML_SURFACE, MANIML_PROGRAMS). Native capture and the
 # export recorder draw it, so a default that flips flips there too
 # (docs/phase_b4_plan.md, "The flips"). "phase_a" and "phase_b" force the
-# two ends whatever the defaults or the environment say — Phase A (meshes,
-# grids, programs off) and the whole Phase B stack (patch fills, net
-# surfaces, GPU programs; docs/phase_b_plan.md) — so both stay selectable
-# from the dropdown, and the golden pin holds them
-# (tests/test_retained_frame.py): no flip can move a pinned byte.
+# two ends' fill, surface and programs whatever the defaults or the
+# environment say — Phase A (meshes, grids, programs off) and the whole
+# Phase B stack (patch fills, net surfaces, GPU programs;
+# docs/phase_b_plan.md) — so both stay selectable from the dropdown. They
+# do not fix how the bytes are made: both still read the border generator
+# and the patch source (MANIML_BORDER_GENERATOR, MANIML_PATCH_SOURCE), each
+# another way to send the same pixels that a harness compares on purpose,
+# so the viewer's Phase B sends what DEFAULT_PATCH_SOURCE says. The golden
+# pin (tests/test_retained_frame.py) holds the two names under the
+# switches it was recorded with (the border generator's default; the
+# records packed, stated): no flip of a default can move a pinned byte.
 # "winding" is Original 2D.
 RENDERERS = ("triangles", "phase_a", "phase_b", "winding")
 # What a forced renderer draws: (fill, surface, programs).
@@ -237,6 +243,12 @@ FORCED_STACKS = {"phase_a": ("meshes", "grids", "off"), "phase_b": ("patches", "
 # The generators "triangles" draws where no environment flag says otherwise.
 DEFAULT_FILL = "meshes"
 DEFAULT_SURFACE = "grids"
+# What a patch fill is sent as wherever patches are drawn, forced or not,
+# unless MANIML_PATCH_SOURCE says otherwise (B5.6, docs/phase_b4_plan.md):
+# the path's rows, which each driver finalizes, not its records packed.
+# The forced stacks read it too, as they read the border generator; the
+# golden pin states records, as it was recorded.
+DEFAULT_PATCH_SOURCE = "rows"
 
 
 def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
@@ -260,10 +272,13 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
     if fill_generator == "patches" and border_generator != "gpu":
         raise ValueError("MANIML_FILL=patches requires MANIML_BORDER_GENERATOR=gpu")
     # B5.1 (docs/phase_b4_plan.md): what a patch fill's curve records and its
-    # path's stroke instances are sent as. "records" (the default) packs
-    # them on the CPU; "rows" sends the path's rows and each driver finalizes
-    # them (row_finalize.wgsl). Without patches there is nothing to source.
-    patch_source = os.environ.get("MANIML_PATCH_SOURCE", "records")
+    # path's stroke instances are sent as. "rows" (the default since B5.6,
+    # wherever patches are drawn: the forced Phase B and any stack that
+    # selects them) sends the path's rows and each driver finalizes them
+    # (row_finalize.wgsl); "records" packs them on the CPU, the explicit
+    # override the harnesses compare against, pixel for pixel the same.
+    # Without patches there is nothing to source.
+    patch_source = os.environ.get("MANIML_PATCH_SOURCE", DEFAULT_PATCH_SOURCE)
     if patch_source not in ("records", "rows"):
         raise ValueError("MANIML_PATCH_SOURCE must be 'records' or 'rows'")
     if fill_generator != "patches":

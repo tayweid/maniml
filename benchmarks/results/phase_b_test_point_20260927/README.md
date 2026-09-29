@@ -14,6 +14,13 @@ reading is the plan's; this README holds the runs and every number.
 
 ## Runs
 
+Since B5.6 (`docs/phase_b4_plan.md`, "The flips") the recipe's `phase_b`,
+`phase_b_forced` and `phase_b_retained` follow the selection, whose patches
+go as rows; the Phase B measured here packed records, and is reproduced by
+`phase_b_records`, `phase_b_forced_records` and `phase_b_retained_records`
+(`benchmarks/results/b56_rows_source_20260929/` retakes the table with
+both).
+
 From `/Users/taylorjweidman/Projects/ManimLive/maniml-b4i` (branch
 `b4-integration`, commit `894e841c`, B5.4, plus B6's harness as the runs
 hashed it: `summary.json` `source_files_sha256` holds what the runs

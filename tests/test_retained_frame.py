@@ -94,11 +94,12 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "goldens" / "retained_frame"
 RECORD_ENV = "MANIML_RECORD_GOLDENS"
 RENDERERS = ("phase_a", "phase_b")
 # The switches the forced renderers still read (the border generator, the
-# patch source) and the cache policy select other bytes on purpose, and the
-# pin is their defaults; the stack's own (fill, surface, programs) the
-# forced names ignore, and are cleared all the same. MANIML_RETAINED_FRAME
-# and MANIML_VERIFY_LEDGER stay as the run has them: neither may change a
-# byte.
+# patch source) and the cache policy select other bytes on purpose; the pin
+# is the border generator's and the cache policy's defaults and the patch
+# source it was recorded under, stated (GoldenCase); the stack's own (fill,
+# surface, programs) the forced names ignore, and are cleared all the same.
+# MANIML_RETAINED_FRAME and MANIML_VERIFY_LEDGER stay as the run has them:
+# neither may change a byte.
 PINNED_ENV = ("MANIML_BORDER_GENERATOR", "MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
               "MANIML_PATCH_SOURCE", "MANIML_RENDER_CACHE", "MANIML_RENDERER")
 # The course episodes the plan's gates are measured on, with the checkpoint
@@ -306,6 +307,12 @@ class GoldenCase(unittest.TestCase):
         # (programs.DEFAULT_MODE, docs/phase_b4_plan.md "The flips") moves
         # no pinned byte. The forced renderers never read it.
         os.environ["MANIML_PROGRAMS"] = "off"
+        # The patch fills were recorded as their records packed, the patch
+        # source's default then: stated, so that its default since B5.6
+        # (geometry.DEFAULT_PATCH_SOURCE, rows) moves no pinned byte. Rows
+        # draw the same pixels (PatchRowsPixels) and keep the retained
+        # frame's lockstep (RowSourcesLockstep, RowSourcesNavigation).
+        os.environ["MANIML_PATCH_SOURCE"] = "records"
         # An episode sets the CE config for itself (EpisodeB2 is 2:1, both
         # are 60 fps on #212121) and the process keeps it, so every class
         # starts from the import-time default resolution the fixtures were

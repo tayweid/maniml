@@ -2352,7 +2352,8 @@ const ManimlWGPU = (() => {
     // "triangles" is the default stack, and Phase A's frames too (the engine
     // stamps its forced "phase_a" so, the bytes Phase A always wrote);
     // "phase_b" is the same format from the whole Phase B stack (patch
-    // fills, net surfaces, programs). This driver draws all three.
+    // fills sent as rows, net surfaces, programs). This driver draws all
+    // three.
     if (header.renderer !== "triangles" && header.renderer !== "phase_b") {
       throw new Error("browser renderer requires generated triangle geometry");
     }

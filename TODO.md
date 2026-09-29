@@ -202,10 +202,15 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
 - **Built behind flags, measured, not the default.** B1's patch fill
   (`MANIML_FILL=patches`: a fan and a count, no mesh), B2's surfaces as
   control nets (`MANIML_SURFACE=nets`), B3's animations as GPU programs
-  (`MANIML_PROGRAMS=shadow|gpu`, and B5.3's `strokes` on Phase A), B5.1's
-  rows on the wire under patches (`MANIML_PATCH_SOURCE=rows`). Both drivers
-  draw all of them and the recording player reads them. The viewer's
-  **Phase B** selection runs them together on any scene.
+  (`MANIML_PROGRAMS=shadow|gpu`, and B5.3's `strokes` on Phase A). Both
+  drivers draw all of them and the recording player reads them. The
+  viewer's **Phase B** selection runs them together on any scene, its
+  patches sent as rows: B5.1's rows on the wire are the patch source
+  wherever patches are drawn since B5.6 (`MANIML_PATCH_SOURCE=records` the
+  override), pixels identical, the golden pin untouched (it states
+  records). B6's test point retaken with both: 8.a's play 127.3 → 80.5 ms,
+  every class's median within 0.5 ms; navigations +15-28% natively until
+  item 2's levers.
 - **Shipped.** B4's retained frame (Python prepares only what changed,
   byte-identical on the wire) and format 8 (a negotiated page is sent a
   delta per change, and nothing at rest).
@@ -224,20 +229,32 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
 What is left, from B6's reading, each with its measured size (the plan's
 reading has the rest):
 
-1. **Phase B's GPU programs draw a PriceDiscovery play wrong**: the rays of
-   a lagged fade-in drawn opaque in a neighbouring dashed line's paint,
-   2.02% of the pixels as B6 measured it (before the fix), where the CPU
-   path draws them nearly transparent. Neither the retained frame, the
-   patch fill nor nets. Being fixed in its own session (started
-   2026-09-28: `pack_rows` writing a source's base-point rows from its
-   first point); B6's figures predate it.
+1. **Fixed 2026-09-28 (c787d9d1): Phase B's GPU programs drew a
+   PriceDiscovery play wrong**: the rays of a lagged fade-in drawn opaque
+   in a neighbouring dashed line's paint, 2.02% of the pixels as B6
+   measured it, where the CPU path draws them nearly transparent.
+   `pack_rows` now writes a source's base-point rows from its first point,
+   as the CPU path's read does; the GPU path against the CPU path on the
+   plays into 48, 58, 68, 86 and 109 is 0 pixels. B6's Phase B play pixels
+   predate the fix; B5.6's retake of the test point has them after it.
 2. **One dispatch per kernel** for a frame's rows and programs, in both
    drivers, as B5.5 made it for nets (a table the kernel reads, the inputs
    gathered and the outputs copied into what their slots own, the state
    keyed on exactly what the output reads). It stands in front of the
    patches and programs flips: Phase B's plays pay 1.5-2.4 ms of program
    passes and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against
-   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play. The
+   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play; since
+   B5.6 made rows Phase B's patch source, a navigation pays them too (the
+   native render of a restored pausepoint 22.1 → 31.1 ms on EpisodeB2,
+   17.7 → 21.5 on PriceDiscovery). Rows need a second lever beside the
+   dispatch: a path's rows carry its paint (stroke and fill RGBA) and are
+   keyed by content with it, so a change of paint alone (a dim or undim at
+   a pausepoint) sends and finalizes the rows again and the batch is no
+   longer cached, where the records stay cached and only the object table
+   moves (EpisodeB2 258 → 277: 176 of 463 batches cached under records, 0
+   under rows). Key the finalized geometry on the geometry columns only and
+   take the colour from the object table or the paint, as records do; count
+   finalizes per navigation, not only dispatches, when it is measured. The
    nets flip waits on the redraw instead: each net drawn with the index
    pattern of its current steps rather than its capacity's (the
    reservation is twice the steps, so three quarters of its triangles have

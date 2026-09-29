@@ -5,6 +5,45 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase B sends a patch as its rows (2026-09-29)
+
+B5.6 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b56_rows_source_20260929/`). B5.1 built rows on the
+wire under patches and proved them pixel for pixel the records' and about
+half the serialize on heavy plays, but kept them behind a switch so the
+Phase B measured on 2026-09-26/27 stayed reproducible. Taylor, having
+driven the Phase B selection (sharper surfaces zoomed in, no difference
+felt in zooms and pans), asked whether its open issues could be fixed
+before both stacks go to main behind the selector; this increment is one
+of those. So `geometry.DEFAULT_PATCH_SOURCE` is `rows`: wherever patches
+are drawn (the forced Phase B, any stack that selects them) a path is sent
+as its rows, and `MANIML_PATCH_SOURCE=records` is the override. The forced
+stacks fix the fill, the surface and the programs, not how the bytes are
+made: they read the patch source as they read the border generator.
+
+The golden pin was not re-recorded: it states
+`MANIML_PATCH_SOURCE=records`, as its phase_b digests were recorded, beside
+`MANIML_PROGRAMS=off`. It clears its switches, so without the statement 246
+of its 251 phase_b digests would have followed the default for a change
+that moves no pixel; a first pass re-recorded them and the review sent it
+back, since a golden is never re-recorded. Every pin frame was drawn both
+ways, identical. The harnesses' instruments named for the selection follow
+it (their forced Phase B takes the patch source out), and `_records` twins
+reproduce B6's Phase B, so the test point reads five stacks. The program
+tests' CPU path states records, so a fault in `row_finalize.wgsl` cannot
+cancel on both sides.
+
+The cost moved rather than vanished. B6's test point retaken: 8.a's play,
+whose movers are not programs, 127.3 → 80.5 ms (format 8); every class's
+median within 0.5 ms of records on both episodes. A navigation costs the
+native driver more (29.9 → 38.3 ms on EpisodeB2, 25.0 → 28.8 on
+PriceDiscovery), for two reasons: a dispatch per changed rows, and rows
+keyed with their paint, so a dim at a pausepoint resends and refinalizes
+paths whose records would stay cached (EpisodeB2 258 → 277: 176 of 463
+batches cached under records, none under rows). One dispatch for a frame's
+rows and finalized geometry keyed on the geometry columns alone are the
+levers; the records override stays for that comparison.
+
 ## A frame's nets in one dispatch; surfaces stay grids by default (2026-09-28)
 
 B5.5 (`docs/phase_b4_plan.md`, "The flips";

@@ -1,0 +1,269 @@
+{
+ "play_8a": {
+  "scene": "EpisodeB2",
+  "gate": 307,
+  "play": 306,
+  "rounds": 6,
+  "stamps": false,
+  "frames": 23,
+  "records": {
+   "complete": [
+    196.53,
+    186.5
+   ],
+   "render": [
+    92.23,
+    85.8
+   ],
+   "serialize": [
+    104.11,
+    96.51
+   ]
+  },
+  "rows": {
+   "complete": [
+    160.14,
+    151.15
+   ],
+   "render": [
+    107.88,
+    100.92
+   ],
+   "serialize": [
+    52.07,
+    49.17
+   ]
+  }
+ },
+ "play_3a4": {
+  "scene": "PriceDiscovery",
+  "gate": 63,
+  "play": 62,
+  "rounds": 6,
+  "stamps": false,
+  "frames": 9,
+  "records": {
+   "complete": [
+    27.35,
+    26.61
+   ],
+   "render": [
+    21.71,
+    17.6
+   ],
+   "serialize": [
+    5.66,
+    5.42
+   ]
+  },
+  "rows": {
+   "complete": [
+    28.31,
+    26.82
+   ],
+   "render": [
+    22.43,
+    19.37
+   ],
+   "serialize": [
+    5.82,
+    5.42
+   ]
+  }
+ },
+ "navigation_EpisodeB2": {
+  "scene": "EpisodeB2",
+  "rounds": 4,
+  "pausepoints": [
+   12,
+   44,
+   76,
+   103,
+   120,
+   140,
+   157,
+   177,
+   194,
+   258,
+   277,
+   307
+  ],
+  "records": {
+   "seek_serialize": [
+    7.38,
+    1.9
+   ],
+   "seek_render": [
+    22.12,
+    7.65
+   ],
+   "seek_complete": [
+    29.87,
+    9.6
+   ],
+   "seek_bytes": [
+    681154.5,
+    399285.0
+   ],
+   "still_serialize": [
+    1.41,
+    0.46
+   ],
+   "still_render": [
+    11.65,
+    5.71
+   ],
+   "still_complete": [
+    12.98,
+    6.23
+   ],
+   "still_bytes": [
+    71656.0,
+    4590.0
+   ]
+  },
+  "rows": {
+   "seek_serialize": [
+    6.79,
+    1.64
+   ],
+   "seek_render": [
+    31.09,
+    9.76
+   ],
+   "seek_complete": [
+    38.32,
+    11.6
+   ],
+   "seek_bytes": [
+    389942.0,
+    63353.0
+   ],
+   "still_serialize": [
+    1.55,
+    0.51
+   ],
+   "still_render": [
+    10.31,
+    5.89
+   ],
+   "still_complete": [
+    11.78,
+    6.43
+   ],
+   "still_bytes": [
+    85377.0,
+    8686.0
+   ]
+  }
+ },
+ "navigation_PriceDiscovery": {
+  "scene": "PriceDiscovery",
+  "rounds": 4,
+  "pausepoints": [
+   9,
+   19,
+   35,
+   48,
+   58,
+   68,
+   86,
+   98,
+   109,
+   115,
+   123,
+   130
+  ],
+  "records": {
+   "seek_serialize": [
+    6.38,
+    3.88
+   ],
+   "seek_render": [
+    17.7,
+    7.67
+   ],
+   "seek_complete": [
+    25.0,
+    11.56
+   ],
+   "seek_bytes": [
+    396514.0,
+    160108.0
+   ],
+   "still_serialize": [
+    1.35,
+    0.81
+   ],
+   "still_render": [
+    10.13,
+    6.32
+   ],
+   "still_complete": [
+    11.61,
+    7.12
+   ],
+   "still_bytes": [
+    64995.0,
+    13372.0
+   ]
+  },
+  "rows": {
+   "seek_serialize": [
+    6.32,
+    3.91
+   ],
+   "seek_render": [
+    21.52,
+    12.64
+   ],
+   "seek_complete": [
+    28.75,
+    17.29
+   ],
+   "seek_bytes": [
+    260685.5,
+    110846.0
+   ],
+   "still_serialize": [
+    1.48,
+    0.88
+   ],
+   "still_render": [
+    9.61,
+    6.6
+   ],
+   "still_complete": [
+    11.13,
+    7.48
+   ],
+   "still_bytes": [
+    73681.5,
+    19135.0
+   ]
+  }
+ },
+ "conditions": {
+  "conditions_complete_B2.txt": [
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   " 1:07  up 19 days, 15:57, 4 users, load averages: 1.37 1.51 1.57",
+   " 1:08  up 19 days, 15:58, 4 users, load averages: 1.58 1.56 1.58"
+  ],
+  "conditions_complete_B3.txt": [
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   " 1:08  up 19 days, 15:58, 4 users, load averages: 1.41 1.52 1.57",
+   " 1:09  up 19 days, 15:59, 4 users, load averages: 2.06 1.66 1.62"
+  ],
+  "conditions_seek.txt": [
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   "\"Device Utilization %\"=0",
+   " 1:10  up 19 days, 16 hrs, 4 users, load averages: 2.11 1.77 1.66",
+   " 1:10  up 19 days, 16 hrs, 4 users, load averages: 1.90 1.75 1.65"
+  ]
+ }
+}

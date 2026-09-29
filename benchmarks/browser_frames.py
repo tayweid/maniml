@@ -58,7 +58,9 @@ VARIANTS = ("phase_a", "phase_b")
 # as GPU programs (MANIML_PROGRAMS=strokes, B5.3); phase_a_nets and
 # phase_a_patches are phase_a with one of B5.4's flips, the surfaces as
 # nets (B2) or the fills as patches (B1, records packed). Each is recorded
-# when --variants names it.
+# when --variants names it. phase_b, phase_b_rows and phase_a_patches state
+# their patch source, as their archived runs measured it (B5.6 made rows
+# the default wherever patches are drawn, docs/phase_b4_plan.md).
 ENVIRONMENTS = {
     "phase_a": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
                 "MANIML_BORDER_GENERATOR": "gpu"},
@@ -76,19 +78,25 @@ ENVIRONMENTS = {
     # viewer's selector draws them: the default stack as the generators'
     # defaults leave it (its switches unset, UNSET), and the forced Phase B
     # (the renderer "phase_b"), whose plays record GPU programs as the
-    # selection's override has them.
+    # selection's override has them, its patch source taken out as the
+    # selection's is (rows since B5.6). phase_b_forced_records is the forced
+    # Phase B with its records packed, the stack B6 measured.
     "default": {"MANIML_BORDER_GENERATOR": "gpu"},
-    "phase_b_forced": {"MANIML_PROGRAMS": "gpu", "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
+    "phase_b_forced": {"MANIML_PROGRAMS": "gpu", "MANIML_BORDER_GENERATOR": "gpu"},
+    "phase_b_forced_records": {"MANIML_PROGRAMS": "gpu", "MANIML_BORDER_GENERATOR": "gpu",
+                               "MANIML_PATCH_SOURCE": "records"},
 }
 # The switches a variant's recording takes out of the environment, so its
 # stack is what the defaults select whatever the caller's environment says.
-UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE")}
+UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE"),
+         "phase_b_forced": ("MANIML_PATCH_SOURCE",)}
 # The renderer a variant's stream is serialized as: Phase A forced for
-# phase_a and Phase B forced for phase_b_forced, else the default stack
-# under the variant's switches. The other Phase B variants go through
-# "triangles", since a recording names no other (player.js); the forced
-# stream is replayed by browser_frames.cjs, whose selection routes "phase_b".
-RENDERERS = {"phase_a": "phase_a", "phase_b_forced": "phase_b"}
+# phase_a and Phase B forced for phase_b_forced and phase_b_forced_records,
+# else the default stack under the variant's switches. The other Phase B
+# variants go through "triangles", since a recording names no other
+# (player.js); the forced streams are replayed by browser_frames.cjs, whose
+# selection routes "phase_b".
+RENDERERS = {"phase_a": "phase_a", "phase_b_forced": "phase_b", "phase_b_forced_records": "phase_b"}
 # The kinds of row, as the viewer draws them: the still redraw of a
 # pausepoint, the same with its updaters ticking, a frame of a play, and
 # the first message after a restore, delta-encoded against the previous

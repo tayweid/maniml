@@ -31,7 +31,14 @@ from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize
 from tests.renderer_fixtures import build_scene
 
 HAVE_LYON = bool(os.environ.get("MANIML_LYON_LIBRARY")) or importlib.util.find_spec("maniml.web.maniml_lyon_fill")
-PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets")
+# The CPU path the programs are held to packs its curve records on the CPU
+# (MANIML_PATCH_SOURCE=records, stated since B5.6 made rows the default
+# wherever patches are drawn), so a fault in row_finalize.wgsl, which
+# finalizes both a program's output and a rows-sourced path, cannot cancel
+# on both sides. PHASE_B_ROWS is the stack the viewer's Phase B draws.
+PHASE_B = dict(MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="nets",
+               MANIML_PATCH_SOURCE="records")
+PHASE_B_ROWS = dict(PHASE_B, MANIML_PATCH_SOURCE="rows")
 PHASE_A = dict(MANIML_FILL="meshes", MANIML_BORDER_GENERATOR="gpu", MANIML_SURFACE="grids")
 
 
@@ -530,13 +537,17 @@ class LibraryPixels(unittest.TestCase):
         for name in CASES:
             with self.subTest(case=name):
                 _, _, reference = _play(name, "off", render=self.render)
-                for mode in ("shadow", "gpu"):
-                    _, _, frames = _play(name, mode, render=self.render)
+                # The programs against the records' CPU path, and the
+                # viewer's Phase B (its paths that are not programs sent as
+                # rows) against the same reference.
+                for mode, env in (("shadow", PHASE_B), ("gpu", PHASE_B), ("gpu", PHASE_B_ROWS)):
+                    source = env["MANIML_PATCH_SOURCE"]
+                    _, _, frames = _play(name, mode, render=self.render, env=env)
                     for alpha, frame, expected in zip(ALPHAS, frames, reference):
                         diff = np.abs(frame - expected)
-                        self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, (name, mode, alpha))
+                        self.assertLessEqual((diff.max(axis=2) > 24).mean(), .005, (name, mode, source, alpha))
                         if name in exact:
-                            self.assertLessEqual(diff.max(), 1, (name, mode, alpha))
+                            self.assertLessEqual(diff.max(), 1, (name, mode, source, alpha))
 
     def test_stroke_cases_match_the_cpu_path_on_phase_a(self):
         # B5.3 (docs/phase_b4_plan.md): strokes on Phase A, at ten alphas,

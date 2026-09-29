@@ -52,13 +52,27 @@ class Stacks(unittest.TestCase):
         self.assertEqual({key for key, value in default.environment.items() if value is None},
                          set(browser_frames.UNSET["default"]))
         self.assertEqual(set(gpu_borders.UNSET["default"]), set(browser_frames.UNSET["default"]))
-        for name in ("default", "phase_b"):
+        for name in ("default", "phase_b", "phase_b_records"):
             stack = test_point.STACKS[name]
             self.assertEqual(stack.play["MANIML_PROGRAMS"], episode_frames.PLAY_PROGRAMS[stack.frames], name)
-        phase_b = test_point.STACKS["phase_b"]
-        self.assertEqual(phase_b.play["MANIML_PROGRAMS"], browser_frames.ENVIRONMENTS["phase_b_forced"]["MANIML_PROGRAMS"])
+        for name in ("phase_b", "phase_b_records"):
+            stack = test_point.STACKS[name]
+            self.assertEqual(stack.play["MANIML_PROGRAMS"],
+                             browser_frames.ENVIRONMENTS[stack.browser]["MANIML_PROGRAMS"], name)
+        # The forced Phase B takes the patch source out in every harness,
+        # as the viewer's selection sends it (B5.6); phase_b_records states
+        # the records packed in every harness, as B6 measured it.
+        self.assertIsNone(test_point.STACKS["phase_b"].environment["MANIML_PATCH_SOURCE"])
+        self.assertEqual(browser_frames.UNSET[test_point.STACKS["phase_b"].browser], ("MANIML_PATCH_SOURCE",))
+        self.assertEqual(gpu_borders.UNSET[episode_frames.SAMPLED_AS[test_point.STACKS["phase_b"].frames]],
+                         ("MANIML_PATCH_SOURCE",))
+        records = test_point.STACKS["phase_b_records"]
+        self.assertEqual(records.environment["MANIML_PATCH_SOURCE"], "records")
+        self.assertEqual(browser_frames.ENVIRONMENTS[records.browser]["MANIML_PATCH_SOURCE"], "records")
+        self.assertNotIn(episode_frames.SAMPLED_AS[records.frames], gpu_borders.UNSET, "sample pins records")
         self.assertEqual(list(test_point.serializers()), [("today", 7), ("phase_a", 7), ("phase_a", 8), ("default", 7),
-                                                          ("default", 8), ("phase_b", 7), ("phase_b", 8)])
+                                                          ("default", 8), ("phase_b", 7), ("phase_b", 8),
+                                                          ("phase_b_records", 7), ("phase_b_records", 8)])
 
 
 SCENE = textwrap.dedent('''\
@@ -96,13 +110,16 @@ class Serialize(unittest.TestCase):
         # Whatever the environment says, the default stack takes the
         # defaults' switches, and none has flipped: its full frames are
         # Phase A's, with or without the retained frame, and the forced
-        # Phase B's are stamped as the page's selection reads them.
+        # Phase B's are stamped as the page's selection reads them, its
+        # patches sent as the selection sends them (rows, B5.6) and as
+        # phase_b_records states (records).
         from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
 
         scene = self.scene
         episode_frames.show_frame(scene, episode_frames.select_frames(scene.animation_checkpoints)[0])
         messages = {}
-        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu"):
+        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu",
+                        MANIML_PATCH_SOURCE="records"):
             for (name, fmt), (renderer, environment, _) in test_point.serializers().items():
                 if fmt == 7:
                     with flip_gates.stack_environment(environment):
@@ -110,7 +127,10 @@ class Serialize(unittest.TestCase):
             self.assertEqual(os.environ["MANIML_FILL"], "patches", "the environment is handed back")
         self.assertEqual(messages["today"], messages["phase_a"])
         self.assertEqual(messages["default"], messages["phase_a"])
-        self.assertEqual(parse_geometry_message(messages["phase_b"])[0]["renderer"], "phase_b")
+        for name, rows in (("phase_b", True), ("phase_b_records", False)):
+            header = parse_geometry_message(messages[name])[0]
+            self.assertEqual(header["renderer"], "phase_b")
+            self.assertEqual(any("rows" in batch for batch in header["batches"]), rows, name)
 
     def test_the_serializers_take_turns_per_class(self):
         scene = self.scene
@@ -126,8 +146,8 @@ class Serialize(unittest.TestCase):
             self.assertEqual(list(frame["play"])[4:], keys)
         # A still frame sends a negotiated page nothing and a full frame
         # each round otherwise; a tick moves the dot.
-        self.assertEqual([still["pausepoint"][key]["sent"] for key in keys], [2, 2, 0, 2, 0, 2, 0])
-        self.assertEqual([ticked["ticked"][key]["sent"] for key in keys], [2] * 7)
+        self.assertEqual([still["pausepoint"][key]["sent"] for key in keys], [2, 2, 0, 2, 0, 2, 0, 2, 0])
+        self.assertEqual([ticked["ticked"][key]["sent"] for key in keys], [2] * 9)
 
     def test_the_instrumented_run_attributes_each_stacks_python(self):
         with patch.dict(os.environ):
@@ -166,7 +186,8 @@ class Table(unittest.TestCase):
     stack, format and class, serialize + page + the sent GPU, the wire
     riding along, today's page the revision's, and the pixels per class."""
 
-    KEYS = ("today_f7", "phase_a_f7", "phase_a_f8", "default_f7", "default_f8", "phase_b_f7", "phase_b_f8")
+    KEYS = ("today_f7", "phase_a_f7", "phase_a_f8", "default_f7", "default_f8", "phase_b_f7", "phase_b_f8",
+            "phase_b_records_f7", "phase_b_records_f8")
 
     def reports(self):
         serialize = {"frames": [
@@ -175,7 +196,7 @@ class Table(unittest.TestCase):
             {"checkpoint": 5, "class": "ticked", "ticked": serialize_block({key: 3. for key in self.KEYS}),
              "play": {key: {"per_frame_p50": [4., 6.]} for key in self.KEYS}}]}
         browser = {"variants": {}}
-        for name, page in (("phase_a", .5), ("default", .5), ("phase_b_forced", .7)):
+        for name, page in (("phase_a", .5), ("default", .5), ("phase_b_forced", .7), ("phase_b_forced_records", .6)):
             browser["variants"][name] = {"rows": with_wire(
                 browser_rows(2, "pausepoint", page) + browser_rows(5, "ticked", page) + browser_rows(5, "play", 1.),
                 1000)}
@@ -187,8 +208,10 @@ class Table(unittest.TestCase):
                                        + browser_rows(5, "play", 3.)},
                           "tree": {"rows": []}}}
         gpu = [gpu_report({variant: {(2, "pausepoint", False): [4.], (5, "pausepoint", True): [3.],
-                                     (5, "play", False): [5. if variant != "phase_b_retained" else 7.]}
-                           for variant in ("gpu_border", "retained", "default", "phase_b_retained")})]
+                                     (5, "play", False): [{"phase_b_retained": 7.,
+                                                           "phase_b_retained_records": 6.5}.get(variant, 5.)]}
+                           for variant in ("gpu_border", "retained", "default", "phase_b_retained",
+                                           "phase_b_retained_records")})]
 
         def frame(checkpoint, ticked, pairs):
             return {"checkpoint": checkpoint, "updaters_ticked": ticked,
@@ -198,11 +221,15 @@ class Table(unittest.TestCase):
                                         for pair, value in pairs}}}
 
         flag_off = {variant: {(2, "pausepoint", False): [6.], (5, "pausepoint", True): [6.], (5, "play", False): [6.]}
-                    for variant in ("gpu_border", "retained", "default", "phase_b_retained")}
-        frames_b = {**gpu_report({key: flag_off[key] for key in ("gpu_border", "phase_b_retained")},
+                    for variant in ("gpu_border", "retained", "default", "phase_b_retained",
+                                    "phase_b_retained_records")}
+        frames_b = {**gpu_report({key: flag_off[key]
+                                  for key in ("gpu_border", "phase_b_retained", "phase_b_retained_records")},
                                  column=flip_gates.FLAG_OFF_GPU),
-                    "frames": [frame(2, False, [("phase_b_vs_gpu_border", .001)]),
-                               frame(5, True, [("phase_b_vs_gpu_border", .002)])]}
+                    "frames": [frame(2, False, [("phase_b_vs_gpu_border", .001),
+                                                ("phase_b_records_vs_gpu_border", .001)]),
+                               frame(5, True, [("phase_b_vs_gpu_border", .002),
+                                               ("phase_b_records_vs_gpu_border", .002)])]}
         frames_a = {**gpu_report({key: flag_off[key] for key in ("gpu_border", "retained", "default")},
                                  column=flip_gates.FLAG_OFF_GPU),
                     "frames": [frame(2, False, [("retained_vs_gpu_border", 0.), ("default_vs_gpu_border", 0.)]),
@@ -224,6 +251,8 @@ class Table(unittest.TestCase):
         self.assertEqual(result["default_f8"]["classes"]["ticked"]["complete_ms"], 3. + .2 + 3.)
         self.assertEqual(result["phase_b_f8"]["classes"]["play"]["complete_ms"], 5. + .8 + 7.)
         self.assertEqual(result["phase_b_f8"]["flag_off_check"]["play"]["complete_ms"], 5. + .8 + 6.)
+        self.assertEqual(result["phase_b_records_f7"]["classes"]["play"]["complete_ms"], 5. + 1. + 6.5)
+        self.assertEqual(result["phase_b_records_f7"]["classes"]["pausepoint"]["complete_ms"], 1. + .6 + 4.)
         # The pixels against Phase A without the retained frame, per class.
         self.assertEqual(result["today_f7"]["pixels"], "reference")
         pixels = result["phase_b_f8"]["pixels"]
@@ -235,7 +264,7 @@ class Table(unittest.TestCase):
         self.assertAlmostEqual(ratios["phase_a_f8"]["pausepoint"], 1. / 26.)
         self.assertEqual(ratios["today_f7"], {"pausepoint": 1., "ticked": 1., "play": 1.})
         summary = {"stacks": result, "ratios": ratios}
-        self.assertEqual(len(test_point.markdown_table(summary).splitlines()), 2 + 3 * 7)
+        self.assertEqual(len(test_point.markdown_table(summary).splitlines()), 2 + 3 * 9)
 
     def test_the_command_refuses_inputs_that_do_not_belong_together(self):
         serialize, browser, page, gpu, pixels = self.reports()

@@ -1,0 +1,35 @@
+pausepoint 9 (0.a)           over24   0.0000%  max   0  rows batches 44
+pausepoint 17 (1.a)          over24   0.0000%  max   0  rows batches 16
+pausepoint 19 (1.b)          over24   0.0000%  max   0  rows batches 18
+pausepoint 27 (2.a)          over24   0.0000%  max   0  rows batches 26
+pausepoint 35 (2.b.i)        over24   0.0000%  max   0  rows batches 48
+pausepoint 43 (2.b)          over24   0.0000%  max   0  rows batches 28
+pausepoint 48 (3.a.1)        over24   0.0000%  max   0  rows batches 104
+pausepoint 53 (3.a.2)        over24   0.0000%  max   0  rows batches 109
+pausepoint 58 (3.a.3)        over24   0.0000%  max   0  rows batches 113
+pausepoint 63 (3.a.4)        over24   0.0000%  max   0  rows batches 117
+pausepoint 68 (3.a.5)        over24   0.0000%  max   0  rows batches 121
+pausepoint 75 (3.a.6)        over24   0.0000%  max   0  rows batches 121
+pausepoint 82 (3.a.7)        over24   0.0000%  max   0  rows batches 63
+pausepoint 86 (3.a.8)        over24   0.0000%  max   0  rows batches 121
+pausepoint 91 (3.a.9)        over24   0.0000%  max   0  rows batches 125
+pausepoint 98 (3.a.10)       over24   0.0000%  max   0  rows batches 67
+pausepoint 102 (3.a.11)      over24   0.0000%  max   0  rows batches 125
+pausepoint 109 (3.a.12)      over24   0.0000%  max   0  rows batches 125
+pausepoint 112 (3.a)         over24   0.0000%  max   0  rows batches 69
+pausepoint 115 (3.b.1)       over24   0.0000%  max   0  rows batches 71
+pausepoint 119 (3.b.2)       over24   0.0000%  max   0  rows batches 71
+pausepoint 123 (3.b)         over24   0.0000%  max   0  rows batches 70
+pausepoint 126 (4.a)         over24   0.0000%  max   0  rows batches 46
+pausepoint 130 (5.a)         over24   0.0000%  max   0  rows batches 45
+→ Running animation 46
+play into 63, frame 0        over24   0.0000%  max   0  rows batches 116
+play into 63, frame 1        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 2        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 3        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 4        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 5        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 6        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 7        over24   0.0000%  max   0  rows batches 57
+play into 63, frame 8        over24   0.0000%  max   0  rows batches 57
+{"scene": "PriceDiscovery", "frames": 33, "pausepoints": 24, "worst": {"frame": "pausepoint 9 (0.a)", "over_24": 0.0, "max": 0, "rows_batches": 44, "record_rows_batches": 0}, "max_over_24": 0.0, "max_channel": 0, "seconds": 5.1}

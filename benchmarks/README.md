@@ -256,13 +256,15 @@ whole Phase B stack (`MANIML_FILL=patches MANIML_SURFACE=nets
 MANIML_PROGRAMS=gpu`, its records packed: `MANIML_PATCH_SOURCE=records`)
 through the same driver; `--variants` may also name `phase_b_rows`, the
 same stack with its paths sent as rows (`MANIML_PATCH_SOURCE=rows`,
-`docs/phase_b4_plan.md` B5.1), `phase_a_strokes`, Phase A with its paths
-without fill animated as GPU programs (`MANIML_PROGRAMS=strokes`, B5.3),
+`docs/phase_b4_plan.md` B5.1; the default wherever patches are drawn
+since B5.6), `phase_a_strokes`, Phase A with its paths without fill
+animated as GPU programs (`MANIML_PROGRAMS=strokes`, B5.3),
 and `phase_a_nets` and `phase_a_patches`, Phase A with one of B5.4's flips
 (the surfaces as nets, or the fills as patches with their records packed;
-the plan's "The flips"). Every variant but `phase_a` is the default
-renderer (`triangles`) under its switches, since a recording names no
-other. Each is
+the plan's "The flips"). Every variant but `phase_a` and the test point's
+forced Phase B streams (`phase_b_forced`, `phase_b_forced_records`, below)
+is the default renderer (`triangles`) under its switches, since a recording
+names no other. Each is
 written under `<dir>/<variant>/` in the export recorder's format
 (`scene.json` + `scene.bin.gz`; the player and `geometry_recording.js` read
 it, `scene.json`'s frame entries also say what each frame is, and its
@@ -492,7 +494,7 @@ gates.
 ## The test point
 
 `python -m benchmarks.test_point` is B6 of `docs/phase_b4_plan.md`: the
-browser-side complete frame of the flip gates, read for four stacks at once,
+browser-side complete frame of the flip gates, read for five stacks at once,
 as a lecture meets them. `today` is Phase A without the retained frame
 (`MANIML_RETAINED_FRAME=0`) in format 7 full frames, drawn by the page of
 the revision Taylor teaches from (`--revision main`: its `webgpu.js` and
@@ -500,41 +502,48 @@ the revision Taylor teaches from (`--revision main`: its `webgpu.js` and
 device); `phase_a` is Phase A forced with the retained frame; `default` the
 default stack as the generators' defaults leave it (its switches taken out
 of the environment); `phase_b` the forced Phase B, its plays recording GPU
-programs as the viewer's selection has them. The last three are read in
-format 7 and in the format 8 stream the shipped page negotiates. Per episode,
-one run at a time on a quiet GPU:
+programs as the viewer's selection has them and its patch source taken out
+of the environment as the selection's is (rows since B5.6); `phase_b_records`
+the same with its records packed (`MANIML_PATCH_SOURCE=records`), the Phase
+B that B6 measured. The last four are read in format 7 and in the format 8
+stream the shipped page negotiates. Per episode, one run at a time on a
+quiet GPU:
 
 ```bash
 S=(/abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2)
 F=(--tick-updaters --play-frames)
+B=(phase_b_retained phase_b_retained_records)
 python -m benchmarks.episode_frames --scene $S --variants retained default gpu_border $F --output <d>/frames_a
-python -m benchmarks.episode_frames --scene $S --variants phase_b_retained gpu_border $F --output <d>/frames_b
-python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained $F \
+python -m benchmarks.episode_frames --scene $S --variants $B gpu_border $F --output <d>/frames_b
+python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default $B $F \
     --gpu-timestamps --output <d>/gpu1
-python -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced $F --deltas \
-    --realm main --rounds 5 --output <d>/browser
+python -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced phase_b_forced_records \
+    $F --deltas --realm main --rounds 5 --output <d>/browser
 python -m benchmarks.test_point page --stream <d>/browser/phase_a --revision main --rounds 5 --output <d>/page
 python -m benchmarks.test_point serialize --scene $S $F --output <d>/serialize
-python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained $F \
+python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default $B $F \
     --gpu-timestamps --output <d>/gpu2
 python -m benchmarks.test_point python --scene $S $F --output <d>/python
 python -m benchmarks.test_point table --serialize <d>/serialize --browser <d>/browser --page <d>/page \
     --gpu <d>/gpu1 <d>/gpu2 --pixels <d>/frames_b <d>/frames_a --python <d>/python --output <d>/table
 ```
 
-`serialize` times the seven serializers (each stack in each of its formats,
+`serialize` times the nine serializers (each stack in each of its formats,
 through a cache of its own) taking turns as `flip_gates serialize` has two
 stacks take them, the forced Phase B's plays in replays under
 `MANIML_PROGRAMS=gpu`. `page` plays the `phase_a` format 7 stream through
 the revision's page and this tree's, the two taking turns round by round.
-`episode_frames`' `default` and `phase_b_retained` are the same two stacks
-with the retained frame, each sampling its plays under its own program mode
-(the forced Phase B's `gpu`, the default's `programs.DEFAULT_MODE`), in a
-replay of its own where that is not the run's `off` (an animation decides at
-its begin). Every harness's default takes the same switches out of the
-environment (`gpu_borders.UNSET`, `browser_frames.UNSET`,
-`test_point.DEFAULTS`: fill, surface, programs, patch source), so a default
-that flips moves all three alike. `table`
+`episode_frames`' `default`, `phase_b_retained` and
+`phase_b_retained_records` are the same stacks with the retained frame,
+each sampling its plays under its own program mode (the forced Phase B's
+`gpu`, the default's `programs.DEFAULT_MODE`), in a replay of its own where
+that is not the run's `off` (an animation decides at its begin); its pair
+`phase_b_vs_records` holds the two patch sources' pixels to each other.
+Every harness's default takes the same switches out of the environment
+(`gpu_borders.UNSET`, `browser_frames.UNSET`, `test_point.DEFAULTS`: fill,
+surface, programs, patch source), so a default that flips moves all three
+alike, and every harness's forced Phase B takes the patch source out, so it
+is the selection's. `table`
 adds the parts per frame as `flip_gates complete` does (serialize + the
 page's `page_ms` + `gpu_total_ms` of the two attribution runs pooled, the
 GPU charged as the share of a frame's messages the stream sent), carries
@@ -554,7 +563,27 @@ prepared, and the scene's own Python before it (the updaters' tick; a
 play's interpolation and updaters); `table --python` prints its medians per
 class and per checkpoint, reduced from the run's rows (one collection pause
 moves a class's mean by tens of milliseconds; the means are in the JSON).
-`results/phase_b_test_point_20260927/` is the B6 run.
+`results/phase_b_test_point_20260927/` is the B6 run, taken before B5.6
+with four stacks, its `phase_b` the records packed (today's
+`phase_b_records`); `results/b56_rows_source_20260929/` retakes the recipe
+with five, the selection's Phase B sending rows.
+
+**The patch source in the harnesses.** Since B5.6 (`docs/phase_b4_plan.md`)
+a patch is sent as its path's rows wherever patches are drawn unless
+`MANIML_PATCH_SOURCE=records` says otherwise, pixel for pixel the same. The
+variants named for the viewer's selections follow it: every harness's
+`default` and forced Phase B take the switch out of the environment
+(`browser_frames`' `phase_b_forced`, `episode_frames`' `phase_b_retained`
+through `gpu_borders`' route `phase_b`, `test_point`'s `phase_b`). The
+variants whose archives measured the records packed state them: B6's Phase
+B is `browser_frames`' `phase_b_forced_records`, `episode_frames`'
+`phase_b_retained_records` (route `phase_b_records`) and `test_point`'s
+`phase_b_records`; B5.1's and B5.4's are `browser_frames`' `phase_b` and
+`phase_a_patches`, `episode_frames`' `patch_fill` (`gpu_borders.sample`
+pins records on every route but `default` and `phase_b`) and with it
+`flip_gates`' patches gate, and `play_frames`. A patches flip, if its gate
+is taken again, would ship rows and wants a rows variant beside
+`patch_fill`.
 
 ## Point reads by kind and phase
 

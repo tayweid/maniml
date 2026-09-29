@@ -479,7 +479,7 @@
       <select id="renderer-select" aria-label="Scene renderer" disabled>
         <option value="triangles" selected>Default</option>
         <option value="phase_a">Phase A</option>
-        <option value="phase_b">Phase B</option>
+        <option value="phase_b" title="Fills as patches sent as their paths' rows, surfaces as nets, animations as GPU programs">Phase B</option>
         <option value="winding">Original 2D</option>
       </select>
       <span id="glwarn"></span>
@@ -781,7 +781,8 @@ const rendererSelect = document.getElementById("renderer-select");
 const rendererOrigin = crypto.randomUUID();
 // Default, Phase A and Phase B are one driver fed three stacks by the
 // engine: the defaults, Phase A forced and the whole Phase B stack forced
-// (patch fills, net surfaces, GPU programs); the frames say which
+// (patch fills sent as their paths' rows, which the driver finalizes; net
+// surfaces; GPU programs; docs/phase_b4_plan.md B5.6); the frames say which
 // selection produced them, so a switch drops the other's frames as usual
 // (renderer_selection.js has the one exception, Phase A's).
 const rendererSession = new ManimlRendererSelection(canvas, {

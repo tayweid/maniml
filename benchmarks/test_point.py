@@ -4,19 +4,20 @@ after, on the frames of a course episode (docs/phase_b4_plan.md, B6).
     S=(/abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2)
     F=(--tick-updaters --play-frames)
     python -m benchmarks.test_point serialize --scene $S $F --output <d>/serialize
-    python -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced $F \\
-        --deltas --realm main --rounds 5 --output <d>/browser
+    python -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced \\
+        phase_b_forced_records $F --deltas --realm main --rounds 5 --output <d>/browser
     python -m benchmarks.test_point page --stream <d>/browser/phase_a --revision main --rounds 5 \\
         --output <d>/page
-    python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained $F \\
-        --gpu-timestamps --output <d>/gpu1            (and again, <d>/gpu2)
-    python -m benchmarks.episode_frames --scene $S --variants phase_b_retained gpu_border $F --output <d>/frames_b
+    python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained \\
+        phase_b_retained_records $F --gpu-timestamps --output <d>/gpu1            (and again, <d>/gpu2)
+    python -m benchmarks.episode_frames --scene $S --variants phase_b_retained phase_b_retained_records \\
+        gpu_border $F --output <d>/frames_b
     python -m benchmarks.episode_frames --scene $S --variants retained default gpu_border $F --output <d>/frames_a
     python -m benchmarks.test_point python --scene $S $F --output <d>/python
     python -m benchmarks.test_point table --serialize <d>/serialize --browser <d>/browser --page <d>/page \\
         --gpu <d>/gpu1 <d>/gpu2 --pixels <d>/frames_b <d>/frames_a --python <d>/python --output <d>/table
 
-Four stacks (STACKS), as a lecture meets them: ``today``, Phase A without
+Five stacks (STACKS), as a lecture meets them: ``today``, Phase A without
 the retained frame (MANIML_RETAINED_FRAME=0) in format 7 full frames, drawn
 by the page of the revision Taylor teaches from (``page``: its webgpu.js
 and renderer_selection.js, which predate the retained slot list), the
@@ -25,12 +26,15 @@ frame, in format 7 and in the format 8 stream the shipped page negotiates;
 ``default``, the default stack as the generators' defaults leave it, the
 same two ways; and ``phase_b``, the forced Phase B (patches, nets, GPU
 programs, its plays recording programs as the viewer's selection has them
-record), the same two ways.
+record, its patch source the default's as the selection's is: rows since
+B5.6), the same two ways; and ``phase_b_records``, the same with its records
+packed (MANIML_PATCH_SOURCE=records), the Phase B that B6 measured, the
+same two ways.
 
 Per class (a still pausepoint, a pausepoint whose updaters tick, a frame of
 the play into it) and per stack and format, the browser-side complete
 frame Taylor's gates read (flip_gates.py): Python's serialize_ms (this
-module's ``serialize``, the seven serializers taking turns as flip_gates
+module's ``serialize``, the nine serializers taking turns as flip_gates
 has two stacks take them), the page's JavaScript (browser_frames' page_ms,
 main realm, each frame's median over the rounds; for ``today``, this
 module's ``page``), the GPU (episode_frames' gpu_total_ms from the
@@ -101,8 +105,10 @@ class Stack:
 
 # The default stack's switches, taken out so the generators' and the
 # programs' defaults select them (geometry.DEFAULT_FILL, DEFAULT_SURFACE,
-# programs.DEFAULT_MODE, the records packed), whatever the caller's
-# environment says.
+# programs.DEFAULT_MODE, DEFAULT_PATCH_SOURCE), whatever the caller's
+# environment says. The forced Phase B takes the patch source out too, as
+# the viewer's selection sends it (rows since B5.6); phase_b_records states
+# the records packed, the Phase B B6 measured.
 DEFAULTS = {"MANIML_FILL": None, "MANIML_SURFACE": None, "MANIML_PROGRAMS": None, "MANIML_PATCH_SOURCE": None}
 STACKS = {
     "today": Stack("phase_a", {"MANIML_RETAINED_FRAME": "0"}, {}, (7,), "phase_a", "gpu_border", None,
@@ -111,9 +117,12 @@ STACKS = {
                      "retained_vs_gpu_border"),
     "default": Stack("triangles", {"MANIML_RETAINED_FRAME": "1", **DEFAULTS}, {"MANIML_PROGRAMS": None}, (7, 8),
                      "default", "default", "default_vs_gpu_border"),
-    "phase_b": Stack("phase_b", {"MANIML_RETAINED_FRAME": "1", "MANIML_PATCH_SOURCE": "records"},
+    "phase_b": Stack("phase_b", {"MANIML_RETAINED_FRAME": "1", "MANIML_PATCH_SOURCE": None},
                      {"MANIML_PROGRAMS": "gpu"}, (7, 8), "phase_b_forced", "phase_b_retained",
                      "phase_b_vs_gpu_border"),
+    "phase_b_records": Stack("phase_b", {"MANIML_RETAINED_FRAME": "1", "MANIML_PATCH_SOURCE": "records"},
+                             {"MANIML_PROGRAMS": "gpu"}, (7, 8), "phase_b_forced_records",
+                             "phase_b_retained_records", "phase_b_records_vs_gpu_border"),
 }
 CLASSES = ("pausepoint", "ticked", "play")
 # What every serializer runs under, its stack aside: animations that write
@@ -655,10 +664,12 @@ def main(argv=None):
     table = commands.add_parser("table", help="the complete frame per stack, format and class")
     table.add_argument("--serialize", type=Path, required=True, help="this module's serialize output")
     table.add_argument("--browser", type=Path, required=True,
-                       help="browser_frames --variants phase_a default phase_b_forced --deltas --rounds N --realm main")
+                       help="browser_frames --variants phase_a default phase_b_forced phase_b_forced_records "
+                            "--deltas --rounds N --realm main")
     table.add_argument("--page", type=Path, required=True, help="this module's page output over the phase_a stream")
     table.add_argument("--gpu", type=Path, nargs="+", required=True,
-                       help="episode_frames --variants gpu_border retained default phase_b_retained --gpu-timestamps")
+                       help="episode_frames --variants gpu_border retained default phase_b_retained "
+                            "phase_b_retained_records --gpu-timestamps")
     table.add_argument("--pixels", type=Path, nargs="+", required=True,
                        help="episode_frames runs without the flag, each stack's variant beside gpu_border")
     table.add_argument("--python", type=Path, help="this module's python output")

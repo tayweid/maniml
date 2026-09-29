@@ -1,6 +1,8 @@
 """Row sources for the patch fill (MANIML_PATCH_SOURCE=rows, B5.1 of
-docs/phase_b4_plan.md): a path's rows travel in place of its curve records
-and stroke instances, which each driver finalizes with row_finalize.wgsl.
+docs/phase_b4_plan.md; the default wherever patches are drawn since B5.6,
+with MANIML_PATCH_SOURCE=records the override): a path's rows travel in
+place of its curve records and stroke instances, which each driver
+finalizes with row_finalize.wgsl.
 Preparation and wire against the records' path, the native driver's
 commands on a fake device and, with MANIML_TEST_GPU=1, pixels against the
 records' path on the fixture corpus."""
@@ -225,18 +227,34 @@ class PatchRowsPreparation(unittest.TestCase):
                          [("stroke", 4, True), ("stroke", 4, False), ("stroke", 4, True)])
 
     def test_the_switch(self):
+        # B5.6: rows wherever patches are drawn, the forced Phase B and a
+        # default stack that selects patches alike, unless
+        # MANIML_PATCH_SOURCE=records says otherwise.
         scene, wire = build_scene(*_shapes()), GeometryCache()
-        with patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"):
+        with patch.dict(os.environ):
+            os.environ.pop("MANIML_PATCH_SOURCE", None)
+            os.environ.pop("MANIML_FILL", None)
             header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
-            self.assertTrue(all("rows" in batch for batch in header["batches"]))
+            self.assertTrue(all("rows" in batch for batch in header["batches"]), "rows by default")
+            self.assertEqual(header["border_data"], {}, "no curve records travel")
             # Phase A draws meshes: there is no patch to source.
-            header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
-            self.assertFalse(any("rows" in batch for batch in header["batches"]))
+            for renderer in ("phase_a", "triangles"):
+                header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer=renderer))
+                self.assertFalse(any("rows" in batch for batch in header["batches"]), renderer)
+            # A default stack that draws patches sources them as rows too.
+            with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu"):
+                header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
+                self.assertTrue(all("rows" in batch for batch in header["batches"]), "the default's patches")
             header, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
             self.assertTrue(raw, "a renderer change resends")
-        header, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
-        self.assertFalse(any("rows" in batch for batch in header["batches"]), "records by default")
-        self.assertTrue(header["border_data"], "the switch resets the wire cache")
+        with patch.dict(os.environ, MANIML_PATCH_SOURCE="records"):
+            header, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
+            self.assertFalse(any("rows" in batch for batch in header["batches"]), "records when asked")
+            self.assertTrue(header["border_data"], "the switch resets the wire cache")
+        with patch.dict(os.environ, MANIML_PATCH_SOURCE="rows"):
+            header, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
+            self.assertTrue(all("rows" in batch for batch in header["batches"]))
+            self.assertTrue(header["program_data"], "and back: the switch resets the wire cache")
         with patch.dict(os.environ, MANIML_PATCH_SOURCE="curves"):
             with self.assertRaises(ValueError):
                 serialize_scene(scene, wire, renderer="phase_b")

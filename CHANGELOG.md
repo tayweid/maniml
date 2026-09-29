@@ -7,6 +7,19 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The **Phase B** selection sends each filled or stroked path as its rows,
+  which the page and the native driver finalize themselves, instead of
+  the curve records Python packed (docs/phase_b4_plan.md, "The flips",
+  B5.6); so does any stack that draws fills as patches
+  (`MANIML_FILL=patches`). The pixels are exactly what they were. A play
+  that moves many paths the GPU programs do not take costs Python about
+  half (EpisodeB2's 8.a: serialize 105 → 52 ms, the frame 127 → 81), other frames
+  within half a millisecond, while a jump to a pausepoint, where every path
+  arrives at once, costs the native driver 15-28% more on the course
+  episodes, until the drivers finalize a frame's rows together and stop
+  resending a path whose paint alone changed. `MANIML_PATCH_SOURCE=records`
+  sends the packed records again, for comparison. Phase A, the Default and
+  Original 2D are unchanged.
 - Surfaces drawn as Bézier nets (the **Phase B** selection, or
   `MANIML_SURFACE=nets`) no longer cost a camera move a GPU pass per
   surface (docs/phase_b4_plan.md, "The flips", B5.5): each driver

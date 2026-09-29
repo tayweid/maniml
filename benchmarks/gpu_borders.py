@@ -40,15 +40,20 @@ VARIANTS = ("gpu_border", "cpu_border", "original_2d", "native_gl", "patch_fill"
 # programs off, records packed); episode_frames' nets is Phase A's meshes
 # with the surfaces as nets (B2). Original 2D is "winding". Phase B is the
 # forced "phase_b", the viewer's Phase B selection (docs/phase_b4_plan.md,
-# B6), and "default" the default stack as the generators' defaults leave
-# it: the default renderer with its switches unset (UNSET, the switches
-# browser_frames' and test_point's default takes out, so every harness's
-# default is one stack), whatever the caller's environment says, the
-# records sample pins included.
-ROUTES = {"gpu_border": "phase_a", "cpu_border": "phase_a", "original_2d": "winding", "phase_b": "phase_b"}
+# B6), its patch source taken out of the environment as the selection's is
+# (UNSET), so it sends what geometry.DEFAULT_PATCH_SOURCE says (rows since
+# B5.6); "phase_b_records" is the same with its records packed, the Phase B
+# B6 measured. "default" is the default stack as the generators' defaults
+# leave it: the default renderer with its switches unset (UNSET, the
+# switches browser_frames' and test_point's default takes out, so every
+# harness's default is one stack), whatever the caller's environment says,
+# the records sample pins included.
+ROUTES = {"gpu_border": "phase_a", "cpu_border": "phase_a", "original_2d": "winding", "phase_b": "phase_b",
+          "phase_b_records": "phase_b"}
 SWITCHES = {"patch_fill": {"MANIML_FILL": "patches", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off"},
             "nets": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "off"}}
-UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE")}
+UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE"),
+         "phase_b": ("MANIML_PATCH_SOURCE",)}
 CASES = ("b0_static", "tex_static", "tex_pan", "tex_zoom5", "tex_zoom4_cycle",
          "tex_tilt", "tex_resize", "changing_paths")
 MOTIONS = {

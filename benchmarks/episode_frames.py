@@ -38,11 +38,15 @@ nets_vs_gpu_border). The final test point's stacks (B6) run the retained
 frame, as the viewer draws them: ``default`` is the default stack as the
 generators' and the programs' defaults leave it and ``phase_b_retained`` the
 viewer's Phase B selection (the renderer "phase_b": patches, nets, GPU
-programs), whose plays record programs as the selection's plays do; each
+programs, its patch source the default's as the selection's is: rows since
+B5.6), whose plays record programs as the selection's plays do; each
 records its plays under its own program mode (PLAY_PROGRAMS), in a replay
 of its own where that is not the run's "off", since an animation decides
 at its begin; each against gpu_border (default_vs_gpu_border,
-phase_b_vs_gpu_border).
+phase_b_vs_gpu_border). ``phase_b_retained_records`` is the forced Phase B
+with its records packed (MANIML_PATCH_SOURCE=records), the Phase B B6
+measured, against gpu_border (phase_b_records_vs_gpu_border) and as the
+reference of phase_b_retained (phase_b_vs_records: the two sources' pixels).
 """
 
 import argparse
@@ -66,12 +70,13 @@ from benchmarks.paint_retention import difference
 
 
 VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d", "nets", "default",
-            "phase_b_retained")
+            "phase_b_retained", "phase_b_retained_records")
 DEFAULT_VARIANTS = ("patch_fill", "gpu_border", "original_2d")
 # gpu_borders.sample's renderer for each variant, and MANIML_RETAINED_FRAME
 # as the variant runs it.
-SAMPLED_AS = {"retained": "gpu_border", "phase_b_retained": "phase_b"}
-RETAINED = {"retained": "1", "default": "1", "phase_b_retained": "1"}
+SAMPLED_AS = {"retained": "gpu_border", "phase_b_retained": "phase_b",
+              "phase_b_retained_records": "phase_b_records"}
+RETAINED = {"retained": "1", "default": "1", "phase_b_retained": "1", "phase_b_retained_records": "1"}
 # The program mode a variant's plays record under where it is not the run's
 # "off" (play_mode): the viewer's Phase B selection sets "gpu"
 # (programs.set_override), and the default stack's plays follow the
@@ -79,7 +84,7 @@ RETAINED = {"retained": "1", "default": "1", "phase_b_retained": "1"}
 # MANIML_PROGRAMS out selects, as browser_frames and test_point take it
 # out). An animation decides at its begin whether it records programs, so
 # the variants of each mode share a replay of the play and the modes do not.
-PLAY_PROGRAMS = {"phase_b_retained": "gpu", "default": None}
+PLAY_PROGRAMS = {"phase_b_retained": "gpu", "phase_b_retained_records": "gpu", "default": None}
 # gpu_borders.run_case's comparisons: (name, image, reference), reported
 # when both rendered the frame, and the retained frame against the frame
 # it must equal.
@@ -88,7 +93,9 @@ PIXEL_PAIRS = (("patch_vs_gpu_border", "patch_fill", "gpu_border"), ("patch_vs_c
                ("gpu_vs_original", "gpu_border", "original_2d"),
                ("retained_vs_gpu_border", "retained", "gpu_border"), ("nets_vs_gpu_border", "nets", "gpu_border"),
                ("default_vs_gpu_border", "default", "gpu_border"),
-               ("phase_b_vs_gpu_border", "phase_b_retained", "gpu_border"))
+               ("phase_b_vs_gpu_border", "phase_b_retained", "gpu_border"),
+               ("phase_b_records_vs_gpu_border", "phase_b_retained_records", "gpu_border"),
+               ("phase_b_vs_records", "phase_b_retained", "phase_b_retained_records"))
 # The columns summary.json reduces, in this order; gpu_pass_* follow them.
 TIMING_KEYS = ("serialize_through_rgba_image_ms", "submit_through_full_readback_ms", "post_readback_ms",
                "prepare_ms", "render_cpu_encode_ms", "gpu_total_ms", "gpu_sum_ms", "gpu_readback_ms")
@@ -738,8 +745,9 @@ def main(argv=None):
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(DEFAULT_VARIANTS),
                         help="renderers to alternate per frame; two alone is the completion comparison to trust. "
                              "retained is gpu_border with the retained frame (MANIML_RETAINED_FRAME=1), and "
-                             "default and phase_b_retained (the default stack and the forced Phase B, its plays "
-                             "recording GPU programs) run it too; every other variant runs with it off")
+                             "default, phase_b_retained and phase_b_retained_records (the default stack and the "
+                             "forced Phase B, its plays recording GPU programs, as the selection sends it and with "
+                             "its records packed) run it too; every other variant runs with it off")
     parser.add_argument("--samples", type=int, default=12)
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--every", type=int, default=1, help="checkpoint stride for a file without pausepoints")

@@ -464,6 +464,9 @@ native driver never sees a delta).
 
 ## B5.1: built
 
+Since B5.6 rows are the default wherever patches are drawn, with
+`records` the override ("The flips", B5.6).
+
 Rows on the wire under patches, behind `MANIML_PATCH_SOURCE=rows` (default
 `records`, so Phase B as measured on 2026-09-26/27 stays reproducible;
 2026-09-27, on `b4-integration`). A filled or stroked path whose rows can
@@ -1241,7 +1244,131 @@ do. Patches (records packed) and programs keep B5.4's verdicts; their
 levers are B5.1's and B5.3's, and the pattern here (one dispatch over a
 table, keyed on what the output reads) is the one they wait on.
 
+### B5.6: rows as the patch source
+
+B5.6 (2026-09-29, on `b4-integration`). B5.1 proved a patch fill sent as its
+path's rows pixel for pixel the records' and its serialize about half on
+heavy plays, but left it behind `MANIML_PATCH_SOURCE=rows`, so the forced
+Phase B the viewer's selection draws still packed records. Now rows are the
+patch source wherever patches are drawn: `geometry.DEFAULT_PATCH_SOURCE` is
+`rows`, read by the forced `phase_b` and by any stack that selects
+`MANIML_FILL=patches`, and `MANIML_PATCH_SOURCE=records` is the explicit
+override. The forced stacks fix the fill, the surface and the programs, not
+how the bytes are made: they read the patch source as they read
+`MANIML_BORDER_GENERATOR`, each another way to send the same pixels. Phase
+A, the Default (meshes) and Original 2D send what they sent. The viewer's
+Phase B option says what it draws (its `title`: fills as patches sent as
+their paths' rows, surfaces as nets, animations as GPU programs).
+
+**The pin states records; no golden moved.** The pin's phase_b digests were
+recorded with the records packed, the default then. The pin clears its
+switches, so without a statement they would follow the new default: 246 of
+its 251 phase_b digests (every frame that draws a path) would move for a
+change that moves no pixel. The pin now states `MANIML_PATCH_SOURCE=records`
+beside `MANIML_PROGRAMS=off` (`GoldenCase`), and every golden passes
+untouched. (A first pass of this increment re-recorded the 246 digests for
+rows; the review sent it back, since the rule is that a golden is never
+re-recorded.) Rows keep the pin's other guarantees through the classes that
+already ran them: `RowSourcesLockstep` and `RowSourcesNavigation` (the
+retained frame against the whole-frame path, byte for byte, with rows),
+`PatchRowsPixels` (rows against records on the fixture corpus, drawn), the
+export tests and the command mirrors. The pixels, three ways, all with a
+largest channel difference of 0: every frame of the pin (251 phase_b
+frames of the fixtures, quality fixtures, synthetic cases and both
+episodes' goldens, each drawn natively as the pin's records frame and as
+the selection's rows frame, which differ in bytes on 246); B5.1's
+comparison taken again (EpisodeB2's 84 pausepoints and 23 frames of the
+play into 8.a, PriceDiscovery's 24 and 9); and the retaken test point's
+`phase_b_vs_records` pair (below: the twelve measured pausepoints of each
+episode and 139 and 124 play frames).
+
+**The harnesses measure the selection.** The instruments named for the
+viewer's selections now measure what it sends: every harness's forced Phase
+B takes the patch source out of the environment as its default does
+(`browser_frames`' `phase_b_forced`, `episode_frames`' `phase_b_retained`
+through `gpu_borders`' route `phase_b`, `test_point`'s `phase_b`). The
+records packed are stated where an archive measured them:
+`phase_b_forced_records`, `phase_b_retained_records` (with the pixel pair
+`phase_b_vs_records`) and `test_point`'s fifth stack `phase_b_records`
+reproduce B6's Phase B, and `browser_frames`' `phase_b` and
+`phase_a_patches`, `episode_frames`' `patch_fill` (so `flip_gates`' patches
+gate) and `play_frames` stay B5.1's and B5.4's. A patches flip taken again
+would ship rows and wants a rows variant beside `patch_fill`. The program
+tests' CPU path (`test_program_library`, `test_program_blend`) states
+records too: with rows it was finalized by the same `row_finalize.wgsl` as
+the programs' output, so a fault there cancelled on both sides (the
+review's mutation, the fill border width dropped in the kernel, failed none
+of their 22 GPU tests; with records stated it fails `LibraryPixels`' CPU-path
+case, six subtests, and a blend test), and `LibraryPixels` adds the
+viewer's Phase B (programs, the other paths as rows) against the same
+reference.
+
+**What it costs: B6's test point, retaken.** B6's recipe with five stacks
+(`benchmarks/README.md`, "The test point"; 01:59-02:25, every run starting
+with the GPU idle, load 1.45-3.60; the instrumented run left out). The
+complete frame (serialize + the page's JavaScript + the native GPU), the
+median per class, `phase_b_records` → `phase_b`:
+
+| ms | EpisodeB2, format 8 | format 7 | PriceDiscovery, format 8 | format 7 |
+| --- | ---: | ---: | ---: | ---: |
+| pausepoint | 0.68 → 0.75 | 5.17 → 5.19 | 0.62 → 0.69 | 5.51 → 5.58 |
+| ticked | 3.22 → 3.48 | 7.46 → 7.96 | 0.98 → 1.04 | 5.62 → 5.70 |
+| play | 8.86 → 8.97 | 9.18 → 9.35 | 10.93 → 10.63 | 10.77 → 10.45 |
+
+Today's (`main`'s page, format 7) for scale: 10.96 / 27.91 / 19.98 and 8.05
+/ 11.49 / 11.93. Against the Default in format 8, Phase B's plays are 0.77×
+on EpisodeB2 and 1.66× on PriceDiscovery (with records 0.76× and 1.70×; B6
+measured 0.84× and 1.79× the day before). Where rows change a class:
+
+- A still or ticked frame's serialize is higher on every measured
+  checkpoint, 0.03-0.19 ms and 0.40 ms on 8.a ticking (format 8 sends
+  nothing there, so that is the frame); the cause was not isolated.
+- The plays split by what moves. 8.a's play, whose movers are not
+  programs, is 127.25 → 80.52 ms in format 8 (serialize 105.21 → 51.91,
+  page 4.30 → 4.48, GPU 17.75 → 24.13). The other plays, whose movers are
+  programs, are within ±0.8 ms but for three short ones whose GPU part
+  moved 1.7-1.9 ms either way; the class medians barely move.
+- A navigation (`browser_frames`' first message after a restore, which the
+  test point has no class for): the page's JavaScript 2.32 → 2.68 ms in
+  format 8 on EpisodeB2 (3.24 → 2.48 in format 7) and 1.56 → 1.73 on
+  PriceDiscovery (1.72 → 1.83); the message's serialize 27.26 → 18.74 and
+  17.09 → 11.03 ms, its wire 898 → 380 and 407 → 308 KB; the page's compute
+  dispatches 73 → 206 and 26 → 107. The native render pays the dispatches:
+  walking the twelve pausepoints natively, four rounds a source, the
+  complete frame of a navigation is 29.9 → 38.3 ms on EpisodeB2 (serialize
+  7.4 → 6.8, render 22.1 → 31.1) and 25.0 → 28.8 on PriceDiscovery (6.4 →
+  6.3, 17.7 → 21.5), and the still frame after it 13.0 → 11.8 and 11.6 →
+  11.1.
+- Pixels against Phase A without the retained frame are the same for both
+  sources: EpisodeB2 0.0000% in every class; PriceDiscovery 0.0000% at its
+  pausepoint and 0.0412% (142) ticked and in plays, where B6 measured
+  2.024% (153) in plays before c787d9d1 fixed the program sources' base
+  points.
+
+**Why a navigation costs more: two causes.** Each driver finalizes every
+changed rows with a dispatch of its own (B5.1's negative). And a path's
+rows carry its paint (stroke and fill RGBA) and are keyed by content with
+it, so a change of paint alone sends and finalizes them again and the batch
+is no longer cached, where under records the curve records stay cached and
+only the object table changes. Under the forced Phase B in format 7, one
+cache per source: 258 → 277 (5.a) sends 463 batches, 176 of them cached
+under records and none under rows, and of the rows 277 sends that the
+receiver did not hold, 590 are rows sent at 258 point for point but for
+their stroke and fill alpha (1.0 → 0.05, a dim); 277 → 157 caches 68 of 142
+under records, none under rows. So two levers, in both drivers: one
+dispatch for a frame's rows, as B5.5 made it for nets, which removes the
+dispatches and not the resends or the finalizes; and the finalized
+geometry keyed on the geometry columns alone, its colour taken from the
+object table or the paint as the records' is. The increment that takes
+them counts finalizes per navigation, not only dispatches, and reads its
+baseline in these tables. Archive:
+`benchmarks/results/b56_rows_source_20260929/`.
+
 ## The final test point
+
+Since B5.6 the selection's Phase B sends its patches as rows; the Phase B
+measured here packed records, the stack `test_point` now calls
+`phase_b_records`, and "The flips", B5.6, retakes the table with both.
 
 B6 (2026-09-28, on `b4-integration`): the table B4 and B5 were building
 toward, read, not recommended from. Four stacks, as a lecture meets them:
@@ -1547,6 +1674,15 @@ own; then the nets gate again. Measured 2026-09-28: it passed on the
 gate's three scenes and failed on scenes that are mostly surfaces (the
 redraw: a net draws its capacity's triangles), so grids stay the default
 ("The flips", B5.5).
+
+**B5.6 Rows as the patch source.** `MANIML_PATCH_SOURCE`'s default is
+`rows` wherever patches are drawn, the forced Phase B included, with
+`records` the override. Done 2026-09-29: pixels identical, the pin
+untouched (it states records); the test point retaken with the selection's
+Phase B beside B6's: 8.a's play 127.3 → 80.5 ms, each class's median
+within 0.5 ms, navigations dearer natively (+15-28%) until one dispatch finalizes
+a frame's rows and a change of paint alone stops resending them ("The
+flips", B5.6).
 
 **B6 The final test point.** Both episodes through `episode_frames.py
 --tick-updaters --play-frames` with variants `[gpu_border, retained,
