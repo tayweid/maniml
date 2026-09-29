@@ -72,12 +72,23 @@ ENVIRONMENTS = {
                      "MANIML_BORDER_GENERATOR": "gpu"},
     "phase_a_patches": {"MANIML_FILL": "patches", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off",
                         "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
+    # The final test point's stacks (docs/phase_b4_plan.md, B6), as the
+    # viewer's selector draws them: the default stack as the generators'
+    # defaults leave it (its switches unset, UNSET), and the forced Phase B
+    # (the renderer "phase_b"), whose plays record GPU programs as the
+    # selection's override has them.
+    "default": {"MANIML_BORDER_GENERATOR": "gpu"},
+    "phase_b_forced": {"MANIML_PROGRAMS": "gpu", "MANIML_BORDER_GENERATOR": "gpu", "MANIML_PATCH_SOURCE": "records"},
 }
+# The switches a variant's recording takes out of the environment, so its
+# stack is what the defaults select whatever the caller's environment says.
+UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE")}
 # The renderer a variant's stream is serialized as: Phase A forced for
-# phase_a, else the default stack under the variant's switches. Phase B
-# goes through "triangles" too, since a recording names no other
-# (player.js).
-RENDERERS = {"phase_a": "phase_a"}
+# phase_a and Phase B forced for phase_b_forced, else the default stack
+# under the variant's switches. The other Phase B variants go through
+# "triangles", since a recording names no other (player.js); the forced
+# stream is replayed by browser_frames.cjs, whose selection routes "phase_b".
+RENDERERS = {"phase_a": "phase_a", "phase_b_forced": "phase_b"}
 # The kinds of row, as the viewer draws them: the still redraw of a
 # pausepoint, the same with its updaters ticking, a frame of a play, and
 # the first message after a restore, delta-encoded against the previous
@@ -324,40 +335,45 @@ def write_stream(directory, scene, messages, entries, **about):
     return meta
 
 
-def replay_stream(directory, timeout=1800, realm="sandbox"):
+def replay_stream(directory, timeout=1800, realm="sandbox", harness=HARNESS):
     """browser_frames.cjs over the stream: Node's version, the driver's init
     time and one row per frame. ``realm`` is where the driver runs: a vm
     sandbox of its own (the command tests' setting), or Node's own realm,
-    where a global lookup costs what it does in a browser."""
-    result = subprocess.run(["node", str(HARNESS), str(directory), "--realm", realm],
+    where a global lookup costs what it does in a browser. ``harness`` is
+    the copy of browser_frames.cjs to run, beside the page it plays the
+    stream through (this tree's, unless another revision's page is wanted:
+    benchmarks/test_point.py's ``page``)."""
+    result = subprocess.run(["node", str(harness), str(directory), "--realm", realm],
                             capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
-        raise RuntimeError(f"browser_frames.cjs failed on {directory}:\n{result.stdout}\n{result.stderr}")
+        raise RuntimeError(f"{harness.name} failed on {directory}:\n{result.stdout}\n{result.stderr}")
     return json.loads(result.stdout)
+
+
+def merge_replays(name, replays):
+    """One stream's replays as one: each frame's median js_ms and page_ms
+    over them, and the rest of its row (sizes and call counts, the same
+    every replay, which is checked) from the first."""
+    frames = []
+    for rows in zip(*(replay["frames"] for replay in replays)):
+        untimed = [{key: value for key, value in row.items() if key not in ("js_ms", "page_ms")} for row in rows]
+        if any(row != untimed[0] for row in untimed):
+            raise RuntimeError(f"{name}: frame {rows[0]['index']} made other calls in another round")
+        frames.append({**rows[0], **{key: float(np.median([row[key] for row in rows]))
+                                     for key in ("js_ms", "page_ms")}})
+    return {**replays[0], "frames": frames, "rounds": len(replays),
+            "init_ms": float(np.median([replay["init_ms"] for replay in replays]))}
 
 
 def replay_rounds(directories, rounds=1, realm="sandbox"):
     """replay_stream over each of ``directories``, ``rounds`` times, the
     streams taking turns within a round so a drift in the machine's load
-    falls on each alike: per stream, each frame's median js_ms and page_ms
-    over the rounds, and the rest of its row (sizes and call counts, the
-    same every round, which is checked) from the first."""
+    falls on each alike: per stream, merge_replays of its rounds."""
     runs = {directory: [] for directory in directories}
     for _ in range(rounds):
         for directory in directories:
             runs[directory].append(replay_stream(directory, realm=realm))
-    merged = {}
-    for directory, replays in runs.items():
-        frames = []
-        for rows in zip(*(replay["frames"] for replay in replays)):
-            untimed = [{key: value for key, value in row.items() if key not in ("js_ms", "page_ms")} for row in rows]
-            if any(row != untimed[0] for row in untimed):
-                raise RuntimeError(f"{directory}: frame {rows[0]['index']} made other calls in another round")
-            frames.append({**rows[0], **{key: float(np.median([row[key] for row in rows]))
-                                         for key in ("js_ms", "page_ms")}})
-        merged[directory] = {**replays[0], "frames": frames, "rounds": rounds,
-                             "init_ms": float(np.median([replay["init_ms"] for replay in replays]))}
-    return merged
+    return {directory: merge_replays(directory, replays) for directory, replays in runs.items()}
 
 
 def join_rows(entries, replayed):
@@ -634,6 +650,8 @@ def main(argv=None):
         environment = ENVIRONMENTS[variant]
         delta_stream = [] if args.deltas else None
         with patch.dict(os.environ, environment):
+            for key in UNSET.get(variant, ()):
+                os.environ.pop(key, None)
             messages, entries, frames = record_stream(scene, indices, args.samples, args.warmups,
                                                       tick_updaters=args.tick_updaters, play_frames=args.play_frames,
                                                       play_edges=args.play_edges, camera_moves=args.camera_moves,

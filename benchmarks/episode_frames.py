@@ -34,7 +34,15 @@ is Phase A forced (the renderer "phase_a") whatever the defaults are;
 ``patch_fill`` is the fills as patches alone and ``nets`` Phase A with the
 surfaces as nets (B2), the two flips B5.4 gates (docs/phase_b4_plan.md,
 "The flips"), each against gpu_border (patch_vs_gpu_border,
-nets_vs_gpu_border).
+nets_vs_gpu_border). The final test point's stacks (B6) run the retained
+frame, as the viewer draws them: ``default`` is the default stack as the
+generators' and the programs' defaults leave it and ``phase_b_retained`` the
+viewer's Phase B selection (the renderer "phase_b": patches, nets, GPU
+programs), whose plays record programs as the selection's plays do; each
+records its plays under its own program mode (PLAY_PROGRAMS), in a replay
+of its own where that is not the run's "off", since an animation decides
+at its begin; each against gpu_border (default_vs_gpu_border,
+phase_b_vs_gpu_border).
 """
 
 import argparse
@@ -57,19 +65,30 @@ from benchmarks.gpu_borders import GATE_SCOPE, GPU_CLOCK_CAVEAT, GPU_TIMING_SCOP
 from benchmarks.paint_retention import difference
 
 
-VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d", "nets")
+VARIANTS = ("patch_fill", "gpu_border", "retained", "cpu_border", "original_2d", "nets", "default",
+            "phase_b_retained")
 DEFAULT_VARIANTS = ("patch_fill", "gpu_border", "original_2d")
 # gpu_borders.sample's renderer for each variant, and MANIML_RETAINED_FRAME
 # as the variant runs it.
-SAMPLED_AS = {"retained": "gpu_border"}
-RETAINED = {"retained": "1"}
+SAMPLED_AS = {"retained": "gpu_border", "phase_b_retained": "phase_b"}
+RETAINED = {"retained": "1", "default": "1", "phase_b_retained": "1"}
+# The program mode a variant's plays record under where it is not the run's
+# "off" (play_mode): the viewer's Phase B selection sets "gpu"
+# (programs.set_override), and the default stack's plays follow the
+# programs' default (None: programs.DEFAULT_MODE, what taking
+# MANIML_PROGRAMS out selects, as browser_frames and test_point take it
+# out). An animation decides at its begin whether it records programs, so
+# the variants of each mode share a replay of the play and the modes do not.
+PLAY_PROGRAMS = {"phase_b_retained": "gpu", "default": None}
 # gpu_borders.run_case's comparisons: (name, image, reference), reported
 # when both rendered the frame, and the retained frame against the frame
 # it must equal.
 PIXEL_PAIRS = (("patch_vs_gpu_border", "patch_fill", "gpu_border"), ("patch_vs_cpu", "patch_fill", "cpu_border"),
                ("patch_vs_original", "patch_fill", "original_2d"), ("gpu_vs_cpu", "gpu_border", "cpu_border"),
                ("gpu_vs_original", "gpu_border", "original_2d"),
-               ("retained_vs_gpu_border", "retained", "gpu_border"), ("nets_vs_gpu_border", "nets", "gpu_border"))
+               ("retained_vs_gpu_border", "retained", "gpu_border"), ("nets_vs_gpu_border", "nets", "gpu_border"),
+               ("default_vs_gpu_border", "default", "gpu_border"),
+               ("phase_b_vs_gpu_border", "phase_b_retained", "gpu_border"))
 # The columns summary.json reduces, in this order; gpu_pass_* follow them.
 TIMING_KEYS = ("serialize_through_rgba_image_ms", "submit_through_full_readback_ms", "post_readback_ms",
                "prepare_ms", "render_cpu_encode_ms", "gpu_total_ms", "gpu_sum_ms", "gpu_readback_ms")
@@ -268,16 +287,21 @@ def source_contract(scene):
             json.dumps(style, sort_keys=True, default=geometry._jsonable))
 
 
-def sample_round(scene, order, sampler, failed, errors, fields):
+def sample_round(scene, order, sampler, failed, errors, fields, *, check_sources=True):
     """One rotation of the variants over the scene as it stands: each
     variant's row (with ``fields`` and the order it ran in) and picture,
     the source contract and camera packet checked after each. A variant
     that raises is recorded in ``errors``, joins ``failed`` and is skipped
     from then on: the episode's geometry, not the harness (an unsupported
-    prototype, a singular camera)."""
+    prototype, a singular camera). Without ``check_sources`` the source
+    contract is not read: in a play recording programs, reading the points
+    materializes the pending programs (writes the rows they describe),
+    work the stack's own frame does not do, which a read inside the
+    variant's frame would then find done."""
     from maniml.web import geometry
 
-    expected, pose = source_contract(scene), geometry._jsonable(scene.camera.uniforms)
+    expected = source_contract(scene) if check_sources else None
+    pose = geometry._jsonable(scene.camera.uniforms)
     rows, pictures = {}, {}
     for variant in order:
         if variant in failed:
@@ -289,7 +313,7 @@ def sample_round(scene, order, sampler, failed, errors, fields):
             errors[variant] = {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
             print(f"checkpoint {fields['checkpoint']}: {variant} failed: {exc}", file=sys.stderr, flush=True)
             continue
-        if source_contract(scene) != expected:
+        if check_sources and source_contract(scene) != expected:
             raise RuntimeError(f"{variant} modified authored source/style/order")
         if geometry._jsonable(scene.camera.uniforms) != pose:
             raise RuntimeError(f"{variant} modified camera packet")
@@ -349,18 +373,33 @@ def replay_play(scene, target, on_frame):
         scene.skip_animations = True
 
 
+def play_mode(variant):
+    """The program mode ``variant``'s plays record under: PLAY_PROGRAMS'
+    (None the programs' default), else the run's (MANIML_PROGRAMS, "off"
+    as main sets it)."""
+    from maniml.utils import programs
+
+    if variant not in PLAY_PROGRAMS:
+        return programs.env_mode()
+    return PLAY_PROGRAMS[variant] or programs.DEFAULT_MODE
+
+
 def measure_play(scene, index, variants, samples, warmups, sampler, counter, fields):
     """The play leading into checkpoint ``index`` on consecutive frames
     centred on its middle: ``warmups`` frames then ``samples`` measured
     ones (fewer when the play is shorter), each frame one rotation of the
     variants over the scene mid-interpolation. The scene changes between
     rows as it does on screen, so the rows carry regeneration rather than
-    revision-cache hits. The pixel pairs are the worst over the window's
+    revision-cache hits. A variant whose plays record under another
+    program mode than the run's (play_mode) samples a replay of its own
+    under that mode, the variants of each mode rotating in theirs, and the
+    variants of the run's own mode replay first. The pixel pairs are the worst over the window's
     frames strictly inside the play (alpha below 1, warmups included, the
-    pixels being outside every timer; ``pixel_frames`` lists them): a
-    short play's window reaches its landing, which is the pausepoint's own
-    picture, compared already. Returns the frame's play block, the
-    measured rows per variant and the last frame's pictures."""
+    pixels being outside every timer; ``pixel_frames`` lists them), each
+    frame's pictures gathered from every replay: a short play's window
+    reaches its landing, which is the pausepoint's own picture, compared
+    already. Returns the frame's play block, the measured rows per variant
+    and the last frame's pictures."""
     checkpoints = scene.animation_checkpoints
     target = play_before(checkpoints, index)
     play = {"checkpoint": target, "line": None, "run_time": None, "frames": 0, "measured_alphas": [],
@@ -373,32 +412,44 @@ def measure_play(scene, index, variants, samples, warmups, sampler, counter, fie
     play.update(line=checkpoints[target]["line_number"], run_time=run_time, frames=frames)
     window = min(frames, warmups + samples)
     first, warm = (frames - window) // 2, min(warmups, max(window - 1, 0))
-    failed, pictures, inside = set(), {}, []
+    failed, pictures, inside = set(), {}, {}
+    from maniml.utils import programs
 
-    def on_frame(k):
-        if not first <= k < first + window:
-            return
-        local = k - first
-        scene.camera.refresh_uniforms()
-        alpha = (k + 1) / fps / run_time
-        round_rows, round_pictures = sample_round(
-            scene, rotation(variants, next(counter)), sampler, failed, play["errors"],
-            dict(fields, phase="play", play_checkpoint=target, play_frame=k, alpha=alpha,
-                 iteration=local, warmup=local < warm))
-        pictures.update(round_pictures)
-        # Compared after the play, so no round waits on a comparison; the
-        # landing (alpha 1 to float error, or past it) is left out.
-        if alpha < 1 - 1e-9:
-            inside.append((k, round_pictures))
-        if local >= warm:
-            play["measured_alphas"].append(alpha)
-            for variant, row in round_rows.items():
-                rows[variant].append(row)
+    run_mode, groups = programs.env_mode(), {}
+    for variant in variants:
+        groups.setdefault(play_mode(variant), []).append(variant)
+    groups = sorted(groups.items(), key=lambda group: group[0] != run_mode)
 
-    replay_play(scene, target, on_frame)
+    def replay(group, mode, leads):
+        def on_frame(k):
+            if not first <= k < first + window:
+                return
+            local = k - first
+            scene.camera.refresh_uniforms()
+            alpha = (k + 1) / fps / run_time
+            round_rows, round_pictures = sample_round(
+                scene, rotation(group, next(counter)), sampler, failed, play["errors"],
+                dict(fields, phase="play", play_checkpoint=target, play_frame=k, alpha=alpha,
+                     iteration=local, warmup=local < warm), check_sources=mode == "off")
+            pictures.update(round_pictures)
+            # Compared after the play, so no round waits on a comparison;
+            # the landing (alpha 1 to float error, or past it) is left out.
+            if alpha < 1 - 1e-9:
+                inside.setdefault(k, {}).update(round_pictures)
+            if local >= warm:
+                if leads:
+                    play["measured_alphas"].append(alpha)
+                for variant, row in round_rows.items():
+                    rows[variant].append(row)
+
+        with patch.dict(os.environ, MANIML_PROGRAMS=mode):
+            replay_play(scene, target, on_frame)
+
+    for position, (mode, group) in enumerate(groups):
+        replay(tuple(group), mode, position == 0)
     play["variants"] = {variant: summarize(measured) for variant, measured in rows.items() if measured}
-    play["pixels"] = worst_pixel_pairs(inside)
-    play["pixel_frames"] = [k for k, _ in inside]
+    play["pixels"] = worst_pixel_pairs(sorted(inside.items()))
+    play["pixel_frames"] = sorted(inside)
     return play, rows, pictures
 
 
@@ -630,7 +681,8 @@ def scope(variants, tick_updaters, play_frames, camera_moves=False):
             "Each frame's last measured render per variant, compared outside timing in gpu_borders.run_case's "
             "pairs: <a>_vs_<b>'s fraction_pixels_rgb_over24 is the share of <a>'s pixels more than 24/255 from "
             "<b>'s in some RGB channel, <b> the reference (patch_vs_gpu_border, patch_vs_cpu when cpu_border is "
-            "in rotation, patch_vs_original, gpu_vs_cpu, gpu_vs_original, nets_vs_gpu_border). The B1 gate's "
+            "in rotation, patch_vs_original, gpu_vs_cpu, gpu_vs_original, nets_vs_gpu_border, default_vs_gpu_border, "
+            "phase_b_vs_gpu_border). The B1 gate's "
             "pixel measure is patch_vs_cpu and patch_vs_original at most 0.5% (docs/phase_b_plan.md), and B5.4's "
             "flips patch_vs_gpu_border and nets_vs_gpu_border at most 0.5% (docs/phase_b4_plan.md, \"The "
             "flips\"), reported, not enforced. A pausepoint's pixels are its last round; a play's are the worst "
@@ -656,6 +708,18 @@ def scope(variants, tick_updaters, play_frames, camera_moves=False):
             "(a path's derived columns are refreshed by the first read that finds them flagged), so a leaf the "
             "other variant's read refreshed first is prepared once by the retained frame where, alone, it would be "
             "compared and kept: its rows are slightly pessimistic, on ticked and play rows only.")
+    programs = [variant for variant in variants if play_mode(variant) != "off"]
+    if programs and play_frames:
+        result["programs_scope"] = (
+            f"{', '.join(programs)} record{'s' if len(programs) == 1 else ''} programs in plays "
+            f"({', '.join(f'{v}: MANIML_PROGRAMS={play_mode(v)}' for v in programs)}), as the viewer draws them "
+            "(the Phase B selection's override; the default stack's programs.DEFAULT_MODE), and every other "
+            "variant none (the run's MANIML_PROGRAMS=off). An animation "
+            "decides at its begin, so each program mode samples a replay of its own, the variants of each rotating "
+            "in theirs, the run's own mode first; a play's pixel pairs compare the same frame of the two replays. "
+            "The source contract is not checked in a replay recording programs: reading the points would "
+            "materialize the pending programs (write the rows they describe), work the stack's own frame does not "
+            "do and a read inside the variant's frame would then find done.")
     if len(variants) > 2:
         result["rotation_caveat"] = (
             f"{len(variants)} renderers in rotation: most generated readbacks follow another renderer's frame "
@@ -673,8 +737,9 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(DEFAULT_VARIANTS),
                         help="renderers to alternate per frame; two alone is the completion comparison to trust. "
-                             "retained is gpu_border with the retained frame (MANIML_RETAINED_FRAME=1); every "
-                             "other variant runs with it off")
+                             "retained is gpu_border with the retained frame (MANIML_RETAINED_FRAME=1), and "
+                             "default and phase_b_retained (the default stack and the forced Phase B, its plays "
+                             "recording GPU programs) run it too; every other variant runs with it off")
     parser.add_argument("--samples", type=int, default=12)
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--every", type=int, default=1, help="checkpoint stride for a file without pausepoints")
@@ -702,9 +767,11 @@ def main(argv=None):
     # The renderer reads the switch when it is constructed, in run().
     if args.gpu_timestamps:
         os.environ["MANIML_GPU_TIMESTAMPS"] = "1"
-    # Every variant draws programs off, and a play's animations decide at
-    # their begin whether they write programs (maniml/utils/programs.py):
-    # stated, so no default that flips changes what a play here records.
+    # Every variant draws programs off but where PLAY_PROGRAMS says (the
+    # forced Phase B's "gpu", the default stack's programs.DEFAULT_MODE), in
+    # a replay of its own, and a play's animations decide at their begin
+    # whether they write programs (maniml/utils/programs.py): stated, so no
+    # default that flips changes what the other variants' plays record.
     os.environ["MANIML_PROGRAMS"] = "off"
     args.output.mkdir(parents=True, exist_ok=True)
 

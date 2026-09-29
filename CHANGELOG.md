@@ -7,6 +7,19 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- `python -m benchmarks.test_point` measures what a lecture frame costs the
+  page (docs/phase_b4_plan.md, "The final test point"): Python's serialize,
+  the page's JavaScript and the GPU of the same frames, the bytes sent and
+  the pixels, per kind of frame, for the state `main` teaches from, Phase A
+  retained, the Default and Phase B. On the course episodes a still
+  pausepoint costs 0.8 ms where it cost 8-11 ms and sends nothing where it
+  sent 21-69 KB, a pausepoint whose updaters tick 1-3 ms where it cost
+  12-31, and a play frame 8-15 ms where it cost 14-23 (the GPU part as the
+  native driver draws the frame; the page's GPU pays less). It also found
+  that the Phase B selection's GPU programs drew one of PriceDiscovery's
+  fading plays wrong (rays drawn opaque in another line's colour, 2% of the
+  pixels), as measured before a fix now in progress; the Default and Phase
+  A are unaffected.
 - The viewer's **Scene renderer** selector offers **Default**, **Phase A**,
   **Phase B** and **Original 2D** (docs/phase_b4_plan.md, "The flips").
   Default is the default stack, whatever the generators' defaults are and

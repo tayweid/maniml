@@ -488,6 +488,73 @@ one mode opened throughout (`play_frames` before B5.4's fix pass) is
 refused. `results/phase_b_flips_20260927/` is the B5.4 run of all three
 gates.
 
+## The test point
+
+`python -m benchmarks.test_point` is B6 of `docs/phase_b4_plan.md`: the
+browser-side complete frame of the flip gates, read for four stacks at once,
+as a lecture meets them. `today` is Phase A without the retained frame
+(`MANIML_RETAINED_FRAME=0`) in format 7 full frames, drawn by the page of
+the revision Taylor teaches from (`--revision main`: its `webgpu.js` and
+`renderer_selection.js`, played by this tree's replay harness and fake
+device); `phase_a` is Phase A forced with the retained frame; `default` the
+default stack as the generators' defaults leave it (its switches taken out
+of the environment); `phase_b` the forced Phase B, its plays recording GPU
+programs as the viewer's selection has them. The last three are read in
+format 7 and in the format 8 stream the shipped page negotiates. Per episode,
+one run at a time on a quiet GPU:
+
+```bash
+S=(/abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2)
+F=(--tick-updaters --play-frames)
+python -m benchmarks.episode_frames --scene $S --variants retained default gpu_border $F --output <d>/frames_a
+python -m benchmarks.episode_frames --scene $S --variants phase_b_retained gpu_border $F --output <d>/frames_b
+python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained $F \
+    --gpu-timestamps --output <d>/gpu1
+python -m benchmarks.browser_frames --scene $S --variants phase_a default phase_b_forced $F --deltas \
+    --realm main --rounds 5 --output <d>/browser
+python -m benchmarks.test_point page --stream <d>/browser/phase_a --revision main --rounds 5 --output <d>/page
+python -m benchmarks.test_point serialize --scene $S $F --output <d>/serialize
+python -m benchmarks.episode_frames --scene $S --variants gpu_border retained default phase_b_retained $F \
+    --gpu-timestamps --output <d>/gpu2
+python -m benchmarks.test_point python --scene $S $F --output <d>/python
+python -m benchmarks.test_point table --serialize <d>/serialize --browser <d>/browser --page <d>/page \
+    --gpu <d>/gpu1 <d>/gpu2 --pixels <d>/frames_b <d>/frames_a --python <d>/python --output <d>/table
+```
+
+`serialize` times the seven serializers (each stack in each of its formats,
+through a cache of its own) taking turns as `flip_gates serialize` has two
+stacks take them, the forced Phase B's plays in replays under
+`MANIML_PROGRAMS=gpu`. `page` plays the `phase_a` format 7 stream through
+the revision's page and this tree's, the two taking turns round by round.
+`episode_frames`' `default` and `phase_b_retained` are the same two stacks
+with the retained frame, each sampling its plays under its own program mode
+(the forced Phase B's `gpu`, the default's `programs.DEFAULT_MODE`), in a
+replay of its own where that is not the run's `off` (an animation decides at
+its begin). Every harness's default takes the same switches out of the
+environment (`gpu_borders.UNSET`, `browser_frames.UNSET`,
+`test_point.DEFAULTS`: fill, surface, programs, patch source), so a default
+that flips moves all three alike. `table`
+adds the parts per frame as `flip_gates complete` does (serialize + the
+page's `page_ms` + `gpu_total_ms` of the two attribution runs pooled, the
+GPU charged as the share of a frame's messages the stream sent), carries
+the wire bytes per message beside them, reads each stack's worst pixel pair
+per class against Phase A without the retained frame (`gpu_border`, flag
+off), and quotes the flag-off check. Its GPU part is the native driver's
+`gpu_total_ms`, as Taylor's gate defines it, not the page's: on the M3
+Dawn sustains a redraw of 8.a in at most 1.35 ms (Phase A) where the native
+driver's GPU is 4.85 (the B6 archive, "The GPU part is the native
+driver's"), so a ratio the GPU part drives reads the gate, not the page.
+`python` is one instrumented run for
+attribution, never a total: per serialization of `today`, `default` and
+`phase_b`, the serializer's two stages, Lyon's tessellations, the retained
+frame's comparisons of a moved revision (the revision counter's
+over-signalling), the stream's diff, the leaves kept, compared and
+prepared, and the scene's own Python before it (the updaters' tick; a
+play's interpolation and updaters); `table --python` prints its medians per
+class and per checkpoint, reduced from the run's rows (one collection pause
+moves a class's mean by tens of milliseconds; the means are in the JSON).
+`results/phase_b_test_point_20260927/` is the B6 run.
+
 ## Point reads by kind and phase
 
 The instruction-stream plan's prerequisite: which Python reads of source

@@ -64,11 +64,20 @@ class Variants(unittest.TestCase):
         # B5.4 (docs/phase_b4_plan.md, "The flips"): phase_a is Phase A
         # forced; every other variant is the default renderer under its
         # switches, and names all three, so a default that flips moves no
-        # stream.
-        self.assertEqual(browser_frames.RENDERERS, {"phase_a": "phase_a"})
+        # stream. B6's stacks are the two exceptions: phase_b_forced is
+        # Phase B forced, and default is the default stack with its
+        # switches taken out, so the defaults select it.
+        self.assertEqual(browser_frames.RENDERERS, {"phase_a": "phase_a", "phase_b_forced": "phase_b"})
+        self.assertEqual(browser_frames.UNSET, {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS",
+                                                            "MANIML_PATCH_SOURCE")})
         for variant, environment in browser_frames.ENVIRONMENTS.items():
+            if variant in browser_frames.RENDERERS or variant in browser_frames.UNSET:
+                continue
             with self.subTest(variant=variant):
                 self.assertLessEqual({"MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS"}, set(environment))
+        # The forced Phase B's plays record programs, as the viewer's
+        # selection has them record.
+        self.assertEqual(browser_frames.ENVIRONMENTS["phase_b_forced"]["MANIML_PROGRAMS"], "gpu")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node not available")

@@ -5,6 +5,62 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The test point: this branch's Default is Phase A's stack, retained and streamed (2026-09-28)
+
+B6 (`docs/phase_b4_plan.md`, "The final test point";
+`benchmarks/results/phase_b_test_point_20260927/`) is the table B4 and B5
+built toward: per class, the browser-side complete frame (Python's
+serialize, the page's JavaScript, the GPU), the wire and the pixels, for
+today's state (Phase A without the retained frame, format 7, `main`'s page),
+Phase A retained, the Default and Phase B forced, on both gate episodes.
+It records the state; it decides nothing Taylor has not.
+
+**What it shows.** A lecture frame on this branch, against today: a still
+pausepoint 11.10 → 0.78 ms (EpisodeB2) and 8.26 → 0.78 (PriceDiscovery),
+nothing sent; a pausepoint whose updaters tick 31.24 → 3.02 and 12.29 →
+1.05, nothing sent; a play frame 22.75 → 14.83 and 13.52 → 7.86. The
+Default is Phase A's stack because no flip passed its gate (B5.4); its
+pixels are Phase A's exactly and its costs Phase A's to the noise. Phase B
+forced is cheaper than the Default on EpisodeB2's plays (0.84×, its GPU
+programs taking the serialize from 7.46 to 2.58 ms while the GPU rises
+5.39 → 9.70) and dearer on PriceDiscovery's (1.79×) and on both episodes'
+ticked frames (1.24×, 1.13×). The GPU part is the native driver's, as the
+gate defines it, and the page's is far smaller: on this machine's WebGPU a
+redraw of 8.a sustains 1.29-1.35 ms (Phase A) and 1.74-1.78 (Phase B), GPU
+and all, where the table charges 4.85 and 6.44 ms natively. So the play
+ratios and every format 7 ratio carry GPU cost the page does not pay (at
+8.a at least 3.5 ms a drawn frame; natively Phase A's GPU is ~4.1 ms even
+at 46 draws); the page's GPU per class was not measured.
+
+**What it found.** Phase B's GPU programs draw a PriceDiscovery play wrong
+(2.02% of the pixels, measured before the fix: rays fading in drawn opaque
+in a neighbouring dashed line's paint), which neither the retained frame,
+the patch fill nor nets cause; the fix is its own session's, not in B6's
+commit, and every B6 figure was measured without it (the archive's README
+says so number by number). Of the plan's two conditional increments, B5.2's
+condition (the draw count mattering once the draw list is retained) is not
+met: ~0.8 ms of native GPU out pass and ~0.8 ms of page per drawn Phase B
+frame, none at rest, while Phase B's play gap is its per-program passes.
+B4.9's (Dawn's per-draw cost above 1 ms at 911 slots) is not shown either
+way: the page's side of Dawn's wire is 0.89 ms a redraw of 911 slots at
+the median (0.10 at 444), its rounds 0.64-1.19 ms, taken at load 5-9; the
+GPU process's side was not isolated. It is settled by a quiet retake with
+the GPU process's time isolated (a redraw at a tiny resolution, or a
+Chrome trace). Nothing at rest is redrawn under format 8 either way.
+
+**What stands between this and the end state.** On the wire and in the
+browser a frame that changes nothing costs nothing; Python does not yet
+stay silent. Its measured per-frame costs: the walk that finds nothing
+changed (0.8-2.4 ms a still frame); the episode's own updaters (20.7 ms a
+tick at 8.a, four and a half times its serialize); the revision counter's
+over-signalling (415 of 531 leaves compared per 8.a tick, 1.83 ms); in
+plays Lyon on Phase A movers (11 ms of 8.a's play), the rest of a Phase A
+mover's preparation (~200 µs a leaf) and, under Phase B, a program's
+encode or a non-program mover's packed records. Each is named with its
+size in the plan's reading, which is where the next increment is chosen
+from. Nothing is merged; `main` stays frozen until Taylor chooses, and the
+plan's section ends with the merge command.
+
 ## Deltas are negotiated; full frames stay format 7 (2026-09-27)
 
 B4.8 (`docs/phase_b4_plan.md`, "B4.8: shipped") makes the geometry a stream

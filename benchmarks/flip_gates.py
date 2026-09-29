@@ -79,7 +79,7 @@ whose plays one mode opened throughout is refused.
 """
 
 import argparse
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from hashlib import sha256
 import io
@@ -136,25 +136,51 @@ def reduce_samples(samples):
             "sent": int(sum(sent for _, sent in samples))}
 
 
-def measure_serialize(scene, indices, flip, *, samples=12, warmups=3, replays=4, tick_updaters=False,
-                      play_frames=False, camera_moves=False, log=None):
+@contextmanager
+def stack_environment(environment):
+    """The environment a stack runs under: its switches set, and those it
+    names None taken out, so the defaults select them; the caller's
+    environment back after."""
+    with patch.dict(os.environ, {key: value for key, value in environment.items() if value is not None}):
+        for key, value in environment.items():
+            if value is None:
+                os.environ.pop(key, None)
+        yield
+
+
+def measure_serialize(scene, indices, flip, **kwargs):
     """serialize_ms per frame and class for the four serializers (the two
     stacks in both formats), taking turns as the module's docstring says.
     Returns one block per frame."""
+    serializers = {(name, fmt): (renderer, environment, {}) for name, renderer, environment in stacks(flip)
+                   for fmt in FORMATS}
+    return measure_serializers(scene, indices, serializers, **kwargs)
+
+
+def measure_serializers(scene, indices, serializers, *, samples=12, warmups=3, replays=4, tick_updaters=False,
+                        play_frames=False, camera_moves=False, log=None):
+    """serialize_ms per frame and class for ``serializers``, {(name,
+    format): (renderer, environment, play environment)}, each through a
+    GeometryCache of its own negotiated for its format, taking turns as the
+    module's docstring says. A serializer runs under its environment
+    (stack_environment), and its replays of a play under its play
+    environment too (the program mode its plays record under: an animation
+    decides at its begin and asks per frame). Returns one block per
+    frame."""
     from maniml.web.geometry import GeometryCache, serialize_scene
 
-    stack = {name: (renderer, environment) for name, renderer, environment in stacks(flip)}
-    keys = [(name, fmt) for name in stack for fmt in FORMATS]
+    keys = list(serializers)
     caches = {key: GeometryCache() for key in keys}
     for (_, fmt), cache in caches.items():
         cache.negotiate(fmt == 8)
 
     def serialize(key):
-        renderer, environment = stack[key[0]]
-        with patch.dict(os.environ, environment):
+        renderer, environment, _ = serializers[key]
+        with stack_environment(environment):
             started = perf_counter()
             message = serialize_scene(scene, caches[key], renderer=renderer)
-            return 1000 * (perf_counter() - started), message is not None
+            ms = 1000 * (perf_counter() - started)
+        return ms, message is not None
 
     def rotated(turn):
         shift = turn % len(keys)
@@ -197,18 +223,21 @@ def measure_serialize(scene, indices, flip, *, samples=12, warmups=3, replays=4,
             frame["camera"] = {key_name(*key): reduce_samples(values) for key, values in moved.items()}
         target = play_before(checkpoints, index) if play_frames else None
         if target is not None:
-            frame["play"] = measure_play(scene, target, keys, serialize, samples, warmups, replays)
+            frame["play"] = measure_play(scene, target, keys, serialize, samples, warmups, replays,
+                                         {key: serializers[key][2] for key in keys})
         frames.append(frame)
         if log is not None:
             log(frame)
     return frames
 
 
-def measure_play(scene, target, keys, serialize, samples, warmups, replays):
+def measure_play(scene, target, keys, serialize, samples, warmups, replays, environments=None):
     """The play into checkpoint ``target``: episode_frames' window (its
     middle ``warmups`` + ``samples`` frames, the warmups not rows), each
-    replay serialized by one serializer, the serializers taking turns
-    replay by replay; per serializer each frame's median over its replays."""
+    replay serialized by one serializer, under that serializer's play
+    environment in ``environments`` (none by default), the serializers
+    taking turns replay by replay; per serializer each frame's median over
+    its replays."""
     checkpoint = scene.animation_checkpoints[target]
     count = play_frame_count(scene.camera.fps, checkpoint["run_time"])
     window = min(count, warmups + samples)
@@ -225,7 +254,8 @@ def measure_play(scene, target, keys, serialize, samples, warmups, replays):
             if k >= first + warm:
                 per[key].setdefault(k, []).append(sample)
 
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+                stack_environment((environments or {}).get(key, {})):
             replay_play(scene, target, on_frame)
     return {"checkpoint": target, "line": checkpoint["line_number"], "frames": count,
             "measured_frames": sorted(per[keys[0]]),
@@ -300,31 +330,45 @@ def complete_frames(serialize, browser, gpu, flip, column="gpu_total_ms"):
     for fmt in FORMATS:
         result[str(fmt)] = {}
         for name, ef_variant in names.items():
-            python = serialize_by_frame(serialize["frames"], key_name(name, fmt))
-            page = page_by_frame(browser["variants"][name if fmt == 7 else name + "_delta"]["rows"])
-            gpus = gpu_by_frame(gpu, ef_variant, column)
-            classes = {}
-            for cls in CLASSES:
-                frames = []
-                for (checkpoint, frame_cls), values in sorted(python.items()):
-                    key = (checkpoint, cls)
-                    if frame_cls != cls or key not in page or key not in gpus:
-                        continue
-                    page_ms, sent = page[key]
-                    gpu_p50, gpu_min, n = gpus[key]
-                    for ms in values:
-                        frames.append({"checkpoint": checkpoint, "serialize_ms": ms, "page_ms": page_ms,
-                                       "sent": sent, "gpu_ms": sent * gpu_p50, "gpu_min_ms": sent * gpu_min,
-                                       "gpu_n": n, "complete_ms": ms + page_ms + sent * gpu_p50,
-                                       "complete_gpu_min_ms": ms + page_ms + sent * gpu_min})
-                if frames:
-                    classes[cls] = {"frames": len(frames), "checkpoints": len({f["checkpoint"] for f in frames}),
-                                    **{column: float(np.median([f[column] for f in frames]))
-                                       for column in ("serialize_ms", "page_ms", "sent", "gpu_ms", "gpu_min_ms",
-                                                      "complete_ms", "complete_gpu_min_ms")},
-                                    "per_frame": frames}
-            result[str(fmt)][name] = classes
+            result[str(fmt)][name] = stack_classes(
+                serialize_by_frame(serialize["frames"], key_name(name, fmt)),
+                page_by_frame(browser["variants"][name if fmt == 7 else name + "_delta"]["rows"]),
+                gpu_by_frame(gpu, ef_variant, column))
     return result
+
+
+def stack_classes(python, page, gpus, extra=None):
+    """One stack in one format, per class: each frame's serialize (from
+    ``python``, serialize_by_frame's), page and GPU parts (page_by_frame's
+    and gpu_by_frame's at the same checkpoint and class), the GPU charged
+    as the share of the frame's messages that were sent, their sum, and
+    the class's medians. ``extra``, {(checkpoint, class): {column: value}},
+    adds columns a frame carries into the medians (benchmarks/test_point.py's
+    wire bytes)."""
+    columns = ("serialize_ms", "page_ms", "sent", "gpu_ms", "gpu_min_ms", "complete_ms", "complete_gpu_min_ms")
+    classes = {}
+    for cls in CLASSES:
+        frames = []
+        for (checkpoint, frame_cls), values in sorted(python.items()):
+            key = (checkpoint, cls)
+            if frame_cls != cls or key not in page or key not in gpus:
+                continue
+            page_ms, sent = page[key]
+            gpu_p50, gpu_min, n = gpus[key]
+            for ms in values:
+                frames.append({"checkpoint": checkpoint, "serialize_ms": ms, "page_ms": page_ms,
+                               "sent": sent, "gpu_ms": sent * gpu_p50, "gpu_min_ms": sent * gpu_min,
+                               "gpu_n": n, "complete_ms": ms + page_ms + sent * gpu_p50,
+                               "complete_gpu_min_ms": ms + page_ms + sent * gpu_min,
+                               **(extra or {}).get(key, {})})
+        if frames:
+            carried = sorted({column for frame in frames for column in frame} - set(columns)
+                             - {"checkpoint", "gpu_n"})
+            classes[cls] = {"frames": len(frames), "checkpoints": len({f["checkpoint"] for f in frames}),
+                            **{column: float(np.median([f[column] for f in frames if column in f]))
+                               for column in (*columns, *carried)},
+                            "per_frame": frames}
+    return classes
 
 
 def pixels_of(reports, flip):

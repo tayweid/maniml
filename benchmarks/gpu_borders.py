@@ -38,10 +38,17 @@ VARIANTS = ("gpu_border", "cpu_border", "original_2d", "native_gl", "patch_fill"
 # measured whatever the defaults are (docs/phase_b4_plan.md, "The flips").
 # Phase A is the forced "phase_a"; the patch fill is patches alone (grids,
 # programs off, records packed); episode_frames' nets is Phase A's meshes
-# with the surfaces as nets (B2). Original 2D is "winding".
-ROUTES = {"gpu_border": "phase_a", "cpu_border": "phase_a", "original_2d": "winding"}
+# with the surfaces as nets (B2). Original 2D is "winding". Phase B is the
+# forced "phase_b", the viewer's Phase B selection (docs/phase_b4_plan.md,
+# B6), and "default" the default stack as the generators' defaults leave
+# it: the default renderer with its switches unset (UNSET, the switches
+# browser_frames' and test_point's default takes out, so every harness's
+# default is one stack), whatever the caller's environment says, the
+# records sample pins included.
+ROUTES = {"gpu_border": "phase_a", "cpu_border": "phase_a", "original_2d": "winding", "phase_b": "phase_b"}
 SWITCHES = {"patch_fill": {"MANIML_FILL": "patches", "MANIML_SURFACE": "grids", "MANIML_PROGRAMS": "off"},
             "nets": {"MANIML_FILL": "meshes", "MANIML_SURFACE": "nets", "MANIML_PROGRAMS": "off"}}
+UNSET = {"default": ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS", "MANIML_PATCH_SOURCE")}
 CASES = ("b0_static", "tex_static", "tex_pan", "tex_zoom5", "tex_zoom4_cycle",
          "tex_tilt", "tex_resize", "changing_paths")
 MOTIONS = {
@@ -252,6 +259,8 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     # the default is; episode_frames' variant retained passes "1".
     with patch.dict("os.environ", MANIML_BORDER_GENERATOR="cpu" if name == "cpu_border" else "gpu",
                     MANIML_PATCH_SOURCE="records", MANIML_RETAINED_FRAME=retained, **SWITCHES.get(name, {})):
+        for key in UNSET.get(name, ()):
+            os.environ.pop(key, None)
         started = perf_counter()
         message = serialize_scene(scene, cache, renderer=route)
         serialized = perf_counter()
@@ -264,7 +273,11 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     before_parse = perf_counter()
     header, payload = parse_geometry_message(message)
     parsed = perf_counter()
-    image = renderer.render(header, payload) if renderer is not None else None
+    # A forced Phase B frame's "phase_b" is the page's selection's stamp,
+    # not another geometry: the native driver draws it as the generated
+    # geometry it is, under the one name it takes.
+    drawn = dict(header, renderer="triangles") if header.get("renderer") == "phase_b" else header
+    image = renderer.render(drawn, payload) if renderer is not None else None
     completed = perf_counter()
     stage = stages.milliseconds
     row = dict(prepare_ms=stage["geometry.triangle_prepare"] if route != "winding" else sum(

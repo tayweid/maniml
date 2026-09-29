@@ -199,5 +199,6 @@ jobs:
           tests.test_browser_frames
           tests.test_play_frames
           tests.test_flip_gates
+          tests.test_test_point
           tests.test_app
           tests.test_web_viewer

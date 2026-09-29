@@ -473,6 +473,19 @@ Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
+`benchmarks/test_point.py` reads that complete frame for four stacks at
+once (today's: Phase A without the retained frame in format 7, drawn by
+`main`'s page; Phase A retained; the Default; Phase B forced, its plays
+recording GPU programs), the last three in both formats, with the wire per
+message, the pixels against today's, and an instrumented run that names
+where each stack's Python goes (the scene's own updaters, Lyon, the
+comparisons of a moved revision, the encode, the diff);
+`benchmarks/README.md`, "The test point", has the commands, and the B4
+plan's "The final test point" the reading. Its GPU part, like the flip
+gates', is the native driver's `gpu_total_ms`, not the page's: a real
+device (Chrome's Dawn on the same M3) sustains a redraw of EpisodeB2's 8.a
+in at most 1.35 ms where the native driver's GPU is 4.85, so a ratio the
+GPU part drives reads the gate as defined, not what the page pays.
 
 `MANIML_PROGRAMS=shadow|gpu` (Phase B3, `docs/phase_b3_plan.md`; needs
 `MANIML_FILL=patches`) sends a supported animation as a GPU program over a

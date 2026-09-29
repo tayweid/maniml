@@ -1048,6 +1048,277 @@ program, the bumper's `render()` 11.2 → 42.0 ms a frame on average (7.1 →
 frame's programs, and a program run that keeps its descriptor with its
 scalars an op.
 
+## The final test point
+
+B6 (2026-09-28, on `b4-integration`): the table B4 and B5 were building
+toward, read, not recommended from. Four stacks, as a lecture meets them:
+**today**, Phase A without the retained frame (`MANIML_RETAINED_FRAME=0`)
+in format 7 full frames, drawn by the page of `main` (0a2bf3b2, the
+checkout Taylor teaches from: its `webgpu.js` predates B4.7's slots);
+**Phase A** retained; the **Default** stack as the flips left it; and
+**Phase B** forced (patches, nets, its plays recording GPU programs as the
+viewer's selection has them); the last three in format 7 and in the format
+8 stream the shipped page negotiates. Per class (a still pausepoint, one
+whose updaters tick, the frames of the play into it), the browser-side
+complete frame of Taylor's gate: Python's `serialize_ms`, the page's
+JavaScript (`page_ms`, main realm, the fake device), the GPU
+(`gpu_total_ms`, two attribution runs pooled, charged as the share of a
+frame's messages that were sent), their sum, the wire per message, and the
+pixels against today's (flag-off runs). The instrument is
+`benchmarks/test_point.py` (`benchmarks/README.md`, "The test point"),
+the archive `benchmarks/results/phase_b_test_point_20260927/`. The frames
+are `episode_frames.select_frames`' twelve pausepoints of each episode:
+EpisodeB2's include 8.a (checkpoint 307, ticking); PriceDiscovery's are
+evenly spaced and do not include 3.a.4 (63), but do its neighbours 3.a.3
+and 3.a.5.
+
+**Today is main's Python.** The whole-frame path on this branch writes
+`main`'s bytes (0.a, 5.a and 8.a ticking: a fresh cache's first message
+and the fifteen after it have the same blake2b digests in an archive of
+`main` and in this tree, 175,421, 222,367 and 183,234 B once the first is
+sent; the archive's `today_is_main_digests`) and costs what `main`'s own
+serializer costs, run from an archive of `main` in alternate processes:
+minima 10.6-11.0 against 10.5-11.6 ms (0.a), 16.4-17.2 against 16.8-16.9
+(5.a), 36.8-38.4 against 37.9-38.3 (8.a ticking).
+
+**Conditions.** One run at a time, 18:26-19:05 local (the real device's,
+below, 19:14-19:16, at load 5-9 from other sessions with the GPU 0-11%
+busy at their start). Another project's Playwright tests ran in bursts
+throughout (load up to 16), and EpisodeB2's browser, page, serialize,
+second attribution and instrumented runs overlapped them (its second
+attribution run started with the GPU 15-24% busy); those five were taken
+again, 18:57-19:05, starting and ending at load 2.5 with the GPU at 0-19%
+(three samples each), and the complete frames of the two passes agree within 0.7 ms per class and
+stack (the first pass's table is archived too). Every other run started
+with the GPU idle and the load 2.2-3.4.
+
+### The table
+
+Each cell: serialize + page + GPU = **complete** (ratio to today); the
+wire per message. Medians per frame, then over the class's frames (a play
+frame is one value). Pixels: the share more than 24/255 off Phase A
+without the retained frame in any channel, worst frame (largest channel).
+The GPU part is the native driver's, as Taylor's gate defines it, not the
+page's ("The GPU column is the native driver's", below).
+
+EpisodeB2 (531 objects at 8.a):
+
+| Stack | pausepoint (10 frames) | ticked (2: 3.i, 8.a) | play (114 frames, 12 plays) | pixels: pausepoint / ticked / play |
+| --- | ---: | ---: | ---: | --- |
+| Today: Phase A, whole frame, format 7, main's page | 5.71 + 0.88 + 4.38 = **11.10**; 69.2 KB | 25.03 + 1.51 + 4.70 = **31.24**; 129.1 KB | 14.17 + 2.24 + 5.43 = **22.75**; 406.9 KB | reference |
+| Phase A, retained, format 7 | 0.80 + 0.03 + 4.36 = **5.29** (0.48×); 69.2 KB | 3.05 + 0.05 + 4.69 = **7.79** (0.25×); 129.1 KB | 7.49 + 0.94 + 5.43 = **15.10** (0.66×); 406.9 KB | 0 / 0 / 0 |
+| Phase A, retained, format 8 | 0.81 + 0 + 0 = **0.81** (0.07×); 0 | 2.97 + 0 + 0 = **2.97** (0.10×); 0 | 7.58 + 0.76 + 5.43 = **14.69** (0.65×); 286.4 KB | 0 / 0 / 0 |
+| Default, format 7 | 0.77 + 0.03 + 4.36 = **5.30** (0.48×); 69.2 KB | 3.38 + 0.05 + 4.70 = **8.12** (0.26×); 129.1 KB | 7.42 + 0.95 + 5.39 = **15.09** (0.66×); 406.9 KB | 0 / 0 / 0 |
+| Default, format 8 | 0.78 + 0 + 0 = **0.78** (0.07×); 0 | 3.02 + 0 + 0 = **3.02** (0.10×); 0 | 7.46 + 0.76 + 5.39 = **14.83** (0.65×); 286.4 KB | 0 / 0 / 0 |
+| Phase B, format 7 | 0.75 + 0.03 + 5.14 = **6.13** (0.55×); 63.8 KB | 4.01 + 0.09 + 6.09 = **10.20** (0.33×); 282.1 KB | 2.27 + 0.68 + 9.70 = **12.66** (0.56×); 133.5 KB | 0.000% (21) / 0.000% (23) / 0.000% (30) |
+| Phase B, format 8 | 0.77 + 0 + 0 = **0.77** (0.07×); 0 | 3.74 + 0 + 0 = **3.74** (0.12×); 0 | 2.58 + 0.30 + 9.70 = **12.41** (0.55×); 1.0 KB | the same |
+
+PriceDiscovery:
+
+| Stack | pausepoint (1 frame) | ticked (11 frames) | play (100 frames, 12 plays) | pixels: pausepoint / ticked / play |
+| --- | ---: | ---: | ---: | --- |
+| Today: Phase A, whole frame, format 7, main's page | 3.78 + 0.33 + 4.15 = **8.26**; 21.1 KB | 7.04 + 0.65 + 4.27 = **12.29**; 44.7 KB | 8.44 + 0.91 + 4.33 = **13.52**; 183.7 KB | reference |
+| Phase A, retained, format 7 | 0.72 + 0.01 + 4.15 = **4.88** (0.59×); 21.1 KB | 1.06 + 0.02 + 4.27 = **5.32** (0.43×); 44.7 KB | 3.39 + 0.31 + 4.33 = **7.95** (0.59×); 183.7 KB | 0 / 0 / 0 |
+| Phase A, retained, format 8 | 0.74 + 0 + 0 = **0.74** (0.09×); 0 | 1.06 + 0 + 0 = **1.06** (0.09×); 0 | 3.32 + 0.20 + 4.33 = **7.77** (0.57×); 141.9 KB | 0 / 0 / 0 |
+| Default, format 7 | 0.73 + 0.01 + 4.15 = **4.88** (0.59×); 21.1 KB | 1.04 + 0.02 + 4.27 = **5.28** (0.43×); 44.7 KB | 3.37 + 0.31 + 4.34 = **7.91** (0.59×); 183.7 KB | 0 / 0 / 0 |
+| Default, format 8 | 0.78 + 0 + 0 = **0.78** (0.09×); 0 | 1.05 + 0 + 0 = **1.05** (0.09×); 0 | 3.39 + 0.20 + 4.34 = **7.86** (0.58×); 141.9 KB | 0 / 0 / 0 |
+| Phase B, format 7 | 0.74 + 0.03 + 4.86 = **5.63** (0.68×); 22.3 KB | 1.17 + 0.03 + 4.76 = **6.11** (0.50×); 63.7 KB | 2.51 + 0.39 + 9.41 = **13.98** (1.03×); 75.4 KB | 0.000% (27) / 0.041% (142) / **2.024% (153)** ¹ |
+| Phase B, format 8 | 0.73 + 0 + 0 = **0.73** (0.09×); 0 | 1.19 + 0 + 0 = **1.19** (0.10×); 0 | 2.96 + 0.21 + 9.41 = **14.08** (1.04×); 1.7 KB | the same ¹ |
+
+¹ Measured without the pack_rows fix another session has since made in
+this worktree (uncommitted, not B6's; "Phase B's pixels fail", below):
+every run recorded `maniml/web/gpu_program_geometry.py` as commit
+`894e841c` has it (sha256 `60fdc6a2...`). Only the play figure can move
+with the fix; a pausepoint records no program.
+
+The flag-off check (the GPU part the flag-off runs' wall clock through the
+full readback, which the browser never does) moves no reading below: today
+14.10 / 34.19 / 24.98 ms on EpisodeB2 against the Default's format 8 0.78
+/ 3.02 / 17.23, and 10.53 / 14.43 / 15.60 against 0.78 / 1.05 / 9.90 on
+PriceDiscovery (the archive has every row).
+
+### Reading
+
+**What a lecture frame costs, today and after.** After is the Default
+stack in format 8, the page this branch serves. A still pausepoint, the
+frame the viewer serializes when an input event arrives (at most 45 a
+second): 11.10 → 0.78 ms on EpisodeB2 and 8.26 → 0.78 on PriceDiscovery,
+with 69 and 21 KB a message → nothing sent, and the page and the GPU doing
+nothing. A pausepoint whose updaters tick: 31.24 → 3.02 and 12.29 → 1.05
+ms, again nothing sent (both episodes' updaters move nothing on screen);
+8.a itself 44.77 → 4.51 ms (37.9 ms of serialize, 2.0 of page and 4.85 of
+GPU, 179 KB, against its serialize alone). A play frame: 22.75 → 14.83 and
+13.52 → 7.86 ms, 407 → 286 and 184 → 142 KB a message. At rest the
+serialize is tier 1's (5.71 → 0.78 ms), the page B4.7's (main's page 0.88
+→ 0.03 ms a resend at the EpisodeB2 pausepoint median, 1.51 → 0.05
+ticked, the two pages played over the same stream in turns), and format 8
+takes the message, the page's work and the GPU's draw away altogether. In
+plays the serialize falls by half or more, the leaves that hold still
+being kept (14.17 → 7.46 ms on EpisodeB2, 8.44 → 3.39 on PriceDiscovery),
+the page falls
+2.24 → 0.76 and 0.91 → 0.20 ms, and the GPU stays what it was (5.4 and
+4.3 ms natively; the page's GPU pays less, below). Tier 1's recorded
+negative is in the table too: where every leaf moves the retained frame
+costs more, 5.a's play 85.23 → 93.34 ms (serialize
+56.2 → 67.1), its page 8.07 → 5.05. The default's rows are Phase A's to
+the noise and its pixels identical, since no flip moved it.
+
+**Which defaults flipped: none**, on B5.4's numbers ("The flips"): nets
+failed on camera moves (1.25-1.34× grids' complete frame in format 8,
+1.13-1.33× by the flag-off check); patches failed Taylor's gate on both
+episodes' plays (1.15× and 1.48×) and ticked frames (1.14× and 1.10×);
+strokes programs' Python per play frame was no lower than programs off
+(-0.03% on EpisodeB2 in format 8, +0.05% to +0.32% in the other three
+runs), with the native complete frame 1.4-1.8% dearer. The whole Phase B
+stack against the Default here, format 8 (the play ratios driven by the
+native GPU column, below): EpisodeB2 0.99× at the pausepoint,
+1.24× ticked (serialize 3.74 against 3.02 ms) and **0.84× in plays**
+(12.41 against 14.83 ms: its programs take the serialize from 7.46 to 2.58
+ms and the page from 0.76 to 0.30, while the GPU rises 5.39 → 9.70, 1.52 ms
+of program passes and 1.71 of border passes a frame); PriceDiscovery 0.94×,
+1.13× and **1.79× in plays** (GPU 4.34 → 9.41: programs 2.39, borders
+1.90). By Taylor's gate the whole stack would fail too, in format 8 on
+both episodes' ticked frames and PriceDiscovery's plays, and on
+PriceDiscovery's pixels as measured before the pack_rows fix.
+The nets pixel gate this plan put on PriceDiscovery, which B5.4 took on
+the scenes that draw more surfaces, passes here: its spheres are nets under
+Phase B, 0.004-0.041% at every ticked pausepoint (largest channel
+106-142; pausepoints, which the pack_rows fix cannot move).
+
+**The GPU column is the native driver's.** Taylor's gate takes the GPU
+part from the attribution runs, wgpu-native drawing the frame natively,
+and the table does. The page's GPU is Dawn's, on the same M3, and the
+real device shows it paying far less for the same frame: 200
+back-to-back redraws of 8.a, each encoding every slot into targets at the
+header's full resolution, sustain 1.29-1.35 ms a redraw on Phase A and
+1.74-1.78 on Phase B with the page, Dawn's GPU process and the GPU
+pipelined, so the page's GPU for 8.a is at most 1.35 and 1.78 ms, where
+the table charges 4.85 and 6.44 ms. Natively Phase A's GPU is about 4.1
+ms even at a pausepoint of 46 draws (checkpoint 103: 4.07, the out pass
+3.71), a fixed cost per frame that the device does not show. Every
+comparison the GPU column drives carries that native cost: each format 7
+ratio, the plays, "the GPU stays what it was" above, and Phase B against
+the Default in plays (0.84× and 1.79×, the GPU 5.39 → 9.70 and 4.34 →
+9.41 ms natively). They are the gate's numbers as defined; the page's GPU
+per class was not measured, and the device's throughput per class
+(`device_redraw.html`'s `redraw()` on a pausepoint, a ticked frame and a
+play message per stack) is what would read those comparisons on the page.
+
+**Phase B's pixels fail on PriceDiscovery's plays, and GPU programs are
+why** (as measured before the fix: every figure in this paragraph was
+taken with `maniml/web/gpu_program_geometry.py` as commit `894e841c` has
+it, sha256 `60fdc6a2...`). 2.02% of the pixels of the play into 3.a.1
+are more than 24/255 off (0.41-1.50% on four more of its 3.a plays). Replayed and drawn apart:
+Phase B with programs off is 0.03% off Phase A (the nets), and Phase B
+with GPU programs 2.0% off Phase B with programs off, the same with the
+whole-frame path, so neither the retained frame, the patch fill nor nets
+are the cause. The play is `LaggedStart(*[FadeIn(r) for r in rays],
+FadeIn(best_check))` beside other fades: the nine rays (grey `Line`s at
+opacity 0.5, fading in at 0.1-14% on the play's second frame) are drawn as
+an opaque magenta fan in the paint of `best_check`'s dashed line, whose
+28 dashes also carry programs and whose updater `become()`s it every
+frame. The CPU path draws the rays nearly transparent. EpisodeB2's Phase B
+pixels are Phase A's but single pixels (largest channel 30). The defect is
+Phase B's (forced, or a default that flips programs), not the Default's or
+Phase A's; its fix is a session of its own (started 2026-09-28), whose
+uncommitted edit (`pack_rows` writes a source's base-point rows from its
+first point, as its shader data does, so a patch fill no longer fans from
+a stale base point after an updater's `become()`) is in this worktree and
+not in B6's commit. A diagnosis rerun with it in place read 0% between
+programs and the CPU path; the figures here are without it, and only the
+play figures can move with it (the archive's README says which run
+measured what).
+
+**What stands between this and the end state.** Taylor's end state:
+"python sends the control points once and only directs the GPU what to
+change; if nothing changes python is silent". On the wire and in the
+browser that holds at rest now: a frame that changes nothing sends nothing
+and draws nothing. Python is not silent. Its remaining per-frame costs,
+each measured (the instrumented run, `test_point python`: medians per
+serialization, the Default in format 8 unless named; a part's median, so
+the parts do not add exactly):
+
+- *The walk that finds nothing changed.* 0.82 ms a still EpisodeB2 frame
+  (0.64 of it the draw order's walk and keeps, 0.17 the assembly and the
+  stream's diff), 1.11 at 0.a, 2.43 at 5.a (461 leaves kept); 1.14 on
+  PriceDiscovery. The viewer runs it for every prompted frame, and up to
+  45 times a second while updaters are live.
+- *The episode's own updaters.* 20.7 ms a tick at 8.a, against its 4.6 ms
+  of serialize: at rest on 8.a the largest Python cost there is, four and
+  a half times the serializer's. 1.2 ms a tick at 3.i, 1.45 on
+  PriceDiscovery. In plays the scene's
+  own Python (interpolation and updaters) is 20.6 ms a frame on 8.a's play,
+  4.7 on 5.a's, 0.95 at PriceDiscovery's median. Python by construction
+  until the updaters run on the GPU's clock (TODO.md, "After").
+- *The revision counter's over-signalling.* A tick at 8.a bumps 415 of 531
+  leaves and changes no byte; comparing and keeping them is 1.83 ms of the
+  4.59 ms serialize (40%); 3.i's 23 leaves 0.16 of 1.43 ms; PriceDiscovery's
+  49 leaves 0.24 of 1.16 ms. The
+  truthful fix is upstream in the mutators ("What to watch").
+- *Lyon on Phase A movers.* Only 8.a's play tessellates among the plays
+  measured: 360 fills a frame, 11.0-11.6 ms (Default and today alike), of
+  its 84.6 ms of preparation; every other play's movers keep their meshes.
+- *The rest of a Phase A mover.* 8.a's play prepares 360 leaves in 84.6 ms
+  (73 beyond Lyon, ~200 µs a leaf: the plane fit, the border source, the
+  stroke's read, classification, tier 1's records) and encodes in 3.5;
+  5.a's play prepares all 461 in 52.6 ms and encodes in 13.5, 2.4 MB a
+  message. B5.1's rows halve the 8.a play's serialize under patches (51.6
+  against 104.5 ms) but are not the default.
+- *Phase B's movers.* Where they are programs a program is a batch of its
+  own, encoded and diffed every frame: 5.a's play 18.7 ms of encode and 3.3
+  of diff in its 26.5 ms serialize (461 programs, 20 KB a message). Where
+  they are not (8.a's movers are written by updaters, so `programs.admits`
+  keeps them on the CPU) their records are packed: 92.3 ms of preparation
+  and 15.4 of encode, 972 KB a message.
+- *The stream's diff*, on Phase A: at most 0.07 ms a frame.
+
+**B4.9, render bundles: its condition is not shown either way.** Its
+condition was Dawn's per-draw cost above 1 ms at 911 slots, which the fake
+device cannot see, so the retained 8.a frame was redrawn on this machine's
+WebGPU (Chrome 152, Dawn on Metal; the archive's `device_redraw.html`), 200
+resends back to back, the two stacks in turns, six rounds each: the page's
+JavaScript is 0.10
+ms a redraw at 444 batches and 445 draws (Phase A) and 0.89 ms at 911
+and 1841 (Phase B), against 0.065 and 0.14 on the fake device, the
+difference being Chrome's serialization of the calls; the redraw sustains
+1.29-1.35 and 1.74-1.78 ms a frame with Dawn's GPU process and the GPU
+behind it. The page's JavaScript is the renderer end of Dawn's wire only:
+0.89 ms at the median, its six rounds 0.64-1.19 ms (two over 1 ms), taken
+at load 5-9 with other sessions active. The GPU process's end (the wire
+server, validation, Metal encoding) was not isolated, and the only figure
+that holds it, the sustained redraw, holds the GPU's work too. So the
+measurement leaves the condition unresolved rather than failed. To settle it: retake on a quiet machine
+with the GPU process's time isolated, by `redraw()` over the 8.a stream
+serialized at a tiny resolution (the GPU then negligible, the sustained
+redraw Dawn's) or by the GPU process's task time in a Chrome trace. Under
+format 8 no frame at rest is redrawn at all. Played
+message by message (three rounds, the page's clock coarsened to 0.1 ms)
+the device's page reads a little above the fake device's at the play
+medians (1.0 against 0.76 ms, Phase A, format 8; 0.4
+against 0.30, Phase B), and twice it on Phase B's 8.a play (8.7-9.0 against
+4.6-4.7 ms, the ~1400 buffers it makes a frame).
+
+**B5.2, the patch run rule: its condition is not met by these numbers.**
+Its condition was the draw count mattering once the draw list is retained.
+Phase B draws 4.1 times Phase A's at 8.a (1841 against 445; 855 against
+437 at 0.a), and that costs a drawn frame the page's 0.89 against 0.10 ms
+above and, natively, the GPU's out pass 4.85 against 4.08 ms at EpisodeB2's
+pausepoints (6.02 against 4.47 ticked; 4.50 against 3.78 on PriceDiscovery;
+on the device the whole sustained redraw of 8.a is 1.74-1.78 against
+1.29-1.35 ms).
+Under format 8 neither is paid at rest, and in plays Phase B's out pass is
+Phase A's (4.28 against 4.25 ms): the play gap is the programs' and
+borders' passes (the one-dispatch fix B5.1, B5.3 and B5.4 name) and, on
+8.a, the records packed.
+
+**To merge.** Nothing here is merged. `b4-integration` is `main` plus tier
+1, tier 2, B5.1, B5.3, B5.4 and B6, each a commit with its proof; `main` is
+frozen until Taylor says the class is done. When he chooses:
+
+```bash
+git -C /Users/taylorjweidman/Projects/ManimLive/maniml merge --no-ff b4-integration
+```
+
 ## After B4: the flips and the test point
 
 **B5.1 Rows on the wire under patches.** A mover sends its 17-float rows and
@@ -1079,7 +1350,9 @@ each reversible from the selector, Phase A always selectable. Measured
 phase_b_retained]`: Python ms per frame at rest and in plays, browser JS ms
 and wire bytes from `browser_frames.py` over the same frames, GPU ms from the
 timestamp attribution run, pixels against Phase A. That table is where the
-default decisions are read.
+default decisions are read. Measured 2026-09-28 for four stacks (today,
+Phase A retained, the Default, Phase B forced): "The final test point"
+above.
 
 ## What evidence flips B1 — a question left open
 
