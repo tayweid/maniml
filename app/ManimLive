@@ -1,0 +1,71 @@
+#!/bin/bash
+# ManimLive.app: opens ManimLive in a browser window of its own. It starts the
+# engine (`maniml app ~ --exit-when-idle`) in the background when none is
+# answering, and the engine stops itself three minutes after its last window
+# closes; opening the app again while it runs just opens another window. The
+# shape of Edit <course>.app: a script, no compiler, nothing bundled.
+#
+# The window is a Chromium browser's (Brave, Chrome, Edge, Chromium or
+# Vivaldi, the first one installed): V8 and the WebGPU the viewer is built and
+# tested on, as an app window with no tabs or address bar. Without one it is a
+# Safari tab (WebGPU on macOS 26). The engine's output goes to the log below.
+port="${MANIML_APP_PORT:-8685}"  # the variable is for development (open --env)
+url="http://localhost:$port/"
+log="$HOME/Library/Logs/ManimLive.log"
+mkdir -p "$(dirname "$log")"
+touch "$log"
+# Finder hands an app /usr/bin:/bin:/usr/sbin:/sbin, where a scene finds no
+# latex, dvisvgm or ffmpeg. The places maniml.agent's TOOL_DIRS names, first
+# thing, since some of them are looked up the moment maniml is imported.
+export PATH="$PATH:/Library/TeX/texbin:/opt/homebrew/bin:/usr/local/bin"
+
+# The Python your maniml is installed in, which app/build.sh records beside
+# this script; then the one an install line would set up; then the usual
+# places, since an app opened from Finder has no PATH to search.
+here="$(cd "$(dirname "$0")" && pwd)"
+python=""
+for candidate in "$(cat "$here/../Resources/python" 2>/dev/null)" \
+    "$HOME/Library/Application Support/ManimLive/engine/bin/python" \
+    /opt/miniconda3/bin/python3 /opt/anaconda3/bin/python3 \
+    "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" \
+    /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    if "$candidate" -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('maniml') is None)" 2>/dev/null; then
+        python="$candidate"
+        break
+    fi
+done
+if [ -z "$python" ]; then
+    osascript -e 'display alert "ManimLive cannot find maniml" message "Install maniml (see its README), then run app/build.sh from the checkout: it records the Python maniml is installed in."'
+    exit 1
+fi
+
+answering() { curl -fs --max-time 1 "$1" 2>/dev/null | grep -q '<meta name="maniml"'; }
+
+if ! answering "$url"; then
+    # The engine prints where it landed: 8685, unless something else holds it.
+    start=$(($(wc -c < "$log") + 1))
+    (cd "$HOME" && nohup "$python" -m maniml app "$HOME" --no-browser --exit-when-idle >> "$log" 2>&1 &)
+    for _ in $(seq 1 150); do
+        landed=$(tail -c +"$start" "$log" | grep -o 'maniml app: http://localhost:[0-9]*/' | tail -1)
+        if [ -n "$landed" ] && answering "${landed#maniml app: }"; then
+            url="${landed#maniml app: }"
+            break
+        fi
+        sleep 0.2
+    done
+    if ! answering "$url"; then
+        osascript -e "display alert \"ManimLive did not start\" message \"The reason is in $log\""
+        exit 1
+    fi
+fi
+
+for browser in "Brave Browser" "Google Chrome" "Microsoft Edge" "Chromium" "Vivaldi"; do
+    for folder in /Applications "$HOME/Applications"; do
+        if [ -d "$folder/$browser.app" ]; then
+            open -na "$folder/$browser.app" --args --app="$url"
+            exit 0
+        fi
+    done
+done
+open -a Safari "$url"
