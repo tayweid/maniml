@@ -7,7 +7,9 @@ the terminal and the app and it's a little clunky feeling"; and, choosing:
 it needs both the pwa and the terminal maintained separately is annoying and
 feels janky. and then for it to be easily updatable and on a path for
 consistency with knuth and plass so i don't need to understand many systems."
-Status: step 1 built on the `app-plan` branch; steps 2-4 not started.
+Status: step 1 built and merged (2026-09-29); steps 2-4 not started. The
+suite's direction, decided the same day, is the last section: Electron for
+all three Claerbout apps, one Chromium shared on disk.
 
 ## The decision
 
@@ -128,40 +130,83 @@ paths over a channel no web page reaches (the engine's stdin; the unused
 launcher opens no paths, so none of that is needed until the app handles
 double-clicks.
 
-## The suite, later
+## Claerbout: Electron for all three apps
 
-Taylor would like Plass, Knuth and ManimLive on one cross-platform platform,
-"but it has to make sense." What was learned on 2026-09-29, for when Windows
-matters:
+Decided 2026-09-29. Taylor, after the shared-Chromium prototype worked: "that
+opens up Electron as the path for all apps in Claerbout." The audiences set the
+order: Knuth on Windows for next semester, as an optional alternative to
+Google Colab for students; Plass opened to researchers soon; ManimLive for a
+narrower audience that is active and avid.
 
-- **What each app needs.** Plass was built and tested on Chromium (its CI and
-  port audit run Chromium; its file layer is written for Chromium's file API);
-  on the Mac it matches through a private WebKit flag
-  (`SubpixelInlineLayoutEnabled`) whose failure would be silent. Knuth does not
-  care about the engine. ManimLive needs WebGPU and gains from V8.
-- **Tauri 2** (stable) uses the system webview: WKWebView (JavaScriptCore;
-  WebGPU on macOS 26+ only), WebView2 on Windows (Chromium, V8, WebGPU on), and
-  WebKitGTK on Linux (no WebGPU; Plass's parity there "would say nothing"). A
-  page on `http://127.0.0.1` can call the shell with an explicit `remote`
-  capability (Tauri ≥ 2.11.1). Knuth v1's Tauri pain came from Tauri serving
-  the whole UI and doing all file I/O in Rust; a thin shell over an engine
-  mostly avoids it.
-- **Tauri 3** (alpha since 2026-09-13) picks the runtime per app,
-  system webview or CEF (Chromium 152), behind one API. CEF adds ~150-170 MB
-  per app; the bundler's shared-CEF option is for development, not users.
-  Early: no Windows sandbox under CEF, intermittent child-process
-  disconnects on macOS.
-- **Electron 44** is Chromium 152, a 124-130 MB zip per app per OS, a new
-  major every eight weeks with three supported, and no shared runtime.
-- **The installed browser** (this launcher) costs nothing and gives each app
-  the Chromium it was built on, at the price of the window belonging to the
-  browser. Frameworks built on the idea (Lorca, Carlo, Eel) are archived.
-- **Distribution holds either way**: GitHub Pages deploys through Actions take
-  a ~1 GB artifact with no 100 MB per-file limit, so even a ~150 MB zip can sit
-  beside the site under the Knuth/Plass standard.
+**One shell template, three apps.** The shell is written once, as Electron
+(JavaScript, no compile step), and built three times: Knuth.app, Plass.app and
+ManimLive.app, each with its own name, icon, Dock entry, menus, file types and
+install line (Taylor wants separate icons; a single suite app hosting all three
+kinds of window was ruled out for that). Each app keeps its engine, which
+serves its page: Knuth's and ManimLive's Python engines, and a small one for
+Plass (its page, files by path, the Open and Save dialogs: what its Swift shell
+does today minus the window; Python via uv like the others). The pages talk to
+the shell through one small protocol (dialogs, files by path, fullscreen,
+keep-awake, "open this file" events) in place of today's three
+(`window.webkit.messageHandlers.knuth`, Plass's `native-fs.ts`, ManimLive's
+engine-side dialogs).
 
-A plausible path, not a decision: the launcher shape for ManimLive now; Tauri
-3 with CEF for the apps that need Chromium and the system webview for Knuth
-once it is stable; one page-to-shell protocol across the three pages (dialogs,
-files by path, grants, fullscreen, keep-awake, opened-file events) so that a
-shell change rewrites only the host side.
+**Why Electron.** Chromium everywhere: it is Plass's reference engine (its CI
+and port audit run it, no private WebKit flag, its file layer is written for
+Chromium's API), ManimLive's (V8 and the WebGPU it is developed on) and
+indifferent to Knuth; the same engine on Mac, Windows and Linux. Tauri 2 would
+split the engines (WebKit on the Mac, WebKitGTK on Linux, where Plass loses
+parity and ManimLive loses WebGPU); Tauri 3 with CEF is the same idea in alpha.
+Electron is what VS Code, Obsidian and Slack ship. The development loop does
+not slow: the shell restarts without a compile, and the pages load from their
+engines or Plass's Vite dev server as they do now, with Chrome's DevTools.
+
+**One Chromium on disk, by APFS clones.** Electron.app 44.4.5 (macOS arm64) is
+288 MB unpacked, 286 MB of it `Electron Framework.framework`; the launcher, four
+helper apps and three small update frameworks come to 1.3 MB. The prototype
+(2026-09-29, scratch only) tried three ways to share the framework:
+
+- *A load path* in the launcher and helpers. Electron's programs have no header
+  pad, so a new path cannot be added, but replacing the existing one fits up to
+  67 characters (`/Library/Application Support/Claerbout/Electron-44` is 50).
+  Chromium then loads from the shared folder, and Electron traps at startup:
+  it looks for the framework's data files at
+  `<App>.app/Contents/Frameworks/Electron Framework.framework`, hard-coded.
+- *A link* at that spot. The main process starts, but the sandboxed GPU and
+  network helpers crash: the macOS sandbox lets them read inside the app
+  bundle only, and it judges the real path behind a link. With `--no-sandbox`
+  the viewer ran; with the sandbox, neither a link nor a load path can work.
+- *An APFS clone* of the framework into each app (`cp -c`): 287 MB in 0.07 s,
+  no change in free space, a completely standard Electron app (stock
+  programs, stock load path, Chromium inside the bundle). With the sandbox on,
+  ManimLive's viewer ran on Chrome 152 / V8 15.2 with WebGPU up and stepped a
+  scene.
+
+So each Electron version lives once in
+`~/Library/Application Support/Claerbout/Electron-44/` (per user: with no load
+path, the folder need not be fixed, and no password is needed). Each app's
+download leaves Chromium out (1-2 MB); the install line fetches the runtime
+once and clones it into the app, and moving to Electron 45 means one download
+and a re-clone. Clones share space only on one APFS volume, the internal disk
+of every current Mac; Finder and `du` still count each app in full. Windows
+keeps a copy per app for now.
+
+**Order.**
+
+1. The shell template, with Knuth on it for next semester, Mac and Windows.
+   Knuth's Swift app stays until the Electron one has proved itself. Windows
+   needs the engine's Mac-only corners fixed (its parent-process check uses
+   `os.kill(pid, 0)`, which is not a liveness test there), a PowerShell
+   install line in the shape of uv's own, and the Windows leg back in CI.
+2. Plass on the template when it opens to researchers, with its small engine.
+3. ManimLive on the template when it is worth it; its launcher (above) serves
+   until then.
+
+What was ruled out, and why, for the record: a WebKit window per app (a second
+engine to trust, Plass's private flag, Mac-only); Tauri 2 (split engines);
+Tauri 3 with CEF (alpha; its shared-CEF mode is for development); the user's
+installed browser for all three (the window and menus belong to the browser;
+Brave switches off the file-picker API Plass's file layer uses); a
+shared-framework load path or link (the sandbox, above). GitHub Pages holds a
+~150 MB zip beside a site (a ~1 GB artifact, no 100 MB per-file limit), so the
+Knuth/Plass distribution standard carries Electron apps unchanged.
