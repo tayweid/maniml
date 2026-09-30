@@ -7,8 +7,8 @@ import platform
 
 from mapbox_earcut import triangulate_float32 as earcut
 import numpy as np
-from scipy.spatial.transform import Rotation
-from tqdm.auto import tqdm as ProgressDisplay
+from maniml.utils.progress import ProgressDisplay
+from maniml.utils.rotation import Rotation
 
 from maniml.constants import DOWN, OUT, RIGHT, UP
 from maniml.constants import PI, TAU

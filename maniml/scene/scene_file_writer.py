@@ -12,7 +12,7 @@ try:
     from pydub import AudioSegment
 except ImportError:
     AudioSegment = None
-from tqdm.auto import tqdm as ProgressDisplay
+from maniml.utils.progress import ProgressDisplay
 from pathlib import Path
 
 from maniml.logger import log

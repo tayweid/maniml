@@ -5,6 +5,62 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The dependency trim, and the app as the product (2026-09-30)
+
+Taylor, on the Claerbout experiment's install figures (243 MB of
+dependencies for a 2.4 MB package): "i think there are a lot of
+dependencies we can cut down, right?", and the same day: "i don't think i
+need a maniml command from the terminal. that's not how it's intended to
+be used. it'll all be done in the app." The app's first launch installs
+the dependency list into a venv of its own, so every megabyte there is
+paid once per machine, and a terminal's conveniences serve nobody.
+
+What left, and what replaced it:
+
+- **scipy** (73 MB) for `Rotation` in the camera frame and `space_ops`,
+  `linalg.solve_banded` and `solve` behind smooth handles, and
+  `linear_sum_assignment` + `cdist` labelling Tex glyphs. Replaced by
+  `utils/rotation.py` (scalar-last quaternions in scipy's conventions,
+  Euler angles by scipy's own algorithm, Bernardes & Viollet's),
+  `utils/banded.py` (LU with partial pivoting in the band, Numerical
+  Recipes' shape, so a long path smooths in O(n)), and
+  `utils/assignment.py` (the Hungarian algorithm in its potentials form).
+  `tests/test_trimmed_dependencies.py` holds each to scipy's numbers on
+  random inputs where scipy is installed (the dev group keeps it, for
+  that and for `test_fill_paint`'s interpolator) and to independent checks
+  always.
+- **matplotlib** (24 MB) for named colormaps in `utils/color.py`: imported
+  lazily now, with an error that names it, so `get_color_map("viridis")`
+  needs it installed and the 3b1b colormap needs nothing.
+- **screeninfo** (and the 26 MB of PyObjC it pulled on macOS): imported
+  nowhere.
+- **moderngl** and **PyOpenGL** (28 MB, with Cython): the reference GL
+  camera's, which the app's window never draws. They are the `gl` extra
+  (`maniml[gl]`; `NativeGLCamera` says so when they are missing), which
+  CI installs for the frozen GL references under `tests/`. This reverses
+  the 2026-09 code review's "return to runtime dependencies": that
+  decision predates the app being the product.
+- **rich** and **tqdm**: a terminal's log rendering and progress bars.
+  `logger.py` is a plain handler; `utils/progress.py` keeps the shape the
+  callers use and displays nothing (the viewer's console shows the log;
+  a render's progress is the log's).
+
+The app's install is 85 MB where it was 243 (`uv pip install` of the
+requirements alone, Python 3.13, this Mac; the Claerbout doc has the
+before). `tests/check_wheel.py` refuses a wheel that names any of the
+five again. Still on the list and small: colour, addict, validators,
+appdirs, pydub, isosurfaces, svgelements, pygments, PyYAML; the pieces
+that are the engine: numpy, Pillow, wgpu, websockets, manimpango,
+fontTools, mapbox-earcut. The `maniml` console script stays for now: the
+shell runs `python -m maniml app`, the scene subprocesses do the same,
+and removing it is a README change more than a code one.
+
+**The icon** (same day): Knuth's tile grid with the red tiles at the
+lower left, lower right and upper right (Taylor's placement), drawn by
+`tools/make_icon.py` from the sampled geometry and colours of Knuth's
+`knuth-tiles-512.png`; the favicon, the manifest and the shell's app icon
+all read the same two files under `web/static/icons/`.
+
 ## Phase B as the default: measured on the device, not flipped (2026-09-30)
 
 B5.10 (`docs/phase_b4_plan.md`, "Phase B as the default";

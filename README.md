@@ -18,13 +18,18 @@ supported range. The current developer preview supports macOS. Windows and
 Linux support is intentionally deferred until the WebGPU renderer transition
 and cross-platform desktop packaging are complete.
 
-The Git and editable installs below build a small Rust helper for vector-fill
-meshes. Install the Rust toolchain through [rustup](https://rustup.rs/) and
-Apple's Command Line Tools (`xcode-select --install`) before running them.
-The tested toolchain is Rust 1.97.0; `cargo` must be on your `PATH`. The build
-uses the checked-in Cargo lockfile and may download its pinned dependencies.
-A compatible prebuilt wheel already contains this helper and needs no Rust
-toolchain. Importing ManimLive or rendering a scene never compiles it.
+ManimLive is used through its app (below): the app installs a Python of its
+own with [uv](https://docs.astral.sh/uv/) on first launch and never touches a
+Python already on the machine. Everything here goes through uv; there is no
+pip step and nothing from Homebrew.
+
+Installing from source builds a small Rust helper for vector-fill meshes.
+Install the Rust toolchain through [rustup](https://rustup.rs/) and Apple's
+Command Line Tools (`xcode-select --install`) first. The tested toolchain is
+Rust 1.97.0; `cargo` must be on your `PATH`. The build uses the checked-in
+Cargo lockfile and may download its pinned dependencies. The app's bundle
+carries this helper prebuilt, so the app needs no Rust toolchain; importing
+ManimLive or rendering a scene never compiles it.
 
 Phase A is the default for the browser, movie rendering and checkpoint
 images. The viewer's **Scene renderer** menu also offers **Original 2D**, so
@@ -32,25 +37,21 @@ you can compare the old winding renderer at the same checkpoint while
 dogfooding. This choice affects the live viewer; exports use Phase A.
 See the [renderer contract and validation](docs/unified_triangle_renderer_phase_a.md).
 
-```bash
-python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"
-```
-
-Or install from source, for development:
+From a checkout, for development:
 
 ```bash
 git clone https://github.com/tayweid/maniml.git
 cd maniml
-pip install -e .
+uv sync --extra gl
 ```
 
-An editable install makes the `maniml` command run your working tree, so an
-edit takes effect the next time you run a scene. Note that the install command
-above is **not** idempotent with it: `--force-reinstall` replaces the editable
-link with a copy under `site-packages`, and from then on your edits are
-silently ignored until you push and reinstall. If you develop ManimLive, run
-that command only when you mean to test the end-user setup path, and restore
-the editable install afterwards with `pip install -e . --no-deps`.
+`uv sync` creates `.venv` with a Python uv manages, builds the helper, and
+installs ManimLive editable with its development group, so an edit takes
+effect the next time you run a scene (`uv run python -m maniml scene.py
+Demo`). The `gl` extra adds moderngl and PyOpenGL for the reference GL
+camera and the frozen GL references under `tests/`; the app never needs
+them. To try ManimLive in some other environment, `uv pip install
+"maniml @ git+https://github.com/tayweid/maniml.git"` into it.
 
 ## Usage
 

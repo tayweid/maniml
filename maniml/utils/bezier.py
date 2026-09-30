@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy import linalg
+from maniml.utils.banded import solve_banded
 from fontTools.cu2qu.cu2qu import curve_to_quadratic
 
 from maniml.logger import log
@@ -288,7 +288,7 @@ def get_smooth_cubic_bezier_handle_points(
     b[-1] = points[-1]
 
     def solve_func(b):
-        return linalg.solve_banded((l, u), diag, b)
+        return solve_banded((l, u), diag, b)
 
     use_closed_solve_function = is_closed(points)
     if use_closed_solve_function:
@@ -303,7 +303,7 @@ def get_smooth_cubic_bezier_handle_points(
         b[-1] = np.zeros(dim)
 
         def closed_curve_solve_func(b):
-            return linalg.solve(matrix, b)
+            return np.linalg.solve(matrix, b)
 
     handle_pairs = np.zeros((2 * num_handles, dim))
     for i in range(dim):

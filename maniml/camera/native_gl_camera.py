@@ -79,7 +79,13 @@ class NativeGLCamera:
         self.frame = CameraFrame(**config)
 
     def init_context(self) -> None:
-        import moderngl
+        try:
+            import moderngl
+        except ImportError as exc:  # the gl extra (DECISIONS.md, "The dependency trim")
+            raise ImportError(
+                "NativeGLCamera needs moderngl and PyOpenGL, which are not part "
+                "of maniml's dependencies: pip install 'maniml[gl]'"
+            ) from exc
 
         # Always a standalone (windowless) context: the live viewer draws
         # in the browser from the geometry stream, and offline output

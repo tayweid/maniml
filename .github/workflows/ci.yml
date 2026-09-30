@@ -45,7 +45,7 @@ jobs:
           rustup default 1.97.0
 
       - name: Install locked development environment
-        run: uv sync --locked
+        run: uv sync --locked --extra gl
 
       - name: Compile Python sources
         run: uv run --locked python -m compileall -q maniml tests
@@ -184,7 +184,7 @@ jobs:
           rustup default 1.97.0
 
       - name: Install maniml
-        run: uv sync --locked --no-dev
+        run: uv sync --locked --no-dev --extra gl
 
       - name: Run logic and headless integration tests
         run: >-
@@ -203,4 +203,5 @@ jobs:
           tests.test_test_point
           tests.test_app
           tests.test_shell_config
+          tests.test_trimmed_dependencies
           tests.test_web_viewer

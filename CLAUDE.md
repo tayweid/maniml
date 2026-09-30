@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**maniml** is a ManimCE-compatible API using a shared triangle/WebGPU backend, with an interactive checkpoint system for rapid iteration. Installed editable (`pip install -e .`) as the `maniml` command.
+**maniml** is a ManimCE-compatible API using a shared triangle/WebGPU backend, with an interactive checkpoint system for rapid iteration. Installed editable (`uv sync`) as the `maniml` command; the product is the app (below), which runs `python -m maniml app` and never needs the command on a PATH.
 
 The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE install. Unmodified CE scene files still work: the CLI installs a process-local import alias (`_CEAliasFinder` in `maniml/__main__.py`) mapping `manim`/`manim.*` to maniml, so `from manim import *` resolves correctly under the `maniml` command while leaving any installed ManimCE untouched elsewhere.
 
@@ -20,7 +20,9 @@ Three names for one project, and they do not move together: **ManimLive** is the
 cd /tmp && python -c "import maniml; print(maniml.__file__)"   # must be this repo
 ```
 
-Run it from **outside** the repo. A checkout directory named `maniml` — any capitalisation, since macOS filesystems are case-insensitive — is importable as the package from its parent directory, so the same command run from `~/Projects` can report the working tree while the installed copy is what actually runs everywhere else. Restore with `pip install -e . --no-deps` (`--no-deps` so a reinstall cannot quietly upgrade numpy out from under the rest of the environment).
+Run it from **outside** the repo. A checkout directory named `maniml` — any capitalisation, since macOS filesystems are case-insensitive — is importable as the package from its parent directory, so the same command run from `~/Projects` can report the working tree while the installed copy is what actually runs everywhere else. Restore with `uv sync --extra gl` (or `uv pip install -e . --no-deps` into the environment; `--no-deps` so a reinstall cannot quietly upgrade numpy out from under the rest of the environment).
+
+**uv, not pip** (Taylor, 2026-09-30): the checkout is a uv project (`uv sync --extra gl` builds the helper and installs the dev group; `uv run python -m maniml ...` runs a scene; `uv lock` after touching the dependencies, and `tests/test_shell_config.py` holds `app/maniml.json` to them), and the app installs its engine's dependencies with uv into a folder of its own. The dependency list is deliberately short (DECISIONS.md, "The dependency trim"): scipy, matplotlib, rich, tqdm and screeninfo are gone, and moderngl/PyOpenGL are the `gl` extra for the reference GL camera, which CI installs for the frozen GL references under tests/. Do not add a dependency for a convenience; the app installs the list on every machine it runs on.
 
 Useful sibling checkouts (reference only, not tracked here — clone as needed):
 

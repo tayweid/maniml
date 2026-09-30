@@ -365,8 +365,17 @@ only when `pythons` includes `browser`, and requires the setup page
 instead. It is six lines, for Taylor to take into the shell.
 
 Left for later: the Windows corners (the parent watch has a Windows
-implementation, untested there); the dependency trim; whether `app/`'s
-script launcher stays beside the config.
+implementation, untested there); whether `app/`'s script launcher stays
+beside the config.
+
+**The dependency trim, the same day** (DECISIONS.md, "The dependency
+trim"): scipy, matplotlib, screeninfo, rich and tqdm left the list and
+moderngl/PyOpenGL became the `gl` extra. The first-launch install is now
+85 MB on disk (`uv pip install` of the config's requirements into a fresh
+Python 3.13 venv) where the table above measured 243; the largest that
+remain are numpy, manimpango, fontTools, Pillow and wgpu. The setup
+page's "about 300 MB" became "about 150 MB" with it (Python and uv
+included).
 
 ## Verdict
 

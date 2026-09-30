@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from contextlib import ExitStack
 
 import numpy as np
-from tqdm.auto import tqdm as ProgressDisplay
+from maniml.utils.progress import ProgressDisplay
 
 from maniml.animation.animation import prepare_animation
 from maniml.camera.camera import Camera
