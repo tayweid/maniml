@@ -1,6 +1,8 @@
 """Generated browser draw commands and buffer lifetimes, without a GPU."""
 
+import json
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -69,6 +71,12 @@ class GeneratedWebGPUCommands(unittest.TestCase):
 
     def test_changed_nets_split_into_dispatches_only_past_the_scratch_budget(self):
         self.run_case("netsInSeveralDispatches")
+
+    def test_changed_rows_split_into_dispatches_only_past_the_scratch_budget(self):
+        self.run_case("rowsInSeveralDispatches")
+
+    def test_rows_and_program_sources_share_one_table(self):
+        self.run_case("rowsAndProgramsShareOneTable")
 
     def test_retained_frames_draw_what_a_fresh_driver_draws_from_each_frame(self):
         self.run_case("retainedFramesDrawWhatFreshDriversDraw")
@@ -254,14 +262,36 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         shapes = _shapes()
         scene = build_scene(*shapes, resolution=(480, 270))
         with tempfile.TemporaryDirectory() as directory:
-            files = [Path(directory) / name for name in ("records.bin", "rows_0.bin", "rows_1.bin", "rows_2.bin")]
+            files = [Path(directory) / name
+                     for name in ("records.bin", "rows_0.bin", "rows_1.bin", "rows_2.bin", "rows_3.bin")]
             files[0].write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
             cache, wire = TriangleMeshCache(), GeometryCache()
             for path in files[1:3]:
                 path.write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
             shapes[1].shift([0, .2, 0])
             files[3].write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
+            # A dim (B5.8): paint alone moves (the line's stroke alone: a
+            # fill's opacity would give it a fill to draw).
+            for shape in shapes[:-1]:
+                shape.set_opacity(.05)
+            shapes[-1].set_stroke(opacity=.05)
+            files[4].write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
             self.run_case("rowsWire", *files)
+
+    def test_rows_as_a_recording_before_b58_names_them_draw_the_same_draws(self):
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.test_patch_rows import _shapes, legacy_rows_message
+        from tests.renderer_fixtures import build_scene
+        scene = build_scene(*_shapes(), resolution=(480, 270))
+        message = self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True, patch_rows=True)
+        header, payload = legacy_rows_message(*parse_geometry_message(message))
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            files = [Path(directory) / "split.bin", Path(directory) / "legacy.bin"]
+            files[0].write_bytes(message)
+            files[1].write_bytes(b"\x03" + struct.pack("<I", len(encoded)) + encoded + payload)
+            self.run_case("legacyRows", *files)
 
     def test_a_format_8_stream_draws_what_its_full_frames_draw(self):
         """B4.8 (docs/phase_b4_plan.md): one history serialized twice, as the

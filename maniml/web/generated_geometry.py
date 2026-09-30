@@ -334,24 +334,37 @@ def encode_draw(draw, camera, parts, record=None):
     program = getattr(draw, "program", None)
     program_descriptor = None
     # Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1):
-    # each object's rows, sent once by hash in the program sources' table;
+    # each object's rows, sent once by hash in the program sources' table
+    # as their geometry (`rows`) and their paint (`row_paints`) since B5.8;
     # the driver finalizes them into the batch's curve records or stroke
-    # instances, so neither travels.
+    # instances, a frame's in one dispatch, so neither travels.
     row_sources = getattr(draw, "rows", None)
-    row_hashes, num_curves = None, None
+    row_hashes, paint_hashes, num_curves = None, None, None
     if row_sources is not None:
         if (program is not None or base not in ("patch", "stroke") or len(vertices) or indices is not None
                 or border is not None or net is not None or net_members is not None):
             raise ValueError("row sources feed a patch or stroke draw that carries nothing else")
-        row_hashes = _row_digests(row_sources, parts, record, "row sources")
+        # Each rows travels as its geometry, keyed on it alone, and its
+        # paint (B5.8): a change of paint alone sends the paint.
+        row_parts = getattr(draw, "row_parts", None)
+        if row_parts is None:
+            row_parts = [gpu_program_geometry.split_rows(source) for source in row_sources]
+        if len(row_parts) != len(row_sources):
+            raise ValueError("a row source's geometry and paint go with its rows")
         counts = []
-        for source in row_sources:
-            if source.shape[1] != gpu_program_geometry.ROW_FLOATS or len(source) < 3 or len(source) % 2 == 0:
+        for source, (geometry, paint) in zip(row_sources, row_parts):
+            count = len(source)
+            if (source.shape[1] != gpu_program_geometry.ROW_FLOATS or count < 3 or count % 2 == 0
+                    or geometry.shape != (count, gpu_program_geometry.GEOMETRY_FLOATS)
+                    or paint.shape not in ((1, gpu_program_geometry.PAINT_FLOATS),
+                                           (count, gpu_program_geometry.PAINT_FLOATS))):
                 raise ValueError("row sources must be VMobject rows, an odd count of at least three")
-            counts.append(gpu_program_geometry.curve_count(len(source)))
+            counts.append(gpu_program_geometry.curve_count(count))
+        row_hashes = _row_digests([geometry for geometry, _ in row_parts], parts, record, "row sources")
+        paint_hashes = _row_digests([paint for _, paint in row_parts], parts, record, "row paints")
         num_curves = sum(counts)
         if base == "patch":
-            border_hash = gpu_program_geometry.rows_key(row_hashes)
+            border_hash = gpu_program_geometry.rows_key(row_hashes, paint_hashes)
             capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
             layout = validate_patch_layout(getattr(draw, "patch_layout", None), num_curves)
             if [curves for curves, _, _ in layout] != counts:
@@ -535,6 +548,9 @@ def encode_draw(draw, camera, parts, record=None):
             if layout is not None:
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
         if row_hashes is not None:
+            # The geometry names the batch; its paint, like a records run's
+            # curve records, is named beside it (row_paints, and the border
+            # hash), so a change of paint alone keeps the batch (B5.8).
             identity.update(b"\0rows\0" + b"".join(h.encode() for h in row_hashes))
             if layout is not None:
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
@@ -584,6 +600,7 @@ def encode_draw(draw, camera, parts, record=None):
             batch["fill_num_verts"] = 0
     if row_hashes is not None:
         batch["rows"] = row_hashes
+        batch["row_paints"] = paint_hashes
         if base == "stroke":
             batch["fill_num_verts"] = 0
     if border is True:

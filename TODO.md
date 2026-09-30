@@ -209,8 +209,9 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   wherever patches are drawn since B5.6 (`MANIML_PATCH_SOURCE=records` the
   override), pixels identical, the golden pin untouched (it states
   records). B6's test point retaken with both: 8.a's play 127.3 → 80.5 ms,
-  every class's median within 0.5 ms; navigations +15-28% natively until
-  item 2's levers.
+  every class's median within 0.5 ms; navigations +15-28% natively, until
+  B5.8 took item 2's two levers for rows (EpisodeB2 now below records,
+  PriceDiscovery above by its render).
 - **Shipped.** B4's retained frame (Python prepares only what changed,
   byte-identical on the wire) and format 8 (a negotiated page is sent a
   delta per change, and nothing at rest).
@@ -240,24 +241,34 @@ reading has the rest):
    as the CPU path's read does; the GPU path against the CPU path on the
    plays into 48, 58, 68, 86 and 109 is 0 pixels. B6's Phase B play pixels
    predate the fix; B5.6's retake of the test point has them after it.
-2. **One dispatch per kernel** for a frame's rows and programs, in both
-   drivers, as B5.5 made it for nets (a table the kernel reads, the inputs
-   gathered and the outputs copied into what their slots own, the state
-   keyed on exactly what the output reads). It stands in front of the
-   patches and programs flips: Phase B's plays pay 1.5-2.4 ms of program
-   passes and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against
-   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play; since
-   B5.6 made rows Phase B's patch source, a navigation pays them too (the
-   native render of a restored pausepoint 22.1 → 31.1 ms on EpisodeB2,
-   17.7 → 21.5 on PriceDiscovery). Rows need a second lever beside the
-   dispatch: a path's rows carry its paint (stroke and fill RGBA) and are
-   keyed by content with it, so a change of paint alone (a dim or undim at
-   a pausepoint) sends and finalizes the rows again and the batch is no
-   longer cached, where the records stay cached and only the object table
-   moves (EpisodeB2 258 → 277: 176 of 463 batches cached under records, 0
-   under rows). Key the finalized geometry on the geometry columns only and
-   take the colour from the object table or the paint, as records do; count
-   finalizes per navigation, not only dispatches, when it is measured. The
+2. **One dispatch per kernel** for a frame's programs, in both drivers,
+   as B5.5 made it for nets and B5.8 for rows (a table the kernel reads,
+   the inputs gathered and the outputs copied into what their slots own,
+   the state keyed on exactly what the output reads). It stands in front
+   of the programs flip: Phase B's plays pay 1.5-2.4 ms of program passes
+   and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against Phase
+   A's 4.3-5.4). **Rows: done by B5.8** (the plan's "The flips"): a frame's
+   rows in one dispatch of `row_finalize_table.wgsl`, and a path's rows
+   sent as their geometry (keyed on it alone) and their paint, so a dim
+   sends paints and no rows. A navigation natively is below records on
+   EpisodeB2 and above on PriceDiscovery (its render, +0.4 to +1.6 ms;
+   B5.6: +15-28% on both), the page's dispatches for it 74 and 26 where
+   they were 206 and 107. Its gate was not met as written; what is left:
+   the page's median JavaScript on a navigation in format 8 (2.33 → 2.6 and
+   1.5 → 2.05 ms, PriceDiscovery's worse than B5.6's rows' 1.73), whose
+   cause is not isolated: it is the delta path's (format 7 sends the same
+   definitions and reads close to records), the harness moves it (one
+   message reads 2.6 or 1.0 ms by whether Node's stderr is a pipe), and the
+   candidates are the delta path's allocations (the row staging
+   reallocated after `releaseRowScratch` drops it, a member object a slot,
+   the completed-state objects); PriceDiscovery's native render on a
+   navigation; the serializer's split of a mover's rows, 4.2 ms a frame of
+   8.a's play (the paint extracted and checked every frame though it
+   rarely moves, the paints' digests and names in every batch); and the
+   `row_paints` every batch names, 13 KB of a format 7 still message on
+   EpisodeB2 (98.4 KB against records' 71.7), which native capture and
+   every recorded export frame pay (a batch could name a paint only where
+   it differs from what its geometry last carried). The
    nets flip is B5.7's to read: its redraw levers are taken (each net's
    steps' pattern, runs as grids have), and on the surface-heavy scenes
    it still fails by the GPU of the triangles that make a net round

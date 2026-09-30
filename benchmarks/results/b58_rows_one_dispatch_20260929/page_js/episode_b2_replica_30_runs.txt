@@ -1,0 +1,30 @@
+== nav3/b2_v2/phase_b_forced_delta
+     12: q1  13.56  median  13.67  q3  13.78  min  13.29
+     44: q1   2.71  median   2.77  q3   2.97  min   2.66
+     76: q1   3.93  median   4.43  q3   5.20  min   3.72
+    103: q1   1.22  median   2.21  q3   2.28  min   0.93
+    120: q1   0.60  median   0.66  q3   0.73  min   0.55
+    140: q1   0.37  median   0.39  q3   0.41  min   0.35
+    157: q1   1.74  median   1.79  q3   2.61  min   1.67
+    177: q1   1.91  median   1.97  q3   2.04  min   1.85
+    194: q1   0.73  median   0.75  q3   0.87  min   0.72
+    258: q1   3.51  median   3.57  q3   3.83  min   3.40
+    277: q1   5.08  median   5.21  q3   5.42  min   4.86
+    307: q1   8.38  median   9.15  q3   9.63  min   7.97
+   p50 over the 12, per run: median 2.54  q1 2.48  q3 3.10
+   p50 of the per-message medians 2.49; total of them 46.58
+== nav3/b2_v2/phase_b_forced_records_delta
+     12: q1  13.66  median  13.90  q3  14.08  min  13.30
+     44: q1   3.00  median   3.09  q3   3.19  min   2.71
+     76: q1   4.31  median   4.42  q3   4.77  min   4.18
+    103: q1   2.29  median   2.32  q3   2.36  min   1.00
+    120: q1   0.83  median   0.85  q3   0.87  min   0.80
+    140: q1   0.72  median   0.74  q3   0.77  min   0.70
+    157: q1   1.98  median   2.00  q3   2.04  min   1.95
+    177: q1   2.19  median   2.24  q3   2.27  min   2.13
+    194: q1   1.12  median   1.15  q3   1.34  min   1.05
+    258: q1   4.63  median   4.82  q3   5.59  min   3.76
+    277: q1   5.26  median   5.35  q3   5.70  min   5.14
+    307: q1   8.40  median   8.67  q3   8.99  min   6.78
+   p50 over the 12, per run: median 2.74  q1 2.67  q3 2.83
+   p50 of the per-message medians 2.70; total of them 49.54

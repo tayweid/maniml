@@ -383,8 +383,10 @@ MAX_BORDER_CURVES = MAX_RUN_OUTPUT_BYTES // CURVE_BYTES
 
 # MANIML_PATCH_SOURCE=rows (docs/phase_b4_plan.md, B5.1): a path's rows,
 # VMobject's own seventeen float32 columns, travel in place of its curve
-# records and stroke instances, which each driver makes of them on the GPU
-# with row_finalize.wgsl, as it does for a program's evaluated rows.
+# records and stroke instances (as their geometry and their paint since
+# B5.8, gpu_program_geometry.split_rows), which each driver makes of them on
+# the GPU, a frame's in one dispatch of row_finalize_table.wgsl, whose
+# arithmetic is row_finalize.wgsl's for a program's evaluated rows.
 ROW_DTYPE = VMobject.data_dtype
 ROW_FLOATS = ROW_DTYPE.itemsize // 4
 STROKE_INSTANCE_BYTES = 3 * ROW_DTYPE.itemsize
@@ -454,6 +456,12 @@ class RowsSource:
     max_density: float
     capped: bool
     sqrt_area: np.float32
+    # What travels (B5.8, gpu_program_geometry.split_rows): the rows'
+    # geometry columns, keyed on them alone, and their paint, one row where
+    # uniform; a read whose geometry did not move keeps the previous read's
+    # array, so a change of paint alone sends the paint.
+    geometry: np.ndarray = None
+    paint: np.ndarray = None
 
     @classmethod
     def read(cls, mobject, *, previous=None, trusted=False, verify=None):
@@ -509,11 +517,13 @@ class RowsSource:
         if capped:
             density = density[np.isfinite(density)]
             top = density.max() if len(density) else np.float32(0)
+        from maniml.web.gpu_program_geometry import split_rows  # it imports this module
+        geometry, paint = split_rows(rows, None if previous is None else (previous.geometry, previous.paint))
         return cls(raw, rows, curves, bool(active.any()), bool(rows[:, 16].min() >= 0),
-                   float(top), capped, root.max())
+                   float(top), capped, root.max(), geometry, paint)
 
     def arrays(self):
-        return (self.raw_data,)
+        return (self.raw_data, self.geometry, self.paint)
 
     def frozen(self):
         return self
@@ -738,6 +748,11 @@ class BorderRecipeCache:
             return source
         entry = _SourceEntry(weakref.ref(mobject), source, _NO_RGBA, source.rows, self.frame, revision,
                              True, from_rows=True)
+        if previous is not None and previous.source.geometry is source.geometry:
+            # Only the paint moved (B5.8): the record (its winding sign) and
+            # the planar check are the geometry's, so the object table stays
+            # as it was, as a records source's does when its colour moves.
+            entry.record, entry.signed, entry.checked = previous.record, previous.signed, previous.checked
         self.source_updates += 1
         if key in self.sources:
             self._remove_source(key)

@@ -1,0 +1,10 @@
+ 258 records wire   1200.9 KB  batches  363 held    0  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data  182 (  854.2 KB)  object_data 154  finalized members    0
+ 258 rows    wire    620.4 KB  batches  363 held    0  rows geometry sent  332 (  362.7 KB, 0 sent before)  paint sent  14 (  0.4 KB)  border_data    0 (    0.0 KB)  object_data   8  finalized members  540
+ 277 records wire   1804.5 KB  batches  463 held  176  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data  232 ( 1415.7 KB)  object_data  54  finalized members    0
+ 277 rows    wire    528.3 KB  batches  463 held  334  rows geometry sent   99 (  223.2 KB, 0 sent before)  paint sent  10 (  0.3 KB)  border_data    0 (    0.0 KB)  object_data   9  finalized members  692
+ 157 records wire    916.2 KB  batches  142 held   68  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data   71 (  773.6 KB)  object_data   3  finalized members    0
+ 157 rows    wire    100.8 KB  batches  142 held  134  rows geometry sent    1 (    0.1 KB, 0 sent before)  paint sent  11 (  0.3 KB)  border_data    0 (    0.0 KB)  object_data   3  finalized members  293
+ 277 records wire   1817.9 KB  batches  463 held   93  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data  232 ( 1415.7 KB)  object_data 138  finalized members    0
+ 277 rows    wire    574.9 KB  batches  463 held  185  rows geometry sent  214 (  260.4 KB, 214 sent before)  paint sent  10 (  0.3 KB)  border_data    0 (    0.0 KB)  object_data  10  finalized members  692
+ 307 records wire   1391.6 KB  batches  911 held    0  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data  456 (  591.6 KB)  object_data 456  finalized members    0
+ 307 rows    wire    843.0 KB  batches  911 held    0  rows geometry sent  521 (  260.8 KB, 0 sent before)  paint sent   9 (  0.3 KB)  border_data    0 (    0.0 KB)  object_data   4  finalized members  975

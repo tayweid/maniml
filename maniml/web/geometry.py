@@ -277,8 +277,9 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
     # B5.1 (docs/phase_b4_plan.md): what a patch fill's curve records and its
     # path's stroke instances are sent as. "rows" (the default since B5.6,
     # wherever patches are drawn: the forced Phase B and any stack that
-    # selects them) sends the path's rows and each driver finalizes them
-    # (row_finalize.wgsl); "records" packs them on the CPU, the explicit
+    # selects them) sends the path's rows, as their geometry and their
+    # paint since B5.8, and each driver finalizes a frame's in one dispatch
+    # (row_finalize_table.wgsl); "records" packs them on the CPU, the explicit
     # override the harnesses compare against, pixel for pixel the same.
     # Without patches there is nothing to source.
     patch_source = os.environ.get("MANIML_PATCH_SOURCE", DEFAULT_PATCH_SOURCE)

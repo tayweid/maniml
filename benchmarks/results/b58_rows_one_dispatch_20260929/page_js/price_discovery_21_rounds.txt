@@ -1,0 +1,6 @@
+cold phase_b_forced records->rows: page_ms 1.31->1.46 (n 12); serialize_ms 21.18->16.61 (n 12); wire_bytes 401->226KB; bytes_uploaded 446->324KB; compute_dispatches 26->26; bind_groups_created 78->78; buffers_created 210->206
+cold phase_b_forced_delta records->rows: page_ms 1.51->2.05 (n 12); serialize_ms 19.14->11.12 (n 12); wire_bytes 400->225KB; bytes_uploaded 446->324KB; compute_dispatches 26->26; bind_groups_created 78->78; buffers_created 210->206
+format 7 cp rows/records: 9:10.00/10.81 19:2.42/2.97 35:1.57/1.86 48:2.29/2.19 58:1.83/1.70 68:1.62/1.39 86:1.35/1.22 98:0.77/0.74 109:1.24/1.08 115:0.77/0.67 123:1.04/1.10 130:1.22/1.17
+   total 26.14 26.91
+format 8 cp rows/records: 9:9.01/9.40 19:2.05/1.96 35:2.55/3.40 48:2.14/2.41 58:2.09/1.57 68:1.55/1.46 86:1.47/1.37 98:0.80/0.79 109:2.04/1.18 115:1.52/0.78 123:1.05/1.14 130:2.66/2.06
+   total 28.93 27.53

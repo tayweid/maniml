@@ -125,6 +125,7 @@ const ManimlWGPU = (() => {
     row_paint: ["row_paint.wgsl"],
     row_partial: ["row_partial.wgsl"],
     row_finalize: ["row_finalize.wgsl"],
+    row_finalize_table: ["row_finalize_table.wgsl"],
   };
 
   let canvas = null, context = null, device = null, canvasFormat = null;
@@ -172,15 +173,24 @@ const ManimlWGPU = (() => {
   // kind -> [sources, scalars on the wire]
   const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
   // Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1): a
-  // patch or stroke batch names its objects' rows, which travel as program
-  // sources; each rows is finalized once into curve records and stroke
-  // instances (row_finalize.wgsl), shared by the slots that name it, and a
-  // run of several objects copies its objects' into a buffer of its own.
-  const ROW_BYTES = 4 * ROW_FLOATS, RECORD_BYTES = 176;
-  const finalizedRows = new Map();
-  // The finalize's parameters are its curve count alone: one uniform
-  // buffer and binding per count, kept while the device lives.
-  const finalizeParams = new Map();
+  // patch or stroke batch names its objects' rows, which travel in the
+  // program sources' table, each as its geometry (nine columns a row) and
+  // its paint (eight, one row where uniform; B5.8), so a change of paint
+  // alone sends the paint; a batch without `row_paints` (a recording made
+  // before B5.8) names seventeen-column rows. The bytes are held by hash
+  // (rowSources, no GPU buffer); each slot owns its curve records or
+  // stroke instances, a run's objects' in order, and the slots whose
+  // output moved are finalized together in one dispatch
+  // (row_finalize_table.wgsl, finalizeRows) and copied into place.
+  const RECORD_BYTES = 176, GEOMETRY_FLOATS = 9, PAINT_FLOATS = 8;
+  const ROW_STROKES = 1, ROW_LEGACY = 2, RECORD_WORDS = 44, INSTANCE_WORDS = 51;
+  const rowSources = new Map(), NO_BUFFERS = Object.freeze([]);
+  // The finalize's scratch: its input (a dispatch's table and the geometry
+  // and paint it reads, each dispatch at an aligned offset, one bind group
+  // per offset) and its output, grown by powers of two and kept while
+  // frames draw rows. A dispatch holds at most the budget in each.
+  const ROW_SCRATCH_BUDGET = 32 << 20, ROW_TABLE_HEADER_WORDS = 4, ROW_ENTRY_WORDS = 8;
+  const rowScratch = { buffers: {}, sizes: {}, regions: new Map(), io: null, staging: null };
   // The explicit layouts every patch pipeline shares, and the pipelines of
   // a patch run by sample count, depth and paint.
   let patchLayouts = null;
@@ -646,10 +656,10 @@ const ManimlWGPU = (() => {
       retired.push(...entry.buffers);
     }
     slot.holds = [];
-    for (const output of [slot.border, slot.net, slot.program, slot.rowsRun]) {
+    for (const output of [slot.border, slot.net, slot.program, slot.rowsOutput]) {
       if (output && output.owner === slot) retired.push(...output.buffers);
     }
-    slot.border = slot.net = slot.program = slot.rowsRun = null;
+    slot.border = slot.net = slot.program = slot.rowsOutput = null;
   }
 
   function destroyRetired() {
@@ -802,8 +812,8 @@ const ManimlWGPU = (() => {
   // An index pattern the driver builds for a geometry at a reserved
   // capacity (a run's fills and strips, a patch run's strips, a net's
   // triangles), shared by the slots that draw it there.
-  function holdPattern(slot, geometry, capacity, build) {
-    return hold(slot, indexPatterns, geometry.key + "@" + capacity, () => {
+  function holdPattern(slot, geometry, capacity, build, key = geometry.key + "@" + capacity) {
+    return hold(slot, indexPatterns, key, () => {
       const buffer = makeBuffer(build().buffer, GPUBufferUsage.INDEX);
       return { buffer, buffers: [buffer] };
     }).buffer;
@@ -868,7 +878,9 @@ const ManimlWGPU = (() => {
       }
       const bytes = payload.slice(offset, offset + nbytes);
       if (!finiteFloats(bytes)) throw new Error("program source rows must be finite");
-      if (redefined(programSources.get(key), bytes)) throw new Error("program source hash redefined with different rows");
+      if (redefined(programSources.get(key), bytes) || redefined(rowSources.get(key), bytes)) {
+        throw new Error("program source hash redefined with different rows");
+      }
       definitions.set(key, bytes);
     }
     return definitions;
@@ -991,35 +1003,88 @@ const ManimlWGPU = (() => {
     }
   }
 
-  // A batch's row sources, each rows checked as the finalize reads it (an
-  // odd count of seventeen-float rows, whose outputs fit a storage
-  // binding; a patch's fill border widths nonnegative): [{key, bytes,
-  // curves}], or null when a definition is neither in the message nor held.
+  // A batch's row sources, each checked as the finalize reads it (an odd
+  // count of rows, whose outputs fit a storage binding; a patch's fill
+  // border widths nonnegative; a paint of one row or one a row): [{curves,
+  // source, paint, key, bytes, paintKey, paintBytes}], the holds (source,
+  // paint) left for makeSlot, or null when a definition is neither
+  // in the message nor held. A batch without `row_paints` names
+  // seventeen-column rows whose paint is their own (before B5.8). A name
+  // already held was checked when it arrived, and its widths the first
+  // time a patch read it at this width (rowSources' `widths`).
   function resolveRows(batch, incoming) {
-    const keys = batch.rows, patch = batch.pipeline === "patch" || batch.pipeline === "patch_depth";
-    if ((incoming.header.format_version ?? 0) < 7 || !isArray(keys) || !keys.length || !keys.every(validHash)
+    const keys = batch.rows, paints = batch.row_paints, patch = batch.pipeline === "patch" || batch.pipeline === "patch_depth";
+    const legacy = paints === undefined;
+    if ((incoming.header.format_version ?? 0) < 7 || !isArray(keys) || !keys.length
+        || !(legacy || (isArray(paints) && paints.length === keys.length))
         || !(patch || batch.pipeline === "stroke" || batch.pipeline === "stroke_depth")
         || batch.program !== undefined || batch.net !== undefined) {
       throw new Error("invalid row sources");
     }
-    const members = [];
-    for (const key of keys) {
-      const source = programSources.get(key), bytes = source ? source.bytes : incoming.programs.get(key);
+    const width = legacy ? ROW_FLOATS : GEOMETRY_FLOATS;
+    const members = new Array(keys.length);
+    for (let m = 0; m < keys.length; m++) {
+      const key = keys[m], entry = rowSources.get(key);
+      const bytes = entry ? entry.bytes : incomingRows(key, incoming);
       if (!bytes) return null;
-      const rows = bytes.length / ROW_BYTES, curves = Math.floor((rows - 1) / 2);
+      const rows = bytes.length / (4 * width), curves = Math.floor((rows - 1) / 2);
       if (!Number.isInteger(rows) || rows < 3 || rows % 2 === 0 || bytes.length > incoming.maxStorage
           || curves * INSTANCE_STRIDE > incoming.maxStorage) {
         throw new Error("invalid row source");
       }
-      if (patch) validateRowWidths(bytes);
-      members.push({ key, bytes, curves });
+      if (patch && !(entry && entry.widths === width)) validateRowWidths(bytes, width);
+      let paintKey = null, paint = null;
+      if (!legacy) {
+        paintKey = paints[m];
+        const held = rowSources.get(paintKey);
+        paint = held ? held.bytes : incomingRows(paintKey, incoming);
+        if (!paint) return null;
+        if (paint.length !== 4 * PAINT_FLOATS && paint.length !== 4 * PAINT_FLOATS * rows) {
+          throw new Error("a row source's paint does not match its rows");
+        }
+      }
+      // The member makeSlot keeps, its holds filled in there.
+      members[m] = { curves, source: null, paint: null, key, bytes, paintKey, paintBytes: paint };
     }
     return members;
   }
 
-  function validateRowWidths(bytes) {
+  // A row source's bytes this frame names without the driver holding them
+  // as one: a program's source of the same content, or the message's.
+  function incomingRows(key, incoming) {
+    if (!validHash(key)) throw new Error("invalid row sources");
+    const source = programSources.get(key);
+    return source ? source.bytes : incoming.programs.get(key);
+  }
+
+  // A program source's bytes no program holds: the message's, or a row
+  // source's held under the same name (one table on the wire names both; a
+  // recording before B5.8 can name as a program's source the
+  // seventeen-column rows an earlier frame sent as a path's).
+  function incomingProgram(key, incoming) {
+    const bytes = incoming.programs.get(key);
+    if (bytes) return bytes;
+    const held = rowSources.get(key);
+    return held ? held.bytes : undefined;
+  }
+
+  // A row source a slot finalizes, held by name (its bytes, no buffer).
+  function holdRows(slot, key, bytes) {
+    let entry = rowSources.get(key);
+    if (!entry) {
+      // No buffer of its own; its word in a finalize's region (stamp, at)
+      // written by finalizeRows, declared here so every entry keeps one shape.
+      entry = { bytes, buffers: NO_BUFFERS, cache: rowSources, key, refs: 0, widths: 0, stamp: null, at: 0 };
+      rowSources.set(key, entry);
+    }
+    entry.refs++;
+    slot.holds.push(entry);
+    return entry;
+  }
+
+  function validateRowWidths(bytes, width) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    for (let offset = 64; offset < bytes.byteLength; offset += ROW_BYTES) {
+    for (let offset = 4 * (width - 1); offset < bytes.byteLength; offset += 4 * width) {
       if (view.getFloat32(offset, true) < 0) throw new Error("fill border widths must be nonnegative");
     }
   }
@@ -1281,7 +1346,7 @@ const ManimlWGPU = (() => {
       && a.indexed === b.indexed && a.index_count === b.index_count && a.fill_num_verts === b.fill_num_verts
       && a.coverage === b.coverage && a.paint_hash === b.paint_hash
       && sameValue(a.uniforms, b.uniforms) && sameValue(a.textures, b.textures) && sameValue(a.paint, b.paint)
-      && sameValue(a.rows, b.rows)
+      && sameValue(a.rows, b.rows) && sameValue(a.row_paints, b.row_paints)
       && sameFields(a.border, b.border, BORDER_FIELDS) && sameFields(a.objects, b.objects, OBJECT_FIELDS)
       && sameNet(a.net, b.net) && sameFields(a.program, b.program, PROGRAM_FIELDS);
   }
@@ -1346,7 +1411,7 @@ const ManimlWGPU = (() => {
       set: null, geometry: null, paint: null, indexBuffer: null, draws: [], patchDraw: null,
       border: null, net: null, program: null, programKey: null, sources: null, strokes: false,
       borderSource: null, netSources: null, table: null, programOutput: null, programState: null,
-      rows: null, rowsKey: null, rowsRun: null, rowBuffer: null, rowStrokes: null };
+      rows: null, rowsKey: null, rowsOutput: null, rowFlags: 0, rowBuffer: null, rowStrokes: null };
     incoming.created.push(slot);
     const name = "generated_" + batch.pipeline + (batch.coverage ? "_coverage" : "");
     const depthOnly = batch.coverage && typeof batch.pipeline === "string" && batch.pipeline.endsWith("_depth")
@@ -1365,7 +1430,7 @@ const ManimlWGPU = (() => {
       const rowBytes = validateProgram(batch, incoming);
       program = batch.program;
       for (const key of program.sources) {
-        const source = programSources.get(key), bytes = source ? source.bytes : incoming.programs.get(key);
+        const source = programSources.get(key), bytes = source ? source.bytes : incomingProgram(key, incoming);
         if (!bytes) return miss(slot);
         if (bytes.length !== rowBytes) throw new Error("program source does not match the descriptor's rows");
       }
@@ -1420,40 +1485,47 @@ const ManimlWGPU = (() => {
     if (paint) slot.paint = holdStorage(slot, generatedPaints, paint.key, paint.bytes);
     if (program) {
       slot.programKey = [program.kind, program.sources.join(","), program.rows, program.channels].join(":");
-      slot.sources = program.sources.map(key => holdStorage(slot, programSources, key, incoming.programs.get(key)));
+      slot.sources = program.sources.map(key => holdStorage(slot, programSources, key, incomingProgram(key, incoming)));
       slot.strokes = batch.pipeline === "stroke" || batch.pipeline === "stroke_depth";
       if (predecessor && predecessor.program && predecessor.programKey === slot.programKey) {
         inherit(slot, "program", predecessor.program, incoming);
       }
     }
     if (rows) {
-      // Each rows finalized once, into outputs the slots naming it share;
-      // a run of several objects draws a buffer of its own, copied from
-      // theirs in order (prepareCompute), which it hands over as a border
-      // output is handed over.
-      slot.rows = rows.map(({key, bytes, curves}) => ({ curves,
-        source: holdStorage(slot, programSources, key, bytes),
-        output: hold(slot, finalizedRows, key, () => makeFinalizedRows(curves)) }));
-      slot.rowsKey = batch.rows.join(",");
-      const name = patch ? "records" : "strokes";
-      if (rows.length === 1) {
-        slot.rowBuffer = slot.rows[0].output[name];
-      } else {
-        const curves = rows.reduce((total, member) => total + member.curves, 0);
-        const size = curves * (patch ? RECORD_BYTES : INSTANCE_STRIDE);
-        const shape = name + ":" + size;
-        if (predecessor && predecessor.rowsRun && predecessor.rowsRun.shape === shape) {
-          inherit(slot, "rowsRun", predecessor.rowsRun, incoming);
-        } else {
-          if (size > (patch ? incoming.maxStorage : incoming.maxBuffer)) {
-            throw new Error("row sources exceed device buffer limits");
-          }
-          const buffer = device.createBuffer({size,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
-          slot.rowsRun = { shape, name, buffer, owner: slot, state: null, buffers: [buffer] };
-        }
-        slot.rowBuffer = slot.rowsRun.buffer;
+      // The slot's own curve records or stroke instances, its objects' in
+      // order, finalized with the frame's other changed rows
+      // (prepareCompute) from the geometry and paint it holds by hash; one
+      // it takes over from the slot it replaces is refinalized in place.
+      const legacy = batch.row_paints === undefined, width = legacy ? ROW_FLOATS : GEOMETRY_FLOATS;
+      let curves = 0;
+      for (let m = 0; m < rows.length; m++) {
+        const member = rows[m], source = holdRows(slot, member.key, member.bytes);
+        // resolveRows checked a patch's widths at this width.
+        if (patch) source.widths = width;
+        member.source = source;
+        if (member.paintKey !== null) member.paint = holdRows(slot, member.paintKey, member.paintBytes);
+        curves += member.curves;
       }
+      slot.rows = rows;
+      // What the output is made of (one object's names without a join).
+      const keys = batch.rows, paints = batch.row_paints;
+      slot.rowsKey = keys.length === 1 ? (legacy ? keys[0] : keys[0] + "|" + paints[0])
+        : keys.join(",") + (legacy ? "" : "|" + paints.join(","));
+      slot.rowFlags = (patch ? 0 : ROW_STROKES) | (legacy ? ROW_LEGACY : 0);
+      const size = curves * (patch ? RECORD_BYTES : INSTANCE_STRIDE);
+      // Records and instances apart by sign.
+      const shape = patch ? size : -size;
+      if (predecessor && predecessor.rowsOutput && predecessor.rowsOutput.shape === shape) {
+        inherit(slot, "rowsOutput", predecessor.rowsOutput, incoming);
+      } else {
+        if (size > (patch ? incoming.maxStorage : incoming.maxBuffer)) {
+          throw new Error("row sources exceed device buffer limits");
+        }
+        const buffer = device.createBuffer({size,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+        slot.rowsOutput = { shape, buffer, size, owner: slot, state: null, buffers: [buffer] };
+      }
+      slot.rowBuffer = slot.rowsOutput.buffer;
       if (!patch) slot.rowStrokes = slot.rowBuffer;
     }
     if (border) {
@@ -1471,7 +1543,7 @@ const ManimlWGPU = (() => {
         slot.border = { shape, buffer, owner: slot, fillCount: border.fillCount, capacity: border.capacity,
           count: border.count, storageOffset: border.storageOffset, storageSize: border.storageSize,
           sourceBytes: border.length, binding: null, patchBinding: null, bound: null, table: null,
-          chunks: null, camera: null, state: null, fill: null, source: null, buffers: [buffer] };
+          chunks: null, camera: null, state: null, made: null, fill: null, source: null, buffers: [buffer] };
       }
       if (!patch) {
         slot.indexBuffer = slot.geometry.index || holdPattern(slot, slot.geometry, border.capacity, () => {
@@ -1562,6 +1634,8 @@ const ManimlWGPU = (() => {
             () => ({ layout: pipeline.getBindGroupLayout(1),
                      entries: [{ binding: 0, resource: { buffer: slot.paint.buffer } }] })) : null };
       }
+      // The strips' pattern is their count's and the capacity's alone, so
+      // every run of as many curves shares it.
       draw.index = holdPattern(slot, slot.geometry, border.capacity, () => {
         const count = batch.border.num_curves, strips = border.capacity / 2 - 1;
         const out = new Uint32Array(6 * strips * count);
@@ -1574,7 +1648,7 @@ const ManimlWGPU = (() => {
           }
         }
         return out;
-      });
+      }, "patch-strips:" + batch.border.num_curves + "@" + border.capacity);
     }
     return draw;
   }
@@ -1806,15 +1880,6 @@ const ManimlWGPU = (() => {
     return output;
   }
 
-  // A row source's finalized curve records and stroke instances, made by
-  // the first slot that names the rows and finalized once (prepareCompute).
-  function makeFinalizedRows(curves) {
-    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC;
-    const records = device.createBuffer({size: curves * RECORD_BYTES, usage});
-    const strokes = device.createBuffer({size: curves * INSTANCE_STRIDE, usage});
-    return { records, strokes, curves, finalized: false, buffers: [records, strokes] };
-  }
-
   // Blend the rows (one float per invocation, over two sources) or map one
   // source (one row per invocation), then finalize VMobject rows into curve
   // records and stroke instances. The kernel's parameters are rewritten in
@@ -1892,52 +1957,20 @@ const ManimlWGPU = (() => {
   // each only where its state moved. States are recorded after the submit.
   function prepareCompute(incoming, slots, encoder, completed) {
     const batches = incoming.header.batches;
-    // Row sources: every rows not yet finalized, in one pass, then each run
-    // of several objects copied from its objects' outputs where it holds
-    // other rows. A rows' outputs never change (it is named by content).
+    // Row sources: every slot whose output is not yet what its batch names
+    // (a new slot, or one that took over its predecessor's), finalized
+    // together (finalizeRows). An output never changes while its slot keeps
+    // its batch (rows are named by content).
     let finalizing = null;
     for (const i of incoming.rowSlots) {
-      for (const member of slots[i].rows) {
-        if (member.output.finalized) continue;
-        if (!finalizing) finalizing = new Map();
-        finalizing.set(member.output, member.source);
-      }
+      const slot = slots[i];
+      if (slot.rowsOutput.state === slot.rowsKey) continue;
+      if (!finalizing) finalizing = [];
+      finalizing.push(slot);
+      completed.push([slot.rowsOutput, { state: slot.rowsKey }]);
     }
-    if (finalizing) {
-      const pipeline = programPipeline("row_finalize");
-      const compute = encoder.beginComputePass();
-      compute.setPipeline(pipeline);
-      for (const [output, source] of finalizing) {
-        let params = finalizeParams.get(output.curves);
-        if (!params) {
-          const data = new ArrayBuffer(16), view = new DataView(data);
-          view.setUint32(0, output.curves, true); view.setUint32(4, ROW_FLOATS, true);
-          const buffer = makeBuffer(data, GPUBufferUsage.UNIFORM);
-          params = { buffer, binding: device.createBindGroup({layout: pipeline.getBindGroupLayout(0), entries: [
-            {binding: 0, resource: {buffer, size: 16}}]}) };
-          finalizeParams.set(output.curves, params);
-        }
-        compute.setBindGroup(0, params.binding);
-        compute.setBindGroup(1, device.createBindGroup({layout: pipeline.getBindGroupLayout(1), entries: [
-          {binding: 0, resource: {buffer: source.buffer, size: source.bytes.length}},
-          {binding: 1, resource: {buffer: output.records, size: output.curves * RECORD_BYTES}},
-          {binding: 2, resource: {buffer: output.strokes, size: output.curves * INSTANCE_STRIDE}}]}));
-        compute.dispatchWorkgroups(Math.ceil(output.curves / 64));
-        completed.push([output, { finalized: true }]);
-      }
-      compute.end();
-    }
-    for (const i of incoming.rowSlots) {
-      const slot = slots[i], run = slot.rowsRun;
-      if (!run || run.state === slot.rowsKey) continue;
-      const size = run.name === "records" ? RECORD_BYTES : INSTANCE_STRIDE;
-      let offset = 0;
-      for (const member of slot.rows) {
-        encoder.copyBufferToBuffer(member.output[run.name], 0, run.buffer, offset, member.curves * size);
-        offset += member.curves * size;
-      }
-      completed.push([run, { state: slot.rowsKey }]);
-    }
+    if (finalizing) finalizeRows(finalizing, encoder, incoming);
+    else if (!incoming.rowSlots.length) releaseRowScratch();
     // The slots whose program is at the same state share one evaluation (an
     // object's fill and stroke, or objects moving alike), in the output of
     // a slot that already holds that state, or else of one that has an
@@ -1968,8 +2001,10 @@ const ManimlWGPU = (() => {
       // run of row sources the records finalized from its rows.
       const source = slot.programKey ? slot.programOutput.records : slot.rows ? slot.rowBuffer
         : slot.borderSource.buffer;
-      const state = slot.programKey ? uniforms.borderState + ";" + slot.programState
-        : slot.rows ? uniforms.borderState + ";" + slot.rowsKey : uniforms.borderState;
+      // Its state: the camera's words and, for a program or row sources,
+      // what its records were made of, compared apart (not joined into one
+      // string every frame).
+      const state = uniforms.borderState, made = slot.programKey ? slot.programState : slot.rows ? slot.rowsKey : null;
       if (output.bound !== source || output.table !== slot.table) {
         output.binding = device.createBindGroup({layout: borderPipeline.getBindGroupLayout(1), entries: [
           {binding: 0, resource: {buffer: source, size: output.sourceBytes}},
@@ -1985,7 +2020,7 @@ const ManimlWGPU = (() => {
         output.table = slot.table;
       }
       const fill = slot.geometry.vertex;
-      if (output.state === state && output.fill === fill && output.source === source) continue;
+      if (output.state === state && output.made === made && output.fill === fill && output.source === source) continue;
       if (output.fillCount && output.fill !== fill) {
         encoder.copyBufferToBuffer(fill, 0, output.buffer, 0, output.fillCount * 40);
       }
@@ -2019,7 +2054,7 @@ const ManimlWGPU = (() => {
         compute.dispatchWorkgroups(chunk.count);
       }
       compute.end();
-      completed.push([output, { state, fill, source }]);
+      completed.push([output, { state, made, fill, source }]);
     }
     // Nets: every member whose steps or source moved, in one dispatch, and
     // each batch drawn with the pattern of the steps it is evaluated at
@@ -2178,6 +2213,262 @@ const ManimlWGPU = (() => {
         }
       }
     }
+  }
+
+  // A row scratch buffer of at least `size` bytes, grown by powers of two;
+  // one it outgrew is destroyed after the submit, with the bind groups
+  // that named it.
+  function rowScratchBuffer(name, size, usage) {
+    const held = rowScratch.buffers[name];
+    if (held && rowScratch.sizes[name] >= size) return held;
+    if (held) retired.push(held);
+    if (name === "input") rowScratch.regions.clear(); else rowScratch.io = null;
+    let bytes = 1 << 16;
+    while (bytes < size) bytes *= 2;
+    rowScratch.sizes[name] = bytes;
+    return rowScratch.buffers[name] = device.createBuffer({size: bytes, usage});
+  }
+
+  // The scratch belongs to frames that draw rows.
+  function releaseRowScratch() {
+    for (const buffer of Object.values(rowScratch.buffers)) retired.push(buffer);
+    rowScratch.buffers = {};
+    rowScratch.sizes = {};
+    rowScratch.regions.clear();
+    rowScratch.io = rowScratch.staging = null;
+  }
+
+  // The dispatches of a frame's changed row sources, in order, as
+  // gpu_program_geometry.plan_row_finalize groups them: each geometry and
+  // paint once per dispatch, a dispatch within the budget in both
+  // bindings unless one member alone is larger. Entries hold the table's
+  // eight words after the member's index, the input words counted after
+  // the table.
+  function planRows(members, budget) {
+    const dispatches = [];
+    let current = null;
+    for (let index = 0; index < members.length; index++) {
+      const {geometry, geometryWords, paint, paintWords, curves, flags} = members[index];
+      const outputBytes = 4 * curves * (flags & ROW_STROKES ? INSTANCE_WORDS : RECORD_WORDS);
+      if (current && current.entries.length) {
+        // The words this member would add: its geometry and paint where the
+        // dispatch does not hold them yet.
+        let words = ROW_ENTRY_WORDS;
+        if (!current.offsets.has(geometry)) words += geometryWords;
+        if (paint !== null && !current.offsets.has(paint)) words += paintWords;
+        if (current.regionBytes + 4 * words > budget || current.outputBytes + outputBytes > budget) current = null;
+      }
+      if (!current) {
+        current = { entries: [], inputs: [], offsets: new Map(), inputWords: 0, regionBytes: 4 * ROW_TABLE_HEADER_WORDS,
+                    outputBytes: 0, curves: 0 };
+        dispatches.push(current);
+      }
+      let at = current.offsets.get(geometry);
+      if (at === undefined) {
+        at = current.inputWords;
+        current.offsets.set(geometry, at);
+        current.inputs.push([geometry, at, geometryWords]);
+        current.inputWords += geometryWords;
+      }
+      let paintAt = 0;
+      if (paint !== null) {
+        paintAt = current.offsets.get(paint);
+        if (paintAt === undefined) {
+          paintAt = current.inputWords;
+          current.offsets.set(paint, paintAt);
+          current.inputs.push([paint, paintAt, paintWords]);
+          current.inputWords += paintWords;
+        }
+      }
+      current.entries.push([index, at, paintAt, paint === null || paintWords === PAINT_FLOATS ? 0 : PAINT_FLOATS,
+                            current.outputBytes / 4, curves, flags, current.curves, 0]);
+      current.regionBytes = 4 * (ROW_TABLE_HEADER_WORDS + ROW_ENTRY_WORDS * current.entries.length + current.inputWords);
+      current.outputBytes += outputBytes;
+      current.curves += curves;
+    }
+    for (const dispatch of dispatches) {
+      const table = ROW_ENTRY_WORDS * dispatch.entries.length;
+      for (const entry of dispatch.entries) {
+        entry[1] += table;
+        if (members[entry[0]].paint !== null) entry[2] += table;
+      }
+      for (const input of dispatch.inputs) input[1] += table;
+    }
+    return dispatches;
+  }
+
+  // Finalize every changed row source in one dispatch (docs/phase_b4_plan.md,
+  // B5.8), as the native driver's _finalize_rows does: the table and the
+  // geometry and paint it reads written into one scratch binding (a write,
+  // not a buffer per rows), the kernel writing each member's curve records
+  // or stroke instances into another, and each slot's copied into the
+  // output it owns (its members in one copy). Past the budget the next
+  // dispatch takes the next aligned region of the input and reuses the
+  // output scratch.
+  function finalizeRows(changed, encoder, incoming) {
+    const budget = Math.min(ROW_SCRATCH_BUDGET, incoming.maxStorage);
+    // The frame's rows in one dispatch, the common case, laid out as
+    // planRows lays out one (each geometry and paint once, in the order the
+    // members first name them), written in one pass without planning into
+    // a staging array sized for every member's inputs: each input is
+    // stamped with its word in this frame's region as it is first written.
+    let count = 0, most = 0;
+    for (let c = 0; c < changed.length; c++) {
+      const members = changed[c].rows;
+      count += members.length;
+      for (let m = 0; m < members.length; m++) {
+        most += members[m].source.bytes.length + (members[m].paint ? members[m].paint.bytes.length : 0);
+      }
+    }
+    const table = ROW_ENTRY_WORDS * count, base = ROW_TABLE_HEADER_WORDS + table, stamp = {};
+    const data = rowStaging(4 * base + most), words = new Uint32Array(data.buffer);
+    let at = ROW_TABLE_HEADER_WORDS, end = base, output = 0, curves = 0;
+    for (let c = 0; c < changed.length; c++) {
+      const slot = changed[c], flags = slot.rowFlags, size = flags & ROW_STROKES ? INSTANCE_WORDS : RECORD_WORDS;
+      const members = slot.rows;
+      for (let m = 0; m < members.length; m++) {
+        const member = members[m], source = member.source, paint = member.paint, n = member.curves;
+        if (source.stamp !== stamp) {
+          data.set(source.bytes, 4 * end);
+          source.stamp = stamp; source.at = end - base;
+          end += source.bytes.length >> 2;
+        }
+        words[at] = table + source.at;
+        if (paint) {
+          if (paint.stamp !== stamp) {
+            data.set(paint.bytes, 4 * end);
+            paint.stamp = stamp; paint.at = end - base;
+            end += paint.bytes.length >> 2;
+          }
+          words[at + 1] = table + paint.at;
+          words[at + 2] = paint.bytes.length === 4 * PAINT_FLOATS ? 0 : PAINT_FLOATS;
+        } else {
+          words[at + 1] = words[at + 2] = 0;
+        }
+        words[at + 3] = output; words[at + 4] = n; words[at + 5] = flags; words[at + 6] = curves; words[at + 7] = 0;
+        at += ROW_ENTRY_WORDS;
+        output += size * n;
+        curves += n;
+      }
+    }
+    const regionBytes = 4 * end;
+    if (regionBytes > budget || 4 * output > budget) return finalizePlannedRows(changed, encoder, incoming, budget);
+    words[0] = count; words[1] = curves; words[2] = words[3] = 0;
+    const scratch = rowDispatch(data, regionBytes, [{offset: 0, curves}], 4 * output, encoder, incoming);
+    // Each slot's members, consecutive in the scratch and in its output,
+    // in one copy.
+    let from = 0;
+    for (let c = 0; c < changed.length; c++) {
+      const target = changed[c].rowsOutput, size = target.size;
+      encoder.copyBufferToBuffer(scratch, from, target.buffer, 0, size);
+      from += size;
+    }
+  }
+
+  // The staging array the region is written into, kept and grown by powers
+  // of two: writeBuffer copies it at the call, and a frame's worth of it
+  // would otherwise be garbage every frame that finalizes.
+  function rowStaging(bytes) {
+    if (!rowScratch.staging || rowScratch.staging.byteLength < bytes) {
+      let size = 1 << 16;
+      while (size < bytes) size *= 2;
+      rowScratch.staging = new Uint8Array(size);
+    }
+    return rowScratch.staging;
+  }
+
+  // Write the region and run its dispatches (each at its aligned offset,
+  // one bind group per offset), into the output scratch; returns it.
+  function rowDispatch(data, bytes, dispatches, outputBytes, encoder, incoming) {
+    const input = rowScratchBuffer("input", bytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const output = rowScratchBuffer("output", outputBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    const pipeline = programPipeline("row_finalize_table");
+    if (!rowScratch.io) {
+      rowScratch.io = device.createBindGroup({layout: pipeline.getBindGroupLayout(1), entries: [
+        {binding: 0, resource: {buffer: output, size: Math.min(rowScratch.sizes.output, incoming.maxStorage)}}]});
+    }
+    device.queue.writeBuffer(input, 0, data, 0, bytes);
+    for (const dispatch of dispatches) {
+      const workgroups = Math.ceil(dispatch.curves / 64);
+      const width = Math.max(1, Math.min(workgroups, incoming.maxDispatch)), rows = Math.ceil(workgroups / width);
+      if (rows > incoming.maxDispatch) throw new Error("row sources exceed the device's dispatch limits");
+      let group = rowScratch.regions.get(dispatch.offset);
+      if (!group) {
+        group = device.createBindGroup({layout: pipeline.getBindGroupLayout(0), entries: [
+          {binding: 0, resource: {buffer: input, offset: dispatch.offset,
+                                  size: Math.min(rowScratch.sizes.input - dispatch.offset, incoming.maxStorage)}}]});
+        rowScratch.regions.set(dispatch.offset, group);
+      }
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(pipeline);
+      compute.setBindGroup(0, group);
+      compute.setBindGroup(1, rowScratch.io);
+      compute.dispatchWorkgroups(width, rows);
+      compute.end();
+      if (dispatch.copy) dispatch.copy(output);
+    }
+    return output;
+  }
+
+  // Past the budget: the dispatches planRows groups, each in its aligned
+  // region of one write, each copied out of the output scratch before the
+  // next dispatch reuses it.
+  function finalizePlannedRows(changed, encoder, incoming, budget) {
+    for (const slot of changed) for (const member of slot.rows) {
+      member.source.stamp = null;
+      if (member.paint) member.paint.stamp = null;
+    }
+    const alignment = (device.limits || {}).minStorageBufferOffsetAlignment ?? 256;
+    const members = [];
+    for (const slot of changed) {
+      const flags = slot.rowFlags, words = flags & ROW_STROKES ? INSTANCE_WORDS : RECORD_WORDS;
+      let offset = 0;
+      for (const member of slot.rows) {
+        members.push({ geometry: member.source, geometryWords: member.source.bytes.length / 4,
+                       paint: member.paint, paintWords: member.paint ? member.paint.bytes.length / 4 : 0,
+                       curves: member.curves, flags, target: slot.rowsOutput.buffer, targetOffset: offset });
+        offset += 4 * words * member.curves;
+      }
+    }
+    const dispatches = planRows(members, budget);
+    let cursor = 0, outputBytes = 0;
+    for (const dispatch of dispatches) {
+      if (dispatch.regionBytes > incoming.maxStorage || dispatch.outputBytes > incoming.maxStorage) {
+        throw new Error("row sources exceed the device's storage binding limit");
+      }
+      dispatch.offset = cursor;
+      cursor += Math.ceil(dispatch.regionBytes / alignment) * alignment;
+      outputBytes = Math.max(outputBytes, dispatch.outputBytes);
+    }
+    const data = rowStaging(cursor), words = new Uint32Array(data.buffer, 0, cursor >> 2);
+    for (const dispatch of dispatches) {
+      let at = dispatch.offset / 4;
+      words[at] = dispatch.entries.length; words[at + 1] = dispatch.curves; words[at + 2] = words[at + 3] = 0;
+      at += ROW_TABLE_HEADER_WORDS;
+      for (const entry of dispatch.entries) {
+        for (let w = 1; w < 9; w++) words[at++] = entry[w];
+      }
+      for (const [holder, first] of dispatch.inputs) {
+        data.set(holder.bytes, dispatch.offset + 4 * (ROW_TABLE_HEADER_WORDS + first));
+      }
+      // Each slot's members, consecutive in the scratch and in its output,
+      // in one copy, before the next dispatch reuses the scratch.
+      dispatch.copy = output => {
+        let copy = null;
+        for (const entry of dispatch.entries) {
+          const {target, targetOffset, curves, flags} = members[entry[0]];
+          const from = 4 * entry[4], size = 4 * curves * (flags & ROW_STROKES ? INSTANCE_WORDS : RECORD_WORDS);
+          if (copy && copy.target === target && copy.from + copy.size === from && copy.to + copy.size === targetOffset) {
+            copy.size += size;
+            continue;
+          }
+          if (copy) encoder.copyBufferToBuffer(output, copy.from, copy.target, copy.to, copy.size);
+          copy = { target, from, to: targetOffset, size };
+        }
+        if (copy) encoder.copyBufferToBuffer(output, copy.from, copy.target, copy.to, copy.size);
+      };
+    }
+    rowDispatch(data, cursor, dispatches, outputBytes, encoder, incoming);
   }
 
   // What the encode loop has bound in the current pass: a call is made only
@@ -2511,6 +2802,7 @@ const ManimlWGPU = (() => {
         frame.samples = frame.format = frame.environment = frame.message = frame.header = null;
         frame.stream = frame.resync = null;
         releaseNetScratch();
+        releaseRowScratch();
         for (const entry of netPatterns.values()) retired.push(entry.buffer);
         netPatterns.clear();
         destroyRetired();
@@ -2521,12 +2813,10 @@ const ManimlWGPU = (() => {
         // left is destroyed with the device.
         for (const cache of [generatedGeometry, indexPatterns, uniformSets, generatedPaints, paintBindings,
                              textureBindings, borderSources, objectTables, netSources, programSources,
-                             finalizedRows]) {
+                             rowSources]) {
           for (const entry of cache.values()) for (const buffer of entry.buffers) buffer.destroy();
           cache.clear();
         }
-        for (const params of finalizeParams.values()) params.buffer.destroy();
-        finalizeParams.clear();
         programPipelines.clear();
         borderPipeline = netPipeline = null;
         patchLayouts = null;

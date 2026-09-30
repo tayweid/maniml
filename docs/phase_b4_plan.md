@@ -595,7 +595,8 @@ outputs are kept and retired); finalizing a run's members straight into
 the run's buffer would also remove the copies. A compute pass per finalize
 is not it: natively it made `render()` slower still (121.4 against 111.0
 ms, four replays each). Deferred to an increment of its own, with this
-table as its baseline.
+table as its baseline; B5.8 ("The flips") finalizes a frame's rows in one
+dispatch of a table, into buffers each batch owns.
 
 The browser's JavaScript: `browser_frames.py`'s new variant `phase_b_rows`
 against `phase_b` (four middle frames of the 8.a play, main realm, five
@@ -1364,7 +1365,7 @@ dispatches and not the resends or the finalizes; and the finalized
 geometry keyed on the geometry columns alone, its colour taken from the
 object table or the paint as the records' is. The increment that takes
 them counts finalizes per navigation, not only dispatches, and reads its
-baseline in these tables. Archive:
+baseline in these tables (B5.8, below, took both). Archive:
 `benchmarks/results/b56_rows_source_20260929/`.
 
 ### B5.7: nets drawn as grids are, and the nets gate over its timed set
@@ -1576,11 +1577,242 @@ Archive: `benchmarks/results/b57_net_runs_20260929/` (the three passes'
 tables, commands, conditions and source hashes, the silhouette
 measurement and its crop, the redraw and still-frame figures).
 
+### B5.8: a frame's rows in one dispatch, keyed on their geometry
+
+B5.8 (2026-09-29, on `b5-loose-ends`) takes the two negatives B5.1 and
+B5.6 recorded for rows as the patch source: each driver finalized every
+changed rows with a dispatch of its own (about 360 a frame on the 8.a
+play; a navigation's 73 → 206 and 26 → 107), and a path's rows carried
+its paint and were keyed with it, so a change of paint alone (a dim at a
+pausepoint) sent and finalized again rows whose geometry had not moved.
+B5.6 measured the result on a navigation: the forced Phase B's native
+complete frame 15-28% dearer than records (EpisodeB2 29.9 → 38.3 ms) and
+the page's JavaScript up to ~0.8 ms more.
+
+**Rows travel as their geometry and their paint.** A row source is split
+(`gpu_program_geometry.split_rows`) into its geometry, nine float32
+columns a row (point, stroke width, joint angle, base point or unit
+normal, fill border width), named by a digest of those columns alone, and
+its paint, eight a row (stroke RGBA, fill RGBA): one row where every row's
+bits agree, read at stride 0 and shared by every path that looks the same,
+and one a row otherwise (a gradient). Both travel in `program_data` by
+content hash; a patch or stroke batch names them in `rows` and
+`row_paints`, member for member, and a patch run's border hash is
+`rows_key` of the pairs. A batch's content hash is its geometry and
+layout, not its paint, as a records run's is its layout and object table:
+a change of paint alone keeps the batch (held) and names a new paint
+beside it. A read whose geometry did not move keeps the previous read's
+array (so its digest is memoized and nothing is re-sent), its object
+record (the winding sign) and its planar check, which are the geometry's,
+so its object table does not move either. The finalized records and
+instances still hold the paint (a record's colour words and its active
+flag, which reads the fill's alpha, as records packed on the CPU do), so
+a paint change refinalizes the batches that name it, on the GPU, in the
+frame's one dispatch; only the paint travels. A recording made before
+B5.8 names seventeen-column rows without `row_paints`: both drivers and
+the player read it, flagged in the same dispatch.
+
+**A frame's changed rows in one dispatch.** Each batch owns its output,
+its members' curve records (a patch run) or stroke instances (a stroke)
+in order: natively keyed by what it is made of (its kind, geometry and
+paint names), in the page the slot's own, taken over in place by a
+successor of its shape and refinalized when what it names moved. The
+outputs a frame needs made are finalized together by
+`row_finalize_table.wgsl`: one storage binding holds a four-word header,
+eight words an entry (geometry word, paint word, paint stride, output
+word, curves, flags, first curve) and the inputs they read, each geometry
+and paint once; one invocation a curve finds its entry by a binary search
+over the first curves and writes into an output scratch; each batch's
+members are then copied into its output in one copy. Past a 32 MiB budget
+(or the device's storage binding limit) the next dispatch takes the next
+aligned region of the one write and reuses the output scratch
+(`plan_row_finalize`, `planRows`). The scratch grows by powers of two and
+is released on a frame that draws no rows, and on close. The kernel's
+arithmetic is `row_finalize.wgsl`'s, which a program's rows still go
+through: `RowTableKernel` holds the two to the same words on 40-odd paths
+of the fixture corpus, a gradient and an overflowing path, from the split
+rows and from seventeen-column rows.
+
+**Two further fixes.** Both drivers read one table on the wire for program
+sources and row sources again, as B5.6's one map did: the rows a batch
+names may be held as a program's source and the reverse (a recording made
+before B5.8 can name as a program's source the seventeen-column rows an
+earlier frame sent as a path's; `rowsAndProgramsShareOneTable`, and
+`PatchRowsCommands`' natively). The page keeps one member object a path
+where it made two, shares one empty buffer list among the rows it holds,
+and names a one-object batch's output without joining lists; a patch run's
+strip pattern is its curve count's and capacity's
+(`"patch-strips:" + curves + "@" + capacity`), shared by every run of as
+many curves, and the border stage's state is compared in parts (the
+camera's words, then what the records were made of).
+
+**After review.** The review found two disagreements between the mirrors
+and one path no test ran on a GPU, all three fixed: `plan_row_finalize`
+counted the table's header twice when it asked whether a member fits, so it
+split a dispatch whose region fits the budget exactly where `planRows`
+kept it whole (now both count it once; `RowFinalizePlan` holds the two
+planners to the same dispatches, word for word, at and around the budget,
+and fails against the old count); the native driver read a batch whose
+`row_paints` is present and null as a recording before B5.8 and drew it,
+where the page and the player reject it (now a batch is such a recording
+only without the key, in all three; `test_null_row_paints_are_not_a_recording_before_b58`,
+`legacyRows` and the player's `corrupt` case each fail when null is read
+as the key's absence); and nothing ran the native driver's several
+dispatches on a real GPU (`RowFinalizeInSeveralDispatches`, under
+`MANIML_TEST_GPU=1`, lowers the budget to 1 KiB and draws eight frames, a
+dim, a move, an undim, an alpha change, a zoom, a recolour and a gradient
+flip, in 3 or more dispatches with a batch's members split across them:
+pixel for pixel what one dispatch draws, and records within 1/255; it
+fails when every dispatch binds region 0). The review also ran the page's
+planned path in Chrome 152 (a viewer from this worktree, Phase B selected:
+six 40k-curve fills in one patch run and two 60k-curve strokes, 91 MB of
+outputs, planned into three dispatches at aligned regions of one 25.9 MB
+write, the run's members split across them; a dim, a move, a step back and
+a switch between Phase A and Phase B drew correctly, with no device error
+and no console message). The fix pass ran it again on the tree committed
+(below).
+
+**Proof.** Pixels, rows against records, largest channel difference 0:
+every pausepoint of both episodes and their gate plays (84 and 23, 24 and
+9), both takes of the test point's pairs (12 pausepoints and 139 play
+frames, 12 and 124), and every phase_b frame of the golden pin (251, each
+drawn as the pin's records frame, all at their pinned digests, and as
+rows); the pin itself untouched, in each of its modes (default,
+`MANIML_RETAINED_FRAME=0`, `MANIML_VERIFY_LEDGER=1`). The mirrors:
+`rowsWire` (one dispatch, its table read member for member, each batch's
+one copy into its slot's buffer, a moved square refinalized in place, a dim
+sending paints and no rows), `rowsInSeveralDispatches` (a 1 KiB binding
+limit: several dispatches at aligned regions, traced by content to draw
+what one dispatch draws), `legacyRows` (and a null `row_paints` rejected
+with nothing submitted), `rowPlansAgree`, `rowsAndProgramsShareOneTable`,
+`retainedFramesDrawWhatFreshDriversDraw` (dims and moves of a row run),
+the fake device's checks of every table; natively `PatchRowsCommands`
+(one dispatch, the table's entries and inputs, a dim, legacy rows,
+malformed paints and a null `row_paints` rejected with nothing submitted),
+`RowFinalizePlan`, `RowFinalizeInSeveralDispatches` and `RowTableKernel`;
+the player (`player_commands.cjs phaseB` and `corrupt` with split rows, a
+null `row_paints` among them, the export replays); each of the three null
+cases fails when its mirror reads null as the key's absence. In Chrome 152,
+on the tree committed, with a viewer launched from this worktree and Phase
+B selected: the kernel compiles on a device of its own without messages;
+the review's scene of 40k- and 60k-curve paths plans its first frame into
+three row dispatches at regions 0, 11520512 and 21601024 of one 25.9 MB
+write, four copies for two batches (the fill run's members split across
+dispatches), and draws it, its dim (the same three dispatches), a move, a
+step back, and the same frame again after a switch to Phase A and back
+(Phase A's frame of those paths had not arrived before the switch back);
+a scene of fill-bordered
+squares, a gradient circle, an annulus, a stroke and text draws a dim and
+an undim in one submit each (one row dispatch beside two border runs, one
+30 KB write), a play in 31 submits, and three wheel zooms with no row
+finalize and only 192-byte uniform writes. No uncaptured device error in
+either; the console's only messages were the WebSocket's reconnect
+failures after a viewer was stopped.
+
+**The gate, and what it read** (`benchmarks/results/b58_rows_one_dispatch_20260929/`,
+its README the detail). The recipe asks for a quiet GPU; the desktop apps
+kept it 12-44% busy for long stretches, so the test point was taken twice
+(17:28-17:59, the GPU 19-41% busy at every start and nothing waited for;
+and a retake after review, every run first waiting up to two minutes for
+three samples at or below 10%, which only some runs got), the native
+navigation in nine passes (three of EpisodeB2's on a quiet GPU), and GPU
+parts are compared only within a run, where records and rows alternate:
+records' own 8.a GPU part read 17.75 ms in B5.6's run and 24.22 and 22.04
+in these. Records → rows:
+
+- A navigation, natively (`seek_frames.py`, rounds alternating):
+  EpisodeB2 below records in eight of nine passes (the three quiet ones
+  34.33 → 32.93, 33.58 → 33.11, 35.07 → 33.80 ms; the one above, +1.7%,
+  the review's with the GPU 39-50% busy), where B5.6's rows read 29.9 →
+  38.3. PriceDiscovery above in seven of nine (-2.3% to +8.0%; the
+  retake's eight-round passes 26.26 → 25.80, 25.57 → 25.60, 25.25 →
+  25.46), B5.6 25.0 → 28.8: its **render** above records' in eight of nine
+  (+0.4 to +1.6 ms), its serialize within 0.17 ms. The first reading put
+  PriceDiscovery's excess in the serialize; it is in the render. The still
+  frame after it reads rows above records (EpisodeB2 15.05-16.10 →
+  16.12-16.77 ms), and its format 7 message is 98.4 KB where records' is
+  71.7 and B5.6's rows 85.4: the `row_paints` lists are 13.1 KB of it.
+- A navigation, the page (`browser_frames`' `cold`, the median of twelve),
+  three takes: EpisodeB2 2.32-2.34 → 2.58-2.61 ms in format 8 and 2.57-3.47
+  → 2.42-2.49 in format 7; PriceDiscovery 1.49-1.51 → 2.05-2.07 and
+  1.30-1.36 → 1.46-1.49. B5.6's rows read 2.68 and 1.73 in format 8, so
+  PriceDiscovery's page navigation in format 8 is worse than B5.6's rows
+  (1.73 → 2.05-2.07, its records' 1.56 → 1.49-1.51). What the page does
+  for it is at or below records' (compute dispatches 73 → 74 and 26 → 26,
+  B5.6's 206 and 107; bind groups, buffers and uploads fewer). Why the
+  median reads above records in format 8 is not isolated. It is format
+  8's: format 7 sends the same definitions and reads rows close to records
+  at the messages where format 8 is far above (PriceDiscovery's 109, 115,
+  130: 1.22/1.07, 0.79/0.68, 1.25/1.20 against 2.52/1.20, 1.53/0.81,
+  2.67/1.19), so a run of small paths sent as a definition a path is not
+  the cost, as this section first said. Young-generation collections land
+  in the median messages under rows (EpisodeB2's 2.h, PriceDiscovery's 58,
+  109, 115). And the instrument moves by as much as the differences:
+  replayed a fresh process a pass without the harness's bookkeeping,
+  EpisodeB2 reads rows below records in both formats and PriceDiscovery's
+  format 8 1.47 → 1.62, whose checkpoint 130 reads 2.6 ms under rows
+  against 1.1 under records when Node's stderr is a pipe, as
+  `browser_frames.py` runs it, and 1.0 against 1.2 when it is `/dev/null`,
+  nothing written to it either way. The candidates left are the delta
+  path's allocations (the row staging reallocated after
+  `releaseRowScratch` drops it, a member object a slot, the
+  completed-state objects), none measured.
+- The test point's classes, first take / retake (B5.6), format 8:
+  EpisodeB2 pausepoint 0.80 → 0.89 / 0.79 → 0.92 (0.68 → 0.75), ticked
+  3.58 → 3.96 / 3.64 → 4.02 (3.22 → 3.48), play 11.83 → 12.60 / 12.47 →
+  12.65 (8.86 → 8.97); PriceDiscovery 0.78 → 0.84 / 0.77 → 0.89 (0.62 →
+  0.69), 1.21 → 1.26 / 1.17 → 1.29 (0.98 → 1.04), 12.26 → 11.78 / 12.07 →
+  12.06 (10.93 → 10.63). Rows read above records in every EpisodeB2 class,
+  its play and ticked gaps wider than B5.6's (+0.77 and +0.18, +0.38 and
+  +0.38, against +0.11 and +0.26); a mover's format 8 play serialize is
+  0.13-0.7 ms dearer at 12, 76, 258 and 277, the split every mover pays.
+  PriceDiscovery's format 7 pausepoint, one frame, read 5.63 → 6.24 then
+  5.69 → 5.82 (the first take's +0.44 ms that frame's GPU part).
+- 8.a's play, the test point in format 8: 138.77 → 86.09 ms (serialize
+  109.82 → 60.12, page 4.73 → 4.57, GPU 24.22 → 21.41) and, retaken,
+  136.92 → 83.71 (110.26 → 59.41, 4.63 → 4.42, 22.04 → 19.87), against
+  B5.6's 80.52 (its GPU 17.75 → 24.13). Within each run rows' GPU part is
+  below records' (by 2.8 and 2.2 ms, and 0.9 in the retake's attribution
+  run with the two alternating replay by replay on a quiet GPU, where
+  B5.6's rows read 6.4 above); across runs nothing is compared. The
+  serialize is 4.2 ms a frame dearer than B5.6's code (HEAD against this
+  tree in alternate processes: 52.9-53.6 against 56.9-57.4 ms): the split
+  into geometry and paint 1.3 ms, the rest of the rows read and of each
+  leaf's preparation 0.9, `encode_draw` 0.8 (the paints' digests and
+  `rows_key` over pairs 0.4 of it), the runs 0.3, the header's JSON 0.4
+  (each batch names its paints), about 0.5 not attributed. Natively the
+  whole frame is 210.1 → 151.8 and 207.3 → 150.5 ms (render 100.0 → 92.8
+  and 97.0 → 91.7; B5.6's rows rendered 15.7 ms above records).
+- A dim sends no rows: EpisodeB2 258 → 277 holds 334 of 463 batches (records
+  176, B5.6's rows 0), sends 10 paints (0.3 KB) and no geometry the receiver
+  had been sent (B5.6 re-sent 590 rows that differed only in alpha), 528 KB
+  against records' 1805 KB.
+- Pixels identical to records, above.
+
+The gate is not met as written. Met: EpisodeB2's native navigation, its
+page navigation in format 7, a dim sending no rows, pixels. Not met:
+PriceDiscovery's native navigation (its render), the page's navigation in
+format 8 on both episodes and in format 7 on PriceDiscovery, with
+PriceDiscovery's format 8 worse than B5.6's rows, and 8.a's play (86.1 and
+83.7 against 80.5 ms, across runs on a busier GPU; its serialize 4.2 ms
+dearer, measured directly). What is left: the serializer's per-path split
+on movers (a mover whose paint does not move still pays for the paint's
+extraction and uniformity check, and every batch names its paints, 13 KB
+of a format 7 still message on EpisodeB2, which native capture and every
+recorded export frame pay: a batch could name a paint only where it
+differs from what its geometry last carried), PriceDiscovery's native
+render on a navigation, and the page's format 8 navigation, whose cause is
+not isolated.
+
+Archive: `benchmarks/results/b58_rows_one_dispatch_20260929/`.
+
 ## The final test point
 
 Since B5.6 the selection's Phase B sends its patches as rows; the Phase B
 measured here packed records, the stack `test_point` now calls
-`phase_b_records`, and "The flips", B5.6, retakes the table with both.
+`phase_b_records`, and "The flips", B5.6, retakes the table with both (and
+B5.8 again, its rows finalized in one dispatch and keyed on their
+geometry).
 
 B6 (2026-09-28, on `b4-integration`): the table B4 and B5 were building
 toward, read, not recommended from. Four stacks, as a lecture meets them:

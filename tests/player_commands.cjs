@@ -70,8 +70,10 @@ function borderMessage(color, frameId, {cached=false, definition=true, empty=fal
 }
 // Format 7 Phase B batches, synthetic like the paint and border messages: a
 // patch run over one four-curve object, a one-patch net, and a blend program
-// drawn three ways (a stroke, a patch run, a net), then row sources and a
-// run of two nets (B5.7), the first the net's. The variant picks the
+// drawn three ways (a stroke, a patch run, a net), then row sources as a
+// recording before B5.8 has them (seventeen floats a row), the same as
+// geometry and paint (B5.8), and a run of two nets (B5.7), the first the
+// net's. The variant picks the
 // content hashes and a marker word in every definition, so a seek can be
 // checked to restore the right one; `marker` alone changes the bytes under
 // the same hashes, which a recording may not do.
@@ -107,6 +109,13 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
       {...base,pipeline:'patch',hash:rowsHash('a1'),num_verts:capacity*3,count:3*(6+strip),rows:[rowsHash('b1'),rowsHash('b2')],
        border:{hash:rowsHash('c1'),num_curves:3,capacity},objects:{hash:rowsHash('d1'),count:2}},
       {...base,pipeline:'stroke',stride:68,hash:rowsHash('a2'),num_verts:6,instances:2,count:4,rows:[rowsHash('b1')]},
+      // Since B5.8 each object's geometry (nine floats a row) and paint
+      // (eight: one row for the first object, one a row for the second).
+      {...base,pipeline:'patch',hash:rowsHash('a4'),num_verts:capacity*3,count:3*(6+strip),
+       rows:[rowsHash('e2'),rowsHash('e3')],row_paints:[rowsHash('f1'),rowsHash('f2')],
+       border:{hash:rowsHash('c4'),num_curves:3,capacity},objects:{hash:rowsHash('d4'),count:2}},
+      {...base,pipeline:'stroke',stride:68,hash:rowsHash('a5'),num_verts:6,instances:2,count:4,
+       rows:[rowsHash('e2')],row_paints:[rowsHash('f1')]},
       {...base,pipeline:'surface',hash:rowsHash('a3'),num_verts:9+25,count:24+96,
        net:[{hash:hash('e'),nu:3,nv:3,channels:10,capacity:2,density:0},{hash:rowsHash('e1'),nu:3,nv:3,channels:10,capacity:4,density:0}]},
     ];
@@ -127,6 +136,9 @@ function phaseBMessage(variant, frameId, {cached=false, definition=true, empty=f
       const table=Buffer.concat([objects(2),objects(1)]);
       table.writeFloatLE(2,32+12);
       define('object_data',rowsHash('d1'),table);
+      define('program_data',rowsHash('e2'),floats(45,word+50)); define('program_data',rowsHash('e3'),floats(27,word+60));
+      define('program_data',rowsHash('f1'),floats(8,word+70)); define('program_data',rowsHash('f2'),floats(24,word+80));
+      define('object_data',rowsHash('d4'),table);
       define('net_data',rowsHash('e1'),floats(90,word+40));
     }
   }
@@ -154,8 +166,13 @@ function phaseBRecords(header, frame, length) {
     }
     if(batch.rows) for(const hash of batch.rows) {
       const rows=span('program_data',hash,'row source');
-      assert.equal(rows.byteLength%68,0);
+      assert.equal(rows.byteLength%(batch.row_paints?36:68),0);
       found.push(['rows',rows.getFloat32(0,true)]);
+    }
+    if(batch.row_paints) for(const hash of batch.row_paints) {
+      const paint=span('program_data',hash,'row paint');
+      assert.equal(paint.byteLength%32,0);
+      found.push(['paint',paint.getFloat32(0,true)]);
     }
     if(patch) {
       const table=span('object_data',batch.objects.hash,'object table');
@@ -329,7 +346,9 @@ async function run(format, messages, transformMeta=x=>x) {
     // the definitions of the frame shown, never the last ones sent.
     const expected=v=>[['objects',v],['border',v],['net',v],['rows',v],['rows',v+10],
       ['rows',v],['rows',v+10],['objects',v],['rows',v],['rows',v+10],
-      ['rows',v+20],['rows',v+30],['objects',v],['rows',v+20],['net',v],['net',v+40]];
+      ['rows',v+20],['rows',v+30],['objects',v],['rows',v+20],
+      ['rows',v+50],['rows',v+60],['paint',v+70],['paint',v+80],['objects',v],['rows',v+50],['paint',v+70],
+      ['net',v],['net',v+40]];
     const page=await run(7,[phaseBMessage('a',0),phaseBMessage('a',1,{cached:true,definition:false}),
       phaseBMessage('a',2,{empty:true}),phaseBMessage('b',3),phaseBMessage('b',4,{cached:true,definition:false})],
       meta=>({...meta,segments:3,lines:[1,2,3],frames:meta.frames.map((frame,i)=>({...frame,segment:[0,0,1,2,2][i]}))}));
@@ -408,10 +427,15 @@ async function run(format, messages, transformMeta=x=>x) {
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[5].rows.reverse();}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[6].instances=3; header.batches[6].num_verts=9;}})]],
       [7,[phaseBMessage('a',0,{mutate:header=>{delete header.program_data[header.batches[5].rows[1]];}})]],
-      [7,[phaseBMessage('a',0,{mutate:header=>{delete header.net_data[header.batches[7].net[1].hash];}})]],
-      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].net[1].capacity=6;}})]],
-      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].net=[header.batches[7].net[0]];}})]],
-      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].pipeline='texsurface';}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{delete header.program_data[header.batches[7].row_paints[1]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].row_paints.pop();}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[7].row_paints=null;}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[8].row_paints=[header.batches[7].row_paints[1]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[8].rows=[header.batches[5].rows[0]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{delete header.net_data[header.batches[9].net[1].hash];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[9].net[1].capacity=6;}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[9].net=[header.batches[9].net[0]];}})]],
+      [7,[phaseBMessage('a',0,{mutate:header=>{header.batches[9].pipeline='texsurface';}})]],
     ];
     for(const args of cases) {
       const page=await run(...args);

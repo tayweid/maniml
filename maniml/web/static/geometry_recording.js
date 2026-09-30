@@ -73,7 +73,7 @@ globalThis.ManimlRecording = (() => {
   const validateRows = validateWords(4, "program source");
 
   // kind -> [number of sources, number of scalars], as the driver reads them.
-  const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
+  const ROW_FLOATS = 17, GEOMETRY_FLOATS = 9, PAINT_FLOATS = 8, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
 
   // Format 6 border runs carry only their fill indices; the driver expands
   // each object's strip pattern from this layout at the run's reserved
@@ -255,12 +255,15 @@ globalThis.ManimlRecording = (() => {
   // A batch of row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
   // B5.1) names its objects' rows, which the driver finalizes into the
   // patch run's curve records or the stroke's instances: no vertices, and
-  // no border definition. The counts against the rows are checked where
-  // the rows are captured.
+  // no border definition. Since B5.8 each rows is its geometry (nine
+  // floats a row) and its paint (`row_paints`: eight, one row where
+  // uniform); an older recording's rows are seventeen floats a row. The
+  // counts against the rows are checked where the rows are captured.
   function rowsLayout(header, batch) {
-    const keys = batch.rows;
+    const keys = batch.rows, paints = batch.row_paints;
     if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !Array.isArray(keys)
-        || !keys.length || !keys.every(isHash) || "program" in batch || "net" in batch) {
+        || !keys.length || !keys.every(isHash) || "program" in batch || "net" in batch
+        || (paints !== undefined && (!Array.isArray(paints) || paints.length !== keys.length || !paints.every(isHash)))) {
       throw new Error("Invalid recorded row sources");
     }
     if (isPatch(batch)) return patchLayout(header, batch);
@@ -390,19 +393,28 @@ globalThis.ManimlRecording = (() => {
           });
         }
         if ("rows" in batch) {
-          // Each object's rows: an odd count of VMobject rows, whose curves
-          // are the patch layout's object by object, or the stroke's instances.
-          const curves = [];
+          // Each object's rows: an odd count of rows, whose curves are the
+          // patch layout's object by object, or the stroke's instances, and
+          // its paint, one row or one a row (B5.8).
+          const curves = [], paints = batch.row_paints;
           sources = batch.rows.map(hash => {
             const bytes = rows.get(hash);
             if (!bytes) throw new Error(`Missing recorded row source: ${hash}`);
-            const count = bytes.length / (4 * ROW_FLOATS);
+            const count = bytes.length / (4 * (paints === undefined ? ROW_FLOATS : GEOMETRY_FLOATS));
             if (!Number.isInteger(count) || count < 3 || count % 2 === 0) {
               throw new Error("Invalid recorded row source");
             }
             curves.push((count - 1) / 2);
             return [hash, bytes];
           });
+          for (const [index, hash] of (paints || []).entries()) {
+            const bytes = rows.get(hash);
+            if (!bytes) throw new Error(`Missing recorded row paint: ${hash}`);
+            if (bytes.length !== 4 * PAINT_FLOATS && bytes.length !== 4 * PAINT_FLOATS * (2 * curves[index] + 1)) {
+              throw new Error("Invalid recorded row paint");
+            }
+            sources.push([hash, bytes]);
+          }
           const total = curves.reduce((sum, value) => sum + value, 0);
           if (isPatch(batch) ? batch.border.layout.length !== curves.length
               || batch.border.layout.some(([count], index) => count !== curves[index])

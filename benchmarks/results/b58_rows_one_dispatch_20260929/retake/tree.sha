@@ -1,0 +1,16 @@
+# b2 (19:10, maniml and tests):
+afcf7626ecd75fc43eb583ef72eb1896f3ed829a09e4e930b278f9ab1a360856  -
+42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2  maniml/web/static/wgsl/row_finalize_table.wgsl
+5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8
+# b3 and the extras (21:13, maniml alone; tests differed only by two harness cases added after):
+c38f881250406fe03de65a5508bccc5b77dc599e6b20bd5756876a0d9a758f22  -
+ M maniml/web/generated_geometry.py
+ M maniml/web/geometry.py
+ M maniml/web/gpu_border_geometry.py
+ M maniml/web/gpu_program_geometry.py
+ M maniml/web/retained_frame.py
+ M maniml/web/static/geometry_recording.js
+ M maniml/web/static/webgpu.js
+ M maniml/web/triangle_scene.py
+ M maniml/web/wgpu_renderer.py
+?? maniml/web/static/wgsl/row_finalize_table.wgsl

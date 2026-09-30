@@ -1,0 +1,6 @@
+head: serialize per frame median 53.08 min 50.55
+b5: serialize per frame median 57.27 min 54.59
+head: serialize per frame median 53.64 min 51.59
+b5: serialize per frame median 56.91 min 54.37
+head: serialize per frame median 52.91 min 51.28
+b5: serialize per frame median 57.41 min 54.26

@@ -1,0 +1,31 @@
+# B5.8 fix pass: PriceDiscovery checkpoint 130, format 8 (the retake's
+# streams, retake/../browser phase_b_forced_delta = rows,
+# phase_b_forced_records_delta = records), coldfresh.cjs one pass a fresh
+# Node process, page_ms of message 130, four runs each. Nothing is written
+# to stderr in any of them.
+
+# launched from a shell, stdout to a pipe, stderr not a pipe, NOPROF=1, every cold message timed
+rows     1.01 1.02 1.06 1.07 | 1.08 1.11 1.17 1.10
+records  1.08 1.30 1.24 1.10 | 1.28 1.13 1.14 1.12
+# launched from a shell, 130 timed alone, NOPROF=1
+rows     1.02 1.06 1.09 1.14 | 1.43 1.14 1.00 1.07
+records  1.22 1.22 1.38 1.37 | 1.09 1.16 1.53 1.30
+# launched from a shell, 130 timed alone, under the profiler
+rows     1.08 1.14 1.15 1.16 1.27 1.27
+records  1.23 1.28 1.26 1.33 1.28 1.25
+
+# launched from Python (subprocess.run, as coldspread.py and browser_frames.py), NOPROF=1, every cold message timed
+stderr a pipe          rows     2.52 2.72 2.49 2.66   (close_fds=False)
+                       rows     2.57 2.59 2.79 2.66   (restore_signals=False)
+                       rows     2.58 2.66 2.68 2.74   (through /bin/zsh -c)
+                       rows     2.80 2.63 2.69 2.69
+stderr /dev/null       rows     1.06 0.99 1.02 1.11
+stderr inherited       rows     1.03 1.04 1.03 1.01
+minimal environment (PATH, FAKE, NOPROF), stderr a pipe:
+                       rows     2.59 2.74 2.61 2.59
+                       records  1.30 1.13 1.12 1.09
+
+# launched from Python, stderr a pipe
+profiler, every cold message timed   rows 3.01 3.26 2.94 1.39   records 2.85 1.25 1.24 1.27
+profiler, 130 timed alone            rows 2.96 3.11 3.01 3.07   records 1.48 1.21 1.26 1.52
+no profiler, 130 timed alone         rows 2.70 2.69 2.88 2.74   records 1.11 1.19 1.24 1.15

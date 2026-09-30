@@ -185,6 +185,7 @@ MODULE_SOURCES = {
     "row_paint": ("row_paint.wgsl",),
     "row_partial": ("row_partial.wgsl",),
     "row_finalize": ("row_finalize.wgsl",),
+    "row_finalize_table": ("row_finalize_table.wgsl",),
 }
 
 
@@ -401,11 +402,15 @@ class WgpuRenderer:
         self._program_sources = {}
         self._program_outputs = {}
         self._program_pipelines = {}
-        # Row sources (MANIML_PATCH_SOURCE=rows): rows finalized into curve
-        # records and stroke instances by content hash, and the runs of
-        # several objects copied from them, by what they copy.
+        # Row sources (MANIML_PATCH_SOURCE=rows): each object's geometry
+        # and paint by hash (bytes; B5.8), and each batch's curve records
+        # or stroke instances by what they are made of, finalized in the
+        # frame's one dispatch through the scratch (its input and output
+        # buffers, the bind groups naming them) and copied into place.
+        self._row_sources = {}
         self._row_outputs = {}
-        self._row_runs = {}
+        self._row_scratch = {}
+        self._row_finalize_pipeline = None
         self._stale_index_buffers = []
         self._size = None
         self._spatial_texture = None
@@ -528,9 +533,9 @@ class WgpuRenderer:
 
     def _row_definitions(self, header, payload):
         """The rows a message defines (program_data), by hash: a program's
-        sources, and under MANIML_PATCH_SOURCE=rows the rows a patch or
-        stroke batch finalizes. Finite float32; a hash already held must
-        carry the same rows."""
+        sources, and under MANIML_PATCH_SOURCE=rows the geometry and paint
+        of the rows a patch or stroke batch finalizes. Finite float32; a
+        hash already held must carry the same rows."""
         records = header.get("program_data", {})
         if not isinstance(records, dict):
             raise ValueError("program sources must be an object")
@@ -548,17 +553,26 @@ class WgpuRenderer:
             if not np.isfinite(np.frombuffer(data, dtype="<f4")).all():
                 raise ValueError("program source rows must be finite")
             previous = self._program_sources.get(key)
-            if previous is not None and previous["data"] != data:
+            held = self._row_sources.get(key)
+            if (previous is not None and previous["data"] != data) or (held is not None and held != data):
                 raise ValueError("program source hash redefined with different rows")
             definitions[key] = data
         return definitions
+
+    def _program_bytes(self, key, definitions):
+        """A program source's rows that no program holds: the message's, or
+        rows a path's batch holds under the same name (one table on the
+        wire names both; a recording before B5.8 can name as a program's
+        source the seventeen-column rows an earlier frame sent as a path's)."""
+        data = definitions.get(key)
+        return self._row_sources.get(key) if data is None else data
 
     def _row_source(self, key, definitions):
         """The storage buffer of the rows ``key``, uploaded once and shared
         by the programs and row-sourced batches that name them."""
         source = self._program_sources.get(key)
         if source is None:
-            data = definitions.get(key)
+            data = self._program_bytes(key, definitions)
             if data is None:
                 raise KeyError(f"program source cache miss for {key}")
             source = {"data": data, "buffer": self.device.create_buffer_with_data(
@@ -586,7 +600,7 @@ class WgpuRenderer:
             buffers = []
             for key in sources:
                 source = self._program_sources.get(key)
-                data = definitions.get(key) if source is None else source["data"]
+                data = self._program_bytes(key, definitions) if source is None else source["data"]
                 if data is None:
                     raise KeyError(f"program source cache miss for {key}")
                 if len(data) != row_bytes:
@@ -679,102 +693,217 @@ class WgpuRenderer:
 
     def _prepare_rows(self, header, encoder, temporary, definitions):
         """Give each row-sourced batch (MANIML_PATCH_SOURCE=rows,
-        docs/phase_b4_plan.md B5.1) its curve records or stroke instances:
-        each rows it names finalized once (row_finalize.wgsl, as a program's
-        evaluated rows are), then the batch's one object's own, or for a run
-        of several objects a buffer of their own copied in order. Rows are
-        named by content, so an output never changes and a run's copy is
-        made once. Before any other stage, which read them as a program's."""
+        docs/phase_b4_plan.md B5.1) its curve records or stroke instances,
+        in a buffer of its own (a run of several objects' in order), made of
+        each object's geometry and paint (B5.8; a recording made before it
+        names seventeen-column rows whose paint is their own). An output is
+        named by what it is made of, so it never changes; the frame's new
+        ones are finalized together in one dispatch (row_finalize_table.wgsl;
+        several only past the scratch budget) and copied into place, before
+        any other stage, which reads them as a program's."""
         limits = getattr(self.device, "limits", {})
         max_storage = limits.get("max-storage-buffer-binding-size", 128 * 1024 ** 2)
         max_buffer = limits.get("max-buffer-size", 256 * 1024 ** 2)
-        outputs, used_sources, used_outputs, used_runs, fresh, resolved = {}, set(), set(), set(), [], []
-        usage = wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.VERTEX | wgpu.BufferUsage.COPY_SRC
+        max_dispatch = limits.get("max-compute-workgroups-per-dimension", 65535)
+        outputs, used_sources, used_outputs, changed, fresh = {}, set(), set(), [], {}
+        usage = wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.VERTEX | wgpu.BufferUsage.COPY_DST
+        hash_pattern = re.compile(r"[0-9a-f]{32}")
+
+        def source(key):
+            data = self._row_sources.get(key)
+            if data is None:
+                data = definitions.get(key)
+                if data is None:
+                    # One table on the wire names program sources and row
+                    # sources: rows an earlier message sent as a program's
+                    # source (seventeen columns, a recording before B5.8).
+                    held = self._program_sources.get(key)
+                    if held is None:
+                        raise KeyError(f"row source cache miss for {key}")
+                    data = held["data"]
+                fresh[key] = data
+            used_sources.add(key)
+            return data
+
         for batch in header["batches"]:
             keys = batch.get("rows")
             if keys is None:
                 continue
             pipeline = batch.get("pipeline")
             patch = pipeline in ("patch", "patch_depth")
+            # Only a batch without the key names seventeen-column rows (a
+            # recording before B5.8); a present value must be the list of
+            # the members' paints, as the page and the player read it.
+            legacy = "row_paints" not in batch
+            paints = batch.get("row_paints")
             if (header.get("format_version", 0) < 7 or not (patch or pipeline in ("stroke", "stroke_depth"))
                     or not isinstance(keys, list) or not keys or "program" in batch or "net" in batch
-                    or any(not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{32}", key) is None for key in keys)):
+                    or not (legacy or (isinstance(paints, list) and len(paints) == len(keys)))):
                 raise ValueError("invalid row sources")
+            flags = ((0 if patch else gpu_program_geometry.ROW_STROKES)
+                     | (gpu_program_geometry.ROW_LEGACY if legacy else 0))
+            try:
+                output_key = (flags, tuple(keys), None if legacy else tuple(paints))
+                buffer = self._row_outputs.get(output_key)
+            except TypeError:
+                raise ValueError("invalid row sources") from None
+            # An output held was made from names checked when it was made; a
+            # new one's are checked here.
+            if buffer is None and any(not isinstance(key, str) or hash_pattern.fullmatch(key) is None
+                                      for key in (*keys, *(paints or ()))):
+                raise ValueError("invalid row sources")
+            width = ROW_FLOATS if legacy else gpu_program_geometry.GEOMETRY_FLOATS
             members = []
-            for key in keys:
-                output = self._row_outputs.get(key)
-                if output is None:
-                    source = self._program_sources.get(key)
-                    data = definitions.get(key) if source is None else source["data"]
-                    if data is None:
-                        raise KeyError(f"row source cache miss for {key}")
-                    count, remainder = divmod(len(data), 4 * ROW_FLOATS)
-                    curves = gpu_program_geometry.curve_count(count)
+            for index, key in enumerate(keys):
+                data = source(key)
+                count, remainder = divmod(len(data), 4 * width)
+                curves = (count - 1) // 2
+                paint = paint_data = None
+                if not legacy:
+                    paint = paints[index]
+                    paint_data = source(paint)
+                if buffer is None:
                     if (remainder or count < 3 or count % 2 == 0 or len(data) > max_storage
                             or curves * INSTANCE_STRIDE > max_storage):
                         raise ValueError("invalid row source")
-                    rows = np.frombuffer(data, dtype="<f4").reshape(count, ROW_FLOATS)
-                    output = {"records": self.device.create_buffer(size=curves * 176, usage=usage),
-                              "strokes": self.device.create_buffer(size=curves * INSTANCE_STRIDE, usage=usage),
-                              "curves": curves, "widths": bool(np.all(rows[:, 16] >= 0))}
-                    self._row_outputs[key] = output
-                    fresh.append((self._row_source(key, definitions), output, len(data)))
-                used_sources.add(key)
-                used_outputs.add(key)
-                members.append(output)
-            resolved.append((batch, keys, members, patch))
-        if fresh:
-            finalize = self._program_pipeline("row_finalize")
-            compute = encoder.begin_compute_pass(**self._pass_timing("rows"))
-            compute.set_pipeline(finalize)
-            for source, output, size in fresh:
-                params = self.device.create_buffer_with_data(
-                    data=struct.pack("<IIII", output["curves"], ROW_FLOATS, 0, 0), usage=wgpu.BufferUsage.UNIFORM)
-                temporary.append(params)
-                compute.set_bind_group(0, self.device.create_bind_group(layout=finalize.get_bind_group_layout(0), entries=[
-                    {"binding": 0, "resource": {"buffer": params, "size": 16}}]))
-                compute.set_bind_group(1, self.device.create_bind_group(layout=finalize.get_bind_group_layout(1), entries=[
-                    {"binding": 0, "resource": {"buffer": source["buffer"], "size": size}},
-                    {"binding": 1, "resource": {"buffer": output["records"], "size": output["curves"] * 176}},
-                    {"binding": 2, "resource": {"buffer": output["strokes"], "size": output["curves"] * INSTANCE_STRIDE}}]))
-                compute.dispatch_workgroups((output["curves"] + 63) // 64)
-            compute.end()
-        for batch, keys, members, patch in resolved:
-            curves = sum(member["curves"] for member in members)
+                    if paint_data is not None and len(paint_data) not in (32, 32 * count):
+                        raise ValueError("a row source's paint does not match its rows")
+                members.append((key, len(data) // 4, paint, None if legacy else len(paint_data) // 4, curves))
+            curves = sum(member[4] for member in members)
             if patch:
                 border = batch.get("border")
                 _, layout = self._border_run(batch)
                 if (not isinstance(border, dict) or border.get("num_curves") != curves or layout is None
-                        or [n for n, _, _ in validate_patch_layout(layout, curves)] != [m["curves"] for m in members]):
+                        or [n for n, _, _ in validate_patch_layout(layout, curves)] != [m[4] for m in members]):
                     raise ValueError("row sources do not match their patch run")
-                if not all(member["widths"] for member in members):
-                    raise ValueError("fill border widths must be nonnegative")
-                name, size, limit = "records", 176, max_storage
+                words, limit = gpu_program_geometry.RECORD_WORDS, max_storage
             else:
                 if (batch.get("instances") != curves or batch.get("num_verts") != 3 * curves
                         or batch.get("fill_num_verts") != 0 or batch.get("indexed") or "border" in batch):
                     raise ValueError("row sources do not match their stroke")
-                name, size, limit = "strokes", INSTANCE_STRIDE, max_buffer
-            if len(members) == 1:
-                buffer = members[0][name]
-            else:
-                run_key = (name, tuple(keys))
-                used_runs.add(run_key)
-                buffer = self._row_runs.get(run_key)
-                if buffer is None:
-                    if curves * size > limit:
-                        raise ValueError("row sources exceed the device's buffer limits")
-                    buffer = self._row_runs[run_key] = self.device.create_buffer(
-                        size=curves * size, usage=usage | wgpu.BufferUsage.COPY_DST)
-                    offset = 0
-                    for member in members:
-                        encoder.copy_buffer_to_buffer(member[name], 0, buffer, offset, member["curves"] * size)
-                        offset += member["curves"] * size
+                words, limit = gpu_program_geometry.INSTANCE_WORDS, max_buffer
+            used_outputs.add(output_key)
+            if buffer is None:
+                if 4 * words * curves > limit:
+                    raise ValueError("row sources exceed the device's buffer limits")
+                # Its fill border widths, as the border stage reads them (an
+                # output kept is one whose rows were checked when it was made).
+                if patch and any(np.any(np.frombuffer(self._row_sources.get(key) or fresh[key],
+                                                      dtype="<f4")[width - 1::width] < 0) for key in keys):
+                    raise ValueError("fill border widths must be nonnegative")
+                buffer = self._row_outputs[output_key] = self.device.create_buffer(size=4 * words * curves,
+                                                                                    usage=usage)
+                offset = 0
+                for key, key_words, paint, paint_words, member_curves in members:
+                    changed.append(((key, key_words, paint, paint_words, member_curves, flags), buffer, offset))
+                    offset += 4 * words * member_curves
             # The stages downstream read these as a program's output, whose
             # records never move for a given batch.
             outputs[id(batch)] = {"records": buffer if patch else None, "strokes": None if patch else buffer,
                                   "curves": curves, "state_pending": None}
-        return outputs, used_sources, used_outputs, used_runs
+        for key, data in fresh.items():
+            self._row_sources[key] = data
+        if changed:
+            self._finalize_rows(changed, encoder, temporary, max_storage, max_dispatch)
+        elif not outputs:
+            # The scratch belongs to frames that draw rows.
+            self._release_row_scratch(temporary)
+        return outputs, used_sources, used_outputs
+
+    def _release_row_scratch(self, retire):
+        for name in ("input", "output"):
+            buffer = self._row_scratch.get(name)
+            if buffer is not None:
+                retire.append(buffer)
+        self._row_scratch = {}
+
+    def _row_scratch_buffer(self, name, size, usage, temporary):
+        """The row finalize's scratch buffer ``name`` of at least ``size``
+        bytes, grown by powers of two and kept while frames draw rows; one
+        it outgrew is destroyed after the submit, with its bind groups."""
+        held = self._row_scratch.get(name)
+        if held is not None and held.size >= size:
+            return held
+        if held is not None:
+            temporary.append(held)
+        self._row_scratch.pop("regions" if name == "input" else "io", None)
+        buffer = self._row_scratch[name] = self.device.create_buffer(
+            size=max(1 << 16, 1 << (size - 1).bit_length()), usage=usage)
+        return buffer
+
+    def _finalize_rows(self, changed, encoder, temporary, max_storage, max_dispatch):
+        """Finalize every changed row source in one dispatch
+        (docs/phase_b4_plan.md, B5.8), as the page's finalizeRows does: the
+        table and the geometry and paint it reads written into one scratch
+        binding, the kernel writing each member's records or instances into
+        another, and each copied into its span of the output its batch
+        owns (consecutive members of one output in one copy). Past the
+        budget the next dispatch takes the next aligned region of the input
+        scratch and reuses the output one."""
+        if self._row_finalize_pipeline is None:
+            self._row_finalize_pipeline = self.device.create_compute_pipeline(layout="auto",
+                compute={"module": self._modules["row_finalize_table"], "entry_point": "cs_main"})
+        pipeline = self._row_finalize_pipeline
+        alignment = getattr(self.device, "limits", {}).get("min-storage-buffer-offset-alignment", 256)
+        budget = min(gpu_program_geometry.ROW_FINALIZE_BUDGET, max_storage)
+        dispatches = gpu_program_geometry.plan_row_finalize([member for member, _, _ in changed], budget)
+        words = {}
+        for (geometry, _, paint, _, _, _), _, _ in changed:
+            words[geometry] = self._row_sources[geometry]
+            if paint is not None:
+                words[paint] = self._row_sources[paint]
+        regions, offsets, cursor = [], [], 0
+        for dispatch in dispatches:
+            if dispatch["region_bytes"] > max_storage or dispatch["output_bytes"] > max_storage:
+                raise ValueError("row sources exceed the device's storage binding limit")
+            regions.append(gpu_program_geometry.pack_row_region(dispatch, words.__getitem__))
+            offsets.append(cursor)
+            cursor += -(-len(regions[-1]) // alignment) * alignment
+        packed = bytearray(cursor)
+        for offset, region in zip(offsets, regions):
+            packed[offset:offset + len(region)] = region
+        scratch_in = self._row_scratch_buffer("input", cursor,
+                                              wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST, temporary)
+        scratch_out = self._row_scratch_buffer("output", max(d["output_bytes"] for d in dispatches),
+                                               wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC, temporary)
+        io = self._row_scratch.get("io")
+        if io is None:
+            io = self._row_scratch["io"] = self.device.create_bind_group(
+                layout=pipeline.get_bind_group_layout(1), entries=[
+                    {"binding": 0, "resource": {"buffer": scratch_out, "size": min(scratch_out.size, max_storage)}}])
+        self.device.queue.write_buffer(scratch_in, 0, packed)
+        groups = self._row_scratch.setdefault("regions", {})
+        for dispatch, offset in zip(dispatches, offsets):
+            groups_needed = -(-dispatch["curves"] // 64)
+            width, rows = gpu_net_geometry.dispatch_shape(groups_needed, max_dispatch)
+            if rows > max_dispatch:
+                raise ValueError("row sources exceed the device's dispatch limits")
+            group = groups.get(offset)
+            if group is None:
+                group = groups[offset] = self.device.create_bind_group(
+                    layout=pipeline.get_bind_group_layout(0), entries=[
+                        {"binding": 0, "resource": {"buffer": scratch_in, "offset": offset,
+                                                    "size": min(scratch_in.size - offset, max_storage)}}])
+            compute = encoder.begin_compute_pass(**self._pass_timing("rows"))
+            compute.set_pipeline(pipeline)
+            compute.set_bind_group(0, group)
+            compute.set_bind_group(1, io)
+            compute.dispatch_workgroups(width, rows)
+            compute.end()
+            copies = []
+            for entry in dispatch["entries"]:
+                _, target, target_offset = changed[entry[0]]
+                source, size = 4 * entry[4], 4 * entry[5] * (gpu_program_geometry.INSTANCE_WORDS
+                                                             if entry[6] & gpu_program_geometry.ROW_STROKES
+                                                             else gpu_program_geometry.RECORD_WORDS)
+                last = copies[-1] if copies else None
+                if (last is not None and last[1] is target and last[0] + last[3] == source
+                        and last[2] + last[3] == target_offset):
+                    last[3] += size
+                else:
+                    copies.append([source, target, target_offset, size])
+            for source, target, target_offset, size in copies:
+                encoder.copy_buffer_to_buffer(scratch_out, source, target, target_offset, size)
 
     def _program_pipeline(self, name):
         pipeline = self._program_pipelines.get(name)
@@ -1827,7 +1956,7 @@ class WgpuRenderer:
         previous_net_patterns = set(self._net_patterns)
         self._used_net_patterns = set()
         previous_program_sources, previous_program_outputs = set(self._program_sources), set(self._program_outputs)
-        previous_row_outputs, previous_row_runs = set(self._row_outputs), set(self._row_runs)
+        previous_row_outputs, previous_row_sources = set(self._row_outputs), set(self._row_sources)
         timestamps = getattr(self, "_timestamps", None)
         if timestamps is not None:
             # A frame that fails reports no timings, not the previous frame's.
@@ -1851,11 +1980,9 @@ class WgpuRenderer:
                 self.texture_cache[tex_hash] = texture
             encoder = device.create_command_encoder()
             definitions = self._row_definitions(header, vertex_bytes)
-            rows, used_row_sources, used_row_outputs, used_row_runs = self._prepare_rows(
-                header, encoder, temporary, definitions)
+            rows, used_row_sources, used_row_outputs = self._prepare_rows(header, encoder, temporary, definitions)
             programs, used_program_sources, used_program_outputs, program_completed = self._prepare_programs(
                 header, encoder, temporary, definitions)
-            used_program_sources |= used_row_sources
             for program_output, state in program_completed:
                 program_output["state_pending"] = state
             for program_output in programs.values():
@@ -1896,9 +2023,9 @@ class WgpuRenderer:
             for key in self._program_outputs.keys() - previous_program_outputs:
                 self._destroy_program_output(self._program_outputs.pop(key))
             for key in self._row_outputs.keys() - previous_row_outputs:
-                self._destroy_program_output(self._row_outputs.pop(key))
-            for key in self._row_runs.keys() - previous_row_runs:
-                self._row_runs.pop(key).destroy()
+                self._row_outputs.pop(key).destroy()
+            for key in self._row_sources.keys() - previous_row_sources:
+                del self._row_sources[key]
             for key in self._program_sources.keys() - previous_program_sources:
                 self._program_sources.pop(key)["buffer"].destroy()
             for key in self._patch_uniforms.keys() - previous_patch_uniforms:
@@ -1929,9 +2056,9 @@ class WgpuRenderer:
         for key in self._program_outputs.keys() - used_program_outputs:
             self._destroy_program_output(self._program_outputs.pop(key))
         for key in self._row_outputs.keys() - used_row_outputs:
-            self._destroy_program_output(self._row_outputs.pop(key))
-        for key in self._row_runs.keys() - used_row_runs:
-            self._row_runs.pop(key).destroy()
+            self._row_outputs.pop(key).destroy()
+        for key in self._row_sources.keys() - used_row_sources:
+            del self._row_sources[key]
         for key in self._program_sources.keys() - used_program_sources:
             self._program_sources.pop(key)["buffer"].destroy()
         self._retire_generated(used, {
@@ -2005,20 +2132,21 @@ class WgpuRenderer:
             for resource in cache.values():
                 destroy(resource["buffer"])
             cache.clear()
-        for output in (*self._program_outputs.values(), *self._row_outputs.values()):
+        for output in self._program_outputs.values():
             self._destroy_program_output(output)
-        for buffer in (*self._row_runs.values(), *self._net_patterns.values()):
+        for buffer in (*self._row_outputs.values(), *self._net_patterns.values()):
             destroy(buffer)
         self._net_patterns.clear()
         self._program_outputs.clear()
         self._row_outputs.clear()
-        self._row_runs.clear()
+        self._row_sources.clear()
         self._program_pipelines.clear()
         retired = []
         self._release_net_scratch(retired)
+        self._release_row_scratch(retired)
         for buffer in retired:
             destroy(buffer)
-        self._net_compute_pipeline = None
+        self._net_compute_pipeline = self._row_finalize_pipeline = None
         self._patch_uniforms.clear()
         self._patch_layouts = None
         self._border_compute_pipeline = None

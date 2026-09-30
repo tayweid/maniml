@@ -600,7 +600,15 @@ moves a class's mean by tens of milliseconds; the means are in the JSON).
 `results/phase_b_test_point_20260927/` is the B6 run, taken before B5.6
 with four stacks, its `phase_b` the records packed (today's
 `phase_b_records`); `results/b56_rows_source_20260929/` retakes the recipe
-with five, the selection's Phase B sending rows.
+with five, the selection's Phase B sending rows, and
+`results/b58_rows_one_dispatch_20260929/` twice more once B5.8 finalized
+a frame's rows in one dispatch and keyed them on their geometry (the
+second, `retake/`, waiting up to two minutes before each run for a quiet
+GPU), with the native navigation, the page's navigation per message, and
+the serializer against B5.6's code. A replay of `browser_frames`' streams outside the
+harness should run Node as the harness does, its stderr a pipe: one of
+PriceDiscovery's messages reads 2.6 ms that way and 1.0 without
+(`b58_rows_one_dispatch_20260929/page_js/coldspread.py`).
 
 **The patch source in the harnesses.** Since B5.6 (`docs/phase_b4_plan.md`)
 a patch is sent as its path's rows wherever patches are drawn unless

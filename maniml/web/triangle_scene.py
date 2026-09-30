@@ -116,6 +116,9 @@ class TriangleDraw:
     # finalizes into the patch run's curve records or the stroke's
     # instances; such a draw has no vertices and no curve records of its own.
     rows: tuple | None = None
+    # What each of those rows travels as (B5.8): its (geometry, paint), as
+    # RowsSource.read split them; encode_draw splits rows it lacks them for.
+    row_parts: tuple | None = None
 
 
 def run_kind(draw):
@@ -219,13 +222,13 @@ def combine_run(run, kind, *, border_cache=None):
         curves, capacity, layout, objects = border_cache.assemble_patches(patch_parts(run), rows=rows)
         return replace(run[0], border_capacity=capacity, patch_layout=layout, fill_objects=objects,
                        count=patch_draw_count(layout, capacity),
-                       **({"rows": curves} if rows else {"border_sources": curves}))
+                       **({"rows": curves, "row_parts": _row_parts(run)} if rows else {"border_sources": curves}))
     if run[0].rows is not None:
         # A stroke's instances: the driver finalizes each object's rows into
         # the run's buffer, so nothing is joined here.
         if len(run) == 1:
             return run[0]
-        return replace(run[0], rows=tuple(rows for draw in run for rows in draw.rows),
+        return replace(run[0], rows=tuple(rows for draw in run for rows in draw.rows), row_parts=_row_parts(run),
                        count=max(draw.count for draw in run), instances=sum(draw.instances for draw in run))
     if run[0].border_sources is not None:
         vertices, indices, curves, capacity, layout = border_cache.assemble(border_parts(run))
@@ -247,6 +250,14 @@ def combine_run(run, kind, *, border_cache=None):
                    count=max(draw.count for draw in run) if kind == "stroke"
                    else sum(draw.count for draw in run),
                    instances=sum(draw.instances for draw in run) if kind == "stroke" else 1)
+
+
+def _row_parts(run):
+    """The (geometry, paint) of a run's rows, member by member, or None
+    where a member does not carry them (encode_draw splits its rows)."""
+    if any(draw.row_parts is None for draw in run):
+        return None
+    return tuple(part for draw in run for part in draw.row_parts)
 
 
 def coalesce_draws(draws, *, border_cache=None, kind=run_kind, combine=combine_run, net_runs=True):
@@ -1549,7 +1560,7 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
         layout = ((rows.curves, int(has_border and rows.bordered), shareable),)
         fill = TriangleDraw("patch" + depth_suffix, _NO_VERTICES, uniforms, None, patch_draw_count(layout, capacity),
                             paint=paint, border_capacity=capacity, fill_objects=record, patch_layout=layout,
-                            rows=(rows.rows,))
+                            rows=(rows.rows,), row_parts=((rows.geometry, rows.paint),))
     elif has_fill and ctx.patch_fills:
         material = not uniform_fill or bool(np.any(uniforms.get("shading", (0, 0, 0))))
         curves = border_cache.source(sm, uniforms, revision=sm.revision, every_curve=True)
@@ -1629,7 +1640,7 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
         # count follows from the largest curve alone.
         stroke = TriangleDraw("stroke" + depth_suffix, _NO_ROWS, uniforms,
                               count=_stroke_verts_at(rows.sqrt_area, uniforms["frame_scale"]),
-                              instances=rows.curves, rows=(rows.rows,))
+                              instances=rows.curves, rows=(rows.rows,), row_parts=((rows.geometry, rows.paint),))
     elif has_stroke:
         data = np.ascontiguousarray(sm.get_shader_data()).copy()
         stroke = TriangleDraw("stroke" + depth_suffix, data, uniforms,

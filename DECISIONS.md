@@ -39,6 +39,39 @@ removes; whether the pixel test should measure against a reference
 surface, and whether such frames may cost more for no facets, are
 Taylor's to decide.
 
+## A path's rows travel as their geometry and their paint (2026-09-29)
+
+B5.8 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b58_rows_one_dispatch_20260929/`) took the two levers
+B5.6 named. Each driver finalizes a frame's changed rows in one dispatch
+over a table, into an output each batch owns, rather than a dispatch a
+rows and a buffer shared by name. And a row source is sent as two
+arrays: its geometry (point, stroke width, joint angle, base point or
+normal, fill border width), which names the batch and is keyed on those
+columns alone, and its paint (stroke and fill RGBA), one row where uniform
+and so shared by every path that looks alike. The alternative, taking the
+colour from the object table as the records' patch fill could, was set
+aside: the finalized records and stroke instances carry each path's paint
+(a record's colour words and its active flag, which reads the fill's
+alpha), so the drivers still refinalize a batch whose paint moved, but on
+the GPU and in the frame's one dispatch; what the change removes is the
+wire's resend of rows whose geometry did not move. A recording made before
+B5.8 (seventeen-column rows, no `row_paints`) stays readable in both
+drivers and the player.
+
+The gate was not met as written (measured twice, on a GPU the desktop apps
+kept busier than the recipe allows, so GPU parts are read only within a
+run). A navigation's native frame is below records on EpisodeB2 and above
+on PriceDiscovery by its render (B5.6: 15-28% above on both), and the
+page's WebGPU calls for it at or below records'; but the median of its
+JavaScript still reads above records' in format 8 on both episodes, on
+PriceDiscovery more than B5.6's rows did, for a reason not isolated (it is
+the delta path's: format 7 sends the same definitions without it); 8.a's
+play read 86.1 and 83.7 ms against B5.6's 80.5, its serialize 4.2 ms
+dearer for the split; and every batch naming its paints makes a still
+frame's full message 13 KB larger on EpisodeB2. Rows stay the patch
+source; the numbers are recorded for Taylor.
+
 ## Phase B sends a patch as its rows (2026-09-29)
 
 B5.6 (`docs/phase_b4_plan.md`, "The flips";

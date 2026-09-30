@@ -277,7 +277,10 @@ class PhaseBWebExportE2E(unittest.TestCase):
                     if "rows" not in batch:
                         continue
                     seen.add(batch["pipeline"] + (" cached" if batch.get("cached") else ""))
-                    for key in batch["rows"]:
+                    # Each rows as its geometry and its paint (B5.8), both
+                    # carried into every seek's frame.
+                    self.assertEqual(len(batch["row_paints"]), len(batch["rows"]))
+                    for key in (*batch["rows"], *batch["row_paints"]):
                         self.assertIn(key, defined)
                         relied = relied or key not in header["program_data"]
             self.assertLessEqual({"patch", "patch cached", "stroke", "stroke cached"}, seen)
@@ -291,7 +294,7 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 report = json.loads(replay.stdout)
                 self.assertEqual(report["frames"], len(meta["frames"]))
                 if mode == "export":
-                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows"})
+                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows", "paint"})
 
 
 if __name__ == "__main__":

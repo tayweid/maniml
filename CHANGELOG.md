@@ -7,6 +7,23 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- The **Phase B** selection finalizes the paths a frame changed in one GPU
+  dispatch in the page and in native output, where it made one a path, and
+  sends a path's colours apart from its shape (docs/phase_b4_plan.md, "The
+  flips", B5.8): dimming or restoring objects at a pausepoint sends their
+  new colours, a few bytes shared by paths that look alike, and none of
+  their shapes. Pixels are unchanged. A jump to a pausepoint no longer
+  costs the native driver 15-28% more than the packed records it replaced:
+  on EpisodeB2 it now costs 1-4% less on a quiet GPU, on PriceDiscovery
+  from 2% less to 8% more (its drawing, not its Python; the most on a busy
+  GPU). The page issues a third to
+  a quarter of the compute dispatches it did for such a jump, but its
+  JavaScript still reads above the records' at the median in the
+  negotiated stream (on PriceDiscovery 1.5 → 2.05 ms, more than before
+  this change's 1.73), a cost not yet explained. The heavy play into
+  EpisodeB2's 8.a sends 545 KB a frame instead of 602, its Python 4 ms a
+  frame dearer for the split; a still frame's full message is 13 KB larger
+  there, each batch now naming its colours.
 - Surfaces drawn as Bézier nets (the **Phase B** selection, or
   `MANIML_SURFACE=nets`) are cheaper to redraw (docs/phase_b4_plan.md,
   "The flips", B5.7): each net draws only the triangles of the steps it is

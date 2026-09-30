@@ -467,8 +467,10 @@ def _same_value(kept, read, texts):
         return isinstance(kept, np.ndarray) and isinstance(read, np.ndarray) and _same_bytes(kept, read)
     if type(kept) is not type(read):
         return False
-    if type(kept) is tuple and any(isinstance(value, np.ndarray) for value in (*kept, *read)):
-        # A draw's row sources: its objects' rows, array by array.
+    if type(kept) is tuple and any(isinstance(value, np.ndarray) or (type(value) is tuple and any(
+            isinstance(item, np.ndarray) for item in value)) for value in (*kept, *read)):
+        # A draw's row sources: its objects' rows, array by array, and
+        # their (geometry, paint) pairs, pair by pair (B5.8).
         return len(kept) == len(read) and all(_same_value(a, b, texts) for a, b in zip(kept, read))
     if isinstance(kept, (dict, list, tuple)):
         return _text(kept, texts) == _text(read, texts)
