@@ -138,3 +138,6 @@ third_party/*
 # maniml
 *.egg-info/
 media/
+
+# The Claerbout packager stages ManimLive.app here (app/maniml.json)
+app/build/

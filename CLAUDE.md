@@ -97,6 +97,17 @@ maniml agent install [dir]
 # engine stops 3 minutes after its last window closes.
 app/build.sh
 
+# The same app in the Claerbout shell (Electron, one shell for Knuth, Plass
+# and ManimLive; docs/claerbout_experiment.md): app/maniml.json is the
+# config, the shell builds ManimLive.app from it with the maniml package
+# (and the prebuilt Lyon helper) in Resources/python, and on first launch
+# installs uv's Python and the dependency list into its own folder. The
+# shell starts the engine as `maniml app --allow-outside-root --port N
+# --parent PID` (its port, its pid: the engine stops when the shell is gone)
+# and hands a Finder-opened scene to the landing page as ?open=<path>.
+node ../claerbout/package.mjs --config app/maniml.json            # into Applications
+node ../claerbout/smoke.mjs --config app/maniml.json uv          # launch and check
+
 # Full suite (~200s; nothing needs a display: test_web_viewer is a
 # headless end-to-end drive of the viewer over a real WebSocket, and the
 # interaction handlers are driven directly on window=None scenes). CI's
@@ -775,6 +786,22 @@ The app runs whatever maniml its recorded Python imports
 build time), so an editable install's edits reach it with no rebuild. The
 agent and the PWA below predate it; while the agent holds 8685, the app uses
 it rather than starting an engine of its own.
+
+**The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is the
+same app as an Electron window, built from `app/maniml.json` by the shell in
+`../claerbout`. The engine is `maniml app --allow-outside-root --port N
+--parent PID`: the shell's own port (8690 preferred, apart from a terminal's
+8685) and its pid, which `cli.watch_parent` polls so a force-quit leaves no
+engine; `MANIML_CONFIG_DIR` (the shell's state folder) is where the recents
+list lives (`library.recents_path`). The engine's Origin allowlist accepts
+both loopback spellings because the shell loads `http://127.0.0.1:N/`. A
+document the shell opens (Finder, its Open panel, the command line) arrives
+as `?open=<path>` and `app.html` opens it once the engine is there; the root
+is widened because every path the shell hands over is the user's own action
+and the page has no other way to name one. `web/static/setup.html` is the
+first launch's progress screen, the one page the bundle serves itself.
+`tests/test_shell_config.py` holds the config to `pyproject.toml`'s
+dependencies (the bundle carries maniml; uv installs the rest, all wheels).
 
 ### The installed app is the local one
 

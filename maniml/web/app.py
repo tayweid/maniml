@@ -220,7 +220,7 @@ class AppServer:
         self.url = f"{self.origin}/"
         # The whole boundary: the control socket is accepted only from the
         # origin this server serves its own page on.
-        self.allowed_origins = {self.origin}
+        self.allowed_origins = {self.origin, f"http://127.0.0.1:{self.port}"}
         self._start_server()
 
     def open_scene(self, path: str, scene: str | None) -> str | None:

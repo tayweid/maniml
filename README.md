@@ -111,6 +111,10 @@ it), so updating maniml needs nothing more; rebuild only after changing
 With the app, the background engine below is optional. While it holds
 `http://localhost:8685`, the app uses it instead of starting its own.
 
+The same app as an Electron window, with a Python of its own installed by
+uv on first launch (nothing on the machine used), is built from
+`app/maniml.json` by the Claerbout shell; see `docs/claerbout_experiment.md`.
+
 ### Background engine (macOS)
 
 The first time you run `maniml app` it offers to keep the engine running in the

@@ -25,6 +25,10 @@ App:
                    outside [dir] (off by default)
   --exit-when-idle Stop 3 minutes after the last window closes (how
                    ManimLive.app starts the engine; see app/)
+  --port N         Serve on port N rather than 8685 (0: any free port)
+  --parent PID     Stop when process PID is gone: the Claerbout shell
+                   starts the engine with its own pid here, so a
+                   force-quit of the app leaves no engine behind
   maniml agent install [dir]
                    Keep the app running as a macOS login agent, so
                    http://localhost:8685 is always there
@@ -118,19 +122,37 @@ def main():
         sys.exit(1)
 
     if args and args[0] == "app":
+        import argparse
+
         from maniml.web.cli import IDLE_EXIT_SECONDS, run_app
 
+        # The shell (Claerbout) starts the engine as `maniml app <dir>
+        # --port N --parent PID`: the port it will load the page from, and
+        # its own pid, so the engine stops when the shell is gone even after
+        # a force-quit, which runs no quit handler. Both are the shell's;
+        # a terminal has no reason to pass either.
+        parser = argparse.ArgumentParser(prog="maniml app", add_help=False)
+        parser.add_argument("root", nargs="?", default=".")
+        parser.add_argument("--port", type=int, default=None)
+        parser.add_argument("--parent", type=int, default=None)
+        parser.add_argument("--no-browser", action="store_true")
+        parser.add_argument("--allow-outside-root", action="store_true")
+        parser.add_argument("--exit-when-idle", action="store_true")
+        options = parser.parse_args(sys.argv[2:])
         # ManimLive.app starts the engine this way: no one is at a terminal to
-        # answer the agent offer, and nothing else will ever stop it.
-        from_app = "--exit-when-idle" in flags
+        # answer the agent offer, and nothing else will ever stop it. An
+        # engine with a parent is the shell's child, and the shell stops it.
+        from_app = options.exit_when_idle or options.parent is not None
         run_app(
-            root=args[1] if len(args) > 1 else ".",
-            open_browser="--no-browser" not in flags,
-            allow_outside_root="--allow-outside-root" in flags,
+            root=options.root,
+            open_browser=not options.no_browser and options.parent is None,
+            allow_outside_root=options.allow_outside_root,
+            port=options.port,
+            parent=options.parent,
             # Only the command a person typed may reuse a running engine or
             # ask about the login agent; `maniml agent serve` is the agent.
             offer_agent=not from_app,
-            idle_exit=IDLE_EXIT_SECONDS if from_app else None,
+            idle_exit=IDLE_EXIT_SECONDS if options.exit_when_idle else None,
         )
         return
 

@@ -312,8 +312,11 @@ class PortFallbackTests(unittest.TestCase):
                 second.port, occupied,
                 "second server bound a port already in use")
             self.assertGreater(second.port, 0)
-            # Each server's page is confined to its own origin.
-            self.assertEqual(second.allowed_origins, {second.origin})
+            # Each server's page is confined to its own origin, in both
+            # loopback spellings (the Claerbout shell loads 127.0.0.1).
+            self.assertEqual(
+                second.allowed_origins,
+                {second.origin, f"http://127.0.0.1:{second.port}"})
 
         self.assertEqual(DEFAULT_APP_PORT, 8685)
 

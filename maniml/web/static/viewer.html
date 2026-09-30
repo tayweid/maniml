@@ -977,7 +977,7 @@ function applyEnv(state) {
   presentBtn.classList.toggle("stale", !!state.present_bundle && !state.present_fresh);
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
-    document.title = state.scene + " — maniml";
+    document.title = state.file ? state.file : state.scene + " — maniml";
     renderSceneMenu(state.scene);
   }
   if (state.file) document.getElementById("file-name").textContent = state.file;

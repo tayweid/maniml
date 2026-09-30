@@ -15,6 +15,7 @@ import json
 import os
 import signal
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -93,6 +94,54 @@ def hand_off_to_a_running_engine(root: str, open_browser: bool) -> bool:
     return False
 
 
+def parent_alive(pid: int) -> bool:
+    """Whether process `pid` still exists.
+
+    `os.kill(pid, 0)` is the POSIX liveness test; on Windows it is not one
+    (it opens the process to terminate it, and a pid that has been reused
+    answers for its predecessor), so there the process handle is asked.
+    """
+    if os.name == "nt":
+        import ctypes
+
+        SYNCHRONIZE = 0x00100000
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            return False
+        try:
+            # WAIT_TIMEOUT (258): still running. WAIT_OBJECT_0: it has ended.
+            return kernel32.WaitForSingleObject(handle, 0) == 258
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def watch_parent(pid: int, server: AppServer, interval: float = 2.0) -> threading.Thread:
+    """Stop `server` once process `pid` is gone.
+
+    The shell that started the engine as its child normally stops it at
+    quit; this covers the shell being killed, which runs no quit handler
+    and would otherwise leave an engine on the port with no window.
+    """
+
+    def watch():
+        while parent_alive(pid):
+            time.sleep(interval)
+        print(f"maniml app: parent process {pid} is gone, stopping", flush=True)
+        server.stop_serving()
+
+    thread = threading.Thread(target=watch, name="maniml-parent-watch", daemon=True)
+    thread.start()
+    return thread
+
+
 def run_app(
     root: str = ".",
     open_browser: bool = True,
@@ -101,6 +150,7 @@ def run_app(
     state_path: str | os.PathLike[str] | None = None,
     offer_agent: bool = False,
     idle_exit: float | None = None,
+    parent: int | None = None,
 ) -> None:
     if offer_agent and hand_off_to_a_running_engine(root, open_browser):
         return
@@ -154,6 +204,8 @@ def run_app(
         print(f"maniml app: stops {idle_exit / 60:g} minutes after its last window closes", flush=True)
     if open_browser:
         webbrowser.open(server.url)
+    if parent is not None:
+        watch_parent(parent, server)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -202,4 +202,5 @@ jobs:
           tests.test_flip_gates
           tests.test_test_point
           tests.test_app
+          tests.test_shell_config
           tests.test_web_viewer

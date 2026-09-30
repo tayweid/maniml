@@ -108,7 +108,7 @@ class WebServer:
         self.url = f"http://localhost:{self.port}/"
         # The whole boundary: a socket is accepted only from the origin this
         # server serves its own page on.
-        self.allowed_origins = {f"http://localhost:{self.port}"}
+        self.allowed_origins = {f"http://localhost:{self.port}", f"http://127.0.0.1:{self.port}"}
         self.capabilities = list(capabilities)
 
         self._events: deque[dict] = deque()

@@ -230,6 +230,7 @@ function connectControl() {
       setConnectionState("connected", "Connected");
       for (const button of openButtons) button.disabled = false;
       refresh();
+      openRequested();
       return;
     }
     const entry = pending.get(data.id);
@@ -357,6 +358,22 @@ async function chooseAndOpen() {
 }
 
 for (const button of openButtons) button.onclick = chooseAndOpen;
+
+// A file opened from outside the page — a Finder double-click, the command
+// line, the app's Open panel — arrives as ?open=<absolute path> (how the
+// Claerbout shell hands a document to any of its apps). Opened once, when
+// the engine is there; the query is dropped from the address so a reload
+// does not open it again. The engine decides whether the path may open:
+// inside its root, or granted through a native dialog.
+let openHandled = false;
+function openRequested() {
+  if (openHandled) return;
+  openHandled = true;
+  const wanted = new URLSearchParams(location.search).get("open");
+  if (!wanted) return;
+  history.replaceState(null, "", location.pathname);
+  openScene(wanted, null, null);
+}
 </script>
 </body>
 </html>

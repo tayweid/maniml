@@ -1,0 +1,65 @@
+/* The first launch: one choice, in the room the workbench lives in. */
+:root { color-scheme: dark; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  place-items: center;
+  background: #2b2a2c;
+  color: #f0eee9;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { width: min(640px, calc(100vw - 48px)); padding: 24px 0 40px; text-align: center; }
+img { border-radius: 13px; }
+h1 { margin: 14px 0 4px; font-size: 22px; font-weight: 500; }
+.lead { margin: 0 auto 22px; max-width: 520px; color: #b7b4ad; }
+.lead b { color: #f0eee9; font-weight: 500; }
+.options { display: grid; grid-template-columns: 1fr; gap: 12px; text-align: left; }
+button.primary { border-color: rgba(143, 180, 232, 0.55); background: rgba(143, 180, 232, 0.1); }
+button.primary:hover:not(:disabled) { border-color: #8fb4e8; background: rgba(143, 180, 232, 0.16); }
+button {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 14px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.2s;
+}
+button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.28); }
+button:focus-visible { outline: 2px solid #8fb4e8; outline-offset: 2px; }
+button:disabled { cursor: default; opacity: 0.35; }
+button.chosen:disabled { opacity: 1; border-color: #7bbf8e; background: rgba(123, 191, 142, 0.1); }
+.name { font-size: 15px; font-weight: 500; }
+.how {
+  margin-left: 6px;
+  padding: 1px 7px;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #b7b4ad;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+.what { color: #cfccc5; font-size: 12.5px; }
+.cost { color: #9a978f; font-size: 11.5px; }
+#status { min-height: 3em; margin: 18px 0 0; color: #cfccc5; white-space: pre-line; }
+#status.working::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 9px;
+  vertical-align: -1px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #f0eee9;
+  border-radius: 50%;
+  animation: turn 0.8s linear infinite;
+}
+#status.failed { color: #f0a69a; }
+.foot { margin: 6px 0 0; color: #85827b; font-size: 11.5px; }
+@keyframes turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #status.working::before { animation: none; } }
