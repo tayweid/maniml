@@ -1,0 +1,12 @@
+  58 records wire    705.0 KB  batches  154 held    0  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data   59 (  359.0 KB)  object_data  59  finalized members    0
+  58 rows    wire    480.8 KB  batches  154 held    0  rows geometry sent  154 (  167.8 KB, 0 sent before)  paint sent  18 (  0.6 KB)  border_data    0 (    0.0 KB)  object_data   9  finalized members  204
+  68 records wire    261.2 KB  batches  162 held   81  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data   42 (  134.4 KB)  object_data  37  finalized members    0
+  68 rows    wire    170.1 KB  batches  162 held   83  rows geometry sent   50 (   36.1 KB, 0 sent before)  paint sent   2 (  0.1 KB)  border_data    0 (    0.0 KB)  object_data   2  finalized members  115
+  86 records wire    253.8 KB  batches  162 held   84  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data   37 (  118.8 KB)  object_data  36  finalized members    0
+  86 rows    wire    177.4 KB  batches  162 held   83  rows geometry sent   56 (   34.2 KB, 1 sent before)  paint sent   0 (  0.0 KB)  border_data    0 (    0.0 KB)  object_data   1  finalized members  105
+ 109 records wire    260.2 KB  batches  166 held   87  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data   40 (  122.2 KB)  object_data  35  finalized members    0
+ 109 rows    wire    178.9 KB  batches  166 held   90  rows geometry sent   48 (   32.8 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data    0 (    0.0 KB)  object_data   1  finalized members  114
+ 115 records wire    152.9 KB  batches  112 held   98  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data    7 (   71.7 KB)  object_data   3  finalized members    0
+ 115 rows    wire    101.0 KB  batches  112 held  100  rows geometry sent    7 (    8.3 KB, 1 sent before)  paint sent   0 (  0.0 KB)  border_data    0 (    0.0 KB)  object_data   1  finalized members   50
+ 130 records wire    584.5 KB  batches   45 held   42  rows geometry sent    0 (    0.0 KB, 0 sent before)  paint sent   0 (  0.0 KB)  border_data    2 (  555.3 KB)  object_data   2  finalized members    0
+ 130 rows    wire    270.7 KB  batches   45 held   42  rows geometry sent   92 (  221.2 KB, 0 sent before)  paint sent   1 (  0.0 KB)  border_data    0 (    0.0 KB)  object_data   2  finalized members  113

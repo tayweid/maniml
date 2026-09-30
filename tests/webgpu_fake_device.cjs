@@ -280,6 +280,47 @@ async function driver(options = {}) {
                   for (const {resource} of binding.entries) assert.ok(!resource.buffer.destroyed, "compute buffer destroyed before submit");
                 }
                 const group0 = draw.bindings.get(0).entries;
+                if (draw.pipeline.descriptor.compute.module.code.includes("struct RowTableParams")) {
+                  // Row sources (B5.8): a header [count, curves, 0, 0], then
+                  // per entry [geometry, paint, paint stride, output, curves,
+                  // flags, first curve, 0], then the inputs, in one binding;
+                  // the outputs in the other. Nine geometry words a row and
+                  // eight paint words (one row at stride 0), or seventeen-word
+                  // rows (flags bit 1); 44 record words a curve, or 51
+                  // instance words (flags bit 0). One invocation per curve.
+                  const table = group0[0].resource, limit = device.limits.maxStorageBufferBindingSize ?? 128 * 1024 ** 2;
+                  assert.equal(group0.length, 1);
+                  assert.equal((table.offset ?? 0) % (device.limits.minStorageBufferOffsetAlignment ?? 256), 0);
+                  const words = new Uint32Array(table.buffer.bytes, table.offset ?? 0, table.size / 4);
+                  const [count, curves] = words;
+                  assert.ok(table.size <= limit && draw.bindings.get(1).entries[0].resource.size <= limit,
+                            "the bindings within the device's storage binding limit");
+                  assert.ok(count >= 1 && 4 + 8 * count <= words.length, "the table holds its entries");
+                  const output = draw.bindings.get(1).entries[0].resource;
+                  let first = 0, written = 0;
+                  for (let k = 0; k < count; k++) {
+                    const [geometry, paint, stride, out, n, flags, start, zero] = words.subarray(4 + 8 * k, 12 + 8 * k);
+                    const legacy = flags & 2, rows = 2 * n + 1;
+                    assert.ok(flags <= 3 && zero === 0 && n >= 1, "an entry's flags and curves");
+                    assert.equal(start, first, "each entry's curves follow the last's");
+                    assert.ok(geometry >= 8 * count && 4 + geometry + (legacy ? 17 : 9) * rows <= words.length,
+                              "an entry's rows within the table's inputs");
+                    if (!legacy) {
+                      assert.ok(stride === 0 || stride === 8, "a paint of one row or one a row");
+                      assert.ok(paint >= 8 * count && 4 + paint + (stride ? 8 * rows : 8) <= words.length,
+                                "an entry's paint within the table's inputs");
+                    }
+                    assert.ok(out >= written, "outputs do not overlap");
+                    written = out + n * (flags & 1 ? 51 : 44);
+                    assert.ok(written * 4 <= output.size, "an entry's outputs within the output");
+                    first += n;
+                  }
+                  assert.equal(first, curves);
+                  assert.ok(draw.count <= (device.limits.maxComputeWorkgroupsPerDimension ?? 65535));
+                  assert.ok(draw.count * draw.rows * 64 >= curves && (draw.count * draw.rows - 1) * 64 < curves,
+                            "one invocation per curve");
+                  continue;
+                }
                 if (draw.pipeline.descriptor.compute.module.code.includes("struct NetParams")) {
                   // Surface nets (B5.5): a table of [source offset, output
                   // offset, nu, nv, channels, capacity, steps, first patch]

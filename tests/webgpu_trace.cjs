@@ -144,6 +144,28 @@ function tracer() {
     return [kernel.name, kernel.code, evaluated, draw.count, draw.rows];
   }
 
+  // A row table dispatch (B5.8): per entry, a token of the kernel, the
+  // entry's curves, kind and paint stride and the content of the geometry
+  // and paint it reads, placed on the records or instances it writes, as a
+  // net's is.
+  function rowTable(kernel, draw) {
+    const table = draw.bindings.get(0).entries[0].resource, base = (table.offset ?? 0) + 16;
+    const words = new Uint32Array(table.buffer.bytes, table.offset ?? 0, table.size / 4);
+    const output = draw.bindings.get(1).entries[0].resource;
+    const finalized = [];
+    for (let k = 0; k < words[0]; k++) {
+      const [geometry, paint, stride, out, curves, flags] = words.subarray(4 + 8 * k, 10 + 8 * k);
+      const rows = 2 * curves + 1, legacy = flags & 2;
+      const read = [range(table.buffer, base + 4 * geometry, 4 * (legacy ? 17 : 9) * rows),
+                    legacy ? null : range(table.buffer, base + 4 * paint, 4 * (stride ? 8 * rows : 8))];
+      const token = digest(kernel.name, kernel.code, [curves, flags, stride], read);
+      const start = (output.offset ?? 0) + 4 * out;
+      place(output.buffer, start, start + 4 * curves * (flags & 1 ? 51 : 44), token);
+      finalized.push(token);
+    }
+    return [kernel.name, kernel.code, finalized, draw.count, draw.rows];
+  }
+
   function pipeline(object) {
     if (!pipelines.has(object)) {
       pipelines.set(object, digest(JSON.stringify(object.descriptor, (key, value) =>
@@ -165,6 +187,7 @@ function tracer() {
   function dispatch(draw) {
     const kernel = kernelOf(draw.pipeline.descriptor.compute.module);
     if (kernel.name === "NetParams") return nets(kernel, draw);
+    if (kernel.name === "RowTableParams") return rowTable(kernel, draw);
     const inputs = [];
     for (const [index, bound] of [...draw.bindings.entries()].sort((a, b) => a[0] - b[0])) {
       for (const {binding, resource: target} of bound.entries) {

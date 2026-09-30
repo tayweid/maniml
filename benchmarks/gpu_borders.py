@@ -264,7 +264,9 @@ def sample(scene, name, cache, stages, renderer=None, queue=None, transport=None
     # the default is; episode_frames' variant retained passes "1".
     with patch.dict("os.environ", MANIML_BORDER_GENERATOR="cpu" if name == "cpu_border" else "gpu",
                     MANIML_PATCH_SOURCE="records", MANIML_RETAINED_FRAME=retained, **SWITCHES.get(name, {})):
-        for key in UNSET.get(name, ()):
+        # Nets as they ship: consecutive ones in runs (B5.7), whatever the
+        # caller's environment says.
+        for key in (*UNSET.get(name, ()), "MANIML_NET_RUNS"):
             os.environ.pop(key, None)
         started = perf_counter()
         message = serialize_scene(scene, cache, renderer=route)

@@ -1,0 +1,663 @@
+{
+  "flip": "phase_b",
+  "limit": 1.25,
+  "formats": [
+    "8"
+  ],
+  "majority": {
+    "bound": 1.0,
+    "cells": 23,
+    "at_or_below": 9,
+    "passes": false,
+    "cells_above": [
+      "EpisodeB2 format 8 pausepoint 1.007",
+      "EpisodeB2 format 8 ticked 1.087",
+      "EpisodeB2 format 8 camera 1.053",
+      "PriceDiscovery format 8 ticked 1.037",
+      "PriceDiscovery format 8 play 1.066",
+      "EpisodeB3 format 8 pausepoint 1.105",
+      "EpisodeB3 format 8 ticked 1.380",
+      "EpisodeB3 format 8 camera 1.087",
+      "OrbsScene format 8 pausepoint 1.117",
+      "OrbsScene format 8 camera 2.741",
+      "OrbsScene format 8 navigation 1.744",
+      "LatticeScene format 8 pausepoint 1.198",
+      "LatticeScene format 8 camera 1.631",
+      "LatticeScene format 8 navigation 1.546"
+    ]
+  },
+  "timed_set": [
+    "EpisodeB2 (03_Code.py)",
+    "PriceDiscovery (Animate.py)",
+    "EpisodeB3 (B3_Animation.py)",
+    "OrbsScene (surface_scenes.py)",
+    "LatticeScene (surface_scenes.py)"
+  ],
+  "missing": [],
+  "commits": [
+    "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed"
+  ],
+  "scenes": {
+    "EpisodeB2 (03_Code.py)": {
+      "file": "03_Code.py",
+      "scene": "EpisodeB2",
+      "limit": 1.25,
+      "measured": {
+        "tick_updaters": true,
+        "play_frames": true,
+        "camera_moves": true,
+        "navigations": true,
+        "classes": [
+          "pausepoint",
+          "ticked",
+          "camera",
+          "play",
+          "navigation"
+        ]
+      },
+      "required_classes": [
+        "pausepoint",
+        "ticked",
+        "camera",
+        "play",
+        "navigation"
+      ],
+      "verdict": {
+        "7": {
+          "pausepoint": {
+            "phase_a_ms": 3.15668333548373,
+            "flip_ms": 3.6210245114545905,
+            "ratio": 1.147097800641351,
+            "ratio_gpu_min": 1.0437934339631887,
+            "within_limit": true
+          },
+          "ticked": {
+            "phase_a_ms": 4.587229007116546,
+            "flip_ms": 5.5754759160194265,
+            "ratio": 1.2154343956601537,
+            "ratio_gpu_min": 1.2246143380539087,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 5.535698015610322,
+            "flip_ms": 7.006149656368722,
+            "ratio": 1.2656307545339032,
+            "ratio_gpu_min": 1.068297622049546,
+            "within_limit": false
+          },
+          "play": {
+            "phase_a_ms": 14.102649931390314,
+            "flip_ms": 10.604811671828564,
+            "ratio": 0.7519729783708164,
+            "ratio_gpu_min": 0.6754286951742013,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 12.92333623110143,
+            "flip_ms": 15.17016627177393,
+            "ratio": 1.173858359830123,
+            "ratio_gpu_min": 1.115029493101261,
+            "within_limit": true
+          }
+        },
+        "8": {
+          "pausepoint": {
+            "phase_a_ms": 0.43720874236896634,
+            "flip_ms": 0.44027104740962386,
+            "ratio": 1.0070042173083382,
+            "ratio_gpu_min": 1.0070042173083382,
+            "within_limit": true
+          },
+          "ticked": {
+            "phase_a_ms": 2.1164790086913854,
+            "flip_ms": 2.300760505022481,
+            "ratio": 1.0870698436291304,
+            "ratio_gpu_min": 1.0870698436291304,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 4.751790757509171,
+            "flip_ms": 5.0017339417458295,
+            "ratio": 1.0525997875309805,
+            "ratio_gpu_min": 1.0855172729441145,
+            "within_limit": true
+          },
+          "play": {
+            "phase_a_ms": 12.372649931589672,
+            "flip_ms": 7.971329268712132,
+            "ratio": 0.6442701695099163,
+            "ratio_gpu_min": 0.5960261908244296,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 14.471981673307845,
+            "flip_ms": 14.32852796550562,
+            "ratio": 0.9900874869081122,
+            "ratio_gpu_min": 0.8980598306932189,
+            "within_limit": true
+          }
+        }
+      },
+      "flag_off_check": null,
+      "pixels": {
+        "pair": "phase_b_vs_nets",
+        "frames": 151,
+        "pausepoints": 12,
+        "play_frames": 139,
+        "worst": {
+          "checkpoint": 307,
+          "phase": "play",
+          "mean_rgb": 0.00012245656149977138,
+          "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+          "max_rgba": 30.0,
+          "mean_alpha": 0.0,
+          "play_frame": 4
+        },
+        "passes": true
+      },
+      "over_limit": [],
+      "unmeasured": [],
+      "run_problems": [],
+      "pixels_pass": true,
+      "in_timed_set": true
+    },
+    "PriceDiscovery (Animate.py)": {
+      "file": "Animate.py",
+      "scene": "PriceDiscovery",
+      "limit": 1.25,
+      "measured": {
+        "tick_updaters": true,
+        "play_frames": true,
+        "camera_moves": true,
+        "navigations": true,
+        "classes": [
+          "pausepoint",
+          "ticked",
+          "camera",
+          "play",
+          "navigation"
+        ]
+      },
+      "required_classes": [
+        "pausepoint",
+        "ticked",
+        "camera",
+        "play",
+        "navigation"
+      ],
+      "verdict": {
+        "7": {
+          "pausepoint": {
+            "phase_a_ms": 2.302564454858061,
+            "flip_ms": 2.9154627391208545,
+            "ratio": 1.2661807286087785,
+            "ratio_gpu_min": 1.1435810119051466,
+            "within_limit": false
+          },
+          "ticked": {
+            "phase_a_ms": 3.884284034118016,
+            "flip_ms": 3.3294152886410235,
+            "ratio": 0.8571503163509041,
+            "ratio_gpu_min": 1.008569123763484,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 5.697173353009882,
+            "flip_ms": 4.967306872400583,
+            "ratio": 0.8718897187455771,
+            "ratio_gpu_min": 0.9700346185322714,
+            "within_limit": true
+          },
+          "play": {
+            "phase_a_ms": 8.408625877538135,
+            "flip_ms": 7.768217524930149,
+            "ratio": 0.9238391192645755,
+            "ratio_gpu_min": 0.8755626084036402,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 13.735231508137726,
+            "flip_ms": 12.47420168356955,
+            "ratio": 0.9081901296078589,
+            "ratio_gpu_min": 0.8309565271160931,
+            "within_limit": true
+          }
+        },
+        "8": {
+          "pausepoint": {
+            "phase_a_ms": 0.44908298877999187,
+            "flip_ms": 0.43064600322395563,
+            "ratio": 0.9589452595251418,
+            "ratio_gpu_min": 0.9589452595251418,
+            "within_limit": true
+          },
+          "ticked": {
+            "phase_a_ms": 0.7013959693722427,
+            "flip_ms": 0.7275210227817297,
+            "ratio": 1.0372472248919098,
+            "ratio_gpu_min": 1.0372472248919098,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 4.749253843594759,
+            "flip_ms": 4.625519084219107,
+            "ratio": 0.973946484342476,
+            "ratio_gpu_min": 0.9509723738959425,
+            "within_limit": true
+          },
+          "play": {
+            "phase_a_ms": 7.5847701829214635,
+            "flip_ms": 8.087192551153034,
+            "ratio": 1.0662409481256097,
+            "ratio_gpu_min": 1.1907240817362743,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 12.366231611229157,
+            "flip_ms": 11.382881684900045,
+            "ratio": 0.9204810359983732,
+            "ratio_gpu_min": 0.9737981732827349,
+            "within_limit": true
+          }
+        }
+      },
+      "flag_off_check": null,
+      "pixels": {
+        "pair": "phase_b_vs_nets",
+        "frames": 136,
+        "pausepoints": 12,
+        "play_frames": 124,
+        "worst": {
+          "checkpoint": 130,
+          "phase": "pausepoint",
+          "mean_rgb": 1.1574074074074073e-05,
+          "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+          "max_rgba": 27.0,
+          "mean_alpha": 0.0
+        },
+        "passes": true
+      },
+      "over_limit": [],
+      "unmeasured": [],
+      "run_problems": [],
+      "pixels_pass": true,
+      "in_timed_set": true
+    },
+    "EpisodeB3 (B3_Animation.py)": {
+      "file": "B3_Animation.py",
+      "scene": "EpisodeB3",
+      "limit": 1.25,
+      "measured": {
+        "tick_updaters": true,
+        "play_frames": true,
+        "camera_moves": true,
+        "navigations": true,
+        "classes": [
+          "pausepoint",
+          "ticked",
+          "camera",
+          "play",
+          "navigation"
+        ]
+      },
+      "required_classes": [
+        "pausepoint",
+        "ticked",
+        "camera",
+        "play",
+        "navigation"
+      ],
+      "verdict": {
+        "7": {
+          "pausepoint": {
+            "phase_a_ms": 2.5724813936571858,
+            "flip_ms": 2.980060598434134,
+            "ratio": 1.158438154608967,
+            "ratio_gpu_min": 1.1811324860277457,
+            "within_limit": true
+          },
+          "ticked": {
+            "phase_a_ms": 5.6817761470635135,
+            "flip_ms": 6.313965778860785,
+            "ratio": 1.1112661983566536,
+            "ratio_gpu_min": 1.2054674268408052,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 5.272149527634241,
+            "flip_ms": 4.601839756893838,
+            "ratio": 0.8728583536512119,
+            "ratio_gpu_min": 0.9956652482209727,
+            "within_limit": true
+          },
+          "play": {
+            "phase_a_ms": 11.62773379809903,
+            "flip_ms": 8.71264275029983,
+            "ratio": 0.7492984360997518,
+            "ratio_gpu_min": 0.652510323750459,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 17.95625662660873,
+            "flip_ms": 18.184609551477756,
+            "ratio": 1.0127171787314866,
+            "ratio_gpu_min": 1.0804419023600782,
+            "within_limit": true
+          }
+        },
+        "8": {
+          "pausepoint": {
+            "phase_a_ms": 0.5287500680424273,
+            "flip_ms": 0.5842709797434509,
+            "ratio": 1.105004074810953,
+            "ratio_gpu_min": 1.105004074810953,
+            "within_limit": true
+          },
+          "ticked": {
+            "phase_a_ms": 2.002666995394975,
+            "flip_ms": 2.7637500315904617,
+            "ratio": 1.3800347426434632,
+            "ratio_gpu_min": 1.3800347426434632,
+            "within_limit": false
+          },
+          "camera": {
+            "phase_a_ms": 4.4384536465053,
+            "flip_ms": 4.82601427260764,
+            "ratio": 1.0873188405172358,
+            "ratio_gpu_min": 0.9572735884424576,
+            "within_limit": true
+          },
+          "play": {
+            "phase_a_ms": 10.976440167273608,
+            "flip_ms": 7.194147159901822,
+            "ratio": 0.6554171525802381,
+            "ratio_gpu_min": 0.5773534370623304,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 17.372016486909672,
+            "flip_ms": 17.179666692087142,
+            "ratio": 0.9889276069380045,
+            "ratio_gpu_min": 0.9115246451267331,
+            "within_limit": true
+          }
+        }
+      },
+      "flag_off_check": null,
+      "pixels": {
+        "pair": "phase_b_vs_nets",
+        "frames": 105,
+        "pausepoints": 12,
+        "play_frames": 93,
+        "worst": {
+          "checkpoint": 1344,
+          "phase": "pausepoint",
+          "mean_rgb": 0.0004546753543667124,
+          "fraction_pixels_rgb_over24": 1.7146776406035665e-06,
+          "max_rgba": 28.0,
+          "mean_alpha": 0.0
+        },
+        "passes": true
+      },
+      "over_limit": [
+        "format 8 ticked 1.380"
+      ],
+      "unmeasured": [],
+      "run_problems": [],
+      "pixels_pass": true,
+      "in_timed_set": true
+    },
+    "OrbsScene (surface_scenes.py)": {
+      "file": "surface_scenes.py",
+      "scene": "OrbsScene",
+      "limit": 1.25,
+      "measured": {
+        "tick_updaters": true,
+        "play_frames": true,
+        "camera_moves": true,
+        "navigations": true,
+        "classes": [
+          "pausepoint",
+          "camera",
+          "play",
+          "navigation"
+        ]
+      },
+      "required_classes": [
+        "pausepoint",
+        "camera",
+        "play",
+        "navigation"
+      ],
+      "verdict": {
+        "7": {
+          "pausepoint": {
+            "phase_a_ms": 1.3146535823537528,
+            "flip_ms": 2.618188689545145,
+            "ratio": 1.9915426578441644,
+            "ratio_gpu_min": 1.5414581462985883,
+            "within_limit": false
+          },
+          "camera": {
+            "phase_a_ms": 1.3182140284186223,
+            "flip_ms": 3.8402154259919534,
+            "ratio": 2.9131956899281493,
+            "ratio_gpu_min": 1.9652181030651368,
+            "within_limit": false
+          },
+          "play": {
+            "phase_a_ms": 10.041402044603917,
+            "flip_ms": 6.0640749273835395,
+            "ratio": 0.6039071934822362,
+            "ratio_gpu_min": 0.46745949628192424,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 4.514915199760907,
+            "flip_ms": 6.707945634930015,
+            "ratio": 1.4857301495463842,
+            "ratio_gpu_min": 1.3274086068769881,
+            "within_limit": false
+          }
+        },
+        "8": {
+          "pausepoint": {
+            "phase_a_ms": 0.13777049025520682,
+            "flip_ms": 0.15389552572742105,
+            "ratio": 1.1170427385599349,
+            "ratio_gpu_min": 1.1170427385599349,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 1.3130731976584855,
+            "flip_ms": 3.598666085313477,
+            "ratio": 2.7406439273383496,
+            "ratio_gpu_min": 1.7912701312646664,
+            "within_limit": false
+          },
+          "play": {
+            "phase_a_ms": 9.999842722662521,
+            "flip_ms": 6.4483002307972015,
+            "ratio": 0.6448401649541445,
+            "ratio_gpu_min": 0.5129526910261518,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 4.360772931807881,
+            "flip_ms": 7.604904443339914,
+            "ratio": 1.7439349771846724,
+            "ratio_gpu_min": 1.4576545627651927,
+            "within_limit": false
+          }
+        }
+      },
+      "flag_off_check": null,
+      "pixels": {
+        "pair": "phase_b_vs_nets",
+        "frames": 48,
+        "pausepoints": 3,
+        "play_frames": 45,
+        "worst": {
+          "checkpoint": 1,
+          "phase": "pausepoint",
+          "mean_rgb": 0.0,
+          "fraction_pixels_rgb_over24": 0.0,
+          "max_rgba": 0.0,
+          "mean_alpha": 0.0
+        },
+        "passes": true
+      },
+      "over_limit": [
+        "format 8 camera 2.741",
+        "format 8 navigation 1.744"
+      ],
+      "unmeasured": [],
+      "run_problems": [],
+      "pixels_pass": true,
+      "in_timed_set": true
+    },
+    "LatticeScene (surface_scenes.py)": {
+      "file": "surface_scenes.py",
+      "scene": "LatticeScene",
+      "limit": 1.25,
+      "measured": {
+        "tick_updaters": true,
+        "play_frames": true,
+        "camera_moves": true,
+        "navigations": true,
+        "classes": [
+          "pausepoint",
+          "camera",
+          "play",
+          "navigation"
+        ]
+      },
+      "required_classes": [
+        "pausepoint",
+        "camera",
+        "play",
+        "navigation"
+      ],
+      "verdict": {
+        "7": {
+          "pausepoint": {
+            "phase_a_ms": 2.0761407210749825,
+            "flip_ms": 2.9739507306867954,
+            "ratio": 1.432441789950994,
+            "ratio_gpu_min": 1.4356064101374588,
+            "within_limit": false
+          },
+          "camera": {
+            "phase_a_ms": 2.1826849382326916,
+            "flip_ms": 3.4307453917384336,
+            "ratio": 1.5718005524499976,
+            "ratio_gpu_min": 1.4992177567905651,
+            "within_limit": false
+          },
+          "play": {
+            "phase_a_ms": 50.25511154291563,
+            "flip_ms": 23.461199875611598,
+            "ratio": 0.4668420615398849,
+            "ratio_gpu_min": 0.4548989155525409,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 18.9299053175039,
+            "flip_ms": 29.135319579393503,
+            "ratio": 1.5391159697166035,
+            "ratio_gpu_min": 1.5361919431999176,
+            "within_limit": false
+          }
+        },
+        "8": {
+          "pausepoint": {
+            "phase_a_ms": 0.5346454563550651,
+            "flip_ms": 0.6406455067917705,
+            "ratio": 1.1982623235206349,
+            "ratio_gpu_min": 1.1982623235206349,
+            "within_limit": true
+          },
+          "camera": {
+            "phase_a_ms": 2.1908336792830956,
+            "flip_ms": 3.5726942152470844,
+            "ratio": 1.6307464364050555,
+            "ratio_gpu_min": 1.5370371030824905,
+            "within_limit": false
+          },
+          "play": {
+            "phase_a_ms": 50.17657492080569,
+            "flip_ms": 26.289991628302047,
+            "ratio": 0.5239495057164796,
+            "ratio_gpu_min": 0.499716708053733,
+            "within_limit": true
+          },
+          "navigation": {
+            "phase_a_ms": 18.52463939287375,
+            "flip_ms": 28.635910002031302,
+            "ratio": 1.5458282018189926,
+            "ratio_gpu_min": 1.4474596829156776,
+            "within_limit": false
+          }
+        }
+      },
+      "flag_off_check": null,
+      "pixels": {
+        "pair": "phase_b_vs_nets",
+        "frames": 48,
+        "pausepoints": 3,
+        "play_frames": 45,
+        "worst": {
+          "checkpoint": 1,
+          "phase": "pausepoint",
+          "mean_rgb": 0.0,
+          "fraction_pixels_rgb_over24": 0.0,
+          "max_rgba": 0.0,
+          "mean_alpha": 0.0
+        },
+        "passes": true
+      },
+      "over_limit": [
+        "format 8 camera 1.631",
+        "format 8 navigation 1.546"
+      ],
+      "unmeasured": [],
+      "run_problems": [],
+      "pixels_pass": true,
+      "in_timed_set": true
+    }
+  },
+  "fixtures_pass": null,
+  "accuracy": null,
+  "accuracy_commits": null,
+  "timing_failures": [
+    "EpisodeB3: format 8 ticked 1.380",
+    "OrbsScene: format 8 camera 2.741",
+    "OrbsScene: format 8 navigation 1.744",
+    "LatticeScene: format 8 camera 1.631",
+    "LatticeScene: format 8 navigation 1.546",
+    "9 of 23 cells at or below 1.0\u00d7, not more than half"
+  ],
+  "pixel_failures": [],
+  "timing_passes": false,
+  "pixels_pass": true,
+  "failures": [
+    "EpisodeB3: format 8 ticked 1.380",
+    "OrbsScene: format 8 camera 2.741",
+    "OrbsScene: format 8 navigation 1.744",
+    "LatticeScene: format 8 camera 1.631",
+    "LatticeScene: format 8 navigation 1.546",
+    "9 of 23 cells at or below 1.0\u00d7, not more than half"
+  ],
+  "passes": false,
+  "inputs": {
+    "complete": [
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b2/complete",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/complete",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b3/complete",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/orbs/complete",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/complete"
+    ],
+    "fixtures": null,
+    "accuracy": []
+  }
+}

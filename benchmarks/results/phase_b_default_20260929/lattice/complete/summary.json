@@ -1,0 +1,713 @@
+{
+  "flip": "phase_b",
+  "limit": 1.25,
+  "scene": {
+    "path": "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+    "name": "LatticeScene",
+    "checkpoint_count": 4,
+    "measured_checkpoints": [
+      1,
+      2,
+      3
+    ],
+    "construct_error": null
+  },
+  "inputs": {
+    "serialize": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/serialize",
+    "browser": null,
+    "device": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/device",
+    "gpu": [],
+    "pixels": [
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/frames"
+    ]
+  },
+  "input_commits": {
+    "serialize": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "browser": null,
+    "device": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "gpu": [],
+    "pixels": [
+      {
+        "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      }
+    ]
+  },
+  "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+      "pausepoint",
+      "camera",
+      "play",
+      "navigation"
+    ]
+  },
+  "source_files_sha256": {
+    "benchmarks/flip_gates.py": "0d4a587271a5aca4921b384021394ca33ce324cfad7c140cd04ffe8ca2df7453",
+    "benchmarks/episode_frames.py": "21bd39fe76f33b94ac940a80fdfe3ab7aab6d26cd084a4e5e467ec2fe28662f4",
+    "benchmarks/browser_frames.py": "d757f70306f1c9319ed67a85bbcc48a7b109b90896db4d35d39df6ac0cb0763e",
+    "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+    "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+    "maniml/web/viewer.py": "e8c21417d34a13416dc0104c0709d9a98f6c130a06fe928d6a9e9fcb9f980e09",
+    "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+    "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+    "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+    "maniml/web/generated_geometry.py": "f999bd9d9748592a91ddcc3f29f54a23652ee0861199bf68ed68c6704060f10d",
+    "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+    "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+    "maniml/web/gpu_program_geometry.py": "5c665b29e281cac76435d65b50d36260cf99138f3fac6eb7a06593e6bbd6bf00",
+    "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+    "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+    "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+    "maniml/web/triangle_scene.py": "f046b7f4cb48c0e5e261cbcbeaa0de5516b6127c42dd01f41f767ccbb24deb9f",
+    "maniml/web/gpu_border_geometry.py": "d5ce15ac3b7486afe2e45f1f7d6ed879c5b692895b7b4e44afa0cb8a4951216b",
+    "maniml/web/geometry.py": "ec542cf191843837606ed4484a7bdf7d57799226f1c0a6642f47ba39f4c055e0",
+    "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+    "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+    "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+    "maniml/web/gpu_net_geometry.py": "b54c7ded22a69fca188ea3c21ec81f8e0a94f128b081d67bb17c474c1685c8e0",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "934d3314301c400ee958cd4cd2a83613cac6782ac4990f081223a0e7b4bb1c7f",
+    "maniml/web/retained_frame.py": "08dc4b940e8ee1b797eda39b574170e34ee354be79e0b533b25d8f86943e304d",
+    "maniml/utils/programs.py": "98d2fb94a4091ec6303f233794cdf9f4f89c7783125af904abb427434f256682",
+    "benchmarks/surface_scenes.py": "abbe377042a605ad5f7b19fd375f0b2ce597a97d0759abc9b8b6c321e7193422",
+    "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+    "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+    "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+    "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+    "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+    "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+    "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+    "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+    "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+    "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+    "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+    "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+    "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+    "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+    "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+    "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+    "benchmarks/gpu_borders.py": "d13ac0ff5d80c56edbf7b95ce9f94e258aa57c70a5a319322ddd7f293f3ade01",
+    "benchmarks/generated_output.py": "3918bed9daa81f8ce85681512a35153df88025805ac05873fcdc3061d9940386",
+    "benchmarks/paint_retention.py": "5d8e080e431810c541f1d508d68a3a1de71564cfb0be90f6d777df57bef51c9b",
+    "tests/winding_reference_renderer.py": "3bdc811790576eba3edeedad298b89a655a702f42ecea7f3044ac687633b922f",
+    "tests/winding_reference_geometry.py": "9de7945b1aa95cd60af7344bcb078421f123745ab6e738b455648b89c36ec4cc"
+  },
+  "source_files_disagree": [],
+  "verdict": {
+    "7": {
+      "pausepoint": {
+        "phase_a_ms": 2.0761407210749825,
+        "flip_ms": 2.9739507306867954,
+        "ratio": 1.432441789950994,
+        "ratio_gpu_min": 1.4356064101374588,
+        "within_limit": false
+      },
+      "camera": {
+        "phase_a_ms": 2.1826849382326916,
+        "flip_ms": 3.4307453917384336,
+        "ratio": 1.5718005524499976,
+        "ratio_gpu_min": 1.4992177567905651,
+        "within_limit": false
+      },
+      "play": {
+        "phase_a_ms": 50.25511154291563,
+        "flip_ms": 23.461199875611598,
+        "ratio": 0.4668420615398849,
+        "ratio_gpu_min": 0.4548989155525409,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 18.9299053175039,
+        "flip_ms": 29.135319579393503,
+        "ratio": 1.5391159697166035,
+        "ratio_gpu_min": 1.5361919431999176,
+        "within_limit": false
+      }
+    },
+    "8": {
+      "pausepoint": {
+        "phase_a_ms": 0.5346454563550651,
+        "flip_ms": 0.6406455067917705,
+        "ratio": 1.1982623235206349,
+        "ratio_gpu_min": 1.1982623235206349,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 2.1908336792830956,
+        "flip_ms": 3.5726942152470844,
+        "ratio": 1.6307464364050555,
+        "ratio_gpu_min": 1.5370371030824905,
+        "within_limit": false
+      },
+      "play": {
+        "phase_a_ms": 50.17657492080569,
+        "flip_ms": 26.289991628302047,
+        "ratio": 0.5239495057164796,
+        "ratio_gpu_min": 0.499716708053733,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 18.52463939287375,
+        "flip_ms": 28.635910002031302,
+        "ratio": 1.5458282018189926,
+        "ratio_gpu_min": 1.4474596829156776,
+        "within_limit": false
+      }
+    }
+  },
+  "flag_off_check": null,
+  "device_check": {
+    "7": {
+      "pausepoint": {
+        "phase_a_ms": 2.6356039025510354,
+        "flip_ms": 3.0167085065816837,
+        "ratio": 1.1445985884532088,
+        "ratio_gpu_min": 1.1445985884532088,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 2.7489652606244714,
+        "flip_ms": 3.5737634761672883,
+        "ratio": 1.3000395193628058,
+        "ratio_gpu_min": 1.3000395193628058,
+        "within_limit": false
+      },
+      "play": {
+        "phase_a_ms": 52.20905196852982,
+        "flip_ms": 24.77360422676429,
+        "ratio": 0.47450783518722267,
+        "ratio_gpu_min": 0.47450783518722267,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 20.821207978607468,
+        "flip_ms": 34.74106252146885,
+        "ratio": 1.6685421209549027,
+        "ratio_gpu_min": 1.6685421209549027,
+        "within_limit": false
+      }
+    },
+    "8": {
+      "pausepoint": {
+        "phase_a_ms": 0.5346454563550651,
+        "flip_ms": 0.6406455067917705,
+        "ratio": 1.1982623235206349,
+        "ratio_gpu_min": 1.1982623235206349,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 2.853312563668523,
+        "flip_ms": 3.9478954832690456,
+        "ratio": 1.383618301597218,
+        "ratio_gpu_min": 1.383618301597218,
+        "within_limit": false
+      },
+      "play": {
+        "phase_a_ms": 52.157187746604905,
+        "flip_ms": 28.310541753889993,
+        "ratio": 0.542792719029082,
+        "ratio_gpu_min": 0.542792719029082,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 20.596603655566774,
+        "flip_ms": 33.90583347187688,
+        "ratio": 1.6461856546291767,
+        "ratio_gpu_min": 1.6461856546291767,
+        "within_limit": false
+      }
+    }
+  },
+  "checks": {
+    "7": {
+      "navigation_first": {
+        "phase_a_ms": 34.177608341714674,
+        "flip_ms": 31.139827367347944,
+        "ratio": 0.9111178013395678
+      }
+    },
+    "8": {
+      "navigation_first": {
+        "phase_a_ms": 33.63113672936116,
+        "flip_ms": 29.594231533349813,
+        "ratio": 0.8799652468336883
+      }
+    }
+  },
+  "diagnostics": {},
+  "device": {
+    "collected_utc": "2026-09-30T05:54:23.572760+00:00",
+    "command": [
+      "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+      "collect",
+      "--serve",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+      "--scene",
+      "LatticeScene",
+      "--serialize",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/serialize",
+      "--output",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/device"
+    ],
+    "scene": {
+      "path": "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+      "name": "LatticeScene",
+      "checkpoint_count": 4,
+      "measured_checkpoints": [
+        1,
+        2,
+        3
+      ],
+      "construct_error": null
+    },
+    "git": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "machine": {
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+      "plain",
+      "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+      "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+      "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+      "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+      "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+      "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+      "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+      "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+      "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+      "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+      "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+      "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+      "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+      "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+      "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+      "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+      "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+      "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+      "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+      "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+      "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+      "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+      "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+      "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+      "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+      "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+      "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+      "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+      "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+      "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+      "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+      "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+      "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+      "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+      "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+      "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+      "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+      "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+      "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+      "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+      "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+      "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+      "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+      "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+      "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+      "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+      "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+      "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+      "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+      "phase_a_f7": "f56b104074b63d618f5279f0d5ede698a72f15827ace75d8c796f77897291529",
+      "phase_a_f8": "2a6ab4a998d40b9541c5ff10995e3889adc5b14222cd398eadda16bd1855cef5",
+      "phase_b_forced_f7": "aa01e243f96edbac5da73ea81a7af1779001f36a172ab07c80c5d9dbd6bfb734",
+      "phase_b_forced_f8": "91aa3f0e42c802d58e34f0c65e585da12d9683203de84b5d650b3e54caeecdd6"
+    }
+  },
+  "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 48,
+    "pausepoints": 3,
+    "play_frames": 45,
+    "worst": {
+      "checkpoint": 1,
+      "phase": "pausepoint",
+      "mean_rgb": 0.0,
+      "fraction_pixels_rgb_over24": 0.0,
+      "max_rgba": 0.0,
+      "mean_alpha": 0.0
+    },
+    "passes": true
+  },
+  "reported_pixels": [
+    {
+      "pair": "phase_b_vs_gpu_border",
+      "frames": 48,
+      "pausepoints": 3,
+      "play_frames": 45,
+      "worst": {
+        "checkpoint": 1,
+        "phase": "pausepoint",
+        "mean_rgb": 0.5914104295267489,
+        "fraction_pixels_rgb_over24": 0.009789255401234568,
+        "max_rgba": 177.0,
+        "mean_alpha": 0.0
+      },
+      "passes": false
+    }
+  ],
+  "complete": {
+    "7": {
+      "phase_a": {
+        "camera": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.7336874841712415,
+          "page_ms": 0.02041666044129266,
+          "sent": 1.0,
+          "gpu_ms": 1.4286848,
+          "gpu_min_ms": 1.368974222222222,
+          "done_ms": 1.9948611160119374,
+          "passes": 2.0,
+          "wire_bytes": 1200.6666666666667,
+          "complete_ms": 2.1826849382326916,
+          "complete_gpu_min_ms": 2.1229743604549136,
+          "complete_done_ms": 2.7489652606244714
+        },
+        "navigation": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 16.93870796589181,
+          "page_ms": 0.41833335161209106,
+          "sent": 1.0,
+          "gpu_ms": 1.5728639999999998,
+          "gpu_min_ms": 1.3216426666666667,
+          "done_ms": 3.464166661103566,
+          "passes": 2.0,
+          "wire_bytes": 11060360.0,
+          "complete_ms": 18.9299053175039,
+          "complete_gpu_min_ms": 18.67868398417057,
+          "complete_done_ms": 20.821207978607468
+        },
+        "navigation_first": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 32.037457975093275,
+          "page_ms": 0.4099999666213989,
+          "sent": 1.0,
+          "gpu_ms": 1.7301503999999999,
+          "gpu_min_ms": 1.31072,
+          "done_ms": 3.4049999713897705,
+          "passes": 2.0,
+          "wire_bytes": 11060360.0,
+          "complete_ms": 34.177608341714674,
+          "complete_gpu_min_ms": 33.75817794171468,
+          "complete_done_ms": 35.852457913104445
+        },
+        "pausepoint": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.5372705636546016,
+          "page_ms": 0.012916674216588339,
+          "sent": 1.0,
+          "gpu_ms": 1.5226197333333333,
+          "gpu_min_ms": 1.3871786666666666,
+          "done_ms": 2.0854166646798453,
+          "passes": 2.0,
+          "wire_bytes": 1163.0,
+          "complete_ms": 2.0761407210749825,
+          "complete_gpu_min_ms": 1.9406996544083157,
+          "complete_done_ms": 2.6356039025510354
+        },
+        "play": {
+          "frames": 36,
+          "checkpoints": 3,
+          "serialize_ms": 48.06902073323727,
+          "page_ms": 0.42875000834465027,
+          "sent": 1.0,
+          "gpu_ms": 1.7432575999999997,
+          "gpu_min_ms": 1.327104,
+          "done_ms": 3.4587499797344208,
+          "passes": 2.0,
+          "wire_bytes": 11060360.0,
+          "complete_ms": 50.25511154291563,
+          "complete_gpu_min_ms": 49.951501269175935,
+          "complete_done_ms": 52.20905196852982
+        }
+      },
+      "phase_b_forced": {
+        "camera": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 1.1710419785231352,
+          "page_ms": 0.20041665765974256,
+          "sent": 1.0,
+          "gpu_ms": 2.0592867555555556,
+          "gpu_min_ms": 1.8113422222222222,
+          "done_ms": 2.185555547475815,
+          "passes": 2.0,
+          "wire_bytes": 62791.666666666664,
+          "complete_ms": 3.4307453917384336,
+          "complete_gpu_min_ms": 3.1828008584051,
+          "complete_done_ms": 3.5737634761672883
+        },
+        "navigation": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 17.416062473785132,
+          "page_ms": 3.271666705608368,
+          "sent": 1.0,
+          "gpu_ms": 8.4475904,
+          "gpu_min_ms": 8.006314666666666,
+          "done_ms": 14.053333342075348,
+          "passes": 3.0,
+          "wire_bytes": 2343947.0,
+          "complete_ms": 29.135319579393503,
+          "complete_gpu_min_ms": 28.694043846060165,
+          "complete_done_ms": 34.74106252146885
+        },
+        "navigation_first": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 19.163166522048414,
+          "page_ms": 3.76500004529953,
+          "sent": 1.0,
+          "gpu_ms": 8.2116608,
+          "gpu_min_ms": 7.86432,
+          "done_ms": 14.217500030994415,
+          "passes": 3.0,
+          "wire_bytes": 2343947.0,
+          "complete_ms": 31.139827367347944,
+          "complete_gpu_min_ms": 30.792486567347943,
+          "complete_done_ms": 37.14566659834236
+        },
+        "pausepoint": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.6383334985002875,
+          "page_ms": 0.03000001112620036,
+          "sent": 1.0,
+          "gpu_ms": 2.3068671999999997,
+          "gpu_min_ms": 2.118997333333333,
+          "done_ms": 2.342499981323878,
+          "passes": 2.0,
+          "wire_bytes": 62754.0,
+          "complete_ms": 2.9739507306867954,
+          "complete_gpu_min_ms": 2.786080864020129,
+          "complete_done_ms": 3.0167085065816837
+        },
+        "play": {
+          "frames": 36,
+          "checkpoints": 3,
+          "serialize_ms": 13.296468736371025,
+          "page_ms": 1.8531249910593033,
+          "sent": 1.0,
+          "gpu_ms": 8.3001344,
+          "gpu_min_ms": 7.5448319999999995,
+          "done_ms": 9.637499988079071,
+          "passes": 483.0,
+          "wire_bytes": 312484.0,
+          "complete_ms": 23.461199875611598,
+          "complete_gpu_min_ms": 22.722883757569505,
+          "complete_done_ms": 24.77360422676429
+        }
+      }
+    },
+    "8": {
+      "phase_a": {
+        "camera": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.7372085237875581,
+          "page_ms": 0.019722213347752888,
+          "sent": 1.0,
+          "gpu_ms": 1.4290488888888886,
+          "gpu_min_ms": 1.3744355555555552,
+          "done_ms": 2.091527773274316,
+          "passes": 2.0,
+          "wire_bytes": 642.6666666666666,
+          "complete_ms": 2.1908336792830956,
+          "complete_gpu_min_ms": 2.136220345949762,
+          "complete_done_ms": 2.853312563668523
+        },
+        "navigation": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 16.739937011152506,
+          "page_ms": 0.4149999817212423,
+          "sent": 1.0,
+          "gpu_ms": 1.3697024,
+          "gpu_min_ms": 1.3216426666666667,
+          "done_ms": 3.4416666626930237,
+          "passes": 2.0,
+          "wire_bytes": 11059645.0,
+          "complete_ms": 18.52463939287375,
+          "complete_gpu_min_ms": 18.476579659540416,
+          "complete_done_ms": 20.596603655566774
+        },
+        "navigation_first": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 31.8620415055193,
+          "page_ms": 0.4125000238418579,
+          "sent": 1.0,
+          "gpu_ms": 1.3565952000000001,
+          "gpu_min_ms": 1.31072,
+          "done_ms": 3.3700000047683716,
+          "passes": 2.0,
+          "wire_bytes": 11059645.0,
+          "complete_ms": 33.63113672936116,
+          "complete_gpu_min_ms": 33.58526152936116,
+          "complete_done_ms": 35.64454153412953
+        },
+        "pausepoint": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.5346454563550651,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.5346454563550651,
+          "complete_gpu_min_ms": 0.5346454563550651,
+          "complete_done_ms": 0.5346454563550651
+        },
+        "play": {
+          "frames": 36,
+          "checkpoints": 3,
+          "serialize_ms": 48.01649975706823,
+          "page_ms": 0.4312500059604645,
+          "sent": 1.0,
+          "gpu_ms": 1.4008319999999999,
+          "gpu_min_ms": 1.327104,
+          "done_ms": 3.556875005364418,
+          "passes": 2.0,
+          "wire_bytes": 11059645.0,
+          "complete_ms": 50.17657492080569,
+          "complete_gpu_min_ms": 49.98452849066069,
+          "complete_done_ms": 52.157187746604905
+        }
+      },
+      "phase_b_forced": {
+        "camera": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 1.180479011964053,
+          "page_ms": 0.07083332538604736,
+          "sent": 1.0,
+          "gpu_ms": 2.37568,
+          "gpu_min_ms": 2.0589226666666667,
+          "done_ms": 2.6851388845178814,
+          "passes": 2.0,
+          "wire_bytes": 640.6666666666666,
+          "complete_ms": 3.5726942152470844,
+          "complete_gpu_min_ms": 3.2834499320844976,
+          "complete_done_ms": 3.9478954832690456
+        },
+        "navigation": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 17.363333492539823,
+          "page_ms": 3.274999976158142,
+          "sent": 1.0,
+          "gpu_ms": 7.9975765333333335,
+          "gpu_min_ms": 6.1057706666666665,
+          "done_ms": 13.267500003178913,
+          "passes": 3.0,
+          "wire_bytes": 2343248.0,
+          "complete_ms": 28.635910002031302,
+          "complete_gpu_min_ms": 26.74410413536463,
+          "complete_done_ms": 33.90583347187688
+        },
+        "navigation_first": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 17.779375542886555,
+          "page_ms": 3.884999990463257,
+          "sent": 1.0,
+          "gpu_ms": 7.929856000000001,
+          "gpu_min_ms": 6.094848,
+          "done_ms": 15.649999976158142,
+          "passes": 3.0,
+          "wire_bytes": 2343248.0,
+          "complete_ms": 29.594231533349813,
+          "complete_gpu_min_ms": 27.75922353334981,
+          "complete_done_ms": 37.314375509507954
+        },
+        "pausepoint": {
+          "frames": 3,
+          "checkpoints": 3,
+          "serialize_ms": 0.6406455067917705,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.6406455067917705,
+          "complete_gpu_min_ms": 0.6406455067917705,
+          "complete_done_ms": 0.6406455067917705
+        },
+        "play": {
+          "frames": 36,
+          "checkpoints": 3,
+          "serialize_ms": 16.74267675844021,
+          "page_ms": 1.2381250262260437,
+          "sent": 1.0,
+          "gpu_ms": 8.2870272,
+          "gpu_min_ms": 6.938624,
+          "done_ms": 10.623750001192093,
+          "passes": 483.0,
+          "wire_bytes": 13925.25,
+          "complete_ms": 26.289991628302047,
+          "complete_gpu_min_ms": 24.97810403097099,
+          "complete_done_ms": 28.310541753889993
+        }
+      }
+    }
+  }
+}

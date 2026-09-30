@@ -73,7 +73,7 @@ globalThis.ManimlRecording = (() => {
   const validateRows = validateWords(4, "program source");
 
   // kind -> [number of sources, number of scalars], as the driver reads them.
-  const ROW_FLOATS = 17, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
+  const ROW_FLOATS = 17, GEOMETRY_FLOATS = 9, PAINT_FLOATS = 8, PROGRAM_KINDS = {blend: [2, 1], affine: [1, 16], paint: [1, 2], partial: [1, 5]};
 
   // Format 6 border runs carry only their fill indices; the driver expands
   // each object's strip pattern from this layout at the run's reserved
@@ -171,28 +171,44 @@ globalThis.ManimlRecording = (() => {
     return 0;
   }
 
+  // A net batch's descriptor is one net's or, for a run of nets
+  // (docs/phase_b4_plan.md, B5.7), a list of them, each member evaluated
+  // into its span of the batch's output after the members before it.
+  function netMembers(batch) {
+    return Array.isArray(batch.net) ? batch.net : [batch.net];
+  }
+
   function netLayout(header, batch, program = null) {
-    const net = batch.net;
-    if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !isRecord(net)) {
+    const run = Array.isArray(batch.net), members = netMembers(batch);
+    if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !members.length
+        || (run && (members.length < 2 || program || !["surface", "surface_depth"].includes(batch.pipeline)))
+        || !members.every(isRecord)) {
       throw new Error("Invalid recorded net geometry layout");
     }
-    const {hash, nu, nv, channels, capacity, density} = net;
-    if (!isHash(hash) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
-        || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0 || capacity < 2 || capacity > 32
-        || typeof density !== "number" || !Number.isFinite(density) || density < 0
-        || !["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
-        || batch.kind !== "generated" || channels * 4 !== batch.stride || batch.indexed !== false
+    if (!["surface", "surface_depth", "texsurface", "texsurface_depth"].includes(batch.pipeline)
+        || batch.kind !== "generated" || batch.indexed !== false
         || batch.fill_num_verts !== 0 || batch.index_count !== 0 || batch.instances !== 1
         || "border" in batch || "objects" in batch) {
       throw new Error("Invalid recorded net geometry layout");
     }
-    const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
-    if (batch.num_verts !== patches * (capacity + 1) ** 2 || batch.count !== patches * 6 * capacity * capacity) {
-      throw new Error("Invalid recorded net geometry layout");
+    let vertices = 0, count = 0;
+    for (const {hash, nu, nv, channels, capacity, density} of members) {
+      if (!isHash(hash) || [nu, nv, channels, capacity].some(value => !Number.isSafeInteger(value))
+          || nu < 3 || nv < 3 || nu % 2 === 0 || nv % 2 === 0 || capacity < 2 || capacity > 32
+          || typeof density !== "number" || !Number.isFinite(density) || density < 0
+          || channels * 4 !== batch.stride) {
+        throw new Error("Invalid recorded net geometry layout");
+      }
+      const patches = ((nu - 1) / 2) * ((nv - 1) / 2);
+      vertices += patches * (capacity + 1) ** 2;
+      count += patches * 6 * capacity * capacity;
+      // A program's evaluated rows stand in for the net's control points.
+      if (program && program.rows * program.channels !== nu * nv * channels) {
+        throw new Error("Recorded program rows do not match its net");
+      }
     }
-    // A program's evaluated rows stand in for the net's control points.
-    if (program && program.rows * program.channels !== nu * nv * channels) {
-      throw new Error("Recorded program rows do not match its net");
+    if (batch.num_verts !== vertices || batch.count !== count) {
+      throw new Error("Invalid recorded net geometry layout");
     }
     return 0;
   }
@@ -239,12 +255,15 @@ globalThis.ManimlRecording = (() => {
   // A batch of row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
   // B5.1) names its objects' rows, which the driver finalizes into the
   // patch run's curve records or the stroke's instances: no vertices, and
-  // no border definition. The counts against the rows are checked where
-  // the rows are captured.
+  // no border definition. Since B5.8 each rows is its geometry (nine
+  // floats a row) and its paint (`row_paints`: eight, one row where
+  // uniform); an older recording's rows are seventeen floats a row. The
+  // counts against the rows are checked where the rows are captured.
   function rowsLayout(header, batch) {
-    const keys = batch.rows;
+    const keys = batch.rows, paints = batch.row_paints;
     if (!Number.isSafeInteger(header.format_version) || header.format_version < 7 || !Array.isArray(keys)
-        || !keys.length || !keys.every(isHash) || "program" in batch || "net" in batch) {
+        || !keys.length || !keys.every(isHash) || "program" in batch || "net" in batch
+        || (paints !== undefined && (!Array.isArray(paints) || paints.length !== keys.length || !paints.every(isHash)))) {
       throw new Error("Invalid recorded row sources");
     }
     if (isPatch(batch)) return patchLayout(header, batch);
@@ -374,19 +393,28 @@ globalThis.ManimlRecording = (() => {
           });
         }
         if ("rows" in batch) {
-          // Each object's rows: an odd count of VMobject rows, whose curves
-          // are the patch layout's object by object, or the stroke's instances.
-          const curves = [];
+          // Each object's rows: an odd count of rows, whose curves are the
+          // patch layout's object by object, or the stroke's instances, and
+          // its paint, one row or one a row (B5.8).
+          const curves = [], paints = batch.row_paints;
           sources = batch.rows.map(hash => {
             const bytes = rows.get(hash);
             if (!bytes) throw new Error(`Missing recorded row source: ${hash}`);
-            const count = bytes.length / (4 * ROW_FLOATS);
+            const count = bytes.length / (4 * (paints === undefined ? ROW_FLOATS : GEOMETRY_FLOATS));
             if (!Number.isInteger(count) || count < 3 || count % 2 === 0) {
               throw new Error("Invalid recorded row source");
             }
             curves.push((count - 1) / 2);
             return [hash, bytes];
           });
+          for (const [index, hash] of (paints || []).entries()) {
+            const bytes = rows.get(hash);
+            if (!bytes) throw new Error(`Missing recorded row paint: ${hash}`);
+            if (bytes.length !== 4 * PAINT_FLOATS && bytes.length !== 4 * PAINT_FLOATS * (2 * curves[index] + 1)) {
+              throw new Error("Invalid recorded row paint");
+            }
+            sources.push([hash, bytes]);
+          }
           const total = curves.reduce((sum, value) => sum + value, 0);
           if (isPatch(batch) ? batch.border.layout.length !== curves.length
               || batch.border.layout.some(([count], index) => count !== curves[index])
@@ -400,12 +428,15 @@ globalThis.ManimlRecording = (() => {
           if (!objects) throw new Error(`Missing recorded object table: ${batch.objects.hash}`);
           validateObjectRecords(objects, batch.border.layout);
         }
+        // Each net's control points, a run's member by member.
         let net = null;
         if ("net" in batch && sources === null) {
-          net = nets.get(batch.net.hash);
-          if (!net) throw new Error(`Missing recorded net: ${batch.net.hash}`);
-          const {nu, nv, channels} = batch.net;
-          if (net.length !== nu * nv * channels * 4) throw new Error("Recorded net does not match its descriptor");
+          net = netMembers(batch).map(({hash, nu, nv, channels}) => {
+            const bytes = nets.get(hash);
+            if (!bytes) throw new Error(`Missing recorded net: ${hash}`);
+            if (bytes.length !== nu * nv * channels * 4) throw new Error("Recorded net does not match its descriptor");
+            return [hash, bytes];
+          });
         }
         let border = null;
         if (batch.border && sources === null) {
@@ -462,7 +493,7 @@ globalThis.ManimlRecording = (() => {
           if (paint) paints.set(batch.paint_hash, paint);
           if (border) borders.set(batch.border.hash, border);
           if (objects) tables.set(batch.objects.hash, objects);
-          if (net) nets.set(batch.net.hash, net);
+          for (const [hash, bytes] of net || []) nets.set(hash, bytes);
           for (const [hash, bytes] of sources || []) rows.set(hash, bytes);
           return full;
         });

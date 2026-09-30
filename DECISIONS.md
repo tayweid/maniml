@@ -5,6 +5,204 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase B as the default: measured on the device, not flipped (2026-09-30)
+
+B5.10 (`docs/phase_b4_plan.md`, "Phase B as the default";
+`benchmarks/results/phase_b_default_20260929/`). Taylor, 2026-09-29, on
+making the whole Phase B stack the Default: "i want to try it first before
+it becomes the only option ... so long as it's not dramatically slower in
+any situation and is faster or much faster in most, then i want it to be
+the default for testing." Phase A and Original 2D stay selectable either
+way. The gate as stated to him: the browser-side complete frame (Python
+serialize + page JavaScript + GPU), the page and the GPU measured on the
+page's own device (Chrome's Dawn on this M3) rather than the native
+driver, whose GPU column overcharges Phase B; five classes (pausepoint,
+ticked, camera, play, navigation) on EpisodeB2, PriceDiscovery, EpisodeB3
+and the two scenes that are mostly surfaces; PASS iff no (scene, class)
+cell is above 1.25× Phase A forced and more than half of the cells are at
+or below 1.0×, pixels within 0.5% of Phase A but the surfaces'
+silhouettes (B5.9's accuracy rule).
+
+**It failed, so the defaults stay** (`DEFAULT_FILL` `meshes`,
+`programs.DEFAULT_MODE` `off`; surfaces nets). In the format 8 stream
+every page negotiates, five cells are above 1.25×: OrbsScene's camera
+moves 2.741× and navigations 1.744×, LatticeScene's 1.631× and 1.546×,
+and EpisodeB3's ticked frames 1.380×; and 9 of the 23 cells are at or
+below 1.0× (every play but PriceDiscovery's, at 0.52-0.66×; PriceDiscovery's
+still, camera and navigation; EpisodeB2's and EpisodeB3's navigations).
+EpisodeB2 and PriceDiscovery are within 1.087× in every class. The
+surface scenes' cells are the nets' cost on the device, which the Default
+has paid since B5.9 (in diagnostic runs, nets over grids 1.44-1.58× on
+those cells and Phase B over Phase A with nets 1.02-1.07×, but for the
+orbs' camera moves, 1.68×, a remainder the messages do not explain); EpisodeB3's is 40 dashes an
+updater leaves with the joint-angle flag set and their ends cached, which
+the retained frame re-prepares every tick in both stacks and Phase B
+re-encodes as 73 runs to Phase A's 10. Both are for Taylor: whether a
+default is judged against Phase A or against the Default it replaces, and
+whether the nets' device cost on surface-heavy camera moves and
+navigations (1.5-2.7× Phase A's grids, where B5.7 measured 1.06-1.24×
+with the native GPU) stands. Taylor decided on 2026-09-30, shown
+these numbers: "Keep Phase A default for now". Phase B stays the viewer's
+selection; the Default keeps Phase A's fills with B5.9's nets, whose
+device cost on the surface scenes is small in time (camera moves 1.3 → 1.9
+ms on 70 spheres, 2.3 → 3.5 ms on 480; revisits 4.3 → 5.7 and 18.5 →
+28.5 ms; first visits faster, 7.2 → 5.7 and 33.9 → 28 ms). The fix pass
+that was re-taking the device cells to answer the review's repeatability
+finding was stopped at that decision; the cells stand as measured once,
+without an interval.
+
+Taken on the way, both stacks: the retained frame reuses the last frame's
+runs when every leaf is kept under the same camera, and returns an idle
+frame's message untouched (the wire byte for byte the same), which took
+EpisodeB2's 3.i ticks from 1.24× to 1.02× and every still frame of the
+episodes to within 11% of Phase A's (EpisodeB2 1.007×, PriceDiscovery
+0.959×, EpisodeB3 1.105×). Pixels pass: Phase B against Phase A with
+nets at worst 0.0002% over 24/255.
+
+## Surfaces are nets by default (2026-09-29)
+
+B5.9 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b59_nets_default_20260929/`). After B5.7's numbers
+Taylor was asked "Make smooth 3D surfaces the default? ... The one pixel
+'failure' is because the test compares against the faceted version;
+against a true sphere, smooth is more accurate", and chose "Flip it
+(Recommended)": "Smooth surfaces become the Default (and in rendered
+movies). Phase A in the dropdown keeps the faceted grids. Also change the
+pixel test to measure against a supersampled true surface, so it measures
+accuracy, not sameness to the old look."
+
+So `geometry.DEFAULT_SURFACE` is `nets`: the Default renderer, native
+capture (`--render`, checkpoint stills) and `--export` draw a Surface as
+its net evaluated at screen density; Phase A forced and
+`MANIML_SURFACE=grids` draw the grid. The cost that decision accepted is
+B5.7's: on the scenes that are mostly surfaces a still or camera frame
+costs 1.06-1.15× grids (70 spheres) and 1.11-1.24× (480), a play
+0.61-0.73×; the gate's three course scenes are within 1.05 in every
+class. It was not retaken.
+
+**The accuracy rule.** The nets pixel gate measures each stack against a
+reference of the same frame drawn from the true surface: each Surface's
+`uv_func`, carried into the frame by the affine map its construction's
+samples fit (a surface that is no affine image of its function would be
+its own net, densely; none was), sampled patch by patch until its facets
+are within 1/32 of a pixel (their normals the function's, their colours
+and image coordinates the net's), drawn by Phase A's grid path with 16
+times the samples per pixel. Nets must be no further from it than grids,
+by the pixels over 24/255, on every scene of the timed set (its measured
+frames and three inside each play into them) and every Surface fixture;
+nets against grids is reported and no longer judged. A frame where grids
+and nets are nowhere more than 24/255 apart is a tie and counts for
+neither: their counts against the references differ there by noise at the
+threshold's edge. The gate also requires every reference within its
+tolerance and drawn from its surfaces' functions (one drawn from its own
+net is what nets converge to), and each scene's run over the frames the
+serialize command measures and frames inside its plays. The reference is
+drawn in each stack's order of a surface's triangles, since where a
+translucent surface overlaps itself the order decides what shows (grids
+the surface's own triangle indices, row by row unless sorted; nets patch
+by patch): measured against one order, the translucent fixture's 409
+pixels of order alone would count against nets. Nets pass everywhere, no
+frame of 125 further than grids: the lattice 0.67% of its pixels against
+grids' 1.38%, the orbs 0.10% against 0.39%, EpisodeB3 0.011% against
+0.026%, B4 0.0066% against 0.012%. The orbit demo is a tie: 6 of its 8
+frames are ties, and over the other two grids are 72 pixels from the true
+surface and nets 70 (its 0.29-0.31% against grids mid-fade is the order:
+at the frame measured here 6,031 pixels between grids and nets, 6,068
+between the two references). Of the 13 fixtures, 8 are ties, the two
+stacks within 1/255 everywhere; nets are the nearer on 4 (the 64× sphere
+111 pixels against 1,018, the orbs 1,006 against 2,834); the translucent
+one is exact in each order. The gate's timing part fails where B5.7
+measured it and was accepted; `flip_gates gate` now says which part
+failed.
+
+No golden was re-recorded: the pin holds the forced stacks, and it passes
+untouched in its three modes. No test pins the Default stack's surface
+pixels, and the tests that compare nets with grids state their stack, so
+none moved; the flip is pinned by its stacks, a native capture and a
+Default export replayed through the player and the browser driver. What
+is left visible that is not accuracy is order. A translucent surface that
+overlaps itself shows its order bands in other places than under grids.
+And a net ignores a sort: `sort_faces_back_to_front` (and
+`always_sort_to_camera`, whose updater calls it) reorders the grid's
+triangle indices in place, which grids draw and a net does not, so on the
+Default a translucent surface sorted back to front draws as it does
+unsorted (the translucent fixture sorted to its camera: grids move 7,886
+pixels, nets none, and the Default after the flip is 7,542 pixels from
+the Default before it, against 405 unsorted). Accepted rather than fixed
+here: a sorted surface falling back to its grid on the Default would
+change what the forced Phase B draws or make the two stacks' nets differ,
+and the retained frame's rule for a net with them (the pin records a
+sorted net as compared, not prepared); no course or dogfood scene sorts,
+and `MANIML_SURFACE=grids` or Phase A draws the sort.
+`test_a_default_net_is_drawn_in_its_own_order_whatever_the_sort` pins it.
+
+## Nets drawn as grids are; the nets gate over a timed set; surfaces stay grids (2026-09-29)
+
+B5.7 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b57_net_runs_20260929/`) took the three things B5.5
+named before the nets gate could be taken again. A driver draws a net
+with the index pattern of the steps it evaluated it at, not its
+capacity's (the kernel repeats the rows past the steps, so the extra
+triangles had zero area); consecutive nets that can share a draw, by the
+rule grids already follow, are one batch whose `net` lists its members,
+each evaluated into its span of one output, drawn in one draw in both
+drivers and read by the player; and the gate is judged over a timed set
+(`flip_gates.TIMED_SCENES`, `flip_gates gate`) that holds two scenes that
+are mostly surfaces beside the three it was set on, so it cannot pass
+without them, nor (since the review) on a run reduced with a looser
+`--limit`, one lacking a class its serialize run measured (the camera and
+play classes always), or runs of more than one tree. The golden pin states `MANIML_NET_RUNS=0`, as its nets were
+recorded, rather than being re-recorded (23 of PriceDiscovery's phase_b
+digests would move for a change that moves no pixel).
+
+Pixels did not move (every fixture, zoom walk and play frame compared
+against `main`'s driver), so the lattice's 0.98% of pixels over 24/255
+stands. It was measured against a supersampled sphere: nets are off it in
+0.86% of the frame, grids in 1.60%, and where the two differ nets are the
+nearer at 97.5% of the pixels. The gate measures distance from the grid,
+and it was not changed. Taken three times (pass 3, every run started on
+an idle GPU, is the verdict): the three scenes pass every class; the orbs
+fail still and camera frames at 1.06-1.15× grids (B5.5: 1.16-1.31×) and
+the lattice at 1.11-1.24× (1.37-1.52×) and its pixels. So
+`geometry.DEFAULT_SURFACE` stays `grids`. What is left is mostly the
+triangles that make a net round (2.25-3.7× grids'), which no redraw lever
+removes; whether the pixel test should measure against a reference
+surface, and whether such frames may cost more for no facets, are
+Taylor's to decide.
+
+## A path's rows travel as their geometry and their paint (2026-09-29)
+
+B5.8 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b58_rows_one_dispatch_20260929/`) took the two levers
+B5.6 named. Each driver finalizes a frame's changed rows in one dispatch
+over a table, into an output each batch owns, rather than a dispatch a
+rows and a buffer shared by name. And a row source is sent as two
+arrays: its geometry (point, stroke width, joint angle, base point or
+normal, fill border width), which names the batch and is keyed on those
+columns alone, and its paint (stroke and fill RGBA), one row where uniform
+and so shared by every path that looks alike. The alternative, taking the
+colour from the object table as the records' patch fill could, was set
+aside: the finalized records and stroke instances carry each path's paint
+(a record's colour words and its active flag, which reads the fill's
+alpha), so the drivers still refinalize a batch whose paint moved, but on
+the GPU and in the frame's one dispatch; what the change removes is the
+wire's resend of rows whose geometry did not move. A recording made before
+B5.8 (seventeen-column rows, no `row_paints`) stays readable in both
+drivers and the player.
+
+The gate was not met as written (measured twice, on a GPU the desktop apps
+kept busier than the recipe allows, so GPU parts are read only within a
+run). A navigation's native frame is below records on EpisodeB2 and above
+on PriceDiscovery by its render (B5.6: 15-28% above on both), and the
+page's WebGPU calls for it at or below records'; but the median of its
+JavaScript still reads above records' in format 8 on both episodes, on
+PriceDiscovery more than B5.6's rows did, for a reason not isolated (it is
+the delta path's: format 7 sends the same definitions without it); 8.a's
+play read 86.1 and 83.7 ms against B5.6's 80.5, its serialize 4.2 ms
+dearer for the split; and every batch naming its paints makes a still
+frame's full message 13 KB larger on EpisodeB2. Rows stay the patch
+source; the numbers are recorded for Taylor.
+
 ## Phase B sends a patch as its rows (2026-09-29)
 
 B5.6 (`docs/phase_b4_plan.md`, "The flips";

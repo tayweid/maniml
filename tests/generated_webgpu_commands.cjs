@@ -144,6 +144,12 @@ const patchRun = (hash, curves, objects, border = H("b"), extra = {}) => ({pipel
   objects: {hash: objects, count: 1}, ...extra});
 const netBatch = (hash, net, extra = {}) => ({pipeline: "surface", hash, num_verts: 9, count: 24, fill_num_verts: 0,
   net: {hash: net, nu: 3, nv: 3, channels: 10, capacity: 2, density: 0}, ...extra});
+// A run of one-patch nets (B5.7): [net hash, capacity, density] a member,
+// each evaluated into its span of the run's output after the members before.
+const netRun = (hash, members, extra = {}) => ({pipeline: "surface", hash, fill_num_verts: 0,
+  num_verts: members.reduce((sum, [, capacity]) => sum + (capacity + 1) ** 2, 0),
+  count: members.reduce((sum, [, capacity]) => sum + 6 * capacity * capacity, 0),
+  net: members.map(([net, capacity, density]) => ({hash: net, nu: 3, nv: 3, channels: 10, capacity, density})), ...extra});
 const blend = (sources, alpha, rows, channels) => ({kind: "blend", sources, scalars: [alpha], rows, channels});
 // Cached copies of batches, as the encoder sends them once the client holds
 // their bytes: no offsets and no run layout.
@@ -155,15 +161,17 @@ const cached = batches => batches.map(batch => {
 });
 const scenePasses = passes => passes.filter(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
 const sceneDraws = passes => scenePasses(passes).flatMap(pass => pass.draws);
-const kernel = pass => ["BorderParams", "NetParams", "BlendParams", "FinalizeParams"]
+const kernel = pass => ["BorderParams", "NetParams", "BlendParams", "FinalizeParams", "RowTableParams"]
   .find(name => pass.draws.some(draw => draw.pipeline.descriptor.compute.module.code.includes("struct " + name)));
 const computePasses = (passes, name) => passes.filter(pass => pass.compute && kernel(pass) === name);
 // What the net stage evaluated (B5.5), net by net in its dispatches' order:
-// the buffer each read and the output it wrote, with its table entry. A net
-// alone in its dispatch is read and written in place; a dispatch of
-// several reads a scratch buffer the sources were copied into and writes
-// another, copied out into each output. Read right after the frame: the
-// table is rewritten every frame that evaluates.
+// the buffer each read and the output it wrote, at which byte offset, with
+// its table entry. A net alone in its dispatch is read and written in
+// place, at its span of the output (a run's member after the members
+// before it, B5.7); a dispatch of several reads a scratch buffer the
+// sources were copied into and writes another, copied out into each
+// output's span. Read right after the frame: the table is rewritten every
+// frame that evaluates.
 function netEvaluations(passes) {
   const evaluated = [];
   passes.forEach((pass, at) => {
@@ -179,7 +187,7 @@ function netEvaluations(passes) {
         const out = gathered && passes.slice(at + 1).find(p => p.copy && p.copy[0] === output && p.copy[1] === outputOffset * 4);
         assert.ok(!gathered || (into && out), "a gathered net is copied in and out");
         evaluated.push({source: gathered ? into.copy[0] : input, output: gathered ? out.copy[2] : output,
-                        nu, nv, channels, capacity, steps, gathered});
+                        offset: gathered ? out.copy[3] : outputOffset * 4, nu, nv, channels, capacity, steps, gathered});
       }
     }
   });
@@ -850,6 +858,52 @@ const cases = {
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
+  // Real frames of runs of nets (B5.7): spheres whose consecutive nets
+  // share a draw, split by a textured one, then a member moved, then a zoom
+  // that moves some steps at the reservations standing. Each net batch is
+  // one indexed draw over its output with the pattern of its members' steps
+  // (Python's gpu_net_geometry.run_indices, a file per draw), and a frame
+  // evaluates exactly the members whose source or steps moved, each at its
+  // span of the output its batch drew before (argv[3], per frame: per draw
+  // its count and its members [offset, steps] evaluated).
+  async netRunsWire() {
+    const d = await driver();
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const expected = JSON.parse(process.argv[3]), files = process.argv.slice(4);
+    let held = null, patterns = [];
+    for (const [index, frame] of expected.entries()) {
+      const passes = await d.renderBytes(load(files[2 * index]));
+      const bytes = fs.readFileSync(files[2 * index + 1]);
+      const draws = sceneDraws(passes), evaluated = netEvaluations(passes);
+      assert.equal(draws.length, frame.draws.length, `frame ${index}: one draw a batch`);
+      assert.ok(computePasses(passes, "NetParams").length <= 1, `frame ${index}: one dispatch or none`);
+      let read = 0;
+      frame.draws.forEach(({count, evaluated: members}, k) => {
+        const draw = draws[k];
+        assert.ok(draw.indexed);
+        assert.equal(draw.args[0], count, `frame ${index} draw ${k}: the steps' count`);
+        const indices = new Uint8Array(draw.index.buffer.bytes);
+        assert.deepEqual(Buffer.from(indices), bytes.subarray(read, read += count * 4),
+                         `frame ${index} draw ${k}: Python's pattern at the steps`);
+        const into = evaluated.filter(net => net.output === draw.vertices[0]);
+        assert.deepEqual(into.map(net => [net.offset, net.steps]), members,
+                         `frame ${index} draw ${k}: the members that moved, at their spans`);
+        if (held) assert.equal(draw.vertices[0], held[k], `frame ${index} draw ${k}: the output stands`);
+      });
+      assert.equal(read, bytes.length);
+      assert.equal(evaluated.length, frame.draws.reduce((sum, draw) => sum + draw.evaluated.length, 0));
+      if (index) {
+        // A pattern no draw of this frame reads retires after its submit.
+        const now = new Set(draws.map(draw => draw.index.buffer));
+        for (const buffer of patterns) assert.equal(buffer.destroyed, !now.has(buffer));
+      }
+      held = draws.map(draw => draw.vertices[0]);
+      patterns = draws.map(draw => draw.index.buffer);
+    }
+    assert.equal(d.cacheMisses(), 0);
+    await d.destroy();
+    assert.ok(d.buffers.every(buffer => buffer.destroyed));
+  },
   // Three real program frames (docs/phase_b3_plan.md): a path and a net
   // under a blend, then the same play at another alpha with nothing but
   // the scalar on the wire, then that frame again.
@@ -911,14 +965,20 @@ const cases = {
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
   // Real row-sourced frames (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md
-  // B5.1) beside the records' frame of the same scene: the rows finalized
-  // once each, a run of several objects copied from its objects' outputs,
-  // and the draws the records' frame makes, call for call. Then the same
-  // frame again, which makes nothing, and one square moved.
+  // B5.1) beside the records' frame of the same scene: every row-sourced
+  // batch's members finalized in one dispatch (B5.8) from the geometry and
+  // paint the message carries, each batch's records or instances copied
+  // into the buffer its slot owns, and the draws the records' frame makes,
+  // call for call. Then the same frame again, which makes nothing; one
+  // square moved, whose run is finalized again in the slot's own buffer;
+  // and every path dimmed, which sends paints and no rows.
   async rowsWire() {
     const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
-    const [recordsFile, first, again, moved] = process.argv.slice(3);
-    const header = file => { const bytes = fs.readFileSync(file); return JSON.parse(bytes.subarray(5, 5 + bytes.readUInt32LE(1)).toString()); };
+    const [recordsFile, first, again, moved, dimmed] = process.argv.slice(3);
+    const read = file => {
+      const bytes = fs.readFileSync(file), length = bytes.readUInt32LE(1);
+      return {header: JSON.parse(bytes.subarray(5, 5 + length).toString()), payload: bytes.subarray(5 + length)};
+    };
     const draws = passes => sceneDraws(passes).map(draw => [draw.pipeline.descriptor.vertex.entryPoint,
       draw.pipeline.descriptor.vertex.buffers.length, draw.stencil, ...draw.args].join(":"));
     const reference = await driver();
@@ -927,70 +987,100 @@ const cases = {
     const d = await driver();
     const passes = await d.renderBytes(load(first));
     assert.deepEqual(draws(passes), draws(expected), "the records' draws, call for call");
-    const sent = header(first), keys = Object.keys(sent.program_data);
-    const finalizing = computePasses(passes, "FinalizeParams");
-    assert.equal(finalizing.length, 1, "one pass finalizes every rows");
-    assert.equal(finalizing[0].draws.length, keys.length, "once per rows, fill and stroke alike");
-    // Each rows' outputs, found by the bytes the finalize read.
-    const bytes = fs.readFileSync(first), payload = bytes.subarray(5 + bytes.readUInt32LE(1));
-    const outputs = finalizing[0].draws.map(draw => {
-      const [rows, records, strokes] = draw.bindings.get(1).entries.map(entry => entry.resource.buffer);
-      return {rows: Buffer.from(rows.bytes), records, strokes};
-    });
-    const byKey = key => {
+    const {header: sent, payload} = read(first);
+    const rowBatches = sent.batches.filter(batch => "rows" in batch);
+    assert.equal(rowBatches.length, sent.batches.length);
+    const bytesOf = key => {
       const {offset, nbytes} = sent.program_data[key];
-      return outputs.find(output => output.rows.equals(payload.subarray(offset, offset + nbytes)));
+      return Buffer.from(payload.subarray(offset, offset + nbytes));
     };
-    // A run of several objects copies their records in order into its own
-    // buffer, which the border stage and the patch draws read; a stroke
-    // draws its object's finalized instances.
+    // One dispatch finalizes every member of every row-sourced batch, in
+    // frame order, from its geometry (nine words a row) and paint (eight,
+    // at stride 0 where uniform), each input once.
+    const finalizing = computePasses(passes, "RowTableParams");
+    assert.equal(finalizing.length, 1, "one pass finalizes every rows");
+    assert.equal(finalizing[0].draws.length, 1, "in one dispatch");
+    const dispatch = finalizing[0].draws[0], region = dispatch.bindings.get(0).entries[0].resource;
+    const words = new Uint32Array(region.buffer.bytes, region.offset ?? 0, region.size / 4);
+    const members = rowBatches.flatMap(batch => batch.rows.map((key, m) => ({batch, key, paint: batch.row_paints[m]})));
+    assert.equal(words[0], members.length);
+    const inputs = new Set();
+    members.forEach(({batch, key, paint}, k) => {
+      const [geometry, paintWord, stride, , curves, flags] = words.subarray(4 + 8 * k, 10 + 8 * k);
+      const rows = bytesOf(key), colours = bytesOf(paint);
+      assert.equal(curves, (rows.length / 36 - 1) / 2);
+      assert.equal(flags, batch.pipeline === "stroke" ? 1 : 0);
+      assert.equal(stride, colours.length === 32 ? 0 : 8);
+      const at = word => Buffer.from(region.buffer.bytes, (region.offset ?? 0) + 16 + 4 * word);
+      assert.ok(at(geometry).subarray(0, rows.length).equals(rows), "the entry reads its geometry");
+      assert.ok(at(paintWord).subarray(0, colours.length).equals(colours), "and its paint");
+      inputs.add(geometry).add(paintWord);
+    });
+    assert.equal(inputs.size, new Set(members.flatMap(({key, paint}) => [key, paint])).size, "each input once");
+    // Each batch's members in one copy into the output its slot owns,
+    // which the border stage and the patch draws read, or the stroke draws.
     const copies = passes.filter(pass => pass.copy).map(pass => pass.copy);
-    const runs = sent.batches.filter(batch => batch.rows.length > 1);
-    assert.ok(runs.length, "the frame has a run of several objects");
-    assert.equal(copies.length, runs.reduce((total, batch) => total + batch.rows.length, 0));
+    assert.equal(copies.length, rowBatches.length);
+    const scratch = dispatch.bindings.get(1).entries[0].resource.buffer;
+    let from = 0;
+    rowBatches.forEach((batch, index) => {
+      const size = batch.rows.reduce((total, key) => total + (bytesOf(key).length / 36 - 1) / 2, 0)
+        * (batch.pipeline === "patch" ? 176 : 204);
+      assert.deepEqual([copies[index][0], copies[index][1], copies[index][3], copies[index][4]], [scratch, from, 0, size]);
+      assert.equal(copies[index][2].descriptor.size, size, "the slot's own buffer, the batch's size");
+      from += size;
+    });
     const border = computePasses(passes, "BorderParams");
-    const patches = sent.batches.filter(batch => batch.pipeline === "patch");
+    const patches = rowBatches.filter(batch => batch.pipeline === "patch");
     assert.equal(border.length, patches.length);
-    let copy = 0;
     patches.forEach((batch, index) => {
-      const read = border[index].draws[0].bindings.get(1).entries[0].resource.buffer;
-      if (batch.rows.length === 1) {
-        assert.equal(read, byKey(batch.rows[0]).records, "one object's run reads its own records");
-        return;
-      }
-      let offset = 0;
-      for (const key of batch.rows) {
-        const [source, from, target, to, size] = copies[copy++];
-        assert.deepEqual([source, from, target, to], [byKey(key).records, 0, read, offset]);
-        offset += size;
-      }
-      assert.equal(offset, batch.border.num_curves * 176);
+      assert.equal(border[index].draws[0].bindings.get(1).entries[0].resource.buffer, copies[rowBatches.indexOf(batch)][2],
+                   "the border stage reads the batch's records");
     });
     const strokes = sceneDraws(passes).filter(draw => draw.pipeline.descriptor.vertex.buffers[0]?.arrayStride === 204);
-    const strokeBatches = sent.batches.filter(batch => batch.pipeline === "stroke");
+    const strokeBatches = rowBatches.filter(batch => batch.pipeline === "stroke");
     assert.equal(strokes.length, strokeBatches.length);
     strokeBatches.forEach((batch, index) => {
-      if (batch.rows.length === 1) assert.equal(strokes[index].vertices[0], byKey(batch.rows[0]).strokes);
+      assert.equal(strokes[index].vertices[0], copies[rowBatches.indexOf(batch)][2], "a stroke draws its instances");
     });
-    // The same frame again makes nothing; a moved square finalizes its rows
-    // and copies its run again, and the rows no batch names retire.
+    // The same frame again makes nothing.
     const still = await d.renderBytes(load(again));
     assert.equal(still.filter(pass => pass.compute || pass.copy).length, 0);
-    const created = d.counts().buffers_created;
+    // A moved square: its run is a new batch that takes over the slot's
+    // records in place, finalized again, members and all, in one dispatch;
+    // the new batch's (empty) geometry is all it makes (its strip pattern
+    // is its curve count's and capacity's, which the slot held).
+    let created = d.counts().buffers_created;
     const next = await d.renderBytes(load(moved));
-    assert.equal(computePasses(next, "FinalizeParams")[0].draws.length, 1);
-    assert.equal(next.filter(pass => pass.copy).length, runs[0].rows.length);
+    const run = read(moved).header.batches[0];
+    const table = computePasses(next, "RowTableParams");
+    assert.equal(table.length, 1);
+    const nextWords = table[0].draws[0].bindings.get(0).entries[0].resource;
+    assert.equal(new Uint32Array(nextWords.buffer.bytes, nextWords.offset ?? 0, 4)[0], run.rows.length);
+    const movedCopies = next.filter(pass => pass.copy).map(pass => pass.copy);
+    assert.equal(movedCopies.length, 1);
+    assert.equal(movedCopies[0][2], copies[0][2], "the run's records stay in the slot's buffer");
     assert.equal(computePasses(next, "BorderParams").length, 1);
-    // Its rows and their records and instances, then the run's geometry
-    // and strip pattern (a new batch, as on the records' side); its object
-    // table stands, and so do its run buffer and the finalize's parameters
-    // for a count of curves already finalized.
-    assert.equal(d.counts().buffers_created - created, 5);
+    assert.equal(d.counts().buffers_created - created, 1);
+    // Every path dimmed: the message carries paints and no rows, and the
+    // batches are finalized again, each in its slot's buffer.
+    const {header: dim} = read(dimmed);
+    const geometryKeys = new Set(dim.batches.flatMap(batch => batch.rows));
+    assert.ok(Object.keys(dim.program_data).length > 0);
+    assert.ok(Object.keys(dim.program_data).every(key => !geometryKeys.has(key)), "a dim sends no rows");
+    assert.ok(Object.values(dim.program_data).every(({nbytes}) => nbytes % 32 === 0 && nbytes < 36 * 5));
+    created = d.counts().buffers_created;
+    const dimPasses = await d.renderBytes(load(dimmed));
+    assert.equal(computePasses(dimPasses, "RowTableParams")[0].draws.length, 1);
+    assert.equal(dimPasses.filter(pass => pass.copy).length, dim.batches.length);
+    const outputs = new Set(copies.map(copy => copy[2]));
+    assert.ok(dimPasses.filter(pass => pass.copy).every(pass => outputs.has(pass.copy[2]) || pass.copy[2] === movedCopies[0][2]),
+              "each batch refinalized in its slot's buffer");
     assert.equal(d.cacheMisses(), 0);
     const resident = () => d.buffers.filter(buffer => !buffer.destroyed).length;
     const before = resident();
     await d.render([], {format_version: 7});
-    assert.ok(resident() < before - 2 * keys.length, "rows, records and strokes retire");
+    assert.ok(resident() <= before - rowBatches.length, "the slots' records and instances retire");
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
   },
@@ -1103,8 +1193,11 @@ const cases = {
       const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
       for (const draw of scene.draws) stages.add(draw.pipeline.descriptor.vertex.entryPoint);
     }
-    // Patch fans, patch covers and the strips, strokes and nets all drew.
-    assert.deepEqual([...stages].sort(), ["vs_cover", "vs_fan", "vs_main", "vs_patch"]);
+    // Patch fans, patch covers and the strips, strokes and nets all drew;
+    // an export of another stack names the stages it draws (the Default's
+    // meshes, strokes and nets, B5.9: vs_main alone).
+    const expected = process.argv[4] ? process.argv[4].split(",") : ["vs_cover", "vs_fan", "vs_main", "vs_patch"];
+    assert.deepEqual([...stages].sort(), expected.sort());
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
     process.stdout.write(JSON.stringify({frames: frames.length, rendered: order.length}));
@@ -1405,6 +1498,145 @@ const cases = {
     assert.equal(found, null, `three dispatches draw what one draws: ${found}`);
     for (const d of [small, wide]) { await d.destroy(); assert.ok(d.buffers.every(buffer => buffer.destroyed)); }
   },
+  // Row sources past the finalize's budget (B5.8): a device whose storage
+  // bindings hold a few paths' rows and outputs finalizes a frame's in
+  // several dispatches, each at its aligned region of the one input write,
+  // each batch copied out of the shared output scratch into its own buffer;
+  // traced by content, the frame draws what one dispatch draws. A batch as
+  // a recording before B5.8 names it (seventeen-column rows) among them.
+  async rowsInSeveralDispatches() {
+    const {tracedDriver, renderPasses, firstDifference} = require("./webgpu_trace.cjs");
+    const tables = {program_data: {}};
+    // A stroke of one curve: three rows, a paint of one row.
+    const stroke = (hash, rows, paint) => ({pipeline: "stroke", hash, stride: 68, num_verts: 3, instances: 1,
+      count: 4, fill_num_verts: 0, rows, ...(paint ? {row_paints: paint} : {})});
+    const batches = [];
+    for (let i = 0; i < 12; i++) {
+      const key = (i.toString(16) + "a").repeat(16), paint = (i.toString(16) + "b").repeat(16);
+      tables.program_data[key] = floats(27, 1 + i);
+      tables.program_data[paint] = floats(8, .5 + i / 32);
+      batches.push(stroke((i.toString(16) + "c").repeat(16), [key], [paint]));
+    }
+    tables.program_data[H("d")] = floats(51, 2);
+    batches.push(stroke(H("e"), [H("d")], null));
+    const message = formatSeven(batches, tables);
+    const small = await tracedDriver({limits: {maxStorageBufferBindingSize: 1024}}), wide = await tracedDriver();
+    const passes = await small.renderBytes(message.slice(0));
+    const traced = renderPasses(small.trace());
+    const finalizing = computePasses(passes, "RowTableParams");
+    assert.ok(finalizing.length >= 3, "several dispatches");
+    const offsets = finalizing.map(pass => pass.draws[0].bindings.get(0).entries[0].resource.offset ?? 0);
+    assert.ok(offsets.every((offset, i) => i === 0 || offset > offsets[i - 1]), "each at a region of its own");
+    const copies = passes.filter(pass => pass.copy).map(pass => pass.copy);
+    assert.equal(copies.length, batches.length, "each batch copied into its own buffer");
+    assert.equal(new Set(copies.map(copy => copy[2])).size, batches.length);
+    const strokes = sceneDraws(passes);
+    assert.deepEqual(strokes.map(draw => draw.vertices[0]), copies.map(copy => copy[2]));
+    await wide.renderBytes(message.slice(0));
+    const widePasses = wide.submissions.at(-1);
+    assert.equal(computePasses(widePasses, "RowTableParams").length, 1);
+    const found = firstDifference(traced, renderPasses(wide.trace()));
+    assert.equal(found, null, `several dispatches draw what one draws: ${found}`);
+    assert.equal(small.cacheMisses() + wide.cacheMisses(), 0);
+    for (const d of [small, wide]) { await d.destroy(); assert.ok(d.buffers.every(buffer => buffer.destroyed)); }
+  },
+  // A frame as a serializer before B5.8 wrote it (tests.test_patch_rows
+  // legacy_rows_message: seventeen-column rows, no row_paints) beside the
+  // same frame's geometry and paint: finalized in one dispatch, every
+  // entry flagged and reading seventeen words a row, drawing the same
+  // draws, call for call.
+  async legacyRows() {
+    const load = file => { const bytes = fs.readFileSync(file); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); };
+    const [splitFile, legacyFile] = process.argv.slice(3);
+    const draws = passes => sceneDraws(passes).map(draw => [draw.pipeline.descriptor.vertex.entryPoint,
+      draw.pipeline.descriptor.vertex.buffers.length, draw.stencil, ...draw.args].join(":"));
+    const split = await driver(), legacy = await driver();
+    const expected = await split.renderBytes(load(splitFile));
+    const passes = await legacy.renderBytes(load(legacyFile));
+    assert.deepEqual(draws(passes), draws(expected));
+    const [pass] = computePasses(passes, "RowTableParams");
+    const region = pass.draws[0].bindings.get(0).entries[0].resource;
+    const words = new Uint32Array(region.buffer.bytes, region.offset ?? 0, region.size / 4);
+    const bytes = fs.readFileSync(legacyFile), header = JSON.parse(bytes.subarray(5, 5 + bytes.readUInt32LE(1)).toString());
+    const members = header.batches.flatMap(batch => batch.rows.map(key => [batch, key]));
+    assert.equal(words[0], members.length);
+    members.forEach(([batch, key], k) => {
+      const [, , , , curves, flags] = words.subarray(4 + 8 * k, 10 + 8 * k);
+      assert.equal(flags, (batch.pipeline === "stroke" ? 1 : 0) | 2);
+      assert.equal(curves, (header.program_data[key].nbytes / 68 - 1) / 2);
+    });
+    assert.equal(legacy.cacheMisses(), 0);
+    // Only a batch without the key is such a recording: a row_paints that
+    // is present and null is malformed (as natively, PatchRowsCommands),
+    // and the frame is rejected before anything is submitted.
+    const nulled = {...header, batches: header.batches.map(batch => ({...batch, row_paints: null}))};
+    const encoded = Buffer.from(JSON.stringify(nulled)), length = Buffer.alloc(4);
+    length.writeUInt32LE(encoded.length);
+    const malformed = Buffer.concat([bytes.subarray(0, 1), length, encoded, bytes.subarray(5 + bytes.readUInt32LE(1))]);
+    const strict = await driver();
+    await assert.rejects(strict.renderBytes(malformed.buffer.slice(malformed.byteOffset,
+      malformed.byteOffset + malformed.byteLength)), /invalid row sources/);
+    assert.equal(strict.submissions.length, 0);
+    for (const d of [split, legacy, strict]) { await d.destroy(); assert.ok(d.buffers.every(buffer => buffer.destroyed)); }
+  },
+  // One table on the wire names program sources and row sources, so a
+  // recording before B5.8 can name as a path's rows (seventeen columns) the
+  // rows an earlier frame sent as a program's source, and the reverse: the
+  // driver reads either from the other's without a definition in the
+  // message, as it did when one map held both.
+  // The page's planRows groups a frame's changed row sources as
+  // gpu_program_geometry.plan_row_finalize does, dispatch for dispatch and
+  // word for word, at and around the budget (argv[3]: the members, budgets
+  // and Python's plans, from tests.test_patch_rows RowPlansAgree). The
+  // function and its constants are read out of webgpu.js as written.
+  async rowPlansAgree() {
+    const source = fs.readFileSync(path.join(STATIC, "webgpu.js"), "utf8");
+    const names = ["PAINT_FLOATS", "ROW_STROKES", "RECORD_WORDS", "INSTANCE_WORDS", "ROW_TABLE_HEADER_WORDS",
+                   "ROW_ENTRY_WORDS"];
+    const constants = names.map(name => {
+      const found = source.match(new RegExp(`\\b${name} = (\\d+)\\b`));
+      assert.ok(found, name);
+      return `const ${name} = ${found[1]};`;
+    }).join("\n");
+    const start = source.indexOf("\n  function planRows(");
+    const end = source.indexOf("\n  }\n", start);
+    assert.ok(start > 0 && end > start, "planRows in webgpu.js");
+    const planRows = vm.runInNewContext(`${constants}\n(${source.slice(start, end + 4).trim()})`);
+    const {cases: planned} = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+    assert.ok(planned.length > 0);
+    for (const {label, members, budget, plans} of planned) {
+      const dispatches = planRows(members.map(([geometry, geometryWords, paint, paintWords, curves, flags]) =>
+        ({geometry, geometryWords, paint, paintWords, curves, flags})), budget);
+      assert.deepEqual(JSON.parse(JSON.stringify(dispatches.map(d => ({
+        entries: d.entries, inputs: d.inputs, region_bytes: d.regionBytes, output_bytes: d.outputBytes,
+        curves: d.curves})))), plans, `${label}, budget ${budget}`);
+    }
+    process.stdout.write(JSON.stringify({cases: planned.length}));
+  },
+  async rowsAndProgramsShareOneTable() {
+    const program = {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4,
+      fill_num_verts: 0, program: blend([H("1"), H("2")], .25, 9, 17)};
+    const rows = {pipeline: "stroke", hash: "legacy-rows", stride: 68, num_verts: 12, count: 4, instances: 4,
+      fill_num_verts: 0, rows: [H("1")]};
+    const sources = {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2)};
+    // A program, then a path's rows under its source's name.
+    const d = await driver();
+    await d.renderBytes(formatSeven([program], {program_data: sources}));
+    const passes = await d.renderBytes(formatSeven([rows]));
+    assert.equal(d.cacheMisses(), 0, "the rows a program held");
+    const [pass] = computePasses(passes, "RowTableParams");
+    const region = pass.draws[0].bindings.get(0).entries[0].resource;
+    const words = new Uint32Array(region.buffer.bytes, region.offset ?? 0, region.size / 4);
+    assert.deepEqual([words[0], words[4 + 4], words[4 + 5]], [1, 4, 1 | 2], "one legacy stroke entry of four curves");
+    assert.ok(Buffer.from(region.buffer.bytes, (region.offset ?? 0) + 16 + 4 * words[4], 4 * 153).equals(sources[H("1")]),
+              "reading the program's source");
+    // A path's rows, then a program under their name.
+    const e = await driver();
+    await e.renderBytes(formatSeven([rows], {program_data: {[H("1")]: sources[H("1")]}}));
+    await e.renderBytes(formatSeven([program], {program_data: {[H("2")]: sources[H("2")]}}));
+    assert.equal(e.cacheMisses(), 0, "the program's source a path's rows held");
+    for (const x of [d, e]) { await x.destroy(); assert.ok(x.buffers.every(buffer => buffer.destroyed)); }
+  },
   // The retained frame draws what a driver with nothing retained draws from
   // the same frame whole. Over full frames that resend a message byte for
   // byte, replace a bordered mover's geometry in place (its slot and output
@@ -1425,9 +1657,34 @@ const cases = {
     const tables = {paint_data: {[H("a")]: Buffer.from(new Float32Array(constantPaint([1, 0, 0, .5])).buffer)},
       border_data: {[H("c")]: curveRecords(3), [H("b")]: curveRecords(4)},
       object_data: {[H("d")]: objectTable([[4, 1]]), [H("f")]: objectTable([[4, 1]])},
-      net_data: {[H("e")]: floats(90, 1)}, texture_data: {texture: Buffer.alloc(4, 7)},
+      net_data: {[H("e")]: floats(90, 1), [H("3")]: floats(90, 3), [H("7")]: floats(90, 4)},
+      texture_data: {texture: Buffer.alloc(4, 7)},
       program_data: {[H("1")]: floats(153, 1), [H("2")]: floats(153, 2), [H("5")]: floats(90, 1), [H("6")]: floats(90, 2)}};
     const run = borderRunFixture(3, 40, H("c")).spec;
+    // Row sources (B5.8): a run of two paths' geometry and paint (five rows
+    // and three) and a stroke of the first; the run dimmed (its paint alone
+    // moves), then its first path moved, the stroke's paint one a row, then
+    // one row. Each change is a new batch that takes over its slot's output.
+    const K = pair => pair.repeat(16);
+    const rowTables = {[K("40")]: floats(45, 1), [K("41")]: floats(45, 1.5), [K("42")]: floats(27, 2),
+      [K("43")]: floats(8, .25), [K("44")]: floats(8, .125), [K("45")]: floats(40, .5)};
+    tables.program_data = {...tables.program_data, ...rowTables};
+    tables.object_data[H("4")] = objectTable([[2, 1], [1, 1]]);
+    const rowBatches = step => [
+      {pipeline: "patch", hash: `rows-${step}`, fill_num_verts: 0, num_verts: CAPACITY * 3, count: 3 * (6 + STRIP),
+       rows: [[K("40"), K("40"), K("41")][step], K("42")], row_paints: [[K("43"), K("44"), K("44")][step], K("43")],
+       border: {hash: K("4" + step), num_curves: 3, capacity: CAPACITY, layout: [[2, 1, 0], [1, 1, 1]]},
+       objects: {hash: H("4"), count: 2}},
+      {pipeline: "stroke", hash: `rows-stroke-${step === 2 ? 1 : 0}`, stride: 68, num_verts: 6, count: 4, instances: 2,
+       fill_num_verts: 0, rows: [K("40")], row_paints: [step === 2 ? K("44") : K("45")]}];
+    // Runs of nets (B5.7): one that stands, and one whose members move step
+    // by step over the same spans (a new batch taking over the run's
+    // output, whose members that stand keep their vertices).
+    const moving = [[[H("e"), 8], [H("7"), 4], [H("3"), 2]], [[H("e"), 8], [H("3"), 4], [H("3"), 2]],
+                    [[H("7"), 8], [H("3"), 4], [H("3"), 2]]];
+    const netRuns = (density, step) => [
+      netRun("net-run", [[H("e"), 8, density], [H("3"), 4, 0], [H("7"), 2, 0]]),
+      netRun(`net-mover-${step}`, moving[step].map(([net, capacity]) => [net, capacity, density]))];
     const patchProgram = (hash, alpha) => patchRun(hash, 4, H("f"), H("9"), {program: blend([H("1"), H("2")], alpha, 9, 17)});
     const netProgram = (hash, alpha) => netBatch(hash, H("8"), {program: blend([H("5"), H("6")], alpha, 9, 10)});
     const everything = ([a, b], density, step = 0) => [
@@ -1442,7 +1699,7 @@ const cases = {
       patchProgram("patch-a", a), patchProgram("patch-b", b),
       {pipeline: "stroke", hash: "stroke-program", stride: 68, num_verts: 6, count: 4, instances: 4, fill_num_verts: 0,
        program: blend([H("1"), H("2")], a, 9, 17)},
-      netProgram("net-a", a), netProgram("net-b", b)];
+      netProgram("net-a", a), netProgram("net-b", b), ...netRuns(density, step), ...rowBatches(step)];
     const scaled = {...CAMERA, frame_scale: .9}, moved = {...scaled, camera_position: [1, 0, 10]};
     const inserted = [{pipeline: "surface", hash: "inserted", num_verts: 3, count: 3}, {...run, uniforms: {frame_scale: 2}},
                       ...everything([.3, .7], 1, 2)];
@@ -1452,9 +1709,10 @@ const cases = {
       [everything([.25, .6], 0), {}, true],
       [everything([.25, .6], 0), {}, true],
       [everything([.25, .6], 0), {}, []],
-      [everything([.25, .6], 0, 1), {}, ["mover-1"]],
+      [everything([.25, .6], 0, 1), {}, ["mover-1", "net-mover-1", "rows-1"], {program_data: {[K("44")]: rowTables[K("44")]}}],
       [everything([.25, .6], 0, 1), {camera: scaled}, []],
-      [everything([.25, .6], 0, 2), {camera: moved}, ["mover-2"]],
+      [everything([.25, .6], 0, 2), {camera: moved}, ["mover-2", "net-mover-2", "rows-2", "rows-stroke-1"],
+       {program_data: {[K("41")]: rowTables[K("41")]}}],
       [everything([.25, .6], 1, 2), {camera: moved}, []],
       [everything([.5, .5], 1, 2), {camera: moved}, []],
       [everything([.3, .7], 1, 2), {camera: moved}, []],
@@ -1467,9 +1725,9 @@ const cases = {
     ];
     const d = await tracedDriver();
     let failed = 0;
-    for (const [index, [batches, header, whole]] of frames.entries()) {
+    for (const [index, [batches, header, whole, sent = {}]] of frames.entries()) {
       const message = whole === true ? formatSeven(batches, tables, header)
-        : formatSeven(batches.map(batch => whole.includes(batch.hash) ? batch : cached([batch])[0]), {}, header);
+        : formatSeven(batches.map(batch => whole.includes(batch.hash) ? batch : cached([batch])[0]), sent, header);
       let warm;
       try {
         await d.renderer.render(message);

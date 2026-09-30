@@ -4,6 +4,7 @@ grid the reference renderers draw, alignment, and what stays untouched."""
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -234,8 +235,137 @@ class NetEvaluationPlan(unittest.TestCase):
         self.assertEqual(dispatch_shape(70000, 65535), (65535, 2))
 
 
+class NetRuns(unittest.TestCase):
+    """B5.7 (docs/phase_b4_plan.md): a driver draws each net's index pattern
+    at the steps it evaluates at, and consecutive nets that can share a
+    draw are one batch, a run drawn in one draw over its members' outputs."""
+
+    def test_the_steps_pattern_is_the_capacitys_without_its_zero_area_triangles(self):
+        from maniml.web.gpu_net_geometry import net_indices, run_count, run_indices
+        for patches, capacity, steps in ((1, 2, 2), (3, 8, 4), (2, 6, 3), (4, 5, 2), (1, 32, 7)):
+            with self.subTest(patches=patches, capacity=capacity, steps=steps):
+                # The kernel's output: rows and columns past the steps repeat
+                # the last, so a vertex stands at (min(a, steps), min(b, steps)).
+                side = capacity + 1
+                grid = np.array([[patch, min(a, steps), min(b, steps)] for patch in range(patches)
+                                 for a in range(side) for b in range(side)])
+                full = net_indices(patches, capacity).reshape(-1, 3)
+                corners = grid[full]
+                u, v = corners[:, 1, 1:] - corners[:, 0, 1:], corners[:, 2, 1:] - corners[:, 0, 1:]
+                area = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+                np.testing.assert_array_equal(net_indices(patches, capacity, steps=steps).reshape(-1, 3),
+                                              full[area != 0], "the same triangles, in the same order")
+                self.assertEqual(run_count([(patches, capacity, steps)]), 6 * patches * steps * steps)
+        np.testing.assert_array_equal(net_indices(2, 4, steps=4), net_indices(2, 4))
+        with self.assertRaises(ValueError):
+            net_indices(1, 4, steps=5)
+        members = [(2, 4, 3), (1, 2, 2), (3, 6, 5)]
+        np.testing.assert_array_equal(run_indices(members), np.concatenate([
+            net_indices(2, 4, 0, 3), net_indices(1, 2, 2 * 25, 2), net_indices(3, 6, 2 * 25 + 9, 5)]))
+        self.assertEqual(run_count(members), len(run_indices(members)))
+
+    @staticmethod
+    def net(resolution=(7, 5), uniforms=None, pipeline="surface_depth", capacity=4, program=None):
+        from maniml.web.triangle_scene import TriangleDraw
+        nu, nv = resolution
+        patches = ((nu - 1) // 2) * ((nv - 1) // 2)
+        return TriangleDraw(pipeline, np.zeros(0, dtype=Sphere().data.dtype), uniforms or {"shading": [0, 0, 0]},
+                            count=patches * 6 * capacity ** 2,
+                            net=np.zeros((nu * nv, 10), dtype="<f4") + len(pipeline) * nu, net_shape=(nu, nv, 10),
+                            net_capacity=capacity, net_density=.1, program=program)
+
+    def test_nets_join_a_run_as_grids_do(self):
+        from maniml.web.triangle_scene import coalesce_draws, run_kind
+        nets = [self.net(), self.net((9, 7), capacity=6), self.net()]
+        run, = coalesce_draws(nets)
+        self.assertEqual(run.net_members, tuple(nets))
+        self.assertIsNone(run.net)
+        self.assertEqual(run.count, sum(draw.count for draw in nets))
+        # What cannot share the draw closes the run: another depth mode or
+        # uniforms, a textured net, a program's net; and MANIML_NET_RUNS=0.
+        barriers = [self.net(pipeline="surface"), self.net(uniforms={"shading": [.5, 0, 0]}),
+                    self.net(pipeline="texsurface_depth"), self.net(program={"kind": "blend", "sources": [], "scalars": [0]})]
+        self.assertEqual([run_kind(draw) for draw in barriers], ["net", "net", None, None])
+        for barrier in barriers:
+            with self.subTest(barrier=barrier.pipeline):
+                draws = coalesce_draws([nets[0], nets[1], barrier, nets[2], nets[0]])
+                self.assertEqual([len(draw.net_members) if draw.net_members else 1 for draw in draws], [2, 1, 2])
+        self.assertEqual(coalesce_draws(nets, net_runs=False), nets)
+        # A run's output stays within the run cap.
+        with patch.object(triangle_scene_module(), "MAX_RUN_OUTPUT_BYTES", 2 * 6 * 25 * 40):
+            self.assertEqual([len(draw.net_members) if draw.net_members else 1
+                              for draw in coalesce_draws([self.net()] * 5)], [2, 2, 1])
+
+    def test_a_run_is_one_batch_listing_its_members(self):
+        from maniml.web.generated_geometry import MessageParts, encode_draw
+        from maniml.web.gpu_net_geometry import vertices_per_patch
+        from maniml.web.triangle_scene import coalesce_draws
+        nets = [self.net(), self.net((9, 7), capacity=6)]
+        run, = coalesce_draws(nets)
+        batch = encode_draw(run, {"shading": [0, 0, 0]}, parts := MessageParts(None))
+        alone = [encode_draw(draw, {"shading": [0, 0, 0]}, MessageParts(None)) for draw in nets]
+        self.assertEqual(batch["net"], [single["net"] for single in alone])
+        self.assertEqual(batch["num_verts"], sum(single["num_verts"] for single in alone))
+        self.assertEqual(batch["count"], sum(single["count"] for single in alone))
+        self.assertEqual(batch["num_verts"], 6 * vertices_per_patch(4) + 12 * vertices_per_patch(6))
+        self.assertEqual(set(parts.nets), {single["net"]["hash"] for single in alone})
+        self.assertNotIn(batch["hash"], {single["hash"] for single in alone})
+        again = encode_draw(coalesce_draws(nets)[0], {"shading": [0, 0, 0]}, MessageParts(None))
+        self.assertEqual(again["hash"], batch["hash"])
+        swapped = encode_draw(coalesce_draws(nets[::-1])[0], {"shading": [0, 0, 0]}, MessageParts(None))
+        self.assertNotEqual(swapped["hash"], batch["hash"], "the members' order is the layout")
+
+    def test_the_switch(self):
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from tests.renderer_fixtures import build_scene
+        scene = build_scene(Sphere(radius=.5, resolution=(9, 7)), Sphere(radius=.4, resolution=(7, 5)).shift(RIGHT),
+                            resolution=(320, 180), samples=4)
+        cache = GeometryCache()
+        for value, members in (("1", [2]), ("0", [1, 1]), (None, [2])):
+            with self.subTest(runs=value), patch.dict(os.environ, {"MANIML_SURFACE": "nets"}):
+                if value is not None:
+                    os.environ["MANIML_NET_RUNS"] = value
+                else:
+                    os.environ.pop("MANIML_NET_RUNS", None)
+                header = parse_geometry_message(serialize_scene(scene, cache, renderer="triangles"))[0]
+                self.assertEqual([len(batch["net"]) if isinstance(batch["net"], list) else 1
+                                  for batch in header["batches"]], members)
+                self.assertEqual(cache.net_runs, value != "0")
+        with patch.dict(os.environ, {"MANIML_SURFACE": "nets", "MANIML_NET_RUNS": "yes"}), self.assertRaises(ValueError):
+            serialize_scene(scene, GeometryCache(), renderer="triangles")
+
+
+def triangle_scene_module():
+    from maniml.web import triangle_scene
+    return triangle_scene
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReferenceOrder(unittest.TestCase):
+    """The accuracy reference's grid order (tests/surface_fixtures.py,
+    grid_ranks, B5.9) is the order grids draw: the surface's triangle
+    indices, however sorted."""
+
+    def test_the_grid_order_is_the_surfaces_triangle_indices(self):
+        from tests.surface_fixtures import grid_ranks
+
+        sphere = Sphere(radius=1, resolution=(9, 7))
+        ranks, order = grid_ranks(sphere)
+        self.assertEqual(order, "cells")
+        np.testing.assert_array_equal(ranks, np.arange(2 * 8 * 6))
+        natural = sphere.get_triangle_indices().reshape(-1, 3).copy()
+        sphere.sort_faces_back_to_front(RIGHT)
+        ranks, order = grid_ranks(sphere)
+        self.assertEqual(order, "sorted")
+        drawn = sphere.get_triangle_indices().reshape(-1, 3)
+        np.testing.assert_array_equal(drawn[ranks], natural)
+        self.assertFalse(np.array_equal(ranks, np.arange(len(ranks))))
+        sphere.triangle_indices = sphere.triangle_indices[:-3]
+        with self.assertRaises(ValueError):
+            grid_ranks(sphere)
 
 
 @unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "GPU image comparison not requested")
@@ -307,24 +437,102 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
                 self.assertLessEqual(smooth, .005)
                 self.assertGreater(header["batches"][0]["net"]["capacity"], 4)
 
-    def test_every_surface_fixture_is_within_the_flip_gate(self):
-        """B5.4's nets gate (docs/phase_b4_plan.md, "The flips"): every
-        Surface fixture drawn from nets is within 0.5% of pixels over 24/255
-        of Phase A's grids, each drawing its surfaces as nets there and as
-        grids here."""
+    def test_every_surface_fixture_is_no_further_from_the_true_surface_as_nets(self):
+        """The nets gate since B5.9 (docs/phase_b4_plan.md, "The flips";
+        Taylor, 2026-09-29): every Surface fixture drawn from nets is no
+        further from the true surface than drawn from Phase A's grids, by
+        the pixels over 24/255 from a reference of the same frame (each
+        surface's uv_func within 1/32 of a pixel, 16 times the samples per
+        pixel, in each stack's order of a surface's triangles). Nets
+        against grids, B5.4's gate, is reported and not judged: a net is
+        drawn rounder than its grid, so it measured sameness to the old
+        look."""
         from maniml.web.wgpu_renderer import WgpuRenderer
-        from tests.surface_fixtures import PIXEL_LIMIT, SURFACE_FIXTURES, nets_against_grids
+        from tests.surface_fixtures import SURFACE_FIXTURES, against_reference
 
-        nets = WgpuRenderer()
+        nets, reference = WgpuRenderer(), WgpuRenderer()
         try:
             for name in SURFACE_FIXTURES:
                 with self.subTest(fixture=name):
-                    result = nets_against_grids(name, self.driver, nets)
+                    result = against_reference(SURFACE_FIXTURES[name](), self.driver, nets, reference)
                     self.assertGreater(result["grid_batches"], 0)
                     self.assertGreater(result["net_batches"], 0)
-                    self.assertLessEqual(result["fraction_pixels_rgb_over24"], PIXEL_LIMIT)
+                    self.assertTrue(result["reference"]["within_tolerance"], result["reference"])
+                    self.assertEqual(result["reference"]["net_defined"], 0, "each surface is its function's")
+                    self.assertLessEqual(result["nets"]["pixels_rgb_over24"], result["grids"]["pixels_rgb_over24"],
+                                         {key: result[key] for key in ("grids", "nets", "nets_vs_grids")})
         finally:
             nets.close()
+            reference.close()
+
+    def test_the_reference_is_the_true_surface_and_puts_the_scene_back(self):
+        """The reference's own proof (tests/surface_fixtures.py): drawn
+        supersampled through the clip transform's tiles, a frame is the
+        frame the driver draws, to its edges' antialiasing; with the
+        surfaces true it shows the facets a grid has at a zoom and it
+        converges (a quarter of the tolerance moves no pixel over 24/255);
+        the order of a surface's triangles moves the translucent fixture's
+        picture and not an opaque one's; and the scene is put back as it
+        was."""
+        from unittest.mock import patch
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests import surface_fixtures as fixtures
+
+        reference = WgpuRenderer()
+        try:
+            for name in ("orbs", "orbit_demo"):
+                scene = fixtures.SURFACE_FIXTURES[name]()
+                with patch.dict(os.environ, fixtures.PHASE_A):
+                    header, payload = parse_geometry_message(
+                        serialize_scene(scene, GeometryCache(), renderer="phase_a"))
+                plain = np.asarray(self.driver.render(header, payload), dtype=float)
+                tiled = fixtures.supersampled(reference, header, payload)
+                with self.subTest(fixture=name, check="tiles"):
+                    self.assertLess(fixtures.difference(tiled, plain)["fraction_pixels_rgb_over24"], 5e-5)
+                    self.assertLess(fixtures.difference(tiled, plain)["mean_rgb"], .1)
+            scene = fixtures.SURFACE_FIXTURES["orbs"]()
+            surfaces = fixtures.surfaces_of(scene)
+            before = [(surface._data, surface._data.tobytes(), surface.resolution, surface.revision)
+                      for surface in surfaces]
+            grids, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            coarse, records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            fine, fine_records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"],
+                                                           tolerance=fixtures.REFERENCE_TOLERANCE / 4)
+            self.assertGreater(sum(r["triangles"] for r in fine_records), 3 * sum(r["triangles"] for r in records))
+            self.assertEqual(fixtures.difference(fine["grid"], coarse["grid"])["pixels_rgb_over24"], 0)
+            self.assertEqual(fixtures.difference(coarse["grid"], coarse["net"])["pixels_rgb_over24"], 0,
+                             "opaque: the order moves nothing")
+            self.assertGreater(fixtures.difference(coarse["grid"], grids)["pixels_rgb_over24"], 1000,
+                               "the grids' facets")
+            for surface, (rows, data, shape, revision) in zip(surfaces, before):
+                self.assertIs(surface._data, rows)
+                self.assertEqual(surface._data.tobytes(), data)
+                self.assertEqual(surface.resolution, shape)
+                self.assertNotIn("get_shader_data", surface.__dict__)
+                self.assertGreater(surface.revision, revision)
+            again, _ = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            self.assertTrue(np.array_equal(again, grids))
+            scene = fixtures.SURFACE_FIXTURES["translucent"]()
+            _, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            orders, _ = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            self.assertGreater(fixtures.difference(orders["grid"], orders["net"])["pixels_rgb_over24"], 100,
+                               "where a translucent surface overlaps itself, the order decides what shows")
+            # Faces sorted back to front (always_sort_to_camera's updater):
+            # grids draw the triangle indices' new order and the grid-order
+            # reference follows it (0 pixels over 24/255 from grids here,
+            # 8,036 from a reference in the cells' order); a net draws its
+            # own order, and its reference does not move.
+            for surface in fixtures.surfaces_of(scene):
+                surface.sort_faces_back_to_front(scene.camera.get_location() - surface.get_center())
+            sorted_grids, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            resorted, records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            self.assertEqual([record["grid_order"] for record in records], ["sorted", "sorted"])
+            self.assertGreater(fixtures.difference(orders["grid"], resorted["grid"])["pixels_rgb_over24"], 1000)
+            self.assertEqual(fixtures.difference(orders["net"], resorted["net"])["pixels_rgb_over24"], 0)
+            self.assertLess(fixtures.difference(resorted["grid"], sorted_grids)["pixels_rgb_over24"], 50)
+        finally:
+            reference.close()
 
     def test_one_dispatch_evaluates_what_changed_and_a_small_zoom_nothing(self):
         """B5.5: every changed net of a frame in one dispatch, gathered and
@@ -363,7 +571,8 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
             alone, _ = draw(drivers[1], budget=1)
             # A budget of a few nets: several dispatches reuse one scratch.
             several, _ = draw(drivers[2], budget=400_000)
-            self.assertEqual(sum("net" in batch for batch in header["batches"]), 70)
+            # The seventy nets are one run (B5.7), evaluated net by net.
+            self.assertEqual([len(batch["net"]) for batch in header["batches"] if "net" in batch], [70])
             self.assertEqual(evaluated[:2], [[1], [70]], "one dispatch; seventy when none may share")
             self.assertGreater(evaluated[2][0], 5)
             self.assertTrue(np.array_equal(gathered, alone), "gathered and copied out, or evaluated in place")
@@ -393,6 +602,88 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
             self.assertTrue(all(count == 1 for count in evaluated[0]), "each evaluating frame is one dispatch")
         finally:
             for driver in drivers:
+                driver.close()
+
+    def test_net_runs_draw_what_each_net_draws(self):
+        """B5.7: the orbs' seventy nets are one batch drawn in one draw with
+        the index pattern of each member's steps, and draw pixel for pixel
+        what seventy batches (MANIML_NET_RUNS=0) and the capacity's pattern
+        (zero-area triangles past the steps) draw, through a zoom walk and a
+        play where some members move; the kept driver evaluates only the
+        members that moved or whose steps did, and draws what a fresh one
+        draws."""
+        from unittest.mock import patch
+        from maniml.web import gpu_net_geometry
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests.surface_fixtures import NETS, orbs
+
+        scene = orbs()
+        movers = [mob for index, mob in enumerate(scene.mobjects) if index % 3 == 0 and hasattr(mob, "resolution")]
+        drivers = {name: WgpuRenderer() for name in ("runs", "each", "capacity")}
+        caches = {name: GeometryCache() for name in drivers}
+        evaluated, drawn = [], []
+        original = drivers["runs"]._evaluate_nets
+
+        def counting(changed, *args, **kwargs):
+            evaluated.append(len(changed))
+            return original(changed, *args, **kwargs)
+        drivers["runs"]._evaluate_nets = counting
+        pattern = drivers["runs"]._net_pattern
+
+        def patterns(members):
+            drawn.append(members)
+            return pattern(members)
+        drivers["runs"]._net_pattern = patterns
+        indices, count = gpu_net_geometry.run_indices, gpu_net_geometry.run_count
+
+        def at_capacity(rule):
+            return lambda members: rule([(patches, capacity, capacity) for patches, capacity, _ in members])
+
+        def draw(name, cache=None, driver=None):
+            with patch.dict(os.environ, {**NETS, "MANIML_NET_RUNS": "0" if name == "each" else "1"}):
+                header, payload = parse_geometry_message(serialize_scene(
+                    scene, caches[name] if cache is None else cache, renderer="triangles"))
+            # "capacity" evaluates at the steps and draws the capacity's
+            # pattern, as B5.5's driver did.
+            with patch.object(gpu_net_geometry, "run_indices", at_capacity(indices) if name == "capacity" else indices), \
+                    patch.object(gpu_net_geometry, "run_count", at_capacity(count) if name == "capacity" else count):
+                return np.asarray((driver or drivers[name]).render(header, payload)), header
+
+        try:
+            moves = [None, .98, .5, .5, 1 / .98, 4, "play", "play", "play"]
+            for index, move in enumerate(moves):
+                with self.subTest(frame=index, move=move):
+                    if move == "play":
+                        for mob in movers:
+                            mob.shift([.03, .02, 0])
+                    elif move is not None:
+                        scene.camera.frame.scale(move)
+                        scene.camera.refresh_uniforms()
+                    before = len(evaluated)
+                    runs, header = draw("runs")
+                    each, each_header = draw("each")
+                    capacity, _ = draw("capacity")
+                    fresh_driver = WgpuRenderer()
+                    try:
+                        fresh, _ = draw("runs", GeometryCache(), fresh_driver)
+                    finally:
+                        fresh_driver.close()
+                    self.assertEqual([len(batch["net"]) for batch in header["batches"]], [70])
+                    self.assertEqual(sum("net" in batch for batch in each_header["batches"]), 70)
+                    self.assertTrue(np.array_equal(runs, each), "one run draws what seventy batches draw")
+                    self.assertTrue(np.array_equal(runs, capacity), "the steps' pattern draws what the capacity's draws")
+                    self.assertTrue(np.array_equal(runs, fresh), "the kept run draws what a fresh driver draws")
+                    members = drawn[-1]
+                    self.assertEqual(len(members), 70)
+                    self.assertLess(gpu_net_geometry.run_count(members),
+                                    sum(p * gpu_net_geometry.indices_per_patch(c) for p, c, _ in members))
+                    if move == "play":
+                        self.assertEqual(evaluated[before:], [len(movers)], "only the members that moved")
+                    elif move == .98:
+                        self.assertEqual(evaluated[before:], [], "a zoom that moves no step count evaluates nothing")
+        finally:
+            for driver in drivers.values():
                 driver.close()
 
     def test_camera_changes_resend_nothing_and_a_zoom_grows_the_reservation(self):

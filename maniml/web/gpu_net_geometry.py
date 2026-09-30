@@ -5,7 +5,10 @@ A surface's net travels once per source revision; the driver's compute
 stage (net_compute.wgsl) evaluates it at the steps its second difference
 needs at the current zoom, into a reserved capacity per patch. The CPU keeps
 the density and the reservation, nothing that depends on the camera beyond
-the reservation itself, which grows only when a zoom outgrows it.
+the reservation itself, which grows only when a zoom outgrows it. The driver
+draws the index pattern of the steps it evaluates at, not the capacity's,
+and consecutive nets that can share a draw are one batch, a run drawn in one
+draw over its members' outputs (docs/phase_b4_plan.md, B5.7).
 """
 
 from __future__ import annotations
@@ -108,7 +111,9 @@ def plan_evaluation(nets, budget=NET_SCRATCH_BUDGET):
     first patch), ``sources`` (source, byte offset, bytes: what is gathered,
     each source once), ``input_bytes``, ``output_bytes`` and ``patches``.
     A dispatch of one net reads its source and writes its output directly
-    (both offsets 0); the others fit ``budget`` in both scratch buffers."""
+    (both offsets 0 here: the driver writes the net at its place in the
+    output it binds, a run's member where the members before it end); the
+    others fit ``budget`` in both scratch buffers."""
     dispatches, current = [], None
     for index, (source, source_bytes, output_bytes, patches) in enumerate(nets):
         fresh = current is None or source not in current["offsets"]
@@ -185,18 +190,43 @@ def indices_per_patch(capacity):
     return 6 * validate_capacity(capacity) ** 2
 
 
-def net_indices(patches, capacity, vertex_base=0):
-    """The triangle list over every patch's (capacity + 1)² grid, in the
-    order Surface.compute_triangle_indices uses; deterministic from the
-    counts, so both drivers build it locally."""
+def net_indices(patches, capacity, vertex_base=0, steps=None):
+    """The triangle list over every patch's grid of ``steps`` per edge
+    (the capacity when not given) in its (capacity + 1)² vertex layout, in
+    the order Surface.compute_triangle_indices uses; deterministic from the
+    counts, so both drivers build it locally. The kernel repeats the rows
+    and columns past the steps, so the capacity's pattern draws these
+    triangles in this order and the rest with zero area
+    (docs/phase_b4_plan.md, B5.7: a driver draws the steps' pattern)."""
     capacity = validate_capacity(capacity)
+    steps = capacity if steps is None else validate_capacity(steps)
+    if steps > capacity:
+        raise ValueError("a net's steps cannot exceed its capacity")
     side = capacity + 1
-    a, b = np.meshgrid(np.arange(capacity, dtype="u4"), np.arange(capacity, dtype="u4"), indexing="ij")
+    a, b = np.meshgrid(np.arange(steps, dtype="u4"), np.arange(steps, dtype="u4"), indexing="ij")
     top_left = (a * side + b).reshape(-1)
     quad = np.stack([top_left, top_left + side, top_left + 1,
                      top_left + 1, top_left + side, top_left + side + 1], axis=1).reshape(-1)
     return (np.arange(patches, dtype="u4")[:, None] * np.uint32(side * side)
             + quad + np.uint32(vertex_base)).reshape(-1)
+
+
+def run_indices(members):
+    """The index pattern a run of nets draws in one draw (docs/phase_b4_plan.md,
+    B5.7): each member's ``(patches, capacity, steps)`` pattern over its
+    own vertices, which follow the members before it in the run's output,
+    in order."""
+    parts, base = [], 0
+    for patches, capacity, steps in members:
+        parts.append(net_indices(patches, capacity, base, steps))
+        base += patches * vertices_per_patch(capacity)
+    return np.concatenate(parts) if parts else np.zeros(0, dtype="u4")
+
+
+def run_count(members):
+    """The indices run_indices draws for ``(patches, capacity, steps)``
+    members: six a step squared, per patch."""
+    return sum(patches * indices_per_patch(steps) for patches, _, steps in members)
 
 
 def pixels_per_unit(uniforms, resolution):

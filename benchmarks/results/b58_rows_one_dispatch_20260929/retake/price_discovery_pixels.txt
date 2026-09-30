@@ -1,0 +1,6 @@
+('phase_b_records_vs_gpu_border', 'play') frames 124 worst ((0.00041152263374485596, 142.0), 9)
+('phase_b_records_vs_gpu_border', 'still') frames 12 worst ((0.00041152263374485596, 142.0), 9)
+('phase_b_vs_gpu_border', 'play') frames 124 worst ((0.00041152263374485596, 142.0), 9)
+('phase_b_vs_gpu_border', 'still') frames 12 worst ((0.00041152263374485596, 142.0), 9)
+('phase_b_vs_records', 'play') frames 124 worst ((0.0, 0.0), 9)
+('phase_b_vs_records', 'still') frames 12 worst ((0.0, 0.0), 9)

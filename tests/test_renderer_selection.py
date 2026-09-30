@@ -247,6 +247,66 @@ class RendererSelectionProtocol(unittest.TestCase):
             programs.set_override(None)
 
 
+    def test_the_default_draws_surfaces_as_nets_and_phase_a_as_grids(self):
+        """B5.9 (docs/phase_b4_plan.md, "The flips"; Taylor, 2026-09-29):
+        the Default stack's surfaces are nets, its fills and programs
+        Phase A's, so native capture (and the export recorder, which
+        serializes the same "triangles") sends a Surface as its net;
+        Phase A forced and MANIML_SURFACE=grids send the grid."""
+        from maniml import Sphere, ThreeDScene
+        from maniml.utils import programs
+
+        self.assertEqual((geometry.DEFAULT_FILL, geometry.DEFAULT_SURFACE, programs.DEFAULT_MODE),
+                         ("meshes", "nets", "off"))
+        self.assertEqual(geometry.FORCED_STACKS["phase_a"], ("meshes", "grids", "off"))
+        scene = ThreeDScene(window=None, camera_config={"resolution": (64, 36)})
+        scene.add(Sphere(radius=1, resolution=(12, 8)))
+        with patch.dict("os.environ"):
+            for name in ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS"):
+                os.environ.pop(name, None)
+            nets = lambda message: [batch for batch in self.header_of(message)["batches"] if "net" in batch]
+            self.assertEqual(len(nets(geometry.serialize_scene(scene, GeometryCache()))), 1)
+            self.assertEqual(nets(geometry.serialize_scene(scene, GeometryCache(), renderer="phase_a")), [])
+            with patch.dict("os.environ", {"MANIML_SURFACE": "grids"}):
+                self.assertEqual(nets(geometry.serialize_scene(scene, GeometryCache())), [])
+            scene.update_frame(force_draw=True)
+            try:
+                self.assertEqual(self.stack(scene.camera._geometry_cache), ("meshes", "nets", "off"))
+                self.assertGreater(np.count_nonzero(np.asarray(scene.get_image())[..., :3]), 50)
+            finally:
+                scene.camera.release()
+
+    def test_a_default_net_is_drawn_in_its_own_order_whatever_the_sort(self):
+        """Accepted with B5.9 (docs/phase_b4_plan.md, "The flips", B5.9): a
+        net is drawn patch by patch in the order of its patches, so
+        sort_faces_back_to_front (always_sort_to_camera's updater), which
+        reorders the grid's triangle indices in place, reorders what grids
+        draw and nothing a net draws. On the Default a translucent surface
+        sorted back to front sends the bytes it sends unsorted; its sort is
+        drawn under MANIML_SURFACE=grids and Phase A."""
+        from maniml import RIGHT, Sphere, ThreeDScene
+
+        def frame(sort, renderer="triangles"):
+            scene = ThreeDScene(window=None, camera_config={"resolution": (64, 36)})
+            sphere = Sphere(radius=1, resolution=(12, 8)).set_opacity(.5)
+            if sort:
+                sphere.sort_faces_back_to_front(RIGHT)
+                self.assertFalse(np.array_equal(sphere.get_triangle_indices(),
+                                                Sphere(radius=1, resolution=(12, 8)).get_triangle_indices()))
+            scene.add(sphere)
+            return geometry.serialize_scene(scene, GeometryCache(), renderer=renderer)
+
+        with patch.dict("os.environ"):
+            for name in ("MANIML_FILL", "MANIML_SURFACE", "MANIML_PROGRAMS"):
+                os.environ.pop(name, None)
+            sorted_net = frame(True)
+            self.assertEqual(sum("net" in batch for batch in self.header_of(sorted_net)["batches"]), 1)
+            self.assertEqual(sorted_net, frame(False), "a net draws no triangle indices")
+            self.assertNotEqual(frame(True, "phase_a"), frame(False, "phase_a"), "a grid draws them")
+            with patch.dict("os.environ", {"MANIML_SURFACE": "grids"}):
+                self.assertNotEqual(frame(True), frame(False))
+
+
 @unittest.skipIf(shutil.which("node") is None, "node not available")
 class RendererSelectionLifecycle(unittest.TestCase):
     def test_viewer_negotiates_reload_reconnect_and_multitab_selection_from_server_state(self):

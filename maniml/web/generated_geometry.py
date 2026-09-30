@@ -129,6 +129,29 @@ def _net_payload(draw, previous, retained):
     return digest, net
 
 
+def _net_descriptor(draw, base, parts, record, net_hash=None):
+    """A net draw's descriptor (hash, shape, capacity, density), its
+    control points put in the message's net table unless ``net_hash``
+    names a program's evaluated rows instead."""
+    if net_hash is None:
+        net_hash, net = _net_payload(draw, parts.previous_nets, parts.retained_nets)
+        parts.nets[net_hash] = net
+        if record is not None:
+            _note(record, parts, "nets", f"net:{net_hash}", net)
+    nu, nv, channels = draw.net_shape
+    if channels * 4 != PIPELINE_STRIDES[base]:
+        raise ValueError("net channels do not match the pipeline's vertex layout")
+    net_capacity = gpu_net_geometry.validate_capacity(getattr(draw, "net_capacity", 2))
+    density = float(getattr(draw, "net_density", 0.0))
+    if not np.isfinite(density) or density < 0:
+        raise ValueError("net density must be finite and nonnegative")
+    patches = ((nu - 1) // 2) * ((nv - 1) // 2)
+    if draw.count != patches * gpu_net_geometry.indices_per_patch(net_capacity):
+        raise ValueError("invalid surface net draw count")
+    return {"hash": net_hash, "nu": nu, "nv": nv, "channels": channels,
+            "capacity": net_capacity, "density": density}
+
+
 def _supersample(frame):
     supersample = getattr(frame, "supersample", 1)
     if type(supersample) is not int or supersample not in (1, 2):
@@ -302,30 +325,46 @@ def encode_draw(draw, camera, parts, record=None):
     net_hash, net_descriptor = None, None
     indices = None if draw.indices is None else np.asarray(draw.indices)
     net = getattr(draw, "net", None)
+    # A run of nets (docs/phase_b4_plan.md, B5.7): the members' descriptors,
+    # in order, one batch drawn in one draw over their evaluated outputs.
+    net_members = getattr(draw, "net_members", None)
     # A program (docs/phase_b3_plan.md): row sources sent once by hash,
     # scalars per frame; the batch's curve records, strokes or net come
     # from the driver's evaluation, so no retained source travels.
     program = getattr(draw, "program", None)
     program_descriptor = None
     # Row sources (MANIML_PATCH_SOURCE=rows, docs/phase_b4_plan.md B5.1):
-    # each object's rows, sent once by hash in the program sources' table;
+    # each object's rows, sent once by hash in the program sources' table
+    # as their geometry (`rows`) and their paint (`row_paints`) since B5.8;
     # the driver finalizes them into the batch's curve records or stroke
-    # instances, so neither travels.
+    # instances, a frame's in one dispatch, so neither travels.
     row_sources = getattr(draw, "rows", None)
-    row_hashes, num_curves = None, None
+    row_hashes, paint_hashes, num_curves = None, None, None
     if row_sources is not None:
         if (program is not None or base not in ("patch", "stroke") or len(vertices) or indices is not None
-                or border is not None or net is not None):
+                or border is not None or net is not None or net_members is not None):
             raise ValueError("row sources feed a patch or stroke draw that carries nothing else")
-        row_hashes = _row_digests(row_sources, parts, record, "row sources")
+        # Each rows travels as its geometry, keyed on it alone, and its
+        # paint (B5.8): a change of paint alone sends the paint.
+        row_parts = getattr(draw, "row_parts", None)
+        if row_parts is None:
+            row_parts = [gpu_program_geometry.split_rows(source) for source in row_sources]
+        if len(row_parts) != len(row_sources):
+            raise ValueError("a row source's geometry and paint go with its rows")
         counts = []
-        for source in row_sources:
-            if source.shape[1] != gpu_program_geometry.ROW_FLOATS or len(source) < 3 or len(source) % 2 == 0:
+        for source, (geometry, paint) in zip(row_sources, row_parts):
+            count = len(source)
+            if (source.shape[1] != gpu_program_geometry.ROW_FLOATS or count < 3 or count % 2 == 0
+                    or geometry.shape != (count, gpu_program_geometry.GEOMETRY_FLOATS)
+                    or paint.shape not in ((1, gpu_program_geometry.PAINT_FLOATS),
+                                           (count, gpu_program_geometry.PAINT_FLOATS))):
                 raise ValueError("row sources must be VMobject rows, an odd count of at least three")
-            counts.append(gpu_program_geometry.curve_count(len(source)))
+            counts.append(gpu_program_geometry.curve_count(count))
+        row_hashes = _row_digests([geometry for geometry, _ in row_parts], parts, record, "row sources")
+        paint_hashes = _row_digests([paint for _, paint in row_parts], parts, record, "row paints")
         num_curves = sum(counts)
         if base == "patch":
-            border_hash = gpu_program_geometry.rows_key(row_hashes)
+            border_hash = gpu_program_geometry.rows_key(row_hashes, paint_hashes)
             capacity = validate_capacity(getattr(draw, "border_capacity", MAX_VERTICES_PER_CURVE))
             layout = validate_patch_layout(getattr(draw, "patch_layout", None), num_curves)
             if [curves for curves, _, _ in layout] != counts:
@@ -339,6 +378,8 @@ def encode_draw(draw, camera, parts, record=None):
             border = True  # a curve record source exists, in the driver
         elif draw.instances != num_curves:
             raise ValueError("a row-sourced stroke draw has one instance per curve")
+    if program is not None and net_members is not None:
+        raise ValueError("a program is drawn alone, not in a run of nets")
     if program is not None:
         kind, source_rows, scalars = program["kind"], program["sources"], program["scalars"]
         hashes = _row_digests(source_rows, parts, record, "program sources")
@@ -375,32 +416,33 @@ def encode_draw(draw, camera, parts, record=None):
             net = True
         else:
             raise ValueError("programs apply to patch, stroke and surface draws")
-    if net is not None:
+    if net_members is not None:
+        # A run of nets: each member's control points in the net table and
+        # its descriptor in the batch's list; the driver evaluates each into
+        # its span of one output, patches * (capacity + 1)² vertices a
+        # member after the members before it, and draws the index pattern
+        # of each member's steps in one draw.
+        if (base != "surface" or indices is not None or draw.instances != 1 or len(vertices)
+                or border is not None or objects is not None or net is not None or len(net_members) < 2
+                or any(getattr(member, "net", None) is None or getattr(member, "program", None) is not None
+                       for member in net_members)):
+            raise ValueError("a run of surface nets carries only its members' nets")
+        net_descriptor = [_net_descriptor(member, base, parts, record) for member in net_members]
+        if draw.count != sum(member.count for member in net_members):
+            raise ValueError("invalid surface net run draw count")
+        net_hash = tuple(descriptor["hash"] for descriptor in net_descriptor)
+    elif net is not None:
         # A surface net: no vertices of its own; the driver evaluates the
         # net into patches * (capacity + 1)² vertices and builds the index
-        # pattern for the capacity.
+        # pattern of the steps it evaluates at (B5.7).
         if (base not in ("surface", "texsurface") or indices is not None or draw.instances != 1
                 or len(vertices) or (border is not None and program is None) or objects is not None):
             raise ValueError("a surface net draw carries only its net")
-        if program is not None:
-            net_hash = gpu_program_geometry.program_key(program["kind"], program_descriptor["sources"])
-        else:
-            net_hash, net = _net_payload(draw, parts.previous_nets, parts.retained_nets)
-            parts.nets[net_hash] = net
-            if record is not None:
-                _note(record, parts, "nets", f"net:{net_hash}", net)
-        nu, nv, channels = draw.net_shape
-        if channels * 4 != PIPELINE_STRIDES[base]:
-            raise ValueError("net channels do not match the pipeline's vertex layout")
-        net_capacity = gpu_net_geometry.validate_capacity(getattr(draw, "net_capacity", 2))
-        density = float(getattr(draw, "net_density", 0.0))
-        if not np.isfinite(density) or density < 0:
-            raise ValueError("net density must be finite and nonnegative")
-        patches = ((nu - 1) // 2) * ((nv - 1) // 2)
-        if draw.count != patches * gpu_net_geometry.indices_per_patch(net_capacity):
-            raise ValueError("invalid surface net draw count")
-        net_descriptor = {"hash": net_hash, "nu": nu, "nv": nv, "channels": channels,
-                          "capacity": net_capacity, "density": density}
+        net_descriptor = _net_descriptor(
+            draw, base, parts, record,
+            None if program is None else gpu_program_geometry.program_key(program["kind"],
+                                                                           program_descriptor["sources"]))
+        net_hash = net_descriptor["hash"]
     if base == "patch" and (program is not None or row_sources is not None):
         pass  # validated with the program or the row sources above
     elif base == "patch":
@@ -444,8 +486,9 @@ def encode_draw(draw, camera, parts, record=None):
     else:
         output_vertices = len(vertices) + (0 if border is None else capacity * len(border))
     if net_descriptor is not None:
-        patches = ((net_descriptor["nu"] - 1) // 2) * ((net_descriptor["nv"] - 1) // 2)
-        output_vertices = patches * gpu_net_geometry.vertices_per_patch(net_descriptor["capacity"])
+        output_vertices = sum(((member["nu"] - 1) // 2) * ((member["nv"] - 1) // 2)
+                              * gpu_net_geometry.vertices_per_patch(member["capacity"])
+                              for member in (net_descriptor if net_members is not None else (net_descriptor,)))
     if net_descriptor is not None:
         pass  # checked above
     elif indices is not None:
@@ -505,12 +548,17 @@ def encode_draw(draw, camera, parts, record=None):
             if layout is not None:
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
         if row_hashes is not None:
+            # The geometry names the batch; its paint, like a records run's
+            # curve records, is named beside it (row_paints, and the border
+            # hash), so a change of paint alone keeps the batch (B5.8).
             identity.update(b"\0rows\0" + b"".join(h.encode() for h in row_hashes))
             if layout is not None:
                 identity.update(struct.pack(f"<{len(layout[0]) * len(layout)}Q", *(v for part in layout for v in part)))
         if objects_hash is not None:
             identity.update(b"\0objects\0" + objects_hash.encode())
-        if net_hash is not None:
+        if net_members is not None:
+            identity.update(b"\0nets\0" + struct.pack("<Q", len(net_hash)) + b"".join(h.encode() for h in net_hash))
+        elif net_hash is not None:
             identity.update(b"\0net\0" + net_hash.encode())
         # Frame both byte streams, and hash their views without allocating
         # another frame-sized copy. Mutable diagnostic data is always read.
@@ -552,6 +600,7 @@ def encode_draw(draw, camera, parts, record=None):
             batch["fill_num_verts"] = 0
     if row_hashes is not None:
         batch["rows"] = row_hashes
+        batch["row_paints"] = paint_hashes
         if base == "stroke":
             batch["fill_num_verts"] = 0
     if border is True:

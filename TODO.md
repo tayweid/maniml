@@ -18,7 +18,7 @@ Phase A triangle WebGPU backend, and the **Default** renderer draws Phase A's
 stack (Lyon meshes, surface grids, no GPU programs): no Phase B default
 passed its gate ([the B4 plan](docs/phase_b4_plan.md), "The flips"; B5.5's
 nets passed on the gate's three scenes and failed on scenes that are mostly
-surfaces). The
+surfaces, and B5.7's, drawn as grids are, still fail those two). The
 viewer's selector keeps **Default**, **Phase A**, **Phase B** and **Original
 2D** (the last for dogfood comparison, as Taylor asked on 2026-09-10). Python
 retains the frame and prepares only what changed (tier 1), and a page that
@@ -209,20 +209,57 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   wherever patches are drawn since B5.6 (`MANIML_PATCH_SOURCE=records` the
   override), pixels identical, the golden pin untouched (it states
   records). B6's test point retaken with both: 8.a's play 127.3 → 80.5 ms,
-  every class's median within 0.5 ms; navigations +15-28% natively until
-  item 2's levers.
+  every class's median within 0.5 ms; navigations +15-28% natively, until
+  B5.8 took item 2's two levers for rows (EpisodeB2 now below records,
+  PriceDiscovery above by its render).
 - **Shipped.** B4's retained frame (Python prepares only what changed,
   byte-identical on the wire) and format 8 (a negotiated page is sent a
   delta per change, and nothing at rest).
 - **Gated and not flipped** (B5.4, "The flips"): patches on both episodes'
   plays and ticked frames (1.15× and 1.48× Phase A's plays), strokes
-  programs on Python no lower than programs off. Nets failed on camera
+  programs on Python no lower than programs off.
+- **Flipped: surfaces are nets** (B5.9, 2026-09-29). Nets failed on camera
   moves (1.25-1.34× grids); B5.5 evaluated a frame's changed nets in one
   dispatch keyed on their step counts and passed the gate's three scenes
   (camera moves 0.997-1.046×), then failed on scenes that are mostly
   surfaces (70 spheres 1.16-1.31× on still and camera frames, 480 spheres
-  1.37-1.52× and 0.98% of the pixels): a net draws its capacity's
-  triangles in a draw of its own, where grids coalesce.
+  1.37-1.52× and 0.98% of the pixels). B5.7 drew each net's steps (a
+  quarter of the triangles) and coalesced nets as grids are, and judged
+  the gate over a timed set holding those two scenes: 1.06-1.15× and
+  1.11-1.24×, the lattice's pixels unchanged (silhouettes where nets are
+  the rounder). Taylor then made the pixel gate accuracy against the true
+  surface, which nets pass everywhere (the lattice 0.67% of its pixels off
+  against grids' 1.38%), and accepted the still and camera cost, so
+  `geometry.DEFAULT_SURFACE` is `nets`; Phase A keeps grids. Left: the
+  cost itself (the page's per-member walk of a run on a camera move, the
+  serializer's per-net `keep` and reservation check, B5.7's levers), the
+  draw-order bands of a translucent surface that overlaps itself, which
+  nets put patch by patch where grids put them row by row, and
+  `sort_faces_back_to_front` / `always_sort_to_camera`, which reorder the
+  grid's triangles and nothing a net draws (no course or dogfood scene
+  sorts; a net drawing its patches in the sorted order, or a sorted
+  surface falling back to its grid on the Default, would restore it).
+- **Measured as the default, not flipped: the whole Phase B stack**
+  (B5.10, 2026-09-30, the plan's "Phase B as the default"). Taylor's
+  condition: nowhere above 1.25× Phase A, more than half at or below
+  1.0×, the page and the GPU on the device (Chrome's Dawn). EpisodeB2 and
+  PriceDiscovery pass every class (worst 1.087×, plays 0.64× and 1.07×);
+  the surface scenes' camera moves and navigations fail (orbs 2.74× and
+  1.74×, lattice 1.63× and 1.55×: the nets' draw and evaluation on the
+  device, which the Default already pays since B5.9, where B5.7 measured
+  1.06-1.24× with the native GPU) and so do EpisodeB3's ticked frames
+  (1.38×); 9 of 23 cells at or below 1.0×. Whether a default is judged
+  against Phase A or against the Default it replaces, and whether the
+  nets' device cost stands, are Taylor's. Levers: the page's buffer a
+  net on a navigation (70 `createBuffer`s on the orbs' navigation, ~30 µs
+  each through Dawn's wire) and the nets' triangles; EpisodeB3's dashes
+  (item 5); the walk at rest (item 6). Taylor, 2026-09-30: "Keep Phase A default for
+  now." Open from the review, before the gate is taken again: repeat the
+  device cells and give them an interval (they were measured once); the
+  navigation class judges revisits only (first visits are measured beside
+  it); apply the GPU-idle check to the device runs, not only the serialize
+  runs; an unsplit stream's play fetches a missing `parts.json` (a 404 in
+  the console).
 - **Measured whole** (B6, "The final test point"): the numbers under
   "Where things stand" above.
 
@@ -237,30 +274,44 @@ reading has the rest):
    as the CPU path's read does; the GPU path against the CPU path on the
    plays into 48, 58, 68, 86 and 109 is 0 pixels. B6's Phase B play pixels
    predate the fix; B5.6's retake of the test point has them after it.
-2. **One dispatch per kernel** for a frame's rows and programs, in both
-   drivers, as B5.5 made it for nets (a table the kernel reads, the inputs
-   gathered and the outputs copied into what their slots own, the state
-   keyed on exactly what the output reads). It stands in front of the
-   patches and programs flips: Phase B's plays pay 1.5-2.4 ms of program
-   passes and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against
-   Phase A's 4.3-5.4), and B5.1's rows ~10 ms a frame on 8.a's play; since
-   B5.6 made rows Phase B's patch source, a navigation pays them too (the
-   native render of a restored pausepoint 22.1 → 31.1 ms on EpisodeB2,
-   17.7 → 21.5 on PriceDiscovery). Rows need a second lever beside the
-   dispatch: a path's rows carry its paint (stroke and fill RGBA) and are
-   keyed by content with it, so a change of paint alone (a dim or undim at
-   a pausepoint) sends and finalizes the rows again and the batch is no
-   longer cached, where the records stay cached and only the object table
-   moves (EpisodeB2 258 → 277: 176 of 463 batches cached under records, 0
-   under rows). Key the finalized geometry on the geometry columns only and
-   take the colour from the object table or the paint, as records do; count
-   finalizes per navigation, not only dispatches, when it is measured. The
-   nets flip waits on the redraw instead: each net drawn with the index
-   pattern of its current steps rather than its capacity's (the
-   reservation is twice the steps, so three quarters of its triangles have
-   zero area), net batches that share a pipeline and uniforms coalesced
-   into one draw as grids are, and a scene that is mostly surfaces added
-   to the gate's timed set before it is taken again.
+2. **One dispatch per kernel** for a frame's programs, in both drivers,
+   as B5.5 made it for nets and B5.8 for rows (a table the kernel reads,
+   the inputs gathered and the outputs copied into what their slots own,
+   the state keyed on exactly what the output reads). It stands in front
+   of the programs flip: Phase B's plays pay 1.5-2.4 ms of program passes
+   and 1.7-1.9 ms of border passes a frame (GPU 9.4-9.7 ms against Phase
+   A's 4.3-5.4). **Rows: done by B5.8** (the plan's "The flips"): a frame's
+   rows in one dispatch of `row_finalize_table.wgsl`, and a path's rows
+   sent as their geometry (keyed on it alone) and their paint, so a dim
+   sends paints and no rows. A navigation natively is below records on
+   EpisodeB2 and above on PriceDiscovery (its render, +0.4 to +1.6 ms;
+   B5.6: +15-28% on both), the page's dispatches for it 74 and 26 where
+   they were 206 and 107. Its gate was not met as written; what is left:
+   the page's median JavaScript on a navigation in format 8 (2.33 → 2.6 and
+   1.5 → 2.05 ms, PriceDiscovery's worse than B5.6's rows' 1.73), whose
+   cause is not isolated: it is the delta path's (format 7 sends the same
+   definitions and reads close to records), the harness moves it (one
+   message reads 2.6 or 1.0 ms by whether Node's stderr is a pipe), and the
+   candidates are the delta path's allocations (the row staging
+   reallocated after `releaseRowScratch` drops it, a member object a slot,
+   the completed-state objects); PriceDiscovery's native render on a
+   navigation; the serializer's split of a mover's rows, 4.2 ms a frame of
+   8.a's play (the paint extracted and checked every frame though it
+   rarely moves, the paints' digests and names in every batch); and the
+   `row_paints` every batch names, 13 KB of a format 7 still message on
+   EpisodeB2 (98.4 KB against records' 71.7), which native capture and
+   every recorded export frame pay (a batch could name a paint only where
+   it differs from what its geometry last carried). The
+   nets flip is B5.7's to read: its redraw levers are taken (each net's
+   steps' pattern, runs as grids have), and on the surface-heavy scenes
+   it still fails by the GPU of the triangles that make a net round
+   (+0.2-0.4 ms), the page's per-member walk of a run on a camera move
+   (+0.1-0.25 ms), the serializer's per-net `keep` and reservation check
+   (+0.03-0.4 ms), and the lattice's pixels, which the gate measures
+   against the grid. Whether that pixel test should measure against a
+   reference surface, and whether a surface-heavy frame may cost 6-25%
+   more for no facets at any zoom, are Taylor's (the plan's B5.7, "What
+   would flip it").
 3. **A mover's batch keeping its identity**, its program scalars or rows an
    op: a program is a batch of its own, encoded and diffed every frame
    (5.a's play under Phase B: 18.7 ms of encode and 3.3 of diff of 26.5).
@@ -271,10 +322,20 @@ reading has the rest):
 5. **The revision counter's over-signalling**: a tick at 8.a bumps 415 of
    531 leaves and changes no byte, 1.83 ms of its 4.59 ms serialize to
    compare and keep them. The fix is upstream in the mutators and changes
-   the contract the ledger relies on.
+   the contract the ledger relies on. A worse case (B5.10): EpisodeB3's
+   ticks leave 40 dashes of a `DashedVMobject` with the joint-angle flag
+   set and their subpath ends cached, a state `compare_rows` refuses
+   without a refresh's own ends (`entry.ends`, recorded only where both
+   flags were set and the ends uncached), so the retained frame prepares
+   them again every tick with the same bytes: Phase A into 10 runs, Phase
+   B into 73, which is EpisodeB3's ticked 1.38×.
 6. **The walk that finds nothing changed**: 0.8-2.4 ms a still frame,
    which the viewer runs for every prompted frame (input, at most 45 a
-   second). Silence in Python means not walking at all.
+   second). Silence in Python means not walking at all. B5.10 took the
+   coalescing and the encode out of a frame whose draws are the last
+   frame's (the runs reused, the idle message returned): EpisodeB2's
+   still frames 0.44 ms on either stack, 3.i's ticks 0.82-0.84; the walk
+   and the keeps remain.
 7. **A Phase A mover**: Lyon's 11 ms and ~200 µs a leaf besides on 8.a's
    play (84.6 ms of preparation); the retained frame's bookkeeping where
    every leaf moves (5.a's play 85.2 → 93.3 ms against today; tier 1's

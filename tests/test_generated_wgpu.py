@@ -145,10 +145,16 @@ class _Device:
         self.queue = SimpleNamespace(
             write_texture=Mock(),
             submit=lambda commands: self.events.append(("submit", commands)),
+            write_buffer=self._write_buffer,
             read_texture=lambda source, layout, size: bytes(size[0] * size[1] * 4))
 
     def create_command_encoder(self):
         return _Encoder(self.events)
+
+    def _write_buffer(self, buffer, offset, data):
+        data = bytes(data)
+        buffer.data = buffer.data[:offset] + data + buffer.data[offset + len(data):]
+        self.events.append(("write_buffer", buffer, offset, data))
 
     def create_buffer_with_data(self, *, data, usage):
         buffer = _Buffer(data, self.events)
@@ -193,11 +199,14 @@ class GeneratedWgpuCommands(unittest.TestCase):
         self.renderer._net_outputs = {}
         self.renderer._net_compute_pipeline = None
         self.renderer._net_scratch = {}
+        self.renderer._net_patterns = {}
         self.renderer._program_sources = {}
         self.renderer._program_outputs = {}
         self.renderer._program_pipelines = {}
         self.renderer._row_outputs = {}
-        self.renderer._row_runs = {}
+        self.renderer._row_sources = {}
+        self.renderer._row_scratch = {}
+        self.renderer._row_finalize_pipeline = None
         self.renderer._stale_index_buffers = []
         self.renderer.texture_cache = {}
         self.renderer.sampler = object()

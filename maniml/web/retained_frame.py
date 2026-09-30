@@ -109,6 +109,7 @@ from collections import OrderedDict
 from dataclasses import fields
 import hashlib
 import json
+import operator
 import os
 import weakref
 
@@ -128,9 +129,11 @@ from maniml.web.generated_geometry import (
 from maniml.web.geometry import _jsonable, _stroke_sqrt_area, _stroke_verts_at
 from maniml.web.gpu_border_geometry import rows_sqrt_area
 from maniml.web.gpu_net_geometry import pixels_per_unit
+from maniml.web import triangle_scene
 from maniml.web.triangle_scene import (
     CLASSIFY_COLUMNS, _STANDARD_MESH_GETTERS, TriangleDraw, _prepare_border_geometry, begin_triangle_frame,
-    border_parts, combine_run, draw_order, finish_triangle_frame, patch_parts, prepare_leaf, run_kind,
+    border_parts, coalesce_draws, combine_run, draw_order, finish_triangle_frame, patch_parts, prepare_leaf,
+    run_kind,
 )
 
 RETAINED_FRAME_ENV = "MANIML_RETAINED_FRAME"
@@ -467,8 +470,10 @@ def _same_value(kept, read, texts):
         return isinstance(kept, np.ndarray) and isinstance(read, np.ndarray) and _same_bytes(kept, read)
     if type(kept) is not type(read):
         return False
-    if type(kept) is tuple and any(isinstance(value, np.ndarray) for value in (*kept, *read)):
-        # A draw's row sources: its objects' rows, array by array.
+    if type(kept) is tuple and any(isinstance(value, np.ndarray) or (type(value) is tuple and any(
+            isinstance(item, np.ndarray) for item in value)) for value in (*kept, *read)):
+        # A draw's row sources: its objects' rows, array by array, and
+        # their (geometry, paint) pairs, pair by pair (B5.8).
         return len(kept) == len(read) and all(_same_value(a, b, texts) for a, b in zip(kept, read))
     if isinstance(kept, (dict, list, tuple)):
         return _text(kept, texts) == _text(read, texts)
@@ -808,6 +813,11 @@ class RetainedFrame:
         self.camera_key = None
         self._frame_runs = []  # this frame's RunMemos, in draw order
         self._next_runs = {}
+        # The last frame's draws before coalescing and its runs in order,
+        # with what else coalesce_draws read (_coalesce), and what an
+        # encode that carried every run left the cache and returned (_idle).
+        self._last_draws, self._last_runs, self._last_inputs = None, None, None
+        self._idle = None
         # The last frame's counts: leaves kept (those among them whose
         # revision moved, whose camera moved, and those adopted) and
         # prepared, the ones read again under verification (every kept
@@ -1026,12 +1036,14 @@ class RetainedFrame:
         self.stats = {"leaves_kept": len(plan) - prepared, "leaves_prepared": prepared,
                       "leaves_compared": compared_kept, "leaves_revalidated": revalidated,
                       "leaves_adopted": adopted_kept, "leaves_retired": retired, "leaves_verified": verified,
-                      "runs_kept": 0, "runs_combined": 0}
+                      "runs_kept": 0, "runs_combined": 0, "runs_reused": False}
         if len(sets.sets) > 2 * len(kept) + 64:
             sets.prune((*kept.values(), *self.retired.values()))
         self._frame_runs, self._next_runs = [], {}
-        frame = finish_triangle_frame(frame, ctx, kind=memoized_run_kind, combine=self._combine)
+        frame = finish_triangle_frame(frame, ctx, kind=memoized_run_kind, combine=self._combine,
+                                      coalescer=self._coalesce)
         self.runs, self._next_runs = self._next_runs, {}
+        self._last_runs = self._frame_runs
         self._trim(ctx, frame)
         return frame
 
@@ -1408,6 +1420,41 @@ class RetainedFrame:
             entry.net_entry = ctx.net_cache.held(sm)
         return entry
 
+    def _coalesce(self, draws, *, border_cache=None, kind=None, combine=None, net_runs=True):
+        """coalesce_draws, or the last frame's runs where it would make them
+        again: the frame's draws the last frame's, the same objects in the
+        same order (every leaf kept, as on a still frame or an idle tick),
+        under the same camera (a camera move writes the uniform sets in
+        place, and a set that overrides a camera uniform may then compare
+        otherwise with its neighbour), the same border cache, net runs and
+        run cap. coalesce_draws is a function of these alone, and _combine
+        keeps every run whose members it is given again, so the runs are
+        the last frame's; each is told the border cache it was used, as
+        _combine tells it, and a run whose assembly the cache no longer
+        holds sends the frame through coalesce_draws. What this saves is
+        the walk over every draw and every run (docs/phase_b4_plan.md,
+        "Phase B as the default"), which the forced Phase B, with half as
+        many runs again as Phase A on EpisodeB2, paid on every still frame
+        and tick."""
+        inputs = (self.camera_key, border_cache, net_runs, triangle_scene.MAX_RUN_OUTPUT_BYTES)
+        last, runs, previous = self._last_draws, self._last_runs, self._last_inputs
+        self._last_draws, self._last_inputs = list(draws), inputs
+        if (last is not None and runs is not None and previous is not None and len(last) == len(draws)
+                and len(runs) == len(self.runs) and all(map(operator.is_, previous, inputs))
+                and all(map(operator.is_, last, draws))):
+            for memo in runs:
+                if memo.key is not None and (memo.assembly is None
+                                             or border_cache.keep_run(memo.key) is not memo.assembly):
+                    break
+            else:
+                # The same list: _encode knows the runs by it (_idle).
+                self._frame_runs = runs
+                self._next_runs = self.runs
+                self.stats["runs_kept"] += len(runs)
+                self.stats["runs_reused"] = True
+                return [memo.draw for memo in runs]
+        return coalesce_draws(draws, border_cache=border_cache, kind=kind, combine=combine, net_runs=net_runs)
+
     def _combine(self, run, kind, *, border_cache=None):
         """combine_run, memoized by the members' identities: an unchanged
         run is the same draw, so its encoded descriptor can be kept too. A
@@ -1441,6 +1488,16 @@ class RetainedFrame:
         runs = self._frame_runs
         if len(runs) != len(frame.draws) or any(memo.draw is not draw for memo, draw in zip(runs, frame.draws)):
             raise RuntimeError("the retained frame encodes only the frame it prepared last")
+        idle = self._idle_state(frame, cache, renderer)
+        if (idle is not None and self._idle is not None and idle[0] == self._idle[0]
+                and all(map(operator.is_, idle[1], self._idle[1]))):
+            # The frame the last message was made from, to a cache that
+            # holds what that message left it: encoding it again would carry
+            # every run, commit what the cache holds already and return the
+            # same message (the same full frame; in a stream, nothing).
+            self.stats.update(batches_reused=len(runs), batches_encoded=0)
+            return self._idle_message
+        self._idle = None
         camera = {key: _jsonable(value) for key, value in camera_uniforms.items()}
         parts = MessageParts(cache)
         sent = cache.sent if cache is not None else frozenset()
@@ -1486,4 +1543,28 @@ class RetainedFrame:
             message = stream_message(frame, camera, stream, texts, parts, renderer=renderer)
         parts.commit()
         self.stats.update(batches_reused=reused, batches_encoded=len(runs) - reused)
+        if idle is not None and reused == len(runs) and (stream is None or message is None):
+            # Every run carried, and a stream sent nothing: the cache now
+            # holds what the same frame would leave it again, so the next
+            # such frame returns this message (_idle_state says what "the
+            # same" is).
+            self._idle, self._idle_message = self._idle_state(frame, cache, renderer), message
         return message
+
+    def _idle_state(self, frame, cache, renderer):
+        """What makes an encode of this frame return the last idle encode's
+        message untouched (_encode), or None where it cannot: the runs the
+        last prepare kept whole (_coalesce's list, the same object), the
+        camera, the renderer, the frame's header fields, and the cache as
+        that encode's commit left it, by identity (what its receivers hold,
+        its digest memos, its stream's epoch, number and last frame, which
+        a reset or a message another path made would replace). A frame
+        that sends texture payloads is not idle."""
+        if cache is None or not self.stats.get("runs_reused") or frame.texture_data:
+            return None
+        values = (renderer, tuple(frame.background), tuple(frame.resolution), frame.samples, frame.supersample,
+                  tuple(frame.limitations), cache.deltas, cache.epoch, cache.frame, len(cache.sent))
+        objects = (self._frame_runs, self.camera_key, cache, cache.last, cache.sent, cache.generated_payloads,
+                   cache.generated_paints, cache.generated_borders, cache.generated_objects, cache.generated_nets,
+                   getattr(cache, "generated_rows", None))
+        return values, objects

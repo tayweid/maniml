@@ -7,6 +7,75 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- A frame that changes nothing costs the viewer's Python less, on every
+  renderer (docs/phase_b4_plan.md, "Phase B as the default", B5.10): when
+  every object on screen is kept and the camera has not moved (a still
+  pausepoint, an idle tick), the serializer reuses the last frame's
+  batches as they were grouped and, once they have all been sent, the
+  last message itself, instead of walking and encoding every batch again.
+  What is sent is unchanged, byte for byte. EpisodeB2's ticks at 3.i
+  cost 0.82 ms where they cost 1.06 (Phase A) and 0.84 where they cost
+  1.32 (Phase B).
+- **Phase B was measured as the Default and stays a selection.** Taylor's
+  condition for making it the Default for testing was that it be nowhere
+  dramatically slower and faster in most situations, the page's and the
+  GPU's costs measured in a real browser (Chrome's WebGPU) rather than
+  natively. On the two lecture episodes it is within 9% of Phase A at
+  rest and 0.64-1.07× in plays, but on scenes that are mostly 3D surfaces
+  a camera move or a jump between pausepoints costs 1.5-2.7× Phase A's
+  (the smooth surfaces' drawing, which the Default already does), and
+  EpisodeB3's idle ticks 1.38×; fewer than half the cases were faster.
+  `benchmarks/device_frames.py` and `benchmarks/device_frames.html` are
+  the new measuring tools.
+- The **Phase B** selection finalizes the paths a frame changed in one GPU
+  dispatch in the page and in native output, where it made one a path, and
+  sends a path's colours apart from its shape (docs/phase_b4_plan.md, "The
+  flips", B5.8): dimming or restoring objects at a pausepoint sends their
+  new colours, a few bytes shared by paths that look alike, and none of
+  their shapes. Pixels are unchanged. A jump to a pausepoint no longer
+  costs the native driver 15-28% more than the packed records it replaced:
+  on EpisodeB2 it now costs 1-4% less on a quiet GPU, on PriceDiscovery
+  from 2% less to 8% more (its drawing, not its Python; the most on a busy
+  GPU). The page issues a third to
+  a quarter of the compute dispatches it did for such a jump, but its
+  JavaScript still reads above the records' at the median in the
+  negotiated stream (on PriceDiscovery 1.5 → 2.05 ms, more than before
+  this change's 1.73), a cost not yet explained. The heavy play into
+  EpisodeB2's 8.a sends 545 KB a frame instead of 602, its Python 4 ms a
+  frame dearer for the split; a still frame's full message is 13 KB larger
+  there, each batch now naming its colours.
+- **3D surfaces are smooth by default** (docs/phase_b4_plan.md, "The
+  flips", B5.9): the Default renderer, `--render` movies, checkpoint stills
+  and `--export` draw a `Surface` as its Bézier net, evaluated by the GPU
+  at screen density, so a sphere shows no facets at any zoom. The **Phase
+  A** selection and `MANIML_SURFACE=grids` keep the faceted CPU grids.
+  Measured against the true surface (supersampled), nets are as accurate
+  as grids or more on every scene and fixture the gate draws: on 480 small
+  spheres 0.67% of the frame is visibly off against grids' 1.38%. Frames
+  that are mostly surfaces cost more to redraw at rest and on camera moves
+  (1.06-1.24× grids on 70 and 480 spheres) and less in plays (0.61-0.73×).
+  A translucent surface that overlaps itself shows its draw-order bands in
+  other places than it did, and `sort_faces_back_to_front` /
+  `always_sort_to_camera` no longer reorder a surface on the Default: a net
+  is drawn in the order of its patches (a translucent sphere and torus
+  sorted to the camera draw as they do unsorted, 1.5% of the frame
+  otherwise than grids drew them). Sorting still works under **Phase A**
+  and `MANIML_SURFACE=grids`.
+- Surfaces drawn as Bézier nets (the **Phase B** selection, or
+  `MANIML_SURFACE=nets`) are cheaper to redraw (docs/phase_b4_plan.md,
+  "The flips", B5.7): each net draws only the triangles of the steps it is
+  evaluated at, a quarter of what it drew on the benchmark spheres, and
+  consecutive surfaces that share a look are drawn together, one draw
+  where there was one a surface, as grids are. Pixels are unchanged. On a
+  scene of 480 small spheres a still or camera frame now costs 1.11-1.24×
+  what grids cost (1.37-1.52× before), a play 0.61× (0.80×), and the
+  native redraw of that frame halved. The nets gate now covers two scenes
+  that are mostly surfaces beside the three it was set on, and those two
+  still fail it, as do the lattice's silhouettes (where the nets are the
+  rounder, and nearer the true sphere, the pixel test measures distance
+  from the grid), so the Default renderer, `--render`, checkpoint stills
+  and `--export` keep drawing surfaces as CPU grids.
+  `MANIML_NET_RUNS=0` draws each net on its own, for comparison.
 - The **Phase B** selection sends each filled or stroked path as its rows,
   which the page and the native driver finalize themselves, instead of
   the curve records Python packed (docs/phase_b4_plan.md, "The flips",

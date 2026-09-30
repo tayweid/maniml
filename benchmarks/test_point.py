@@ -110,6 +110,8 @@ class Stack:
 # the viewer's selection sends it (rows since B5.6); phase_b_records states
 # the records packed, the Phase B B6 measured.
 DEFAULTS = {"MANIML_FILL": None, "MANIML_SURFACE": None, "MANIML_PROGRAMS": None, "MANIML_PATCH_SOURCE": None}
+# How nets are batched (MANIML_NET_RUNS, B5.7) is the default's in every
+# stack: runs, as they ship.
 STACKS = {
     "today": Stack("phase_a", {"MANIML_RETAINED_FRAME": "0"}, {}, (7,), "phase_a", "gpu_border", None,
                    revision_page=True),
@@ -130,7 +132,7 @@ CLASSES = ("pausepoint", "ticked", "play")
 # that change what a frame costs and are not the run's to set.
 ENVIRONMENT = {"MANIML_PROGRAMS": "off"}
 CLEARED = ("MANIML_VERIFY_LEDGER", "MANIML_RENDER_CACHE", "MANIML_GPU_TIMESTAMPS", "MANIML_RETAINED_FRAME",
-           "MANIML_FILL", "MANIML_SURFACE", "MANIML_PATCH_SOURCE", "MANIML_BORDER_GENERATOR")
+           "MANIML_FILL", "MANIML_SURFACE", "MANIML_PATCH_SOURCE", "MANIML_BORDER_GENERATOR", "MANIML_NET_RUNS")
 # The instrumented run's serializers: the stacks whose costs differ (phase_a
 # is the default's stack, its bytes the same), each in the format its page
 # is sent.

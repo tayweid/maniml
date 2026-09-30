@@ -1,0 +1,8 @@
+pausepoint phase_b_forced records->rows: page_ms 0.03->0.04 (n 120); serialize_ms 0.73->0.84 (n 120); wire_bytes 64->86KB; bytes_uploaded 0->0KB; compute_dispatches 0->0; bind_groups_created 0->0; buffers_created 0->0
+pausepoint phase_b_forced_delta records->rows: page_ms 0.00->0.00 (n 120); serialize_ms 0.75->0.84 (n 120); wire_bytes 0->0KB; bytes_uploaded 0->0KB; compute_dispatches 0->0; bind_groups_created 0->0; buffers_created 0->0
+ticked phase_b_forced records->rows: page_ms 0.10->0.12 (n 24); serialize_ms 4.46->4.08 (n 24); wire_bytes 282->353KB; bytes_uploaded 0->0KB; compute_dispatches 0->0; bind_groups_created 0->0; buffers_created 0->0
+ticked phase_b_forced_delta records->rows: page_ms 0.00->0.00 (n 24); serialize_ms 3.09->4.61 (n 24); wire_bytes 0->0KB; bytes_uploaded 0->0KB; compute_dispatches 0->0; bind_groups_created 0->0; buffers_created 0->0
+play phase_b_forced records->rows: page_ms 0.66->0.62 (n 114); serialize_ms 2.69->3.02 (n 114); wire_bytes 133->173KB; bytes_uploaded 1->1KB; compute_dispatches 99->99; bind_groups_created 0->0; buffers_created 0->0
+play phase_b_forced_delta records->rows: page_ms 0.31->0.29 (n 114); serialize_ms 2.83->3.07 (n 114); wire_bytes 1->1KB; bytes_uploaded 1->1KB; compute_dispatches 99->99; bind_groups_created 0->0; buffers_created 0->0
+cold phase_b_forced records->rows: page_ms 2.57->2.49 (n 12); serialize_ms 29.82->21.66 (n 12); wire_bytes 898->249KB; bytes_uploaded 1411->921KB; compute_dispatches 73->74; bind_groups_created 218->214; buffers_created 428->426
+cold phase_b_forced_delta records->rows: page_ms 2.34->2.59 (n 12); serialize_ms 30.15->20.34 (n 12); wire_bytes 898->248KB; bytes_uploaded 1411->921KB; compute_dispatches 73->74; bind_groups_created 218->214; buffers_created 428->426

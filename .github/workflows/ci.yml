@@ -76,6 +76,7 @@ jobs:
           tests.test_generated_geometry
           tests.test_generated_scene
           tests.test_retained_frame
+          tests.test_retained_idle
           tests.test_fill_paint
           tests.test_texture_retention
           tests.test_border_geometry

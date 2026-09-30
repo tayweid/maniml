@@ -1,6 +1,8 @@
 """Generated browser draw commands and buffer lifetimes, without a GPU."""
 
+import json
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -69,6 +71,12 @@ class GeneratedWebGPUCommands(unittest.TestCase):
 
     def test_changed_nets_split_into_dispatches_only_past_the_scratch_budget(self):
         self.run_case("netsInSeveralDispatches")
+
+    def test_changed_rows_split_into_dispatches_only_past_the_scratch_budget(self):
+        self.run_case("rowsInSeveralDispatches")
+
+    def test_rows_and_program_sources_share_one_table(self):
+        self.run_case("rowsAndProgramsShareOneTable")
 
     def test_retained_frames_draw_what_a_fresh_driver_draws_from_each_frame(self):
         self.run_case("retainedFramesDrawWhatFreshDriversDraw")
@@ -254,14 +262,36 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
         shapes = _shapes()
         scene = build_scene(*shapes, resolution=(480, 270))
         with tempfile.TemporaryDirectory() as directory:
-            files = [Path(directory) / name for name in ("records.bin", "rows_0.bin", "rows_1.bin", "rows_2.bin")]
+            files = [Path(directory) / name
+                     for name in ("records.bin", "rows_0.bin", "rows_1.bin", "rows_2.bin", "rows_3.bin")]
             files[0].write_bytes(self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True))
             cache, wire = TriangleMeshCache(), GeometryCache()
             for path in files[1:3]:
                 path.write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
             shapes[1].shift([0, .2, 0])
             files[3].write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
+            # A dim (B5.8): paint alone moves (the line's stroke alone: a
+            # fill's opacity would give it a fill to draw).
+            for shape in shapes[:-1]:
+                shape.set_opacity(.05)
+            shapes[-1].set_stroke(opacity=.05)
+            files[4].write_bytes(self._frames(scene, cache, wire, patch_fills=True, patch_rows=True))
             self.run_case("rowsWire", *files)
+
+    def test_rows_as_a_recording_before_b58_names_them_draw_the_same_draws(self):
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from tests.test_patch_rows import _shapes, legacy_rows_message
+        from tests.renderer_fixtures import build_scene
+        scene = build_scene(*_shapes(), resolution=(480, 270))
+        message = self._frames(scene, TriangleMeshCache(), GeometryCache(), patch_fills=True, patch_rows=True)
+        header, payload = legacy_rows_message(*parse_geometry_message(message))
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            files = [Path(directory) / "split.bin", Path(directory) / "legacy.bin"]
+            files[0].write_bytes(message)
+            files[1].write_bytes(b"\x03" + struct.pack("<I", len(encoded)) + encoded + payload)
+            self.run_case("legacyRows", *files)
 
     def test_a_format_8_stream_draws_what_its_full_frames_draw(self):
         """B4.8 (docs/phase_b4_plan.md): one history serialized twice, as the
@@ -427,6 +457,100 @@ class GeneratedWebGPUPhaseB(unittest.TestCase):
                 files.append(Path(directory) / f"nets_{index}.bin")
                 files[-1].write_bytes(message)
             self.run_case("netWire", json.dumps(expected), *files)
+
+    def test_net_runs_draw_each_members_steps_in_one_draw(self):
+        """B5.7: consecutive nets that can share a draw are one batch, a run
+        drawn in one indexed draw over its output with the index pattern of
+        each member's steps (Python's gpu_net_geometry.run_indices, not the
+        capacity's); a textured surface between them splits them. Then a
+        member moves, and the run that stands for it evaluates that member
+        alone into its span of the output the run drew before; then a zoom
+        that moves some members' steps at the reservations standing
+        evaluates those and draws the new pattern."""
+        import json
+        from maniml.mobject.three_dimensions import Sphere
+        from maniml.mobject.types.surface import TexturedSurface
+        from maniml.constants import LEFT, RIGHT, UP
+        from maniml.web import gpu_net_geometry
+        from maniml.web.geometry import GeometryCache, parse_geometry_message
+        from maniml.web.triangle_scene import TriangleMeshCache
+        from maniml.web.wgpu_renderer import pack_uniforms
+        from tests.renderer_fixtures import build_scene
+        from tests.surface_fixtures import image_path
+        spheres = [Sphere(radius=.6, resolution=(9, 7)).shift(2.4 * LEFT), Sphere(radius=.4, resolution=(7, 5)).shift(LEFT),
+                   TexturedSurface(Sphere(radius=.4, resolution=(7, 7)), image_path()).shift(UP),
+                   Sphere(radius=.5, resolution=(9, 7)).shift(RIGHT), Sphere(radius=.3, resolution=(7, 5)).shift(2.2 * RIGHT),
+                   Sphere(radius=.3, resolution=(5, 5)).shift(2.2 * RIGHT + UP)]
+        scene = build_scene(*spheres, resolution=(480, 270), samples=4)
+        cache, wire = TriangleMeshCache(), GeometryCache()
+
+        def draws_of(header, capacity=None):
+            """Per net batch: its members' (hash, capacity, steps, first byte)
+            and the pattern it draws; the steps at ``capacity`` if given."""
+            out = []
+            for batch in header["batches"]:
+                floats = np.frombuffer(pack_uniforms({**header["camera"], **batch.get("uniforms", {})}), dtype="<f4")
+                members, first, pattern = [], 0, []
+                for net in batch["net"] if isinstance(batch["net"], list) else [batch["net"]]:
+                    patches = ((net["nu"] - 1) // 2) * ((net["nv"] - 1) // 2)
+                    steps = gpu_net_geometry.evaluation_steps(net["density"], floats[17], header["resolution"][1],
+                                                              floats[23], capacity or net["capacity"])
+                    members.append((net["hash"], net["capacity"], steps, first * batch["stride"]))
+                    pattern.append((patches, net["capacity"], steps))
+                    first += patches * gpu_net_geometry.vertices_per_patch(net["capacity"])
+                out.append((members, gpu_net_geometry.run_indices(pattern)))
+            return out
+
+        messages, expected, previous = [], [], None
+        for step in ("first", "moved", "zoom"):
+            if step == "moved":
+                spheres[3].shift([.05, .02, 0])
+            elif step == "zoom":
+                # A zoom that moves some steps while every reservation stands:
+                # what each net needs (its steps uncapped) within the
+                # capacity it holds, probed through caches of their own.
+                held = [[capacity for _, capacity, _, _ in members] for members, _ in previous]
+                for factor in (.9, .8, .7, .6, .5):
+                    scene.camera.frame.scale(factor)
+                    scene.camera.refresh_uniforms()
+                    probe = draws_of(parse_geometry_message(self._frames(
+                        scene, TriangleMeshCache(), GeometryCache(), net_surfaces=True))[0], 32)
+                    needed = [[steps for _, _, steps, _ in members] for members, _ in probe]
+                    if (all(n <= c for ns, cs in zip(needed, held) for n, c in zip(ns, cs))
+                            and needed != [[steps for _, _, steps, _ in members] for members, _ in previous]):
+                        break
+                    scene.camera.frame.scale(1 / factor)
+                else:
+                    self.fail("no zoom moves a step count at the reservations standing")
+            scene.camera.refresh_uniforms()
+            message = self._frames(scene, cache, wire, net_surfaces=True)
+            header = parse_geometry_message(message)[0]
+            draws = draws_of(header)
+            if previous is None:
+                self.assertEqual([len(batch["net"]) if isinstance(batch["net"], list) else 1
+                                  for batch in header["batches"]], [2, 1, 3], "two runs split by the textured net")
+            frame = []
+            for index, (members, indices) in enumerate(draws):
+                before = previous[index][0] if previous else [None] * len(members)
+                frame.append({"count": len(indices),
+                              "evaluated": [[first, steps] for (key, capacity, steps, first), was
+                                            in zip(members, before) if was != (key, capacity, steps, first)]})
+            messages.append((message, b"".join(indices.astype("<u4").tobytes() for _, indices in draws)))
+            expected.append({"draws": frame})
+            previous = draws
+        self.assertEqual([[len(draw["evaluated"]) for draw in frame["draws"]] for frame in expected[:2]],
+                         [[2, 1, 3], [0, 0, 1]])
+        self.assertTrue(any(draw["evaluated"] for draw in expected[2]["draws"]))
+        self.assertEqual([[capacity for _, capacity, _, _ in members] for members, _ in previous], held,
+                         "the reservations stand through the zoom")
+        with tempfile.TemporaryDirectory() as directory:
+            files = []
+            for index, (message, pattern) in enumerate(messages):
+                files.append(Path(directory) / f"runs_{index}.bin")
+                files[-1].write_bytes(message)
+                files.append(Path(directory) / f"pattern_{index}.bin")
+                files[-1].write_bytes(pattern)
+            self.run_case("netRunsWire", json.dumps(expected), *files)
 
 
 @unittest.skipIf(shutil.which("node") is None, "node not available")

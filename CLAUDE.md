@@ -222,17 +222,18 @@ export recorder draw it, so a default that flips flips there too. `phase_a`
 forces Phase A (meshes, grids, programs off) and `phase_b` the whole Phase
 B stack (patches, nets, GPU programs), whatever the defaults or the
 environment say about the fill, surface and programs
-(`geometry.FORCED_STACKS`; both still read the border generator and the
-patch source, ways to send the same pixels, so Phase B's patches go as
-their paths' rows by `geometry.DEFAULT_PATCH_SOURCE`), so both ends stay
+(`geometry.FORCED_STACKS`; both still read the border generator, the
+patch source and whether nets join runs, ways to send the same pixels, so
+Phase B's patches go as their paths' rows by
+`geometry.DEFAULT_PATCH_SOURCE` and its nets in runs), so both ends stay
 selectable whichever way a default goes, and the viewer sets
 `programs.set_override("off")` or `("gpu")` while one is selected so its
 plays write what it draws; the default follows the environment
 (`programs.env_mode()`), so an export made while a forced renderer is on
 screen is unaffected. The golden pin (`tests/test_retained_frame.py`) holds
 `phase_a` and `phase_b` under the switches it was recorded with (programs
-off and the records packed, both stated), so no flip can move a pinned
-byte. A frame's
+off, the records packed and each net a batch of its own, all stated), so
+no flip can move a pinned byte. A frame's
 header names the selection that made it, so the page's selection drops
 another's frames across a switch, with one exception: Phase A's frames are
 stamped `triangles`, the bytes Phase A always wrote (the pin's digests,
@@ -247,7 +248,18 @@ decided on measured gates (the plan's "The flips"), not by this switch; on
 2026-09-28 none passed (nets on camera moves, patches on plays and ticked
 frames, strokes on Python no lower than programs off; B5.5's nets then
 passed the gate's three scenes and failed on scenes that are mostly
-surfaces), so the default is Phase A's stack.
+surfaces, and B5.7's, drawn as grids are, still fail those). On 2026-09-29
+Taylor flipped surfaces (B5.9): nets' pixel gate measures accuracy against
+the true surface, which they pass, and their cost on surface-heavy still
+and camera frames was accepted, so the default is Phase A's meshes and
+programs off with surfaces as nets. On 2026-09-30 the whole Phase B stack
+was judged as the default on Taylor's condition ("not dramatically slower
+in any situation and ... faster or much faster in most": no cell above
+1.25× Phase A, more than half at or below 1.0×, the page and the GPU on
+the device; B5.10, the plan's "Phase B as the default") and failed: the
+surface scenes' camera moves and navigations (1.5-2.7×, the nets' device
+cost) and EpisodeB3's ticked frames (1.38×), 9 of 23 cells at or below
+1.0×. Nothing flipped; Phase B stays a selection.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -336,7 +348,14 @@ native capture and recordings are untouched. On EpisodeB2's 531-object 8.a a
 still frame serializes in ~1.7 ms instead of ~19 and a seek in ~8 instead of
 ~100; a play where most things move costs what it did, and one where every leaf
 moves ~16% more (the bookkeeping on leaves it cannot keep; an open item, see the
-plan's "B4 tier 1: shipped"). **The trust surface
+plan's "B4 tier 1: shipped"). A frame whose draws are the last frame's (every
+leaf kept, the camera unchanged: a still frame, an idle tick) takes the last
+frame's runs without walking `coalesce_draws` (`RetainedFrame._coalesce`), and
+once a message carried every run, the same frame again returns that message
+untouched while the cache is as that message left it, by identity
+(`_idle_state`: a full frame's same bytes, a stream's nothing; B5.10, the plan's
+"Phase B as the default"); `tests/test_retained_idle.py` holds both to the
+whole-frame path's bytes. **The trust surface
 is wider than the caches'**: a kept leaf skips classify, the mesh and border
 reads and its stroke's shader-data read, so an in-place write that bumps no
 revision (a direct `data[...]` write, a uniform written into
@@ -380,44 +399,70 @@ else; `MANIML_PATCH_SOURCE=records` packs the records instead, the override
 the harnesses compare against): a path is sent as its rows in place of its
 fill's curve records and its stroke's instances, VMobject's seventeen
 float32 columns as the read of its shader data leaves them (unit normal,
-joint angles and base points refreshed), copied once, in `program_data` by
-content hash, which a patch or stroke batch names in its `rows` (a patch
-run's border hash is `gpu_program_geometry.rows_key` of them). Each driver
-finalizes each rows once (`row_finalize.wgsl`, B3's kernel) into curve
-records and stroke instances, shared by every batch that names the rows; a
-run of several objects copies its objects' outputs into a buffer of its
-own; the border stage, the patch fill and the stroke pipeline read them as
-they read a program's. Python keeps what the draw counts need (the active
-curves, the reservation's density summary, the stroke's count), the
-validation and the planar refusal (unchanged; a path whose points share one
-z is not fitted, since it lies in that plane), and the object record, whose
-base words stay zero (nothing reads them) and whose winding sign is
-computed only for an object that may share a stencil count. A path whose
-rows cannot stand for its records (a getter of its own, another dtype, an
-edited outer-vertex pattern) keeps its records, and closes the rows run
-around it (`run_kind`'s `patch_rows` and `stroke_rows` never join a records
-run), so the draw counts are the records' only where every path is
-row-sourced. A stroke's rows are compared every frame, as its shader data
-is read every frame on the records' side; a fill's are trusted at an
-unchanged revision, as its records are. Pixels are the records'
-(identical on both episodes' pausepoints and plays, and on every frame of
-the golden pin, which states `MANIML_PATCH_SOURCE=records` as its digests
-were recorded). The harnesses' forced Phase B follows the selection (the
-patch source taken out of the environment), and their `_records` twins and
-the variants older archives measured state records (`benchmarks/README.md`,
-"The patch source in the harnesses"). What it costs: each driver finalizes
-every changed rows with a dispatch of its own in one compute pass, and a
-path's rows carry its paint and are keyed with it, so a change of paint
-alone (a dim at a pausepoint) sends and finalizes them again where its
-records would stay cached. On the 8.a play (~360 rows a frame, its movers
-not programs) that is ~6 ms more GPU and ~16 ms more native `render()`
-against ~52 ms less serialize (the test point's complete frame 127.3 → 80.5 ms in
-format 8), every other class's median within 0.5 ms, while a navigation,
-where every path arrives at once, costs the forced Phase B's native
-complete frame 15-28% more (EpisodeB2 29.9 → 38.3 ms) and the page's
-JavaScript up to ~0.8 ms more. One dispatch for a frame's rows and the
-finalized geometry keyed on the geometry columns alone are the open fixes
-(the plan's B5.1, "The negatives", and B5.6).
+joint angles and base points refreshed), copied once, split since B5.8
+(`gpu_program_geometry.split_rows`) into its geometry (nine columns: point,
+stroke width, joint angle, base point or unit normal, fill border width),
+named by a digest of those columns alone, and its paint (stroke and fill
+RGBA, one row where every row's bits agree, else one a row), both in
+`program_data` by content hash, which a patch or stroke batch names in its
+`rows` and `row_paints` (a patch run's border hash is
+`gpu_program_geometry.rows_key` of the pairs). A batch's content hash is its
+geometry and layout, not its paint, as a records run's is its layout and
+object table: a change of paint alone (a dim at a pausepoint) keeps the
+batch, sends the new paint (32 bytes, shared by every path that looks the
+same) and no rows, and a re-read whose geometry did not move keeps its
+array, its digest, its object record and its planar check. Each driver
+gives each batch an output of its own (its members' curve records or
+stroke instances, in order: natively keyed by what it is made of, in the
+page the slot's, taken over in place by a successor of its shape) and
+finalizes the outputs a frame needs made in one dispatch of
+`row_finalize_table.wgsl`: a table (eight words an entry) and the inputs it
+reads, each geometry and paint once, in one scratch binding, the kernel
+writing an output scratch, one copy a batch into its own output; past 32
+MiB or the device's binding limit, several dispatches in aligned regions
+of one write. The kernel's arithmetic is `row_finalize.wgsl`'s (B3's,
+which programs still use), held to the same words by
+`test_patch_rows.RowTableKernel`. A recording made before B5.8 names
+seventeen-column rows without `row_paints`; both drivers and the player
+read it. The border stage, the patch fill and the stroke pipeline read the
+outputs as they read a program's. Python keeps what the draw counts need
+(the active curves, the reservation's density summary, the stroke's
+count), the validation and the planar refusal (unchanged; a path whose
+points share one z is not fitted, since it lies in that plane), and the
+object record, whose base words stay zero (nothing reads them) and whose
+winding sign is computed only for an object that may share a stencil
+count. A path whose rows cannot stand for its records (a getter of its
+own, another dtype, an edited outer-vertex pattern) keeps its records, and
+closes the rows run around it (`run_kind`'s `patch_rows` and `stroke_rows`
+never join a records run), so the draw counts are the records' only where
+every path is row-sourced. A stroke's rows are compared every frame, as
+its shader data is read every frame on the records' side; a fill's are
+trusted at an unchanged revision, as its records are. Pixels are the
+records' (identical on both episodes' pausepoints and plays, and on every
+frame of the golden pin, which states `MANIML_PATCH_SOURCE=records` as its
+digests were recorded). The harnesses' forced Phase B follows the
+selection (the patch source taken out of the environment), and their
+`_records` twins and the variants older archives measured state records
+(`benchmarks/README.md`, "The patch source in the harnesses"). What it
+costs (B5.8's gate, not met as written;
+`benchmarks/results/b58_rows_one_dispatch_20260929/`, where the GPU was
+never as quiet as the recipe asks, so GPU parts are compared only within a
+run): a navigation natively below records on EpisodeB2 (eight passes of
+nine; B5.6's rows 29.9 → 38.3 ms) and above on PriceDiscovery in seven of
+nine, by its render (+0.4 to +1.6 ms); the page's calls for it at or below
+records' (74 and 26 dispatches, where B5.6 made 206 and 107), though the
+median of its JavaScript reads above records' in format 8 (EpisodeB2
+2.33 → 2.6 ms, PriceDiscovery 1.5 → 2.05, the latter worse than B5.6's
+rows' 1.73), for a reason not isolated: format 7 sends the same
+definitions without it, and replayed apart from the harness the readings
+move by as much (one message of PriceDiscovery's reads 2.6 or 1.0 ms by
+whether Node's stderr is a pipe); every EpisodeB2 class of the test point
+a little dearer under rows than records, as in B5.6; 8.a's play 138.8 →
+86.1 and 136.9 → 83.7 ms in two takes against B5.6's 127.3 → 80.5, its GPU
+part below records' within each run and its serialize 4.2 ms a frame
+dearer than B5.6's code for the split; a format 7 still message 13 KB
+larger on EpisodeB2 for the batches' `row_paints`; a dim sends paints and
+no rows.
 
 A `Surface`'s points are a biquadratic Bézier net (Phase B2,
 `docs/phase_b2_plan.md`, `maniml/utils/bezier_net.py`): `resolution` names
@@ -429,28 +474,68 @@ two steps per patch, which is the sample grid to a float32 ulp
 Phase B selection) sends the net instead and each driver evaluates it at
 screen density (`net_compute.wgsl`, capacity reserved from the second
 difference with the border stage's headroom, capped per object); a zoomed
-sphere then shows no facets. The default stays `grids`, as does Phase A
-forced. A driver decides a net's steps itself
-(`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
+sphere then shows no facets. Nets are the default since B5.9
+(`geometry.DEFAULT_SURFACE`, 2026-09-29), so the Default renderer, native
+capture (`--render`, checkpoint stills) and `--export` draw them; Phase A
+forced and `MANIML_SURFACE=grids` draw grids. A net is drawn in the order
+of its patches, so `sort_faces_back_to_front` (and `always_sort_to_camera`),
+which reorders the grid's triangle indices in place, changes nothing a net
+draws: on the Default a sorted translucent surface draws as it does
+unsorted (accepted with the flip; grids still sort). A driver decides a
+net's steps itself (`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
 double-precision rule from the descriptor's density and the packed
 uniforms), so an output depends on its control points, capacity and steps
 alone and a pan, an orbit or a zoom that moves no step count evaluates
 nothing; the nets whose steps or source moved are gathered into one scratch
 buffer, evaluated by one dispatch over a table of them (one workgroup a
 patch) and copied into the outputs their slots own (a net alone is read
-and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). B5.4's
-gate failed nets on camera moves (1.23-1.34× grids' complete frame: a zoom
-re-evaluated every net on screen, each in a pass of its own); B5.5 passed
-it on its three scenes, every class within 1.05 in both formats on the
-orbit demo, EpisodeB3 and B4 (camera moves 0.997-1.046×) and pixels within
-0.31% over 24/255, with the serializer's per-net cost on camera moves and
-still frames made cheaper along the way, and failed it on scenes that are
-mostly surfaces (70 spheres 1.16-1.31× on still and camera frames, 480
-spheres 1.37-1.52× and 0.98% of the pixels;
-`benchmarks/results/b55_nets_one_dispatch_20260928/`): a net draws its
-capacity's triangle pattern (`net_indices(patches, capacity)`, though the
-reservation is twice the steps) in a draw of its own, where grids coalesce,
-so the redraw is the lever left. Recordings
+and written in place; B5.5, `docs/phase_b4_plan.md`, "The flips"). Each driver draws a net with the index pattern of
+the steps it evaluated it at (`patches × 6 × steps²` indices over the
+`(capacity + 1)²` layout; `gpu_net_geometry.run_indices`, `netIndices` in
+`webgpu.js`), not the capacity's, whose extra triangles had zero area; and
+consecutive nets that can share a draw (`run_kind` `"net"`: the surface
+pipeline, one instance, and `coalesce_draws`' same uniforms, textures and
+depth mode, as grids join) are one batch whose `net` is the list of its
+members' descriptors, each member evaluated into its span of the batch's
+one output and the batch drawn in one draw (B5.7, "The flips"; a program's
+net and a textured one stay alone). A run where some members moved keeps
+the others' vertices (the page hands the slot's output over by the
+members' layout; the native driver keys a run's output by it).
+`MANIML_NET_RUNS=0` sends each net a batch of its own, pixel for pixel the
+same; the forced stacks read it as they read the patch source, and the
+golden pin states it (its phase_b nets were recorded one batch each).
+B5.4's gate failed nets on camera moves (a zoom re-evaluated every net,
+each in a pass of its own); B5.5 passed it on its three scenes (the orbit
+demo, EpisodeB3, B4) and failed on scenes that are mostly surfaces; B5.7
+judged it over a timed set of five (`flip_gates.TIMED_SCENES`: the three
+and `benchmarks/surface_scenes.py`'s `OrbsScene`, 70 spheres, and
+`LatticeScene`, 480; `flip_gates gate`), where the three pass every class
+in both formats and the two fail their still and camera frames (the orbs
+1.06-1.15× grids, the lattice 1.11-1.24×, down from B5.5's 1.16-1.31× and
+1.37-1.52×) and the lattice its pixels (0.98% over 24/255, silhouettes
+where the net is the rounder: against a supersampled sphere nets are off
+in 0.86% of the frame, grids in 1.60%;
+`benchmarks/results/b57_net_runs_20260929/`). What is left is what makes a
+net round, 2.25-3.7× grids' triangles (+0.2-0.4 ms of GPU), the page's
+per-member walk of a run on a camera move and the serializer's per-net
+`keep` and reservation check. B5.9 made the nets pixel gate accuracy
+(Taylor, 2026-09-29): each stack against a reference of the same frame
+drawn from the true surface (`tests/surface_fixtures.py`,
+`against_reference`: every Surface's `uv_func` sampled patch by patch
+until its facets are within 1/32 of a pixel, drawn by Phase A's grid path
+with 16 times the samples per pixel, once in each stack's triangle order,
+which decides what shows where a translucent surface overlaps itself:
+grids' the surface's own triangle indices, nets' patch by patch), nets no
+further from it than grids by the pixels over 24/255 on every scene of
+the timed set and every Surface fixture, a frame where the two are within
+24/255 everywhere a tie, and every reference within its tolerance and
+drawn from its surfaces' functions (`flip_gates accuracy`, `fixtures`,
+`gate --accuracy`; nets against grids is reported, not judged). Nets
+pass everywhere (the lattice: 0.67% of its pixels over 24/255 against
+grids' 1.38%; the orbit demo a tie), and B5.7's still and camera costs
+were accepted, so nets flipped
+(`benchmarks/results/b59_nets_default_20260929/`).
+Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -506,10 +591,35 @@ wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
 flip changes the pass count, as programs do (and nets did before B5.5), the
 attribution run overstates the stack with more passes; the gate's text and
 the measuring contract disagree there, and both are quoted), `fixtures` draws every
-Surface fixture (`tests/surface_fixtures.py`) from grids and from nets, and
+Surface fixture (`tests/surface_fixtures.py`) from grids, from nets and
+from the true surface, `accuracy` a scene's frames so (B5.9), `gate`
+judges a flip over its timed set (`TIMED_SCENES`: a complete run per
+scene, each at the flip's `GATE_LIMITS`, every class its serialize run
+measured present in both formats, every run of one tree; for nets an
+accuracy run per scene and the fixtures, nets no further from the true
+surface than grids), and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
+For Phase B as the default (B5.10) the page's and the GPU's parts are the
+device's: `flip_gates serialize --record` writes every message each
+serializer made as a stream, and `benchmarks/device_frames.html`, served
+cross-origin isolated by `benchmarks/device_frames.py` and opened in the
+desktop app's browser pane (Chrome's Dawn on Metal), plays them through the
+renderer selection into the real `webgpu.js`, timing the page's JavaScript
+and stamping each message from its first pass's beginning to its present
+pass's end (`timestamp-query`, the mean of the stamped rounds: Chrome
+quantizes a stamp to 131 µs); `complete --device` sums them per message.
+One device run does not repeat (the GPU's clock follows its load), so a
+scene is played in three runs (`device_frames prepare --runs 3`, the page
+opened with `?campaign`: each run on a fresh page after a warmup round,
+once the GPU reads quiet, the odd runs in the reverse order) and every
+cell carries a 95% interval over its units, rounds and runs
+(`flip_gates.device_intervals`). A navigation is two classes: a revisit
+(`--navigations`) and a first visit (`serialize --first-visits`, each
+serializer in a process of its own, since the first restore of a
+checkpoint in a process pays what later ones reuse)
+(`benchmarks/README.md`, "Phase B as the default: the device").
 `benchmarks/test_point.py` reads that complete frame for five stacks at
 once (today's: Phase A without the retained frame in format 7, drawn by
 `main`'s page; Phase A retained; the Default; Phase B forced, its plays

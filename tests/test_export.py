@@ -117,17 +117,21 @@ class TriangleWebExportE2E(WebExportE2E):
         _require_lyon()
 
 
-# A filled square (a patch run), a sphere (a net) and a Transform (a blend
-# program over the square's rows, drawn as a patch run and a stroke).
+# A small sphere alone (a net: the square drawn after it parts it from the
+# others), a filled square (a patch run), two spheres side by side (a run of
+# nets, B5.7) and a Transform (a blend program over the square's rows, drawn
+# as a patch run and a stroke).
 PHASE_B_SCENE_SOURCE = """
 from manim import *
 
 class PhaseBDemo(Scene):
     def construct(self):
+        pebble = Sphere(radius=.3, resolution=(5, 3)).shift(LEFT * 2 + DOWN * 1.8)
         square = Square(side_length=2, fill_color=BLUE, fill_opacity=0.8, stroke_color=RED,
                         stroke_width=6, fill_border_width=3).shift(LEFT * 2)
         sphere = Sphere(radius=1, resolution=(9, 5)).shift(RIGHT * 2)
-        self.add(square, sphere)
+        moon = Sphere(radius=.4, resolution=(7, 5)).shift(RIGHT * 2 + UP * 1.6)
+        self.add(pebble, square, sphere, moon)
         self.wait(0.1)
         circle = Circle(radius=1, fill_color=GREEN, fill_opacity=0.8, stroke_color=BLUE,
                         stroke_width=6, fill_border_width=3).shift(LEFT * 2)
@@ -199,6 +203,12 @@ class PhaseBWebExportE2E(unittest.TestCase):
                         tag = "program patch" if program else "patch"
                         if not program:
                             reference("border_data", batch["border"]["hash"])
+                    elif isinstance(batch.get("net"), list):
+                        # A run of nets (B5.7): the sphere and the moon, one
+                        # batch. The pebble is a net alone.
+                        for member in batch["net"]:
+                            reference("net_data", member["hash"])
+                        tag = "net run"
                     elif "net" in batch:
                         reference("net_data", batch["net"]["hash"])
                         tag = "program net" if program else "net"
@@ -211,8 +221,9 @@ class PhaseBWebExportE2E(unittest.TestCase):
                     seen.add(tag)
                     if batch.get("cached"):
                         seen.add("cached " + tag)
-            self.assertLessEqual({"patch", "cached patch", "net", "cached net", "program patch",
-                                  "cached program patch", "program stroke", "cached program stroke"}, seen)
+            self.assertLessEqual({"patch", "cached patch", "net", "cached net", "net run", "cached net run",
+                                  "program patch", "cached program patch", "program stroke",
+                                  "cached program stroke"}, seen)
             self.assertEqual(relied, set(defined))
 
             # The player's load and seek path over the folder, then the
@@ -228,6 +239,62 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 self.assertGreaterEqual(report["rendered"], 2 * len(meta["frames"]))
                 if mode == "export":
                     self.assertEqual(set(report["tags"]), {"objects", "border", "net", "rows"})
+
+    def test_a_default_export_records_nets_and_replays_through_the_indexer(self):
+        """B5.9 (docs/phase_b4_plan.md, "The flips"): surfaces are nets on
+        the Default, so an export made with no stack switch in the
+        environment records each sphere as a net or a run of nets, by
+        hash, cached and not, and the player's seek and the browser driver
+        draw every frame from what it carries (meshes, strokes and nets:
+        vs_main alone)."""
+        import gzip
+        import tempfile
+        from unittest.mock import patch
+        from maniml.web.geometry import parse_geometry_message
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ):
+            for name in [name for name in os.environ if name.startswith("MANIML_") and name != "MANIML_LYON_LIBRARY"]:
+                os.environ.pop(name)
+            scene_path = os.path.join(tmp, "phase_b_scene.py")
+            with open(scene_path, "w") as f:
+                f.write(PHASE_B_SCENE_SOURCE)
+            result = subprocess.run(
+                [sys.executable, "-m", "maniml", scene_path, "PhaseBDemo", "--export"],
+                cwd=tmp, env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            out = os.path.join(tmp, "media", "PhaseBDemo_web")
+            with open(os.path.join(out, "scene.json")) as f:
+                meta = json.load(f)
+            with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
+                blob = f.read()
+            defined, seen, offset = set(), set(), 0
+            for frame in meta["frames"]:
+                header, _ = parse_geometry_message(blob[offset:offset + frame["len"]])
+                offset += frame["len"]
+                self.assertEqual(header["renderer"], "triangles")
+                defined.update(header["net_data"])
+                for batch in header["batches"]:
+                    self.assertNotIn(batch["pipeline"], ("patch",), "the Default's fills are meshes")
+                    self.assertNotIn("program", batch, "and its programs off")
+                    if "net" not in batch:
+                        continue
+                    members = batch["net"] if isinstance(batch["net"], list) else [batch["net"]]
+                    for member in members:
+                        self.assertIn(member["hash"], defined)
+                    tag = "net run" if isinstance(batch["net"], list) else "net"
+                    seen.add(tag + (" cached" if batch.get("cached") else ""))
+            self.assertLessEqual({"net", "net cached", "net run", "net run cached"}, seen)
+            for harness, mode, *stages in (("player_commands.cjs", "export"),
+                                           ("generated_webgpu_commands.cjs", "recordingReplay", "vs_main")):
+                replay = subprocess.run(
+                    ["node", os.path.join(REPO_ROOT, "tests", harness), mode, out, *stages],
+                    input="", capture_output=True, text=True, timeout=60)
+                self.assertEqual(replay.returncode, 0, f"{mode}: {replay.stdout}{replay.stderr}")
+                report = json.loads(replay.stdout)
+                self.assertEqual(report["frames"], len(meta["frames"]))
+                if mode == "export":
+                    self.assertEqual(set(report["tags"]), {"net"})
 
     def test_a_row_sourced_export_records_rows_and_replays_through_the_indexer(self):
         """B5.1 (docs/phase_b4_plan.md): with MANIML_PATCH_SOURCE=rows (the
@@ -266,7 +333,10 @@ class PhaseBWebExportE2E(unittest.TestCase):
                     if "rows" not in batch:
                         continue
                     seen.add(batch["pipeline"] + (" cached" if batch.get("cached") else ""))
-                    for key in batch["rows"]:
+                    # Each rows as its geometry and its paint (B5.8), both
+                    # carried into every seek's frame.
+                    self.assertEqual(len(batch["row_paints"]), len(batch["rows"]))
+                    for key in (*batch["rows"], *batch["row_paints"]):
                         self.assertIn(key, defined)
                         relied = relied or key not in header["program_data"]
             self.assertLessEqual({"patch", "patch cached", "stroke", "stroke cached"}, seen)
@@ -280,7 +350,7 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 report = json.loads(replay.stdout)
                 self.assertEqual(report["frames"], len(meta["frames"]))
                 if mode == "export":
-                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows"})
+                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows", "paint"})
 
 
 if __name__ == "__main__":

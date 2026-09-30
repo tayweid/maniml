@@ -1,0 +1,921 @@
+{
+  "scene": {
+    "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b4i_work/episodes/Blocks/B2_Supply/03_Code.py",
+    "name": "EpisodeB2",
+    "checkpoint_count": 308,
+    "measured_checkpoints": [
+      12,
+      44,
+      76,
+      103,
+      120,
+      140,
+      157,
+      177,
+      194,
+      258,
+      277,
+      307
+    ],
+    "construct_error": null
+  },
+  "revision": "main",
+  "revision_commit": "d93018d225dd65778d558032a6efe0c6cfd1a1ed",
+  "inputs": {
+    "serialize": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/serialize",
+    "browser": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/browser",
+    "page": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/page",
+    "gpu": [
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/gpu1",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/gpu2"
+    ],
+    "pixels": [
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/frames_b",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b58fix/campaign/runs/b2/frames_a"
+    ],
+    "python": null
+  },
+  "input_commits": {
+    "serialize": {
+      "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "browser": {
+      "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "page": {
+      "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "gpu": [
+      {
+        "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      },
+      {
+        "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      }
+    ],
+    "pixels": [
+      {
+        "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      },
+      {
+        "commit": "5c16c898bdcf00f7f1ff98df5b966851b5c4bcf8",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      }
+    ]
+  },
+  "stacks": {
+    "today_f7": {
+      "stack": "today",
+      "format": 7,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 5.972573038889095,
+          "page_ms": 0.02626050000000646,
+          "sent": 1.0,
+          "gpu_ms": 4.366666749999999,
+          "gpu_min_ms": 3.0389369999999998,
+          "complete_ms": 10.516166788889102,
+          "complete_gpu_min_ms": 8.8789580388891,
+          "wire_bytes": 70882.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 25.772239750949666,
+          "page_ms": 0.04080199999999934,
+          "sent": 1.0,
+          "gpu_ms": 4.709573,
+          "gpu_min_ms": 3.3475209999999995,
+          "complete_ms": 30.522614750949664,
+          "complete_gpu_min_ms": 29.160562750949666,
+          "wire_bytes": 132157.5
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 14.326697535580024,
+          "page_ms": 0.8949585000000013,
+          "sent": 1.0,
+          "gpu_ms": 5.517771,
+          "gpu_min_ms": 4.565166,
+          "complete_ms": 22.007906535580027,
+          "complete_gpu_min_ms": 19.920406535580028,
+          "wire_bytes": 416648.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 12.93314582672236,
+          "gpu_ms": 6.62582297809422
+        },
+        "ticked": {
+          "complete_ms": 33.78723980989572,
+          "gpu_ms": 7.974198058946058
+        },
+        "play": {
+          "complete_ms": 24.523239546894303,
+          "gpu_ms": 8.04950000019744
+        }
+      },
+      "pixels": "reference"
+    },
+    "phase_a_f7": {
+      "stack": "phase_a",
+      "format": 7,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.8943437715061009,
+          "page_ms": 0.026479250000001286,
+          "sent": 1.0,
+          "gpu_ms": 4.370177,
+          "gpu_min_ms": 1.557938,
+          "complete_ms": 5.4096352521502755,
+          "complete_gpu_min_ms": 2.7568442517583387,
+          "wire_bytes": 70882.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 3.101093985605985,
+          "page_ms": 0.044687499999994884,
+          "sent": 1.0,
+          "gpu_ms": 4.7138124999999995,
+          "gpu_min_ms": 1.651021,
+          "complete_ms": 7.859593985605979,
+          "complete_gpu_min_ms": 4.79680248560598,
+          "wire_bytes": 132157.5
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 7.617322757141665,
+          "page_ms": 0.8812709999999981,
+          "sent": 1.0,
+          "gpu_ms": 5.471729,
+          "gpu_min_ms": 4.381708,
+          "complete_ms": 15.388948243952273,
+          "complete_gpu_min_ms": 13.193468759616831,
+          "wire_bytes": 416648.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 7.543562253357557,
+          "gpu_ms": 6.5801247546914965
+        },
+        "ticked": {
+          "complete_ms": 10.510239715464408,
+          "gpu_ms": 7.364458229858428
+        },
+        "play": {
+          "complete_ms": 17.61422955683009,
+          "gpu_ms": 8.70302104158327
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0,
+            "play_frame": 0
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 76,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "phase_a_f8": {
+      "stack": "phase_a",
+      "format": 8,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.8674687414895743,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 0.8674687414895743,
+          "complete_gpu_min_ms": 0.8674687414895743,
+          "wire_bytes": 0.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 3.078604204347357,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 3.078604204347357,
+          "complete_gpu_min_ms": 3.078604204347357,
+          "wire_bytes": 0.0
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 7.5908022408839315,
+          "page_ms": 0.7264584999999926,
+          "sent": 1.0,
+          "gpu_ms": 5.471729,
+          "gpu_min_ms": 4.381708,
+          "complete_ms": 15.072208814012729,
+          "complete_gpu_min_ms": 13.073469002403588,
+          "wire_bytes": 293225.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 0.8674687414895743,
+          "gpu_ms": 0.0
+        },
+        "ticked": {
+          "complete_ms": 3.078604204347357,
+          "gpu_ms": 0.0
+        },
+        "play": {
+          "complete_ms": 17.176854043174536,
+          "gpu_ms": 8.70302104158327
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0,
+            "play_frame": 0
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 76,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "default_f7": {
+      "stack": "default",
+      "format": 7,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.8815104956738651,
+          "page_ms": 0.029270749999994905,
+          "sent": 1.0,
+          "gpu_ms": 4.37747875,
+          "gpu_min_ms": 1.4889375,
+          "complete_ms": 5.391374500221948,
+          "complete_gpu_min_ms": 2.7245935101125878,
+          "wire_bytes": 70882.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 3.4083747304975986,
+          "page_ms": 0.04568774999999192,
+          "sent": 1.0,
+          "gpu_ms": 4.70422925,
+          "gpu_min_ms": 1.329146,
+          "complete_ms": 8.158291730497591,
+          "complete_gpu_min_ms": 4.78320848049759,
+          "wire_bytes": 132157.5
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 7.5471457676030695,
+          "page_ms": 0.8928124999999909,
+          "sent": 1.0,
+          "gpu_ms": 5.466374500000001,
+          "gpu_min_ms": 4.459874999999999,
+          "complete_ms": 15.260458474394774,
+          "complete_gpu_min_ms": 13.200583723945309,
+          "wire_bytes": 416648.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 7.838239710255678,
+          "gpu_ms": 6.82434396003373
+        },
+        "ticked": {
+          "complete_ms": 11.144541702717028,
+          "gpu_ms": 7.690479222219437
+        },
+        "play": {
+          "complete_ms": 17.87087446170858,
+          "gpu_ms": 8.033687539864331
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0,
+            "play_frame": 0
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 76,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "default_f8": {
+      "stack": "default",
+      "format": 8,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.876562757184729,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 0.876562757184729,
+          "complete_gpu_min_ms": 0.876562757184729,
+          "wire_bytes": 0.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 3.0335102055687457,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 3.0335102055687457,
+          "complete_gpu_min_ms": 3.0335102055687457,
+          "wire_bytes": 0.0
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 7.688999990932643,
+          "page_ms": 0.7086875000000106,
+          "sent": 1.0,
+          "gpu_ms": 5.466374500000001,
+          "gpu_min_ms": 4.459874999999999,
+          "complete_ms": 14.991333505484414,
+          "complete_gpu_min_ms": 13.005437219942,
+          "wire_bytes": 293225.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 0.876562757184729,
+          "gpu_ms": 0.0
+        },
+        "ticked": {
+          "complete_ms": 3.0335102055687457,
+          "gpu_ms": 0.0
+        },
+        "play": {
+          "complete_ms": 17.641999767750505,
+          "gpu_ms": 8.033687539864331
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 12,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0,
+            "play_frame": 0
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 76,
+            "mean_rgb": 0.0,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 0.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "phase_b_f7": {
+      "stack": "phase_b",
+      "format": 7,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.9605624945834279,
+          "page_ms": 0.04418725000000023,
+          "sent": 1.0,
+          "gpu_ms": 5.15159375,
+          "gpu_min_ms": 1.866854,
+          "complete_ms": 6.316385777419722,
+          "complete_gpu_min_ms": 3.2698547625834697,
+          "wire_bytes": 88225.5
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 4.482343763811514,
+          "page_ms": 0.1097599999999943,
+          "sent": 1.0,
+          "gpu_ms": 6.1034585,
+          "gpu_min_ms": 2.4047085,
+          "complete_ms": 10.695562263811508,
+          "complete_gpu_min_ms": 6.996812263811508,
+          "wire_bytes": 361049.5
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 2.680395497009158,
+          "page_ms": 0.6035830000000146,
+          "sent": 1.0,
+          "gpu_ms": 9.756146,
+          "gpu_min_ms": 5.9077079999999995,
+          "complete_ms": 13.228583497009167,
+          "complete_gpu_min_ms": 9.159541758687887,
+          "wire_bytes": 177278.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 8.801416470177195,
+          "gpu_ms": 7.877010473748669
+        },
+        "ticked": {
+          "complete_ms": 13.477645199841106,
+          "gpu_ms": 8.885541436029598
+        },
+        "play": {
+          "complete_ms": 15.52639552090747,
+          "gpu_ms": 12.053958023898304
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 258,
+            "mean_rgb": 6.101394604481024e-05,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 21.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.00012245656149977138,
+            "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+            "max_rgba": 30.0,
+            "mean_alpha": 0.0,
+            "play_frame": 4
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.0001408893461362597,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 23.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "phase_b_f8": {
+      "stack": "phase_b",
+      "format": 8,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.9225417161360383,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 0.9225417161360383,
+          "complete_gpu_min_ms": 0.9225417161360383,
+          "wire_bytes": 0.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 4.020760272396728,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 4.020760272396728,
+          "complete_gpu_min_ms": 4.020760272396728,
+          "wire_bytes": 0.0
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 2.7767499850597233,
+          "page_ms": 0.28602049999999224,
+          "sent": 1.0,
+          "gpu_ms": 9.756146,
+          "gpu_min_ms": 5.9077079999999995,
+          "complete_ms": 12.649416985059728,
+          "complete_gpu_min_ms": 8.744447506609738,
+          "wire_bytes": 1069.5
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 0.9225417161360383,
+          "gpu_ms": 0.0
+        },
+        "ticked": {
+          "complete_ms": 4.020760272396728,
+          "gpu_ms": 0.0
+        },
+        "play": {
+          "complete_ms": 14.947229008958033,
+          "gpu_ms": 12.053958023898304
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 258,
+            "mean_rgb": 6.101394604481024e-05,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 21.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.00012245656149977138,
+            "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+            "max_rgba": 30.0,
+            "mean_alpha": 0.0,
+            "play_frame": 4
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.0001408893461362597,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 23.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "phase_b_records_f7": {
+      "stack": "phase_b_records",
+      "format": 7,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.8002394752111286,
+          "page_ms": 0.030405749999985687,
+          "sent": 1.0,
+          "gpu_ms": 5.158718499999999,
+          "gpu_min_ms": 3.5808124999999995,
+          "complete_ms": 6.177510251022586,
+          "complete_gpu_min_ms": 4.422708497593161,
+          "wire_bytes": 65335.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 4.236104286974296,
+          "page_ms": 0.09782274999999885,
+          "sent": 1.0,
+          "gpu_ms": 6.0822705,
+          "gpu_min_ms": 2.563208,
+          "complete_ms": 10.416197536974295,
+          "complete_gpu_min_ms": 6.897135036974294,
+          "wire_bytes": 288884.5
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 2.339406230021268,
+          "page_ms": 0.6649790000000024,
+          "sent": 1.0,
+          "gpu_ms": 9.671624999999999,
+          "gpu_min_ms": 4.2744159999999995,
+          "complete_ms": 12.729260230021247,
+          "complete_gpu_min_ms": 7.304593242185914,
+          "wire_bytes": 136677.0
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 8.590624450687024,
+          "gpu_ms": 7.819499733159319
+        },
+        "ticked": {
+          "complete_ms": 13.404833563150554,
+          "gpu_ms": 9.070906526176259
+        },
+        "play": {
+          "complete_ms": 14.88003124623529,
+          "gpu_ms": 11.78897893987596
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 258,
+            "mean_rgb": 6.101394604481024e-05,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 21.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.00012245656149977138,
+            "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+            "max_rgba": 30.0,
+            "mean_alpha": 0.0,
+            "play_frame": 4
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.0001408893461362597,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 23.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    },
+    "phase_b_records_f8": {
+      "stack": "phase_b_records",
+      "format": 8,
+      "classes": {
+        "pausepoint": {
+          "frames": 10,
+          "checkpoints": 10,
+          "serialize_ms": 0.7896980096120387,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 0.7896980096120387,
+          "complete_gpu_min_ms": 0.7896980096120387,
+          "wire_bytes": 0.0
+        },
+        "ticked": {
+          "frames": 2,
+          "checkpoints": 2,
+          "serialize_ms": 3.643864532932639,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "complete_ms": 3.643864532932639,
+          "complete_gpu_min_ms": 3.643864532932639,
+          "wire_bytes": 0.0
+        },
+        "play": {
+          "frames": 114,
+          "checkpoints": 12,
+          "serialize_ms": 2.7094689721707255,
+          "page_ms": 0.30018799999999857,
+          "sent": 1.0,
+          "gpu_ms": 9.671624999999999,
+          "gpu_min_ms": 4.2744159999999995,
+          "complete_ms": 12.466218482231433,
+          "complete_gpu_min_ms": 7.0278952178842715,
+          "wire_bytes": 1069.5
+        }
+      },
+      "flag_off_check": {
+        "pausepoint": {
+          "complete_ms": 0.7896980096120387,
+          "gpu_ms": 0.0
+        },
+        "ticked": {
+          "complete_ms": 3.643864532932639,
+          "gpu_ms": 0.0
+        },
+        "play": {
+          "complete_ms": 14.616989498445477,
+          "gpu_ms": 11.78897893987596
+        }
+      },
+      "pixels": {
+        "pausepoint": {
+          "frames": 10,
+          "worst": {
+            "checkpoint": 258,
+            "mean_rgb": 6.101394604481024e-05,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 21.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        },
+        "play": {
+          "frames": 139,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.00012245656149977138,
+            "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+            "max_rgba": 30.0,
+            "mean_alpha": 0.0,
+            "play_frame": 4
+          },
+          "passes": true
+        },
+        "ticked": {
+          "frames": 2,
+          "worst": {
+            "checkpoint": 307,
+            "mean_rgb": 0.0001408893461362597,
+            "fraction_pixels_rgb_over24": 0.0,
+            "max_rgba": 23.0,
+            "mean_alpha": 0.0
+          },
+          "passes": true
+        }
+      }
+    }
+  },
+  "ratios": {
+    "today_f7": {
+      "pausepoint": 1.0,
+      "ticked": 1.0,
+      "play": 1.0
+    },
+    "phase_a_f7": {
+      "pausepoint": 0.5144113212302649,
+      "ticked": 0.25750067776750485,
+      "play": 0.6992463467196696
+    },
+    "phase_a_f8": {
+      "pausepoint": 0.08248906268832688,
+      "ticked": 0.10086305611322409,
+      "play": 0.6848542722428231
+    },
+    "default_f7": {
+      "pausepoint": 0.5126748755942352,
+      "ticked": 0.26728679037053205,
+      "play": 0.6934080008801973
+    },
+    "default_f8": {
+      "pausepoint": 0.08335382794716273,
+      "ticked": 0.09938565979097065,
+      "play": 0.6811794425447978
+    },
+    "phase_b_f7": {
+      "pausepoint": 0.6006357548544518,
+      "ticked": 0.35041435182019365,
+      "play": 0.6010832277764634
+    },
+    "phase_b_f8": {
+      "pausepoint": 0.08772604454227119,
+      "ticked": 0.1317305317779706,
+      "play": 0.5747669349926358
+    },
+    "phase_b_records_f7": {
+      "pausepoint": 0.5874298473041963,
+      "ticked": 0.34126163901636936,
+      "play": 0.5783948695638971
+    },
+    "phase_b_records_f8": {
+      "pausepoint": 0.07509371289607135,
+      "ticked": 0.11938245011657352,
+      "play": 0.5664427219407437
+    }
+  }
+}
