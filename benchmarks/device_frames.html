@@ -1,0 +1,367 @@
+<!doctype html>
+<!--
+  The page's side of a recorded stream on a real WebGPU device
+  (docs/phase_b4_plan.md, "Phase B as the default", B5.10). B6's
+  device_redraw.html (benchmarks/results/phase_b_test_point_20260927/)
+  redrew one message back to back; this plays each message of the streams
+  `flip_gates serialize --record` wrote (every message a serializer made,
+  in order, the ones whose Python it timed) through the viewer's renderer
+  selection into the real webgpu.js, and times each message two ways, in
+  rounds that alternate:
+
+  - plain rounds: page_ms, performance.now around the selection's render
+    (the renderer read from the header, the driver's parse or resend
+    comparison, its slots, its compute stages, the encode and the submit,
+    every WebGPU call serialized for Dawn's wire as it is made: what the
+    page's JavaScript pays per message), then done_ms, from the page's
+    return to device.queue.onSubmittedWorkDone (Dawn's GPU process, the
+    GPU and the callback's latency; the check);
+  - stamped rounds: every compute and render pass the driver begins gets
+    timestampWrites (the device's "timestamp-query" feature), and gpu_ms is
+    the span from the first valid begin stamp to the last end stamp of the
+    message's passes, resolved and read back after it (the definition of
+    the native driver's gpu_total_ms, now on the device the page draws
+    with). Chrome quantizes a timestamp to 2**17 ns (131 us): the reducer
+    takes the mean of a message's stamped rounds, which is unbiased where a
+    median moves in whole steps. A pass that does nothing stamps 0 on
+    Apple's GPUs; such stamps are left out and counted.
+
+  Each message waits for the device before the next is played, so each
+  starts on an idle GPU, as a viewer's messages (at most 45 a second, or a
+  play's frame rate) do. The driver is made anew for every play of a
+  stream (as a page load makes it) and destroyed after. A message the
+  stream did not send (a format 8 frame that changed nothing) is not
+  played. Served cross-origin isolated (benchmarks.device_frames serve), so
+  performance.now has 5 us resolution.
+
+  A job is one run of a scene: a warmup round (every stream played once
+  and not kept: on a fresh page the first plays compile the driver's
+  JavaScript, which a viewer pays once a page load, not a message), then
+  2 x rounds rounds (plain, stamped, plain, ...), the streams taking turns
+  within a round in rotated order, the odd runs in the reverse order,
+  each stream's result POSTed to
+  save/<scene>__run<k>__<stream>. A run reads the GPU's clock state as
+  much as the work (the same messages read up to twice the GPU time from
+  one run to the next), so a scene is measured in several runs, each on a
+  fresh page after the GPU reads quiet, and reduced with an interval
+  (benchmarks.device_frames, flip_gates' device_intervals).
+
+  Serve a folder `python -m benchmarks.device_frames prepare` made (this
+  page, webgpu.js, renderer_selection.js and wgsl/ of the tree measured,
+  streams/<scene>/<stream>/ with scene.json and parts.json, and
+  campaign.json). Opened with ?campaign the page runs the campaign's next
+  job (GET next): it asks the server to wait for a quiet GPU (POST
+  quiet/<scene>__run<k>), runs the job and reloads itself for the next,
+  until none is left. Or, on a fresh page: start("<scene>", ["phase_a_f7",
+  ...], rounds, run); status() says how far either is.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Device frames</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111; --fg: #eee; } }
+  :root[data-theme="dark"] { --bg: #111; --fg: #eee; }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+  canvas { width: 480px; max-width: 100%; height: auto; border: 1px solid #888; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<p>Recorded streams played through the browser driver on this device, each message timed in the page and stamped on the GPU.</p>
+<canvas id="stage" width="480" height="270"></canvas>
+<pre id="log">idle</pre>
+<script src="webgpu.js"></script>
+<script src="renderer_selection.js"></script>
+<script>
+"use strict";
+// Two stamps a pass; a message of more passes than this leaves the rest unstamped (counted).
+const QUERY_CAPACITY = 4096;
+const device = { current: null, timestamps: false, errors: [], querySet: null, resolve: null, read: null,
+  stamping: false, next: 0, overflow: 0, passes: 0, presents: 0, stampMode: "bracket" };
+
+const requestDevice = GPUAdapter.prototype.requestDevice;
+GPUAdapter.prototype.requestDevice = async function (descriptor = {}) {
+  const wanted = this.features.has("timestamp-query") ? ["timestamp-query"] : [];
+  const made = await requestDevice.call(this, { ...descriptor,
+    requiredFeatures: [...(descriptor.requiredFeatures || []), ...wanted] });
+  device.current = made;
+  device.timestamps = wanted.length > 0;
+  device.adapter = this.info ? { vendor: this.info.vendor, architecture: this.info.architecture,
+    description: this.info.description } : null;
+  made.addEventListener("uncapturederror", event => device.errors.push(String(event.error.message)));
+  if (device.timestamps) {
+    device.querySet = made.createQuerySet({ type: "timestamp", count: QUERY_CAPACITY });
+    device.resolve = made.createBuffer({ size: QUERY_CAPACITY * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    device.read = made.createBuffer({ size: QUERY_CAPACITY * 8,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  }
+  return made;
+};
+
+// The canvas's textures and their views: the driver's last pass of every
+// message is its present pass, the one pass that draws into the canvas.
+const canvasTextures = new WeakSet(), canvasViews = new WeakSet();
+const getCurrentTexture = GPUCanvasContext.prototype.getCurrentTexture;
+GPUCanvasContext.prototype.getCurrentTexture = function () {
+  const texture = getCurrentTexture.call(this);
+  canvasTextures.add(texture);
+  return texture;
+};
+const createView = GPUTexture.prototype.createView;
+GPUTexture.prototype.createView = function (...args) {
+  const view = createView.apply(this, args);
+  if (canvasTextures.has(this)) canvasViews.add(view);
+  return view;
+};
+
+// A pass the driver begins while a stamped message plays: its descriptor
+// copied with timestampWrites. "bracket" (the default) stamps the
+// beginning of the message's first pass and the end of its present pass,
+// two stamps a message whatever its pass count; "all" stamps both ends of
+// every pass (the native driver's instrument), which on this device costs
+// a stack of more passes more (the calibration in the B5.10 archive).
+function stamped(descriptor) {
+  if (!device.stamping || descriptor.timestampWrites) return descriptor;
+  const present = (descriptor.colorAttachments || []).some(color => color && canvasViews.has(color.view));
+  let writes = null;
+  if (device.stampMode === "all") {
+    if (device.next + 2 > QUERY_CAPACITY) { device.overflow += 1; return descriptor; }
+    writes = { beginningOfPassWriteIndex: device.next, endOfPassWriteIndex: device.next + 1 };
+    device.next += 2;
+  } else {
+    if (device.next === 0) writes = { beginningOfPassWriteIndex: 0 };
+    if (present) writes = { ...(writes || {}), endOfPassWriteIndex: 1 };
+    device.next = 2;
+    device.presents += present ? 1 : 0;
+  }
+  device.passes += 1;
+  return writes ? { ...descriptor, timestampWrites: { querySet: device.querySet, ...writes } } : descriptor;
+}
+const beginRenderPass = GPUCommandEncoder.prototype.beginRenderPass;
+GPUCommandEncoder.prototype.beginRenderPass = function (descriptor) {
+  return beginRenderPass.call(this, stamped(descriptor));
+};
+const beginComputePass = GPUCommandEncoder.prototype.beginComputePass;
+GPUCommandEncoder.prototype.beginComputePass = function (descriptor = {}) {
+  return beginComputePass.call(this, stamped(descriptor));
+};
+
+// The stamps of the message just played: resolved and read back in a
+// submission of their own after it (so after its work), the span from the
+// first valid begin to the last end, the passes stamped and the stamps
+// that read 0 (a pass that did nothing).
+async function readStamps() {
+  const count = device.next, passes = device.passes, presents = device.presents;
+  device.next = 0; device.passes = 0; device.presents = 0;
+  if (!count) return { gpu_ms: 0, passes, zero: 0 };
+  if (device.stampMode !== "all" && presents !== 1) throw new Error(`a message made ${presents} present passes`);
+  const gpu = device.current;
+  const encoder = gpu.createCommandEncoder();
+  encoder.resolveQuerySet(device.querySet, 0, count, device.resolve, 0);
+  encoder.copyBufferToBuffer(device.resolve, 0, device.read, 0, count * 8);
+  gpu.queue.submit([encoder.finish()]);
+  await device.read.mapAsync(GPUMapMode.READ, 0, count * 8);
+  const stamps = new BigUint64Array(device.read.getMappedRange(0, count * 8).slice(0));
+  device.read.unmap();
+  let first = null, last = null, zero = 0;
+  for (let index = 0; index < count; index += 2) {
+    const begin = stamps[index], end = stamps[index + 1];
+    if (begin === 0n || end === 0n || end < begin) { zero += 1; continue; }
+    if (first === null || begin < first) first = begin;
+    if (last === null || end > last) last = end;
+  }
+  return { gpu_ms: first === null ? 0 : Number(last - first) / 1e6, passes, zero };
+}
+
+async function inflate(url) {
+  const body = (await fetch(url)).body.pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(body).arrayBuffer());
+}
+
+// A stream's messages, read part by part (parts.json, which
+// benchmarks.device_frames prepare writes for every stream): a stream
+// larger than a browser holds in one buffer (the lattice's Phase A,
+// 2.2 GB) is served in parts of consecutive messages, each read, before
+// the first of its messages is played, between two messages and never
+// inside one's timing.
+async function loadStream(scene, name) {
+  const base = `streams/${scene}/${name}`;
+  const meta = await (await fetch(`${base}/scene.json`)).json();
+  const listed = await fetch(`${base}/parts.json`);
+  if (!listed.ok) throw new Error(`${base}/parts.json: ${listed.status} (serve a folder device_frames prepare made)`);
+  const parts = await listed.json();
+  const spans = [], owner = [];
+  for (const [part, { first, end }] of parts.entries()) {
+    let offset = 0;
+    for (let index = first; index < end; index++) {
+      const length = meta.frames[index].len;
+      spans[index] = length ? [offset, offset + length] : null;
+      owner[index] = part;
+      offset += length;
+    }
+  }
+  if (spans.length !== meta.frames.length) throw new Error(`${name}: its parts do not cover the stream`);
+  let loaded = -1, data = null;
+  // Each message a buffer of its own, cut when it is played: the driver
+  // keeps the one it drew (a resend is compared with it), as the socket
+  // hands the page a new one per message.
+  async function message(index) {
+    if (owner[index] !== loaded) {
+      data = null;
+      data = await inflate(`${base}/${parts[owner[index]].file}`);
+      loaded = owner[index];
+      const { first, end } = parts[loaded];
+      const total = meta.frames.slice(first, end).reduce((sum, frame) => sum + frame.len, 0);
+      if (total !== data.length) throw new Error(`${name}: part ${loaded} is incomplete`);
+    }
+    return data.buffer.slice(...spans[index]);
+  }
+  return { meta, spans, message };
+}
+
+// The driver as the viewer's selection holds it; ManimlWGPU is made and
+// destroyed around each play, as a page load makes it.
+function page() {
+  const driver = { init: async () => {}, destroy: async () => {}, render: bytes => ManimlWGPU.render(bytes) };
+  return new window.ManimlRendererSelection(document.getElementById("stage"),
+    { triangles: driver, phase_a: driver, phase_b: driver });
+}
+
+function rendererOf(bytes) {
+  const length = new DataView(bytes, 1, 4).getUint32(0, true);
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 5, length))).renderer;
+}
+
+async function play(scene, name, mode, into) {
+  const { spans, message } = await loadStream(scene, name);
+  const errorsBefore = device.errors.length;
+  let misses = 0;
+  ManimlWGPU.onCacheMiss = () => { misses += 1; };
+  await ManimlWGPU.init(document.getElementById("stage"));
+  const selection = page();
+  await selection.select(rendererOf(await message(spans.findIndex(span => span !== null))));
+  const gpu = device.current;
+  if (mode === "stamped" && !device.timestamps) throw new Error("the device offers no timestamp-query");
+  for (const [index, span] of spans.entries()) {
+    if (span === null) continue;
+    const bytes = await message(index);
+    const row = into[index] || (into[index] = { index, page: [], done: [], gpu: [], passes: [], zero: [], stamped_page: [] });
+    if (mode === "plain") {
+      const began = performance.now();
+      const header = await selection.render(bytes);
+      const returned = performance.now();
+      await gpu.queue.onSubmittedWorkDone();
+      const done = performance.now();
+      if (!header) throw new Error(`${name}: the selection dropped message ${index}`);
+      row.page.push(returned - began);
+      row.done.push(done - returned);
+    } else {
+      device.stamping = true;
+      const began = performance.now();
+      let header;
+      try { header = await selection.render(bytes); } finally { device.stamping = false; }
+      const returned = performance.now();
+      if (!header) throw new Error(`${name}: the selection dropped message ${index}`);
+      const stamps = await readStamps();
+      row.gpu.push(stamps.gpu_ms);
+      row.passes.push(stamps.passes);
+      row.zero.push(stamps.zero);
+      row.stamped_page.push(returned - began);
+    }
+  }
+  await ManimlWGPU.destroy();
+  ManimlWGPU.onCacheMiss = null;
+  if (misses) throw new Error(`${name}: ${misses} cache misses`);
+  return device.errors.length - errorsBefore;
+}
+
+const progress = { state: "idle", done: 0, total: 0, current: null, started: null, error: null, saved: [],
+  job: null, quiet: null };
+function status() { return { ...progress, errors: device.errors.slice(0, 5), overflow: device.overflow }; }
+
+async function run(scene, streams, rounds, runIndex) {
+  const order = runIndex % 2 ? [...streams].reverse() : [...streams];
+  const results = Object.fromEntries(order.map(name => [name, []]));
+  device.passes = device.presents = device.next = 0;
+  progress.state = "running"; progress.total = (2 * rounds + 1) * order.length; progress.done = 0;
+  progress.started = new Date().toISOString();
+  const began = performance.now();
+  for (const name of order) {
+    progress.current = `${scene} run ${runIndex}: ${name} warmup`;
+    document.getElementById("log").textContent = progress.current;
+    await play(scene, name, "plain", []);
+    progress.done += 1;
+  }
+  for (let round = 0; round < 2 * rounds; round++) {
+    const mode = round % 2 ? "stamped" : "plain";
+    const shift = (round >> 1) % order.length;
+    for (const name of [...order.slice(shift), ...order.slice(0, shift)]) {
+      progress.current = `${scene} run ${runIndex}: ${name} round ${round} ${mode}`;
+      document.getElementById("log").textContent = progress.current;
+      await play(scene, name, mode, results[name]);
+      progress.done += 1;
+    }
+  }
+  const seconds = (performance.now() - began) / 1000;
+  for (const name of order) {
+    const result = { scene, stream: name, run: runIndex, order, rounds, warmup_rounds: 1, modes: ["plain", "stamped"],
+      stamps: device.stampMode, seconds, started: progress.started, finished: new Date().toISOString(),
+      userAgent: navigator.userAgent, adapter: device.adapter, timestamps: device.timestamps,
+      crossOriginIsolated: self.crossOriginIsolated, visibility: document.visibilityState,
+      quiet: progress.quiet, errors: [...device.errors], overflow: device.overflow,
+      messages: results[name].filter(Boolean) };
+    const saved = `${scene}__run${runIndex}__${name}`;
+    const response = await fetch(`save/${saved}`, { method: "POST", body: JSON.stringify(result) });
+    if (!response.ok) throw new Error(`save/${saved}: ${response.status}`);
+    progress.saved.push(saved);
+  }
+  progress.state = "done";
+  document.getElementById("log").textContent = `${scene} run ${runIndex} done in ${seconds.toFixed(1)} s, ` +
+    `${device.errors.length} errors`;
+}
+
+function failed(error) {
+  progress.state = "failed";
+  progress.error = String(error && error.stack || error);
+  document.getElementById("log").textContent = progress.error;
+}
+
+// One job on a fresh page: a page runs one job, so that no run inherits
+// another's driver, buffers or pipelines.
+function start(scene, streams, rounds = 5, runIndex = 0, stamps = "bracket") {
+  if (progress.state !== "idle") throw new Error("this page has run a job: reload it for the next");
+  if (stamps !== "bracket" && stamps !== "all") throw new Error("stamps is bracket or all");
+  device.stampMode = stamps;
+  Object.assign(progress, { state: "starting", error: null, saved: [], job: { scene, streams, rounds, run: runIndex } });
+  device.errors.length = 0;
+  device.overflow = 0;
+  run(scene, streams, rounds, runIndex).catch(failed);
+  return status();
+}
+
+// The campaign's next job (?campaign): the GPU read quiet first, the
+// page reloaded after, so every job runs on a fresh page.
+async function campaign() {
+  const next = await (await fetch("next")).json();
+  if (next.done) {
+    progress.state = "campaign done";
+    document.getElementById("log").textContent = "campaign done";
+    return;
+  }
+  const { scene, streams, rounds, run: runIndex } = next.job;
+  Object.assign(progress, { state: "waiting for a quiet GPU", job: next.job });
+  document.getElementById("log").textContent = `${scene} run ${runIndex}: waiting for a quiet GPU`;
+  progress.quiet = await (await fetch(`quiet/${scene}__run${runIndex}`, { method: "POST" })).json();
+  device.stampMode = "bracket";
+  await run(scene, streams, rounds, runIndex);
+  location.reload();
+}
+
+if (new URLSearchParams(location.search).has("campaign")) campaign().catch(failed);
+</script>
+</body>
+</html>

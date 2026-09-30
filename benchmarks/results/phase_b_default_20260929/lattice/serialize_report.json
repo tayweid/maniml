@@ -1,0 +1,712 @@
+{
+  "recorded_utc": "2026-09-30T05:47:58.150649+00:00",
+  "command": [
+    "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/flip_gates.py",
+    "serialize",
+    "--flip",
+    "phase_b",
+    "--scene",
+    "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+    "LatticeScene",
+    "--tick-updaters",
+    "--play-frames",
+    "--camera-moves",
+    "--navigations",
+    "4",
+    "--record",
+    "--output",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/serialize"
+  ],
+  "flip": "phase_b",
+  "stacks": {
+    "phase_a": {
+      "renderer": "phase_a",
+      "environment": {
+        "MANIML_FILL": "meshes",
+        "MANIML_SURFACE": "grids",
+        "MANIML_PROGRAMS": "off",
+        "MANIML_BORDER_GENERATOR": "gpu"
+      }
+    },
+    "phase_b_forced": {
+      "renderer": "phase_b",
+      "environment": {
+        "MANIML_PROGRAMS": "gpu",
+        "MANIML_BORDER_GENERATOR": "gpu",
+        "MANIML_PATCH_SOURCE": null
+      }
+    }
+  },
+  "scene": {
+    "path": "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+    "name": "LatticeScene",
+    "checkpoint_count": 4,
+    "measured_checkpoints": [
+      1,
+      2,
+      3
+    ],
+    "construct_error": null
+  },
+  "git": {
+    "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+    "branch": "b5-loose-ends",
+    "dirty": true
+  },
+  "machine": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "node": "macbook.local"
+  },
+  "python": "3.13.9",
+  "numpy": "2.5.2",
+  "environment": {
+    "MANIML_RETAINED_FRAME": "1",
+    "MANIML_PROGRAMS": "off"
+  },
+  "samples": 12,
+  "warmups": 3,
+  "replays": 4,
+  "every": 1,
+  "max_frames": 12,
+  "tick_updaters": true,
+  "play_frames": true,
+  "camera_moves": true,
+  "navigations": 4,
+  "recorded": true,
+  "play_environments": {
+    "phase_a": {},
+    "phase_b_forced": {
+      "MANIML_PROGRAMS": "gpu"
+    }
+  },
+  "diagnostics": false,
+  "source_files_sha256": {
+    "benchmarks/flip_gates.py": "0d4a587271a5aca4921b384021394ca33ce324cfad7c140cd04ffe8ca2df7453",
+    "benchmarks/episode_frames.py": "21bd39fe76f33b94ac940a80fdfe3ab7aab6d26cd084a4e5e467ec2fe28662f4",
+    "benchmarks/browser_frames.py": "d757f70306f1c9319ed67a85bbcc48a7b109b90896db4d35d39df6ac0cb0763e",
+    "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+    "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+    "maniml/web/viewer.py": "e8c21417d34a13416dc0104c0709d9a98f6c130a06fe928d6a9e9fcb9f980e09",
+    "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+    "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+    "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+    "maniml/web/generated_geometry.py": "f999bd9d9748592a91ddcc3f29f54a23652ee0861199bf68ed68c6704060f10d",
+    "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+    "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+    "maniml/web/gpu_program_geometry.py": "5c665b29e281cac76435d65b50d36260cf99138f3fac6eb7a06593e6bbd6bf00",
+    "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+    "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+    "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+    "maniml/web/triangle_scene.py": "f046b7f4cb48c0e5e261cbcbeaa0de5516b6127c42dd01f41f767ccbb24deb9f",
+    "maniml/web/gpu_border_geometry.py": "d5ce15ac3b7486afe2e45f1f7d6ed879c5b692895b7b4e44afa0cb8a4951216b",
+    "maniml/web/geometry.py": "ec542cf191843837606ed4484a7bdf7d57799226f1c0a6642f47ba39f4c055e0",
+    "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+    "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+    "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+    "maniml/web/gpu_net_geometry.py": "b54c7ded22a69fca188ea3c21ec81f8e0a94f128b081d67bb17c474c1685c8e0",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "934d3314301c400ee958cd4cd2a83613cac6782ac4990f081223a0e7b4bb1c7f",
+    "maniml/web/retained_frame.py": "08dc4b940e8ee1b797eda39b574170e34ee354be79e0b533b25d8f86943e304d",
+    "maniml/utils/programs.py": "98d2fb94a4091ec6303f233794cdf9f4f89c7783125af904abb427434f256682",
+    "benchmarks/surface_scenes.py": "abbe377042a605ad5f7b19fd375f0b2ce597a97d0759abc9b8b6c321e7193422"
+  },
+  "frames": [
+    {
+      "frame": 0,
+      "checkpoint": 1,
+      "line": 40,
+      "name": null,
+      "should_update_mobjects": false,
+      "class": "pausepoint",
+      "pausepoint": {
+        "phase_a_f7": {
+          "p50": 0.5212710821069777,
+          "min": 0.49750006292015314,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_a_f8": {
+          "p50": 0.5159995052963495,
+          "min": 0.4904159577563405,
+          "n": 12,
+          "sent": 0
+        },
+        "phase_b_forced_f7": {
+          "p50": 0.6251879967749119,
+          "min": 0.6190419662743807,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_b_forced_f8": {
+          "p50": 0.6221039802767336,
+          "min": 0.614625052548945,
+          "n": 12,
+          "sent": 0
+        }
+      },
+      "camera": {
+        "phase_a_f7": {
+          "p50": 0.7049999549053609,
+          "min": 0.6603749934583902,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_a_f8": {
+          "p50": 0.7055830210447311,
+          "min": 0.6683750543743372,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f7": {
+          "p50": 1.1282915365882218,
+          "min": 1.1070419568568468,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f8": {
+          "p50": 1.1335419840179384,
+          "min": 1.07179197948426,
+          "n": 36,
+          "sent": 36
+        }
+      },
+      "play": {
+        "checkpoint": 1,
+        "line": 40,
+        "frames": 24,
+        "measured_frames": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "phase_a_f7": {
+          "per_frame_p50": [
+            47.73066652705893,
+            47.95024998020381,
+            47.51191654941067,
+            47.72281245095655,
+            47.913062502630055,
+            47.186396026518196,
+            47.827020986005664,
+            47.80833306722343,
+            47.785146452952176,
+            47.440541442483664,
+            48.12452103942633,
+            48.06074994849041
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_a_f8": {
+          "per_frame_p50": [
+            47.722062503453344,
+            47.44695854606107,
+            47.772625053767115,
+            48.621083493344486,
+            47.69999999552965,
+            47.99500002991408,
+            47.81622951850295,
+            47.352270514238626,
+            47.90214594686404,
+            48.07525052456185,
+            48.028541496023536,
+            47.73991648107767
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f7": {
+          "per_frame_p50": [
+            12.875937041826546,
+            13.682604010682553,
+            13.077624957077205,
+            13.291187467984855,
+            13.046332984231412,
+            13.03254155209288,
+            13.608979061245918,
+            13.346541440114379,
+            13.321687991265208,
+            13.032458489760756,
+            12.71268806885928,
+            13.454854022711515
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f8": {
+          "per_frame_p50": [
+            16.197687480598688,
+            16.011250496376306,
+            16.790500027127564,
+            16.506687505170703,
+            16.55493746511638,
+            16.216083546169102,
+            15.94197953818366,
+            16.54945855261758,
+            16.52452105190605,
+            17.116103961598128,
+            16.57368754968047,
+            17.2189999721013
+          ],
+          "sent": 48,
+          "n": 48
+        }
+      }
+    },
+    {
+      "frame": 1,
+      "checkpoint": 2,
+      "line": 41,
+      "name": null,
+      "should_update_mobjects": false,
+      "class": "pausepoint",
+      "pausepoint": {
+        "phase_a_f7": {
+          "p50": 0.5372705636546016,
+          "min": 0.5285840015858412,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_a_f8": {
+          "p50": 0.5346454563550651,
+          "min": 0.5272090202197433,
+          "n": 12,
+          "sent": 0
+        },
+        "phase_b_forced_f7": {
+          "p50": 0.6383334985002875,
+          "min": 0.6309580057859421,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_b_forced_f8": {
+          "p50": 0.6406455067917705,
+          "min": 0.6287080468609929,
+          "n": 12,
+          "sent": 0
+        }
+      },
+      "navigation": {
+        "phase_a_f8": {
+          "p50": 16.372208017855883,
+          "min": 16.3632920011878,
+          "n": 3,
+          "sent": 3,
+          "previous": 1,
+          "first_ms": 46.86254099942744,
+          "per_round_ms": [
+            46.86254099942744,
+            47.84370900597423,
+            16.372208017855883,
+            16.3632920011878
+          ]
+        },
+        "phase_b_forced_f7": {
+          "p50": 17.437207978218794,
+          "min": 17.122874967753887,
+          "n": 3,
+          "sent": 3,
+          "previous": 1,
+          "first_ms": 17.352458089590073,
+          "per_round_ms": [
+            17.352458089590073,
+            17.437207978218794,
+            18.702334025874734,
+            17.122874967753887
+          ]
+        },
+        "phase_b_forced_f8": {
+          "p50": 17.472750041633844,
+          "min": 17.03079103026539,
+          "n": 3,
+          "sent": 3,
+          "previous": 1,
+          "first_ms": 18.577542039565742,
+          "per_round_ms": [
+            18.577542039565742,
+            17.472750041633844,
+            17.03079103026539,
+            18.714957986958325
+          ]
+        },
+        "phase_a_f7": {
+          "p50": 17.111332970671356,
+          "min": 16.810333007015288,
+          "n": 3,
+          "sent": 3,
+          "previous": 1,
+          "first_ms": 16.38583291787654,
+          "per_round_ms": [
+            16.38583291787654,
+            17.79741607606411,
+            16.810333007015288,
+            17.111332970671356
+          ]
+        }
+      },
+      "camera": {
+        "phase_a_f7": {
+          "p50": 0.7336874841712415,
+          "min": 0.7077499758452177,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_a_f8": {
+          "p50": 0.742062577046454,
+          "min": 0.7197910454124212,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f7": {
+          "p50": 1.1710419785231352,
+          "min": 1.1312919668853283,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f8": {
+          "p50": 1.180479011964053,
+          "min": 1.1444169795140624,
+          "n": 36,
+          "sent": 36
+        }
+      },
+      "play": {
+        "checkpoint": 2,
+        "line": 41,
+        "frames": 24,
+        "measured_frames": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "phase_a_f7": {
+          "per_frame_p50": [
+            47.89770802017301,
+            47.89060400798917,
+            47.64254199108109,
+            47.908499953337014,
+            48.41470846440643,
+            47.98949998803437,
+            48.16229152493179,
+            48.07729151798412,
+            47.93852043803781,
+            48.0780205107294,
+            48.29639598028734,
+            48.122729000169784
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_a_f8": {
+          "per_frame_p50": [
+            47.889520472381264,
+            47.91099997237325,
+            47.94189601670951,
+            48.02781203761697,
+            48.505541984923184,
+            48.351624980568886,
+            48.05122903781012,
+            48.11510402942076,
+            47.97341657103971,
+            48.391520977020264,
+            47.79206257080659,
+            47.971146006602794
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f7": {
+          "per_frame_p50": [
+            13.435958477202803,
+            13.014291529543698,
+            13.45902105094865,
+            13.395479472819716,
+            13.187645992729813,
+            13.470062520354986,
+            13.27639602823183,
+            13.577479519881308,
+            13.301750004757196,
+            13.183479488361627,
+            12.95489602489397,
+            13.155457971151918
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f8": {
+          "per_frame_p50": [
+            16.964374983217567,
+            16.34420856134966,
+            16.97441644500941,
+            16.530895547475666,
+            16.69218804454431,
+            16.693250043317676,
+            16.420333471614867,
+            17.278874933253974,
+            16.181062441319227,
+            16.73960400512442,
+            16.745749511756003,
+            17.015666468068957
+          ],
+          "sent": 48,
+          "n": 48
+        }
+      }
+    },
+    {
+      "frame": 2,
+      "checkpoint": 3,
+      "line": 42,
+      "name": null,
+      "should_update_mobjects": false,
+      "class": "pausepoint",
+      "pausepoint": {
+        "phase_a_f7": {
+          "p50": 0.5410209996625781,
+          "min": 0.5269579123705626,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_a_f8": {
+          "p50": 0.5389794823713601,
+          "min": 0.5214590346440673,
+          "n": 12,
+          "sent": 0
+        },
+        "phase_b_forced_f7": {
+          "p50": 0.6442085141316056,
+          "min": 0.6260829977691174,
+          "n": 12,
+          "sent": 12
+        },
+        "phase_b_forced_f8": {
+          "p50": 0.651041918899864,
+          "min": 0.6236659828573465,
+          "n": 12,
+          "sent": 0
+        }
+      },
+      "navigation": {
+        "phase_b_forced_f7": {
+          "p50": 17.39491696935147,
+          "min": 17.13887497317046,
+          "n": 3,
+          "sent": 3,
+          "previous": 2,
+          "first_ms": 20.973874954506755,
+          "per_round_ms": [
+            20.973874954506755,
+            17.39491696935147,
+            18.38645793031901,
+            17.13887497317046
+          ]
+        },
+        "phase_b_forced_f8": {
+          "p50": 17.2539169434458,
+          "min": 17.107707913964987,
+          "n": 3,
+          "sent": 3,
+          "previous": 2,
+          "first_ms": 16.98120904620737,
+          "per_round_ms": [
+            16.98120904620737,
+            17.2539169434458,
+            17.107707913964987,
+            17.398291965946555
+          ]
+        },
+        "phase_a_f7": {
+          "p50": 16.76608296111226,
+          "min": 16.621749964542687,
+          "n": 3,
+          "sent": 3,
+          "previous": 2,
+          "first_ms": 47.68908303231001,
+          "per_round_ms": [
+            47.68908303231001,
+            17.053832998499274,
+            16.76608296111226,
+            16.621749964542687
+          ]
+        },
+        "phase_a_f8": {
+          "p50": 17.10766600444913,
+          "min": 16.99574990198016,
+          "n": 3,
+          "sent": 3,
+          "previous": 2,
+          "first_ms": 16.861542011611164,
+          "per_round_ms": [
+            16.861542011611164,
+            17.10766600444913,
+            16.99574990198016,
+            17.51833304297179
+          ]
+        }
+      },
+      "camera": {
+        "phase_a_f7": {
+          "p50": 0.7348334765993059,
+          "min": 0.6992500275373459,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_a_f8": {
+          "p50": 0.7372085237875581,
+          "min": 0.710583059117198,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f7": {
+          "p50": 1.1782079236581922,
+          "min": 1.1342089856043458,
+          "n": 36,
+          "sent": 36
+        },
+        "phase_b_forced_f8": {
+          "p50": 1.1878954828716815,
+          "min": 1.142041990533471,
+          "n": 36,
+          "sent": 36
+        }
+      },
+      "play": {
+        "checkpoint": 3,
+        "line": 42,
+        "frames": 24,
+        "measured_frames": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "phase_a_f7": {
+          "per_frame_p50": [
+            48.384812485892326,
+            48.6431245226413,
+            48.2842709752731,
+            48.09862497495487,
+            48.34935400867835,
+            48.11643750872463,
+            48.331083031371236,
+            47.918208001647145,
+            48.448812507558614,
+            48.111500043887645,
+            48.385271045845,
+            48.31329145235941
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_a_f8": {
+          "per_frame_p50": [
+            47.84337501041591,
+            48.51637547835708,
+            48.79964597057551,
+            48.495895927771926,
+            48.22283354587853,
+            48.56047948123887,
+            48.005187476519495,
+            48.13524999190122,
+            48.05691650835797,
+            48.190707981120795,
+            47.94429143657908,
+            48.21895848726854
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f7": {
+          "per_frame_p50": [
+            13.576791505329311,
+            13.485520496033132,
+            13.420417031738907,
+            13.245937472674996,
+            13.093625486362725,
+            13.679979543667287,
+            13.24941695202142,
+            13.497228967025876,
+            13.200750050600618,
+            13.309709029272199,
+            13.44841648824513,
+            13.258291524834931
+          ],
+          "sent": 48,
+          "n": 48
+        },
+        "phase_b_forced_f8": {
+          "per_frame_p50": [
+            16.710354015231133,
+            17.081312485970557,
+            16.791291476693004,
+            17.209979007020593,
+            16.832937544677407,
+            16.457666468340904,
+            17.084417049773037,
+            16.85658300993964,
+            17.17508299043402,
+            16.839687479659915,
+            16.95856300648302,
+            17.11787498788908
+          ],
+          "sent": 48,
+          "n": 48
+        }
+      }
+    }
+  ],
+  "source_files_unchanged_during_run": true,
+  "streams": {
+    "phase_a_f7": {
+      "directory": "phase_a_f7",
+      "messages": 379,
+      "sent": 379,
+      "bytes": 2179107671
+    },
+    "phase_a_f8": {
+      "directory": "phase_a_f8",
+      "messages": 379,
+      "sent": 332,
+      "bytes": 2178837346
+    },
+    "phase_b_forced_f7": {
+      "directory": "phase_b_forced_f7",
+      "messages": 379,
+      "sent": 379,
+      "bytes": 121083330
+    },
+    "phase_b_forced_f8": {
+      "directory": "phase_b_forced_f8",
+      "messages": 379,
+      "sent": 332,
+      "bytes": 56885107
+    }
+  }
+}

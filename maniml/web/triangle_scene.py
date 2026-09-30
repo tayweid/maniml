@@ -1777,11 +1777,14 @@ def begin_triangle_frame(scene, tessellator, *, pixel_tolerance=0.25, diagnostic
         stats_before=cache_before)
 
 
-def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combine=combine_run):
+def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combine=combine_run,
+                          coalescer=None):
     """End the frame begin_triangle_frame began, once its leaves are
     prepared: the caches' end-of-frame sweeps, the draws coalesced (by
-    coalesce_draws, with its ``kind`` and ``combine``), the caches'
-    statistics on the frame. Returns the frame."""
+    coalesce_draws, with its ``kind`` and ``combine``, or by ``coalescer``,
+    a stand-in with coalesce_draws' signature from a caller that keeps
+    draws across frames), the caches' statistics on the frame. Returns the
+    frame."""
     mesh_cache, border_cache, net_cache = context.mesh_cache, context.border_cache, context.net_cache
     if mesh_cache is not None:
         frame.mesh_cache_stats = mesh_cache.finish_frame(context.stats_before)
@@ -1790,8 +1793,8 @@ def finish_triangle_frame(frame, context, *, coalesce=True, kind=run_kind, combi
         frame.mesh_cache_stats.update(gpu_net_updates=net_cache.updates,
                                       retained_gpu_net_bytes=net_cache.nbytes)
     if coalesce:
-        frame.draws = coalesce_draws(frame.draws, border_cache=border_cache, kind=kind, combine=combine,
-                                     net_runs=context.net_runs)
+        frame.draws = (coalescer or coalesce_draws)(frame.draws, border_cache=border_cache, kind=kind,
+                                                    combine=combine, net_runs=context.net_runs)
     elif context.gpu_borders:
         frame.draws = [coalesce_draws([draw], border_cache=border_cache)[0] for draw in frame.draws]
     if border_cache is not None:

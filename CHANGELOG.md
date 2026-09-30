@@ -7,6 +7,26 @@ interfaces may still change before the first public release.
 
 ### Shared renderer
 
+- A frame that changes nothing costs the viewer's Python less, on every
+  renderer (docs/phase_b4_plan.md, "Phase B as the default", B5.10): when
+  every object on screen is kept and the camera has not moved (a still
+  pausepoint, an idle tick), the serializer reuses the last frame's
+  batches as they were grouped and, once they have all been sent, the
+  last message itself, instead of walking and encoding every batch again.
+  What is sent is unchanged, byte for byte. EpisodeB2's ticks at 3.i
+  cost 0.82 ms where they cost 1.06 (Phase A) and 0.84 where they cost
+  1.32 (Phase B).
+- **Phase B was measured as the Default and stays a selection.** Taylor's
+  condition for making it the Default for testing was that it be nowhere
+  dramatically slower and faster in most situations, the page's and the
+  GPU's costs measured in a real browser (Chrome's WebGPU) rather than
+  natively. On the two lecture episodes it is within 9% of Phase A at
+  rest and 0.64-1.07× in plays, but on scenes that are mostly 3D surfaces
+  a camera move or a jump between pausepoints costs 1.5-2.7× Phase A's
+  (the smooth surfaces' drawing, which the Default already does), and
+  EpisodeB3's idle ticks 1.38×; fewer than half the cases were faster.
+  `benchmarks/device_frames.py` and `benchmarks/device_frames.html` are
+  the new measuring tools.
 - The **Phase B** selection finalizes the paths a frame changed in one GPU
   dispatch in the page and in native output, where it made one a path, and
   sends a path's colours apart from its shape (docs/phase_b4_plan.md, "The

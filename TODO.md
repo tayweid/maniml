@@ -239,6 +239,27 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   grid's triangles and nothing a net draws (no course or dogfood scene
   sorts; a net drawing its patches in the sorted order, or a sorted
   surface falling back to its grid on the Default, would restore it).
+- **Measured as the default, not flipped: the whole Phase B stack**
+  (B5.10, 2026-09-30, the plan's "Phase B as the default"). Taylor's
+  condition: nowhere above 1.25× Phase A, more than half at or below
+  1.0×, the page and the GPU on the device (Chrome's Dawn). EpisodeB2 and
+  PriceDiscovery pass every class (worst 1.087×, plays 0.64× and 1.07×);
+  the surface scenes' camera moves and navigations fail (orbs 2.74× and
+  1.74×, lattice 1.63× and 1.55×: the nets' draw and evaluation on the
+  device, which the Default already pays since B5.9, where B5.7 measured
+  1.06-1.24× with the native GPU) and so do EpisodeB3's ticked frames
+  (1.38×); 9 of 23 cells at or below 1.0×. Whether a default is judged
+  against Phase A or against the Default it replaces, and whether the
+  nets' device cost stands, are Taylor's. Levers: the page's buffer a
+  net on a navigation (70 `createBuffer`s on the orbs' navigation, ~30 µs
+  each through Dawn's wire) and the nets' triangles; EpisodeB3's dashes
+  (item 5); the walk at rest (item 6). Taylor, 2026-09-30: "Keep Phase A default for
+  now." Open from the review, before the gate is taken again: repeat the
+  device cells and give them an interval (they were measured once); the
+  navigation class judges revisits only (first visits are measured beside
+  it); apply the GPU-idle check to the device runs, not only the serialize
+  runs; an unsplit stream's play fetches a missing `parts.json` (a 404 in
+  the console).
 - **Measured whole** (B6, "The final test point"): the numbers under
   "Where things stand" above.
 
@@ -301,10 +322,20 @@ reading has the rest):
 5. **The revision counter's over-signalling**: a tick at 8.a bumps 415 of
    531 leaves and changes no byte, 1.83 ms of its 4.59 ms serialize to
    compare and keep them. The fix is upstream in the mutators and changes
-   the contract the ledger relies on.
+   the contract the ledger relies on. A worse case (B5.10): EpisodeB3's
+   ticks leave 40 dashes of a `DashedVMobject` with the joint-angle flag
+   set and their subpath ends cached, a state `compare_rows` refuses
+   without a refresh's own ends (`entry.ends`, recorded only where both
+   flags were set and the ends uncached), so the retained frame prepares
+   them again every tick with the same bytes: Phase A into 10 runs, Phase
+   B into 73, which is EpisodeB3's ticked 1.38×.
 6. **The walk that finds nothing changed**: 0.8-2.4 ms a still frame,
    which the viewer runs for every prompted frame (input, at most 45 a
-   second). Silence in Python means not walking at all.
+   second). Silence in Python means not walking at all. B5.10 took the
+   coalescing and the encode out of a frame whose draws are the last
+   frame's (the runs reused, the idle message returned): EpisodeB2's
+   still frames 0.44 ms on either stack, 3.i's ticks 0.82-0.84; the walk
+   and the keeps remain.
 7. **A Phase A mover**: Lyon's 11 ms and ~200 µs a leaf besides on 8.a's
    play (84.6 ms of preparation); the retained frame's bookkeeping where
    every leaf moves (5.a's play 85.2 → 93.3 ms against today; tier 1's

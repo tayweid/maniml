@@ -12,6 +12,8 @@ import unittest
 
 from unittest.mock import patch
 
+import numpy as np
+
 from benchmarks import browser_frames, episode_frames, flip_gates, gpu_borders, play_frames
 from maniml.web.triangle_geometry import _packaged_library
 from tests import surface_fixtures
@@ -22,20 +24,50 @@ requires_lyon = unittest.skipUnless(os.environ.get("MANIML_LYON_LIBRARY") or _pa
 
 class Stacks(unittest.TestCase):
     def test_a_flip_is_the_variant_the_other_harnesses_measure(self):
+        pairs = {name: (image, reference) for name, image, reference in episode_frames.PIXEL_PAIRS}
         for flip, (browser, frames) in flip_gates.FLIPS.items():
             with self.subTest(flip=flip):
                 self.assertIn(browser, browser_frames.ENVIRONMENTS)
                 self.assertIn(frames, episode_frames.VARIANTS)
-                self.assertIn(f"{'patch' if flip == 'patches' else 'nets'}_vs_gpu_border",
-                              [name for name, _, _ in episode_frames.PIXEL_PAIRS])
+                self.assertEqual(pairs[flip_gates.PIXEL_PAIRS[flip]][0], frames)
+                for pair in flip_gates.REPORTED_PAIRS.get(flip, ()):
+                    self.assertEqual(pairs[pair], (frames, "gpu_border"))
                 (a, a_renderer, _), (b, b_renderer, environment) = flip_gates.stacks(flip)
                 self.assertEqual((a, a_renderer), ("phase_a", "phase_a"))
+                if flip == "phase_b":
+                    # The viewer's forced Phase B, its patch source taken
+                    # out as the selection's is, its plays recording GPU
+                    # programs; judged against Phase A with nets beside it.
+                    self.assertEqual((b, b_renderer), ("phase_b_forced", "phase_b"))
+                    self.assertIsNone(environment["MANIML_PATCH_SOURCE"])
+                    self.assertEqual(gpu_borders.ROUTES[episode_frames.SAMPLED_AS[frames]], "phase_b")
+                    self.assertEqual(pairs[flip_gates.PIXEL_PAIRS[flip]], (frames, "nets"))
+                    continue
                 self.assertEqual((b, b_renderer), (browser, "triangles"))
+                self.assertEqual(pairs[flip_gates.PIXEL_PAIRS[flip]], (frames, "gpu_border"))
                 # The stack episode_frames draws the flip's pixels and GPU with.
                 for key, value in gpu_borders.SWITCHES[frames].items():
                     self.assertEqual(environment[key], value, key)
         self.assertEqual(flip_gates.PHASE_A, ("phase_a", "gpu_border"))
         self.assertEqual(gpu_borders.ROUTES["gpu_border"], "phase_a")
+
+    def test_phase_b_as_the_default_measures_the_default_it_replaces_beside_it(self):
+        names = [name for name, _, _ in flip_gates.stacks("phase_b", diagnostics=True)]
+        self.assertEqual(names, ["phase_a", "phase_b_forced", "phase_a_nets"])
+        _, renderer, environment = flip_gates.stacks("phase_b", diagnostics=True)[2]
+        self.assertEqual(renderer, "triangles")
+        # Phase A with nets: the default stack B5.9 left, whatever the
+        # defaults say now.
+        for key, value in gpu_borders.SWITCHES["nets"].items():
+            self.assertEqual(environment[key], value, key)
+        self.assertEqual(flip_gates.stacks("nets", diagnostics=True), flip_gates.stacks("nets"))
+        self.assertEqual(flip_gates.PLAY_ENVIRONMENTS["phase_b_forced"], {"MANIML_PROGRAMS": "gpu"})
+        self.assertEqual((flip_gates.GATE_LIMITS["phase_b"], flip_gates.GATE_MAJORITY["phase_b"],
+                          flip_gates.GATE_FORMATS["phase_b"]), (1.25, 1.0, ("8",)))
+        scenes = flip_gates.TIMED_SCENES["phase_b"]
+        self.assertEqual([name for _, name in scenes],
+                         ["EpisodeB2", "PriceDiscovery", "EpisodeB3", "OrbsScene", "LatticeScene"])
+        self.assertIn("navigations", flip_gates.FLIP_SWITCHES["phase_b"])
 
     def test_the_fixtures_draw_nets_as_the_harnesses_do(self):
         self.assertEqual(surface_fixtures.NETS, browser_frames.ENVIRONMENTS["phase_a_nets"])
@@ -101,6 +133,105 @@ class Serialize(unittest.TestCase):
         self.assertEqual(sorted(by_frame), sorted([(still["checkpoint"], "pausepoint"), (still["checkpoint"], "camera"),
                                                    (still["checkpoint"], "play"), (ticked["checkpoint"], "ticked"),
                                                    (ticked["checkpoint"], "camera"), (ticked["checkpoint"], "play")]))
+
+
+    def test_a_navigation_and_the_recorded_streams(self):
+        """B5.10: a step from the frame measured before, each serializer
+        restoring for itself, its first round a warmup; every message each
+        serializer made recorded in order as its stream, the Phase B plays
+        recording programs and the diagnostic stack beside them."""
+        scene = self.scene
+        indices = episode_frames.select_frames(scene.animation_checkpoints)
+        record = {(name, fmt): [] for name, _, _ in flip_gates.stacks("phase_b", diagnostics=True)
+                  for fmt in flip_gates.FORMATS}
+        frames = flip_gates.measure_serialize(scene, indices, "phase_b", samples=2, warmups=1, replays=1,
+                                              tick_updaters=True, play_frames=True, camera_moves=True,
+                                              navigations=3, record=record, diagnostics=True)
+        keys = [flip_gates.key_name(*key) for key in record]
+        self.assertEqual(len(keys), 6)
+        still, ticked = frames
+        self.assertNotIn("navigation", still, "the first frame has no frame before it")
+        navigation = ticked["navigation"]
+        self.assertEqual(sorted(navigation), sorted(keys))
+        for key in keys:
+            self.assertEqual((navigation[key]["n"], len(navigation[key]["per_round_ms"])), (2, 3))
+            self.assertEqual(navigation[key]["first_ms"], navigation[key]["per_round_ms"][0])
+            self.assertEqual(navigation[key]["previous"], still["checkpoint"])
+        self.assertEqual(navigation["phase_a_f8"]["sent"], 2, "a step between frames sends a delta")
+        self.assertIn(((ticked["checkpoint"], "navigation")), flip_gates.serialize_by_frame(frames, "phase_a_f8"))
+        for (name, fmt), messages in record.items():
+            entries = [fields for _, fields in messages]
+            classes = [entry["cls"] for entry in entries]
+            self.assertEqual(classes[0], "seek")
+            self.assertEqual(classes.count("navigation"), 3)
+            self.assertEqual(classes.count("navigation_base"), 3)
+            self.assertEqual([entry["warmup"] for entry in entries if entry["cls"] == "navigation"],
+                             [True, False, False])
+            self.assertEqual(classes.count("camera"), 3 * 3 * 2, "three moves a round, two frames")
+            if fmt == 7:
+                self.assertTrue(all(message is not None for message, _ in messages))
+            else:
+                self.assertTrue(any(message is None for message, fields in messages if fields["cls"] == "pausepoint"))
+        # The Phase B plays record GPU programs (format 8: a program run's
+        # scalars op), Phase A's none.
+        from maniml.web.geometry import parse_geometry_message
+
+        def programs(name):
+            found = 0
+            for message, fields in record[(name, 8)]:
+                if message is not None and fields["cls"] == "play":
+                    header, _ = parse_geometry_message(message)
+                    found += len(header.get("scalars", ())) + sum(bool(batch.get("program"))
+                                                                  for splice in header.get("splices", ())
+                                                                  for batch in splice[2])
+            return found
+
+        self.assertGreater(programs("phase_b_forced"), 0)
+        self.assertEqual((programs("phase_a"), programs("phase_a_nets")), (0, 0))
+        with tempfile.TemporaryDirectory() as tmp:
+            streams = flip_gates.write_streams(Path(tmp), scene, record)
+            self.assertEqual(sorted(streams), sorted(keys))
+            meta = json.loads((Path(tmp) / "phase_b_forced_f8" / "scene.json").read_text())
+            self.assertEqual(meta["format_version"], 8)
+            self.assertEqual([entry["index"] for entry in meta["frames"]], list(range(len(record[("phase_b_forced", 8)]))))
+            self.assertEqual(sum(entry["len"] for entry in meta["frames"]), streams["phase_b_forced_f8"]["bytes"])
+
+
+    def test_a_first_visit_is_measured_by_a_serializer_alone(self):
+        """B5.10: a step from each measured frame to the next, restored for
+        the first time, for one serializer; the seek and the steps' bases
+        are warmups."""
+        scene = self.scene
+        indices = episode_frames.select_frames(scene.animation_checkpoints)
+        name, renderer, environment = flip_gates.stacks("phase_b")[1]
+        record = {(name, 8): []}
+        frames = flip_gates.measure_first_visits(scene, indices, {(name, 8): (renderer, environment, {})},
+                                                 record=record)
+        self.assertEqual(len(frames), len(indices) - 1)
+        frame = frames[0]
+        self.assertEqual((frame["checkpoint"], frame["previous"]), (indices[1], indices[0]))
+        self.assertEqual(list(frame["first_visit"]), ["phase_b_forced_f8"])
+        self.assertTrue(frame["first_visit"]["phase_b_forced_f8"]["sent"], "a step between frames sends a delta")
+        self.assertEqual([(fields["cls"], fields["warmup"]) for _, fields in record[(name, 8)]],
+                         [("seek", True), ("first_visit_base", True), ("first_visit", False)])
+
+    def test_the_first_visits_run_a_process_a_serializer_and_merge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "first"
+            flip_gates.main(["serialize", "--flip", "phase_b", "--scene", str(Path(self.tmpdir.name) / "flips.py"),
+                             "Flips", "--first-visits", "--record", "--output", str(out)])
+            report = json.loads((out / "report.json").read_text())
+            keys = ["phase_a_f7", "phase_a_f8", "phase_b_forced_f7", "phase_b_forced_f8"]
+            self.assertTrue(report["first_visits"])
+            self.assertEqual(sorted(report["processes"]), keys)
+            self.assertEqual(sorted(report["streams"]), keys)
+            self.assertEqual(sorted(report["frames"][0]["first_visit"]), keys)
+            self.assertTrue(report["source_files_unchanged_during_run"])
+            streams = flip_gates.recorded_streams(out, report)
+            self.assertEqual([entry["cls"] for entry in streams["phase_a_f7"]],
+                             ["seek", "first_visit_base", "first_visit"])
+            measured = flip_gates.measured_of({"flip": "phase_b", "frames": []}, report)
+            self.assertEqual((measured["first_visits"], measured["classes"]), (True, ["first_visit"]))
 
 
 def browser_rows(checkpoint, cls, page, sent=True, count=3):
@@ -281,6 +412,318 @@ class Complete(unittest.TestCase):
                 flip_gates.main(["complete", "--flip", "nets", "--serialize", str(root / "serialize"),
                                  "--browser", str(root / "browser"), "--gpu", str(root / "gpu"), "--limit", "1.05",
                                  "--output", str(root / "out")])
+
+
+class Device(unittest.TestCase):
+    """B5.10's complete frame from a recorded stream played on the device:
+    each message's serialize, its page and GPU on the device over every
+    run (the page a median over the plain rounds, the GPU a mean over the
+    stamped ones), per unit and then per class, with an interval from
+    resampling the units, the rounds and the runs; an unsent message costs
+    its serialize alone."""
+
+    @staticmethod
+    def stream(serialize, gpu, page=.1, done=2., sent=True, runs=1, scale=(1.,)):
+        """Entries and device rows (``runs`` of them a message, the GPU of
+        run r scaled by ``scale[r]``): a still frame at 2 (two warmup
+        rounds, two measured, the second unsent under ``sent`` False), a
+        camera move, a play of two frames over two replays and a
+        navigation of three rounds (the first a warmup), and a first visit
+        to 3."""
+        entries, played = [], {}
+
+        def add(fields, ms, gpus, length=100):
+            index = len(entries)
+            entries.append({"index": index, "len": length, "serialize_ms": ms, **fields})
+            if length:
+                played[index] = [{"index": index, "page": [page, page * 3, page], "done": [done] * 3,
+                                  "gpu": [value * scale[run % len(scale)] for value in gpus],
+                                  "passes": [2] * len(gpus)} for run in range(runs)]
+
+        add({"checkpoint": 2, "cls": "seek", "warmup": True}, 50., [9.])
+        add({"checkpoint": 2, "cls": "pausepoint", "warmup": True}, 9., [9.])
+        add({"checkpoint": 2, "cls": "pausepoint", "warmup": False}, serialize, gpu)
+        add({"checkpoint": 2, "cls": "pausepoint", "warmup": False}, serialize, gpu, 100 if sent else 0)
+        add({"checkpoint": 2, "cls": "camera", "warmup": False, "move": "pan"}, 2 * serialize, gpu)
+        for replay in range(2):
+            for k in (4, 5):
+                add({"checkpoint": 2, "cls": "play", "warmup": False, "play_frame": k, "replay": replay},
+                    serialize + k, gpu)
+        for turn in range(3):
+            add({"checkpoint": 3, "cls": "navigation_base", "warmup": True, "round": turn}, 7., [9.])
+            add({"checkpoint": 3, "cls": "navigation", "warmup": turn == 0, "round": turn}, 4. if turn else 8., gpu)
+        add({"checkpoint": 3, "cls": "first_visit_base", "warmup": True}, 7., [9.])
+        add({"checkpoint": 3, "cls": "first_visit", "warmup": False}, 11., gpu)
+        return entries, played
+
+    def test_a_class_is_its_units_each_the_mean_of_its_messages_device_parts(self):
+        entries, played = self.stream(1., [1., 1.262144, 1.])
+        classes = flip_gates.device_classes(entries, played)
+        self.assertEqual(sorted(classes), ["camera", "first_visit", "navigation", "pausepoint", "play"])
+        still = classes["pausepoint"]
+        self.assertEqual((still["frames"], still["per_frame"][0]["messages"]), (1, 2), "warmups left out")
+        self.assertAlmostEqual(still["gpu_ms"], 3.262144 / 3, msg="the mean of the stamped rounds")
+        self.assertAlmostEqual(still["page_ms"], .1, msg="the median of the plain rounds")
+        self.assertAlmostEqual(still["complete_ms"], 1. + .1 + 3.262144 / 3)
+        self.assertAlmostEqual(still["complete_done_ms"], 1. + .1 + 2.)
+        play = classes["play"]
+        self.assertEqual((play["frames"], play["checkpoints"]), (2, 1))
+        self.assertEqual([frame["serialize_ms"] for frame in play["per_frame"]], [5., 6.])
+        self.assertEqual(classes["navigation"]["serialize_ms"], 4., "a revisit: the rounds after the first")
+        self.assertEqual(classes["first_visit"]["serialize_ms"], 11.)
+        # A format 8 frame the stream did not send: its serialize, no page
+        # or GPU, and the unit's parts are the means over its messages.
+        entries, played = self.stream(1., [2., 2., 2.], sent=False)
+        still = flip_gates.device_classes(entries, played)["pausepoint"]
+        self.assertEqual((still["sent"], still["gpu_ms"], still["page_ms"]), (.5, 1., .05))
+        # A sent message the device did not time, in any run, is an error.
+        del played[2]
+        with self.assertRaisesRegex(ValueError, "did not time"):
+            flip_gates.device_classes(entries, played)
+        entries, played = self.stream(1., [2.], runs=2)
+        played[2][1] = None
+        with self.assertRaisesRegex(ValueError, "every run"):
+            flip_gates.device_classes(entries, played)
+
+    def test_the_runs_are_pooled_and_the_interval_spans_them(self):
+        # Three runs whose GPU reads 1x, 2x and 1x: the message's GPU is the
+        # mean over every stamped round of every run, and the interval over
+        # the runs spans what one run alone would have read.
+        entries, played = self.stream(1., [1., 1., 1.], runs=3, scale=(1., 2., 1.))
+        classes = flip_gates.device_classes(entries, played)
+        self.assertAlmostEqual(classes["pausepoint"]["gpu_ms"], 4 / 3)
+        reference_entries, reference_played = self.stream(1., [1., 1., 1.], runs=3)
+        samples = {name: flip_gates.class_samples(entries_, played_, "pausepoint")
+                   for name, (entries_, played_) in (("b", (entries, played)),
+                                                     ("a", (reference_entries, reference_played)))}
+        units, serialize, page, gpu = samples["b"]
+        self.assertEqual(units, [(2,)])
+        self.assertEqual(page.shape, (1, 2, 3, 3))
+        self.assertFalse(np.isnan(page).any(), "two messages, three runs of three plain rounds")
+        # The resample that draws every unit, run and round once is the point.
+        every = np.arange(3)
+        point = flip_gates.resampled_complete(samples["b"], np.arange(1), every, np.tile(every, (3, 1)),
+                                              np.tile(every, (3, 1)))
+        self.assertAlmostEqual(point, classes["pausepoint"]["complete_ms"])
+        interval = flip_gates.ratio_interval(samples["b"], samples["a"], resamples=400)
+        ratio = classes["pausepoint"]["complete_ms"] / flip_gates.device_classes(
+            reference_entries, reference_played)["pausepoint"]["complete_ms"]
+        self.assertLess(interval[0], ratio)
+        self.assertGreater(interval[1], ratio)
+        self.assertAlmostEqual(interval[0], (1 + .1 + 1) / 2.1, msg="every run drawn one that read 1x")
+        # Its top: two or three of the draws the run that read 2x (a draw
+        # of three runs is all three that run once in 27).
+        self.assertGreater(interval[1], (1 + .1 + 5 / 3) / 2.1)
+        self.assertLessEqual(interval[1], (1 + .1 + 2) / 2.1 + 1e-12)
+        self.assertEqual(interval, flip_gates.ratio_interval(samples["b"], samples["a"], resamples=400), "seeded")
+        self.assertIsNone(flip_gates.ratio_interval(None, samples["a"]))
+
+    def device_report(self, runs=3, gpus=None):
+        streams, device = {}, {"streams": {}}
+        for name, (serialize, gpu) in (gpus or {"phase_a": (1., [1.]), "phase_b_forced": (1., [2.]),
+                                                 "phase_a_nets": (1., [1.5])}).items():
+            for fmt in flip_gates.FORMATS:
+                entries, played = self.stream(serialize, gpu, runs=runs)
+                streams[flip_gates.key_name(name, fmt)] = entries
+                device["streams"][flip_gates.key_name(name, fmt)] = {"runs": [
+                    {"run": run, "messages": [rows[run] for rows in played.values()]} for run in range(runs)]}
+        return streams, device
+
+    def test_the_flip_is_judged_on_the_device_with_its_diagnostics_beside(self):
+        streams, device = self.device_report()
+        self.assertEqual(flip_gates.device_runs(device), 3)
+        complete = flip_gates.device_complete(streams, device, "phase_b")
+        self.assertEqual(sorted(complete["8"]), ["phase_a", "phase_a_nets", "phase_b_forced"])
+        self.assertNotIn("first_visit", complete["8"]["phase_a"], "first visits come from their own runs")
+        intervals = flip_gates.device_intervals(streams, device, "phase_b", resamples=50)
+        self.assertEqual(sorted(intervals["8"]), ["phase_a_nets/phase_a", "phase_b_forced/phase_a",
+                                                  "phase_b_forced/phase_a_nets"])
+        judged = flip_gates.verdict(complete, "phase_b", 1.25, intervals)
+        self.assertAlmostEqual(judged["8"]["pausepoint"]["ratio"], (1. + .1 + 2.) / (1. + .1 + 1.))
+        self.assertFalse(judged["8"]["pausepoint"]["within_limit"])
+        self.assertEqual(len(judged["8"]["pausepoint"]["interval_95"]), 2)
+        self.assertNotIn("first_visit", judged["8"])
+        diagnostics = flip_gates.diagnostic_ratios(complete, "phase_b", intervals)["8"]["phase_a_nets"]["pausepoint"]
+        self.assertAlmostEqual(diagnostics["flip_over_other"], 3.1 / 2.6)
+        self.assertAlmostEqual(diagnostics["other_over_phase_a"], 2.6 / 2.1)
+        self.assertEqual(len(diagnostics["flip_over_other_95"]), 2)
+        # The first visits, each serializer's stream from a process of its
+        # own, played on the device apart: their class beside the rest.
+        first_streams, first_device = self.device_report(gpus={"phase_a": (2., [1.]), "phase_b_forced": (1., [1.])})
+        complete = flip_gates.device_complete(streams, device, "phase_b", first_streams, first_device)
+        first = flip_gates.verdict(complete, "phase_b", 1.25)["8"]["first_visit"]
+        self.assertAlmostEqual(first["ratio"], (11. + .1 + 1.) / (11. + .1 + 1.))
+        self.assertNotIn("first_visit", complete["8"]["phase_a_nets"])
+        del first_streams["phase_b_forced_f8"]
+        with self.assertRaisesRegex(ValueError, "first visits"):
+            flip_gates.device_complete(streams, device, "phase_b", first_streams, first_device)
+        # The diagnostic stack is optional; the two judged stacks are not.
+        del streams["phase_a_nets_f7"], streams["phase_a_nets_f8"]
+        self.assertEqual(sorted(flip_gates.device_complete(streams, device, "phase_b")["7"]),
+                         ["phase_a", "phase_b_forced"])
+        del streams["phase_a_f8"]
+        with self.assertRaisesRegex(ValueError, "phase_a_f8"):
+            flip_gates.device_complete(streams, device, "phase_b")
+        # A report of one run holds its messages alone.
+        entries, played = self.stream(1., [1.])
+        self.assertEqual(flip_gates.device_played({"streams": {"s": {"messages": [rows[0] for rows in played.values()]}}},
+                                                  "s")[2], played[2])
+
+    def test_every_stream_is_served_with_its_parts(self):
+        # The page reads parts.json for every stream: the whole stream one
+        # part, or a stream too large for one buffer (the lattice's Phase A
+        # is 2.18 GB of messages) in parts of whole messages, the bytes the
+        # recording's.
+        import gzip
+        from benchmarks import device_frames
+
+        messages = [bytes([index]) * length for index, length in enumerate((5, 0, 7, 3, 9, 0, 4))]
+        with tempfile.TemporaryDirectory() as tmp:
+            stream, served = Path(tmp) / "stream", Path(tmp) / "served"
+            stream.mkdir()
+            with gzip.open(stream / "scene.bin.gz", "wb") as file:
+                file.write(b"".join(messages))
+            (stream / "scene.json").write_text(json.dumps({"frames": [{"len": len(m)} for m in messages]}))
+            with patch.object(device_frames, "PART_BYTES", 10):
+                device_frames.split_stream(stream, served)
+            parts = json.loads((served / "parts.json").read_text())
+            self.assertEqual([(part["first"], part["end"]) for part in parts], [(0, 2), (2, 4), (4, 6), (6, 7)])
+            for part in parts:
+                with gzip.open(served / part["file"]) as file:
+                    self.assertEqual(file.read(), b"".join(messages[part["first"]:part["end"]]))
+            small = Path(tmp) / "small"
+            device_frames.split_stream(stream, small)
+            self.assertTrue((small / "scene.bin.gz").is_symlink())
+            self.assertEqual(json.loads((small / "parts.json").read_text()),
+                             [{"first": 0, "end": 7, "file": "scene.bin.gz"}])
+
+    def test_the_gpu_is_waited_for_until_it_reads_quiet(self):
+        from benchmarks import device_frames
+
+        readings, clock = iter([40, 0, 0, 5, 0, 12, 3, 4, 9]), [0.]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        quiet = device_frames.quiet_gpu(read=lambda: next(readings), sleep=sleep, clock=lambda: clock[0])
+        self.assertEqual((quiet["quiet"], quiet["gpu_percent"]), (True, [3, 4, 9]))
+        self.assertEqual(quiet["waited_s"], 16.)
+        busy = device_frames.quiet_gpu(limit=10, read=lambda: 50, sleep=sleep, clock=lambda: clock[0])
+        self.assertFalse(busy["quiet"])
+        self.assertGreater(busy["waited_s"], 10)
+
+    def test_a_scenes_runs_are_collected_with_their_quiet_readings(self):
+        from benchmarks import device_frames
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            serialize, serve = root / "serialize", root / "serve"
+            entries, played = self.stream(1., [1.])
+            names = ["phase_a_f8", "phase_b_forced_f8"]
+            for name in names:
+                (serialize / "streams" / name).mkdir(parents=True)
+                (serialize / "streams" / name / "scene.json").write_text(json.dumps({"frames": entries}))
+                (serialize / "streams" / name / "scene.bin.gz").write_bytes(name.encode())
+            (serialize / "report.json").write_text(json.dumps({"scene": {"name": "S"},
+                                                               "streams": {name: {} for name in names}}))
+            (serve / "results").mkdir(parents=True)
+            (serve / "sources.json").write_text(json.dumps({"served": {}, "tree": {}}))
+            (serve / "campaign.json").write_text(json.dumps([{"scene": "S", "streams": names, "rounds": 3, "run": run}
+                                                             for run in range(2)]))
+            self.assertEqual(device_frames.next_job(serve)["run"], 0)
+
+            def result(run, name, **extra):
+                return {"userAgent": "u", "adapter": {}, "timestamps": True, "crossOriginIsolated": True,
+                        "rounds": 3, "modes": [], "overflow": 0, "errors": [], "seconds": 1., "started": "s",
+                        "finished": "f", "order": names[::1 - 2 * (run % 2)],
+                        "messages": [rows[0] for rows in played.values()], **extra}
+
+            for run in range(2):
+                for name in names:
+                    (serve / "results" / f"S__run{run}__{name}.json").write_text(json.dumps(result(run, name)))
+            (serve / "results" / "S__run0__quiet.json").write_text(json.dumps({"quiet": True, "gpu_percent": [0]}))
+            self.assertIsNone(device_frames.next_job(serve))
+            report = device_frames.collect(serve, "S", serialize, root / "out")
+            self.assertEqual([run["run"] for run in report["runs"]], [0, 1])
+            self.assertEqual(report["runs"][0]["quiet"]["quiet"], True)
+            self.assertIsNone(report["runs"][1]["quiet"])
+            self.assertEqual(report["runs"][1]["order"], names[::-1])
+            self.assertEqual(flip_gates.device_runs(report), 2)
+            self.assertEqual(len(flip_gates.device_played(report, "phase_a_f8")[2]), 2)
+            (serve / "results" / "S__run1__phase_a_f8.json").write_text(json.dumps(result(1, "x", adapter={"a": 1})))
+            with self.assertRaisesRegex(SystemExit, "another browser"):
+                device_frames.collect(serve, "S", serialize, root / "out")
+
+    def test_the_gate_is_every_cell_within_its_limit_and_most_at_or_below_phase_a(self):
+        classes = ("pausepoint", "camera", "play", "navigation", "first_visit")
+
+        def summary(file, name, ratios, runs=3, spread=.01, **extra):
+            git = {"commit": "c0ffee"}
+            verdict = {fmt: {cls: {"ratio": ratio, "within_limit": ratio <= 1.25,
+                                   "interval_95": [ratio - spread, ratio + spread]} for cls, ratio in ratios.items()}
+                       for fmt in ("8", "7")}
+            return {"flip": "phase_b", "limit": 1.25, "scene": {"path": f"/somewhere/{file}", "name": name},
+                    "inputs": {"serialize": "s", "browser": None, "device": "d", "gpu": [], "pixels": ["p"]},
+                    "input_commits": {"serialize": git, "browser": None, "device": git, "gpu": [], "pixels": [git]},
+                    "measured": {**{switch: True for switch in flip_gates.FLIP_SWITCHES["phase_b"]},
+                                 "classes": list(ratios)},
+                    "source_files_sha256": {}, "source_files_disagree": [],
+                    "device": {"rounds": 5, "runs": [{}] * runs}, "first_visits_device": {"runs": [{}] * runs},
+                    "verdict": verdict, "pixels": {"passes": True, "worst": {"fraction_pixels_rgb_over24": 0.}},
+                    **extra}
+
+        def gate(ratios, **kwargs):
+            return flip_gates.gate_verdict([summary(file, name, ratios, **kwargs)
+                                            for file, name in flip_gates.TIMED_SCENES["phase_b"]], None, "phase_b")
+
+        fast = dict(zip(classes, (.9, .8, .7, 1.2, .9)))
+        passed = gate(fast)
+        self.assertTrue(passed["passes"], passed["failures"])
+        self.assertEqual((passed["majority"]["cells"], passed["majority"]["at_or_below"]), (25, 20))
+        self.assertTrue(passed["resolution"]["passes"])
+        table = flip_gates.gate_table(passed)
+        self.assertIn("20 of 25", table)
+        self.assertIn("| revisit | first visit |", table)
+        self.assertIn("1.200 [1.19–1.21]", table)
+        # Half at or below 1.0 is not most.
+        even = gate(dict(zip(classes, (.9, .8, 1.1, 1.2, 1.1))))
+        self.assertFalse(even["passes"])
+        self.assertEqual(even["failures"], ["10 of 25 cells at or below 1.0×, not more than half"])
+        self.assertTrue(even["resolution"]["fails"], "no interval reaches 1.0 from above")
+        # One cell over 1.25 fails, whatever the rest; its interval says
+        # whether the failure is resolved.
+        over = gate(dict(zip(classes, (.5, .5, .5, 1.3, .5))))
+        self.assertEqual(len(over["failures"]), 5, over["failures"])
+        self.assertIn("format 8 navigation 1.300", over["failures"][0])
+        self.assertTrue(over["resolution"]["fails"])
+        spanning = gate(dict(zip(classes, (.5, .5, .5, 1.3, .5))), spread=.1)
+        self.assertFalse(spanning["passes"])
+        self.assertFalse(spanning["resolution"]["fails"], "1.2-1.4 spans the limit")
+        self.assertEqual(len(spanning["resolution"]["over_limit_within_interval"]), 5)
+        self.assertIn("Resolved by the intervals: no", flip_gates.gate_table(spanning))
+        # Fewer device runs than DEVICE_RUNS fail.
+        few = gate(fast, runs=1)
+        self.assertIn("EpisodeB2: its device ran 1 time, the gate reads at least 3", few["failures"])
+        self.assertIn("EpisodeB2: its first visits device ran 1 time, the gate reads at least 3", few["failures"])
+        # Format 7 is quoted, not judged: a full frame over the limit there
+        # fails nothing.
+        scenes = [summary(file, name, fast) for file, name in flip_gates.TIMED_SCENES["phase_b"]]
+        scenes[0]["verdict"]["7"]["camera"] = {"ratio": 2.0, "within_limit": False}
+        self.assertTrue(flip_gates.gate_verdict(scenes, None, "phase_b")["passes"])
+        self.assertIn("(2.000)", flip_gates.gate_table(flip_gates.gate_verdict(scenes, None, "phase_b")))
+        # A run without navigations or first visits, or whose page and GPU
+        # are not the device's, fails.
+        scenes[1]["measured"]["navigations"] = False
+        del scenes[1]["verdict"]["8"]["navigation"]
+        scenes[3]["measured"]["first_visits"] = False
+        del scenes[3]["verdict"]["8"]["first_visit"]
+        scenes[2]["device"] = None
+        failures = flip_gates.gate_verdict(scenes, None, "phase_b")["failures"]
+        self.assertIn("PriceDiscovery: serialize ran without --navigations", failures)
+        self.assertIn("PriceDiscovery: format 8 navigation not measured", failures)
+        self.assertIn("OrbsScene: serialize ran without --first-visits", failures)
+        self.assertIn("OrbsScene: format 8 first_visit not measured", failures)
+        self.assertIn("EpisodeB3: its page and GPU parts are not the device's (complete --device)", failures)
 
 
 PLAYS = textwrap.dedent('''\

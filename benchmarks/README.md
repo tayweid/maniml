@@ -665,6 +665,147 @@ variant of `browser_frames`, `gpu_borders.sample` (so `episode_frames`),
 `flip_gates` and `test_point` takes `MANIML_NET_RUNS` out of the
 environment. The golden pin states `0`, as its nets were recorded.
 
+## Phase B as the default: the device
+
+B5.10 (`docs/phase_b4_plan.md`, "Phase B as the default") judges the whole
+Phase B stack (patches, nets, GPU programs, rows as the patch source: the
+forced Phase B) as the default against Phase A forced, on Taylor's gate of
+2026-09-29: the browser-side complete frame, Python serialize + page
+JavaScript + GPU, with the page and the GPU measured on the page's own
+device (Chrome's Dawn on Metal) rather than the native driver, whose GPU
+column overcharges Phase B (B6's archive, "The GPU part is the native
+driver's, not the page's"). Classes: pausepoint, ticked, camera, play, and
+two navigation classes, a revisit (`navigation`) and a first visit
+(`first_visit`), per scene of `flip_gates.TIMED_SCENES["phase_b"]`
+(EpisodeB2, PriceDiscovery through the tree of links, EpisodeB3,
+`OrbsScene`, `LatticeScene`). The gate (`GATE_LIMITS`, `GATE_MAJORITY`,
+`GATE_FORMATS`, `DEVICE_RUNS`): no (scene, class) cell above 1.25× Phase A,
+and more than half of the cells at or below 1.0×, in the format 8 stream
+every shipped page negotiates (format 7 quoted beside it), each cell's 95%
+interval beside it and at least three device runs a scene; pixels, Phase B
+against Phase A with nets (`episode_frames`' `phase_b_vs_nets`, ≤ 0.5%
+over 24/255), since what nets change is surface silhouettes, which B5.9's
+accuracy gate governs (Phase B against Phase A is reported). Per scene, one
+at a time:
+
+```bash
+S=(/abs/path/Blocks/B2_Supply/03_Code.py EpisodeB2)
+python -m benchmarks.flip_gates serialize --flip phase_b --scene $S --tick-updaters --play-frames \
+    --camera-moves --navigations 4 --record --output <d>/serialize
+python -m benchmarks.flip_gates serialize --flip phase_b --scene $S --first-visits --record --output <d>/first
+python -m benchmarks.episode_frames --scene $S --variants phase_b_retained nets gpu_border \
+    --tick-updaters --play-frames --output <d>/frames
+```
+
+then every scene's streams on the device, three runs of each:
+
+```bash
+python -m benchmarks.device_frames prepare --serve <serve> --runs 3 \
+    --streams EpisodeB2=<d>/serialize/streams EpisodeB2First=<d>/first/streams ...
+python -m benchmarks.device_frames serve --serve <serve> --port 8741      # left running
+#   open http://127.0.0.1:8741/device_frames.html?campaign in a WebGPU browser (the built-in pane
+#   will do); it runs campaign.json's jobs one a page load until "campaign done"
+python -m benchmarks.device_frames collect --serve <serve> --scene EpisodeB2 --serialize <d>/serialize \
+    --output <d>/device
+python -m benchmarks.device_frames collect --serve <serve> --scene EpisodeB2First --serialize <d>/first \
+    --output <d>/first_device
+python -m benchmarks.flip_gates complete --flip phase_b --serialize <d>/serialize --device <d>/device \
+    --first-visits <d>/first --first-visits-device <d>/first_device --pixels <d>/frames --limit 1.25 \
+    --output <d>/complete
+python -m benchmarks.flip_gates gate --flip phase_b --complete <d per scene>/complete --output <d>/gate
+```
+
+**One set of messages for all three parts.** `serialize --record` writes
+every message each serializer made, in order, as a stream folder of its own
+(`<output>/streams/<stack>_f<format>/`, the export recorder's layout; a
+format 8 stream's unsent frames are entries of length 0), each entry saying
+what it was (class, checkpoint, round, play frame, warmup) with its
+`serialize_ms`. The device plays exactly those messages, so a message's
+serialize, page and GPU are the same bytes' (`flip_gates.device_message`).
+The four serializers take turns as before; a ticked frame's serializer
+order is now rotated round by round, since an episode's updaters need not
+change the same things every tick (EpisodeB2's 8.a read 4.3 or 5.5 ms for
+one stack by which ticks it followed). `--diagnostics` adds the flip's
+`DIAGNOSTIC_STACKS` (Phase A with nets, the Default Phase B replaces) in a
+run of its own, never the gate's: every serializer that takes a turn
+between two of one serializer's leaves less of its work in the processor's
+caches (a viewer has one cache), and a stack of more runs loses more
+(EpisodeB2's ticks read 1.24× with two serializers turning, 1.34× with
+six).
+
+**The navigation classes.** A revisit (`--navigations N`): from every
+measured frame after the first, N steps from the frame measured before it,
+each serializer in turn restoring that frame and serializing it (the base,
+no row) and then restoring this one and serializing it, so each is the
+first reader of every restore it serializes; the first round is a warmup,
+the rows the later rounds, steps to a checkpoint the process restored
+before (a lecture's steps back and forth, every seek to a frame seen
+before). A first visit (`--first-visits`): the same step to a checkpoint
+the process never restored, which pays what a later restore reuses (on the
+orbs Phase A's grid evaluation, 8.7 against 3.2 ms). In a process that
+serializes four stacks the first to restore a checkpoint pays it for all,
+so each serializer runs in a process of its own (`measure_first_visits`,
+`run_first_visits`: four processes one after another, their reports and
+streams merged), as a viewer's process serves one stack.
+
+**The device** (`benchmarks/device_frames.html`, served cross-origin
+isolated by `device_frames serve`, so `performance.now` has 5 µs
+resolution). Each stream is played through the viewer's renderer selection
+into the real `webgpu.js`, a new driver per play (as a page load makes one),
+each message awaited to the device before the next, so each starts on an
+idle GPU as a viewer's messages do; after a warmup round (every stream
+played once and dropped: on a fresh page the first plays compile the
+driver's JavaScript, which read the same message 9 ms against 2 in the
+pilot), the streams take turns, rotated round by round, in rounds that
+alternate: plain rounds time `page_ms` (the selection's render: the header
+read, the driver's parse or resend comparison, its slots, the compute
+stages, the encode and the submit, each WebGPU call serialized for Dawn's
+wire) and `done_ms` (from the page's return to `onSubmittedWorkDone`:
+Dawn's GPU process, the GPU and the callback's latency); stamped rounds
+give the driver's passes `timestampWrites` (the device offers
+`timestamp-query`) and take `gpu_ms`, the span from the beginning of the
+message's first pass to the end of its present pass. Two stamps a message,
+whatever its pass count: stamping both ends of every pass, as the native
+instrument does, cost the orbs' program play (73 passes) 4.29 against 3.45
+ms, about 12 µs a stamped pass, and a pass that does nothing stamps 0 on
+Apple's GPUs. Chrome quantizes a timestamp to 2^17 ns (131 µs): a
+message's GPU is the mean of its stamped rounds, unbiased where a median
+moves in whole steps. Every stream is served with its `parts.json` (the
+whole stream one part, or a stream larger than 512 MB of messages in parts
+of whole messages, each read between two messages), so a clean run leaves
+the console empty.
+
+**Runs.** A device reading does not repeat within itself: the GPU's clock
+follows its load, and the same recorded messages played again read up to
+half their GPU time otherwise (B5.10's review: the orbs' camera cell read
+2.748 and then 1.373 from the same streams, and the Phase B and Phase A
+with nets camera messages, which make the same calls, 2.74 against 1.52
+ms of GPU within one run). So `prepare --runs 3` writes a campaign of
+every scene three times over, run by run, and the page opened with
+`?campaign` runs one job (one run of one scene) a page load: it asks the
+server to wait until the GPU reads quiet (`POST quiet/<scene>__run<k>`:
+`device_frames.quiet_gpu`, three `ioreg` readings a second apart at or
+below 10%, at most 120 s; the reading is stored beside the results and
+`collect` reports it), plays the job, the odd runs with the streams in
+the reverse order, and reloads for the next. `collect` gathers a scene's
+runs with the streams' digests, which `complete` holds to the serialize
+run's, and refuses runs on another browser, adapter or rounds.
+
+**The complete frame.** Per unit (a still, ticked, camera, revisit or
+first-visit frame; each measured play frame) the serialize median over its
+messages, the page's and the GPU's means over every run's rounds (a format
+8 message not sent counts 0: what the class costs a message), their sum,
+then the median over the units. Each ratio carries a 95% interval
+(`device_intervals`: 2,000 seeded resamples of the units, the runs and each
+drawn run's rounds, the same draws for both stacks, since a unit is the
+same frame in either and a round played every stream of the scene in
+turn); the gate table prints it beside each cell and says whether the
+intervals resolve the verdict (every failing cell's interval above the
+limit, or the majority short even counting every cell whose interval
+reaches 1.0). `device_check` quotes the same with the GPU part the wait for
+the device in place of the stamps (no stamps, but the callback's latency
+in every message).
+
 ## Point reads by kind and phase
 
 The instruction-stream plan's prerequisite: which Python reads of source

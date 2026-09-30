@@ -95,7 +95,11 @@ PIXEL_PAIRS = (("patch_vs_gpu_border", "patch_fill", "gpu_border"), ("patch_vs_c
                ("default_vs_gpu_border", "default", "gpu_border"),
                ("phase_b_vs_gpu_border", "phase_b_retained", "gpu_border"),
                ("phase_b_records_vs_gpu_border", "phase_b_retained_records", "gpu_border"),
-               ("phase_b_vs_records", "phase_b_retained", "phase_b_retained_records"))
+               ("phase_b_vs_records", "phase_b_retained", "phase_b_retained_records"),
+               # B5.10: the forced Phase B against Phase A with nets (the
+               # default surface since B5.9), what the patches and the
+               # programs change apart from the surfaces' silhouettes.
+               ("phase_b_vs_nets", "phase_b_retained", "nets"))
 # The columns summary.json reduces, in this order; gpu_pass_* follow them.
 TIMING_KEYS = ("serialize_through_rgba_image_ms", "submit_through_full_readback_ms", "post_readback_ms",
                "prepare_ms", "render_cpu_encode_ms", "gpu_total_ms", "gpu_sum_ms", "gpu_readback_ms")

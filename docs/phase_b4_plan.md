@@ -1980,6 +1980,134 @@ formats (1.063-1.243), which Taylor accepted. Archive:
 `benchmarks/results/b59_nets_default_20260929/` (every accuracy run's
 frames, the fixtures, the gate, the crops).
 
+## Phase B as the default
+
+B5.10 (2026-09-30, branch `b5-loose-ends` after B5.8 and B5.9). Taylor,
+2026-09-29: "i want to try it first before it becomes the only option ...
+so long as it's not dramatically slower in any situation and is faster or
+much faster in most, then i want it to be the default for testing." The
+candidate is the whole Phase B stack (patches, nets, GPU programs, rows as
+the patch source: the forced Phase B, byte for byte what a flipped Default
+would send), Phase A forced the reference. **The gate**, as stated to him:
+the browser-side complete frame, Python serialize + page JavaScript + GPU,
+with the page and the GPU measured on the page's own device (Chrome's Dawn
+on Metal, this M3) rather than the native driver, whose GPU column
+overcharges Phase B ("The final test point", "The GPU column is the native
+driver's"); classes pausepoint, ticked, camera, play and navigation;
+scenes EpisodeB2, PriceDiscovery, EpisodeB3 and `benchmarks/surface_scenes.py`'s
+OrbsScene and LatticeScene (`flip_gates.TIMED_SCENES["phase_b"]`); PASS
+iff no (scene, class) cell is above 1.25× and more than half of all cells
+are at or below 1.0× (`GATE_LIMITS`, `GATE_MAJORITY`), in the format 8
+stream every shipped page negotiates (`GATE_FORMATS`; format 7 quoted),
+and the pixels within 0.5% over 24/255 of Phase A but the surfaces'
+silhouettes, which B5.9's accuracy rule governs (judged as Phase B against
+Phase A with nets, `episode_frames`' `phase_b_vs_nets`, which isolates
+what the patches and the programs change).
+
+**The instrument** (`benchmarks/README.md`, "Phase B as the default: the
+device"). `flip_gates serialize --flip phase_b --record` writes every
+message each serializer made as a stream, the messages whose Python it
+timed, and `benchmarks/device_frames.html` plays them in the desktop app's
+browser pane through the viewer's renderer selection into the real
+`webgpu.js`: plain rounds time the page's JavaScript (every WebGPU call
+serialized for Dawn's wire as it is made) and the wait for
+`onSubmittedWorkDone`, stamped rounds the GPU from the beginning of a
+message's first pass to the end of its present pass (`timestamp-query`,
+two stamps a message: stamping every pass, as the native instrument does,
+cost the orbs' 73-pass program play about 12 µs a pass; Chrome quantizes
+a stamp to 131 µs, so a message's GPU is the mean of its five stamped
+rounds). A message's three parts are then the same bytes'. The serialize
+command gained a navigation class (`--navigations`: steps from the frame
+measured before, each serializer restoring for itself; the first round,
+the first visit, a check, since the first serializer to restore a
+checkpoint pays what the others reuse), and a ticked frame's serializer
+order now rotates round by round (EpisodeB2's 8.a read 4.3 or 5.5 ms for
+one stack by which ticks of an updater's cycle it followed).
+
+**The serializer, on the way.** The first runs (six serializers, before
+the ticks' rotation) read EpisodeB2's ticked frames at 1.354×, serialize alone (a format 8 tick sends nothing), by the
+walk over Phase B's 274 runs against Phase A's 183 at 3.i and 911 against
+444 at 8.a: `coalesce_draws` over every draw and the encode's carry of
+every run, every tick. The retained frame now takes the last frame's runs
+where its draws are the last frame's, the same objects in the same order
+under the same camera (`RetainedFrame._coalesce`: each run still tells the
+border cache it was used, and one whose assembly the cache let go sends
+the frame through `coalesce_draws`), and returns the message of an encode
+that carried every run untouched for the same frame again, where the
+cache is as that encode's commit left it, by identity (`_idle_state`: the
+full frame's same bytes; in a stream, nothing). Both stacks, byte for byte
+the same wire: the golden pin untouched (`test_retained_frame`,
+`test_patch_rows` and the new `test_retained_idle` under
+`MANIML_TEST_GPU=1`, 95 OK in each of the default,
+`MANIML_VERIFY_LEDGER=1` and `MANIML_RETAINED_FRAME=0`; nothing
+re-recorded), and the lockstep (flag-off bytes and cache after every
+frame) took the runs path 570 times and the idle path 84 in its
+histories; `tests/test_retained_idle.py` holds both paths to the
+flag-off bytes through stills, a reset, a pan and a tick, in both
+formats and both patch sources. The whole suite with the PriceDiscovery
+link tree: 1,117 tests, 64 skipped, 311 s, its one failure the new
+module missing from `ci.yml`'s lists (added); the GPU-gated modules
+(`MANIML_TEST_GPU=1`, 12) 166 OK, 1 skipped. 3.i's ticks: 1.063 / 1.320 ms (Phase A / Phase B) before, 0.931
+/ 1.098 with the runs, 0.823 / 0.836 with the message.
+
+**The verdict: the gate fails, nothing flipped.** Format 8, Phase B /
+Phase A (format 7):
+
+| Scene | pausepoint | ticked | camera | play | navigation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| EpisodeB2 | 1.007 (1.147) | 1.087 (1.215) | 1.053 (1.266) | 0.644 (0.752) | 0.990 (1.174) |
+| PriceDiscovery | 0.959 (1.266) | 1.037 (0.857) | 0.974 (0.872) | 1.066 (0.924) | 0.920 (0.908) |
+| EpisodeB3 | 1.105 (1.158) | **1.380** (1.111) | 1.087 (0.873) | 0.655 (0.749) | 0.989 (1.013) |
+| OrbsScene | 1.117 (1.992) | – | **2.741** (2.913) | 0.645 (0.604) | **1.744** (1.486) |
+| LatticeScene | 1.198 (1.432) | – | **1.631** (1.572) | 0.524 (0.467) | **1.546** (1.539) |
+
+Five cells are over 1.25× and 9 of 23 at or below 1.0×. The two
+episodes the plan's gates were set on are within 1.087× everywhere, their
+plays 0.64× (EpisodeB2, serialize 7.23 → 2.69 ms, GPU 4.07 → 4.76) and
+1.07× (PriceDiscovery, whose five 3.a plays into 48-109 cost Phase B's
+serialize 5.9-6.5 ms a frame against Phase A's 2.6-3.2, where its other
+plays cost it 0.7-3.1 against 1.0-13.0). What fails:
+
+- **Surfaces on camera moves and navigations.** On the device a net costs
+  its draw: the orbs' camera frame 0.20 + 0.02 + 1.09 ms against 0.26 +
+  0.23 + 3.09, the lattice's navigation 16.74 + 0.41 + 1.37 against 17.36
+  + 3.27 + 8.00 (the page's JavaScript and the GPU, the net evaluation
+  and 2.25-3.7× grids' triangles). Most of it is the nets', which the
+  Default has paid since B5.9: in diagnostic runs with Phase A with nets
+  beside the two (six serializers, not judged), nets over grids read
+  1.58× and 1.56× on the lattice's camera moves and navigations, and
+  Phase B over Phase A with nets 1.07× and 1.02×; on the orbs 1.44× and
+  1.54×, and 1.68× and 1.05×, the orbs' camera remainder not isolated
+  (the same net descriptors and the same calls in Node, 2.74 against 1.52
+  ms of GPU on the device). B5.7 measured the nets' camera frames at
+  1.10-1.19× grids with the native GPU; the device reads them 1.44-1.58×.
+- **EpisodeB3's ticked frames**, 2.00 against 2.76 ms of serialize: of the
+  60 leaves a tick bumps, 40 (the dashes of a `DashedVMobject`) are left
+  by their updater with the joint-angle flag set and their subpath ends
+  cached, which `compare_rows` refuses without a refresh's own ends
+  (`entry.ends`, recorded only where both flags were set and the ends
+  uncached), so both stacks prepare them again every tick with the same
+  bytes, and the runs that hold them are made and encoded again, 10 under
+  Phase A and 73 under Phase B, whose leaves are also read as rows again.
+- **The majority**: the episodes' still frames and EpisodeB2's and
+  PriceDiscovery's ticks are Python alone, within 0.96-1.11× of Phase A's
+  (the walk over more runs), and their camera frames 0.97-1.09×.
+
+**Pixels pass**: Phase B against Phase A with nets is at worst 0.0002%
+over 24/255 (EpisodeB3; 0 elsewhere, largest channel 30), over every
+measured pausepoint and every frame strictly inside the plays into them
+(488 frames); against Phase A, 0.356% and 0.979% on the orbs and the
+lattice (silhouettes, where B5.9 measured nets the nearer the true
+surface) and at most 0.041% on the rest.
+
+Whether a default is judged against Phase A or against the Default it
+replaces, and whether the nets' device cost stands, are Taylor's. Levers,
+none taken: for the surfaces, the page's buffer a net on a navigation (70
+`createBuffer`s the orbs' navigation, ~30 µs each through Dawn's wire) and
+the triangles; for EpisodeB3, a `compare_rows` that keeps a joint-only
+refresh with cached ends (the revision counter's over-signalling, TODO
+item 5, which Phase B pays more for); for the majority, the walk itself.
+
 ## The final test point
 
 Since B5.6 the selection's Phase B sends its patches as rows; the Phase B
@@ -2319,6 +2447,14 @@ surface than grids on every scene of the timed set and every fixture
 (the orbit demo a tie), `geometry.DEFAULT_SURFACE` is `nets`, the pin
 untouched; a sorted surface's sort is not drawn by a net, accepted
 ("The flips", B5.9).
+
+**B5.10 Phase B as the default.** Taylor's condition (2026-09-29): not
+dramatically slower anywhere, faster in most; the complete frame with the
+page and the GPU on the device. Measured 2026-09-30: five cells over
+1.25× (the surface scenes' camera moves and navigations, EpisodeB3's
+ticked frames) and 9 of 23 at or below 1.0×, so nothing flipped; the
+serializer's unchanged frames taken on the way ("Phase B as the
+default").
 
 **B6 The final test point.** Both episodes through `episode_frames.py
 --tick-updaters --play-frames` with variants `[gpu_border, retained,

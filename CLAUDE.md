@@ -246,7 +246,14 @@ surfaces, and B5.7's, drawn as grids are, still fail those). On 2026-09-29
 Taylor flipped surfaces (B5.9): nets' pixel gate measures accuracy against
 the true surface, which they pass, and their cost on surface-heavy still
 and camera frames was accepted, so the default is Phase A's meshes and
-programs off with surfaces as nets.
+programs off with surfaces as nets. On 2026-09-30 the whole Phase B stack
+was judged as the default on Taylor's condition ("not dramatically slower
+in any situation and ... faster or much faster in most": no cell above
+1.25× Phase A, more than half at or below 1.0×, the page and the GPU on
+the device; B5.10, the plan's "Phase B as the default") and failed: the
+surface scenes' camera moves and navigations (1.5-2.7×, the nets' device
+cost) and EpisodeB3's ticked frames (1.38×), 9 of 23 cells at or below
+1.0×. Nothing flipped; Phase B stays a selection.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -335,7 +342,14 @@ native capture and recordings are untouched. On EpisodeB2's 531-object 8.a a
 still frame serializes in ~1.7 ms instead of ~19 and a seek in ~8 instead of
 ~100; a play where most things move costs what it did, and one where every leaf
 moves ~16% more (the bookkeeping on leaves it cannot keep; an open item, see the
-plan's "B4 tier 1: shipped"). **The trust surface
+plan's "B4 tier 1: shipped"). A frame whose draws are the last frame's (every
+leaf kept, the camera unchanged: a still frame, an idle tick) takes the last
+frame's runs without walking `coalesce_draws` (`RetainedFrame._coalesce`), and
+once a message carried every run, the same frame again returns that message
+untouched while the cache is as that message left it, by identity
+(`_idle_state`: a full frame's same bytes, a stream's nothing; B5.10, the plan's
+"Phase B as the default"); `tests/test_retained_idle.py` holds both to the
+whole-frame path's bytes. **The trust surface
 is wider than the caches'**: a kept leaf skips classify, the mesh and border
 reads and its stroke's shader-data read, so an in-place write that bumps no
 revision (a direct `data[...]` write, a uniform written into
@@ -581,6 +595,25 @@ surface than grids), and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
+For Phase B as the default (B5.10) the page's and the GPU's parts are the
+device's: `flip_gates serialize --record` writes every message each
+serializer made as a stream, and `benchmarks/device_frames.html`, served
+cross-origin isolated by `benchmarks/device_frames.py` and opened in the
+desktop app's browser pane (Chrome's Dawn on Metal), plays them through the
+renderer selection into the real `webgpu.js`, timing the page's JavaScript
+and stamping each message from its first pass's beginning to its present
+pass's end (`timestamp-query`, the mean of the stamped rounds: Chrome
+quantizes a stamp to 131 µs); `complete --device` sums them per message.
+One device run does not repeat (the GPU's clock follows its load), so a
+scene is played in three runs (`device_frames prepare --runs 3`, the page
+opened with `?campaign`: each run on a fresh page after a warmup round,
+once the GPU reads quiet, the odd runs in the reverse order) and every
+cell carries a 95% interval over its units, rounds and runs
+(`flip_gates.device_intervals`). A navigation is two classes: a revisit
+(`--navigations`) and a first visit (`serialize --first-visits`, each
+serializer in a process of its own, since the first restore of a
+checkpoint in a process pays what later ones reuse)
+(`benchmarks/README.md`, "Phase B as the default: the device").
 `benchmarks/test_point.py` reads that complete frame for five stacks at
 once (today's: Phase A without the retained frame in format 7, drawn by
 `main`'s page; Phase A retained; the Default; Phase B forced, its plays

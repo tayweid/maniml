@@ -1,0 +1,820 @@
+{
+  "flip": "phase_b",
+  "limit": 1.25,
+  "scene": {
+    "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/episodes/Blocks/B3_Equilibrium/Animate.py",
+    "name": "PriceDiscovery",
+    "checkpoint_count": 131,
+    "measured_checkpoints": [
+      9,
+      19,
+      35,
+      48,
+      58,
+      68,
+      86,
+      98,
+      109,
+      115,
+      123,
+      130
+    ],
+    "construct_error": null
+  },
+  "inputs": {
+    "serialize": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/serialize",
+    "browser": null,
+    "device": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/device",
+    "gpu": [],
+    "pixels": [
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/frames"
+    ]
+  },
+  "input_commits": {
+    "serialize": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "browser": null,
+    "device": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "gpu": [],
+    "pixels": [
+      {
+        "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+        "branch": "b5-loose-ends",
+        "dirty": true
+      }
+    ]
+  },
+  "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+      "pausepoint",
+      "ticked",
+      "camera",
+      "play",
+      "navigation"
+    ]
+  },
+  "source_files_sha256": {
+    "benchmarks/flip_gates.py": "0d4a587271a5aca4921b384021394ca33ce324cfad7c140cd04ffe8ca2df7453",
+    "benchmarks/episode_frames.py": "21bd39fe76f33b94ac940a80fdfe3ab7aab6d26cd084a4e5e467ec2fe28662f4",
+    "benchmarks/browser_frames.py": "d757f70306f1c9319ed67a85bbcc48a7b109b90896db4d35d39df6ac0cb0763e",
+    "maniml/web/present_bundle.py": "8088731bbaaa99f54bc4507cd9ffd3fba40066569ebc5a17d39d5a567ee0ebea",
+    "maniml/web/server.py": "4f03be2ab2342d2a0fc40d70b4644f7b036cb0cf68ab6ef5d6d5249cda5da77c",
+    "maniml/web/viewer.py": "e8c21417d34a13416dc0104c0709d9a98f6c130a06fe928d6a9e9fcb9f980e09",
+    "maniml/web/library.py": "1dfcc589f0eef4938c03d3f8349555fe685449b37e99a9dce3828b4aea01d638",
+    "maniml/web/security.py": "835a679e51f3d54749a9825ee4a7fc8887249c42c99640a1fa8bce93d3cad4ba",
+    "maniml/web/__init__.py": "f0a8cc33934cb76a629930aa8beb25855803125ff505910b106404f536bf6903",
+    "maniml/web/generated_geometry.py": "f999bd9d9748592a91ddcc3f29f54a23652ee0861199bf68ed68c6704060f10d",
+    "maniml/web/winding_geometry.py": "deff92bc24dba9b5c1f484a804dec97b17d17f0cc3e0606cc1010652614153ed",
+    "maniml/web/export.py": "f1821c4ba54f7f626ba91672a90ed821e50ea5416e47fcf7f07d83e7747058ec",
+    "maniml/web/gpu_program_geometry.py": "5c665b29e281cac76435d65b50d36260cf99138f3fac6eb7a06593e6bbd6bf00",
+    "maniml/web/cli.py": "08d2df768c88412ed060846c5bee1e1e39eca0fbcf86df95eb207c1fdace8f65",
+    "maniml/web/fill_bounds.py": "47b14dabb1e2f7140ea5535153c6c9867bae8c0cb8d4bd69f3e420d5a5513535",
+    "maniml/web/assets.py": "00470d30146950b3febd37886d015301ebf7dce29eae32fd3ab061e1c4562cd7",
+    "maniml/web/triangle_scene.py": "f046b7f4cb48c0e5e261cbcbeaa0de5516b6127c42dd01f41f767ccbb24deb9f",
+    "maniml/web/gpu_border_geometry.py": "d5ce15ac3b7486afe2e45f1f7d6ed879c5b692895b7b4e44afa0cb8a4951216b",
+    "maniml/web/geometry.py": "ec542cf191843837606ed4484a7bdf7d57799226f1c0a6642f47ba39f4c055e0",
+    "maniml/web/app.py": "0fceeb328fdefe2cd519b070ca084049d18c9a83eb7e6b25e7be8d72bc4aa4a0",
+    "maniml/web/border_geometry.py": "32ce48d707ace59ac381c755c709c19807eb22d2c2b08cfd5726d58ba2b993d1",
+    "maniml/web/fill_paint.py": "3790e3e645728d81106cca3c7b7399cf181270948d9350da164dd05bb7de708e",
+    "maniml/web/gpu_net_geometry.py": "b54c7ded22a69fca188ea3c21ec81f8e0a94f128b081d67bb17c474c1685c8e0",
+    "maniml/web/triangle_geometry.py": "f71b97d03af890f3d34539239fbf2f8e6b7ec9f3cf6314c9427c71a50b895367",
+    "maniml/web/wgpu_renderer.py": "934d3314301c400ee958cd4cd2a83613cac6782ac4990f081223a0e7b4bb1c7f",
+    "maniml/web/retained_frame.py": "08dc4b940e8ee1b797eda39b574170e34ee354be79e0b533b25d8f86943e304d",
+    "maniml/utils/programs.py": "98d2fb94a4091ec6303f233794cdf9f4f89c7783125af904abb427434f256682",
+    "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/episodes/Blocks/B3_Equilibrium/Animate.py": "dfe6e831e5b6cd723e9f2bf26cf25a2d538e2bf0351a3f199d928b986a6d75c2",
+    "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+    "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+    "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+    "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+    "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+    "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+    "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+    "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+    "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+    "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+    "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+    "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+    "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+    "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+    "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+    "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+    "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+    "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+    "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+    "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+    "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+    "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+    "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+    "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+    "benchmarks/gpu_borders.py": "d13ac0ff5d80c56edbf7b95ce9f94e258aa57c70a5a319322ddd7f293f3ade01",
+    "benchmarks/generated_output.py": "3918bed9daa81f8ce85681512a35153df88025805ac05873fcdc3061d9940386",
+    "benchmarks/paint_retention.py": "5d8e080e431810c541f1d508d68a3a1de71564cfb0be90f6d777df57bef51c9b",
+    "tests/winding_reference_renderer.py": "3bdc811790576eba3edeedad298b89a655a702f42ecea7f3044ac687633b922f",
+    "tests/winding_reference_geometry.py": "9de7945b1aa95cd60af7344bcb078421f123745ab6e738b455648b89c36ec4cc"
+  },
+  "source_files_disagree": [],
+  "verdict": {
+    "7": {
+      "pausepoint": {
+        "phase_a_ms": 2.302564454858061,
+        "flip_ms": 2.9154627391208545,
+        "ratio": 1.2661807286087785,
+        "ratio_gpu_min": 1.1435810119051466,
+        "within_limit": false
+      },
+      "ticked": {
+        "phase_a_ms": 3.884284034118016,
+        "flip_ms": 3.3294152886410235,
+        "ratio": 0.8571503163509041,
+        "ratio_gpu_min": 1.008569123763484,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 5.697173353009882,
+        "flip_ms": 4.967306872400583,
+        "ratio": 0.8718897187455771,
+        "ratio_gpu_min": 0.9700346185322714,
+        "within_limit": true
+      },
+      "play": {
+        "phase_a_ms": 8.408625877538135,
+        "flip_ms": 7.768217524930149,
+        "ratio": 0.9238391192645755,
+        "ratio_gpu_min": 0.8755626084036402,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 13.735231508137726,
+        "flip_ms": 12.47420168356955,
+        "ratio": 0.9081901296078589,
+        "ratio_gpu_min": 0.8309565271160931,
+        "within_limit": true
+      }
+    },
+    "8": {
+      "pausepoint": {
+        "phase_a_ms": 0.44908298877999187,
+        "flip_ms": 0.43064600322395563,
+        "ratio": 0.9589452595251418,
+        "ratio_gpu_min": 0.9589452595251418,
+        "within_limit": true
+      },
+      "ticked": {
+        "phase_a_ms": 0.7013959693722427,
+        "flip_ms": 0.7275210227817297,
+        "ratio": 1.0372472248919098,
+        "ratio_gpu_min": 1.0372472248919098,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 4.749253843594759,
+        "flip_ms": 4.625519084219107,
+        "ratio": 0.973946484342476,
+        "ratio_gpu_min": 0.9509723738959425,
+        "within_limit": true
+      },
+      "play": {
+        "phase_a_ms": 7.5847701829214635,
+        "flip_ms": 8.087192551153034,
+        "ratio": 1.0662409481256097,
+        "ratio_gpu_min": 1.1907240817362743,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 12.366231611229157,
+        "flip_ms": 11.382881684900045,
+        "ratio": 0.9204810359983732,
+        "ratio_gpu_min": 0.9737981732827349,
+        "within_limit": true
+      }
+    }
+  },
+  "flag_off_check": null,
+  "device_check": {
+    "7": {
+      "pausepoint": {
+        "phase_a_ms": 2.935854163952172,
+        "flip_ms": 3.4559790006217854,
+        "ratio": 1.1771630359082397,
+        "ratio_gpu_min": 1.1771630359082397,
+        "within_limit": true
+      },
+      "ticked": {
+        "phase_a_ms": 4.496458023786545,
+        "flip_ms": 4.094478885643184,
+        "ratio": 0.9106009361108531,
+        "ratio_gpu_min": 0.9106009361108531,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 6.277180654255466,
+        "flip_ms": 6.288482398131035,
+        "ratio": 1.0018004490388384,
+        "ratio_gpu_min": 1.0018004490388384,
+        "within_limit": true
+      },
+      "play": {
+        "phase_a_ms": 10.199364497559145,
+        "flip_ms": 9.363489710260183,
+        "ratio": 0.9180463853900898,
+        "ratio_gpu_min": 0.9180463853900898,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 17.0109584176292,
+        "flip_ms": 13.551708669712147,
+        "ratio": 0.7966458054278657,
+        "ratio_gpu_min": 0.7966458054278657,
+        "within_limit": true
+      }
+    },
+    "8": {
+      "pausepoint": {
+        "phase_a_ms": 0.44908298877999187,
+        "flip_ms": 0.43064600322395563,
+        "ratio": 0.9589452595251418,
+        "ratio_gpu_min": 0.9589452595251418,
+        "within_limit": true
+      },
+      "ticked": {
+        "phase_a_ms": 0.7013959693722427,
+        "flip_ms": 0.7275210227817297,
+        "ratio": 1.0372472248919098,
+        "ratio_gpu_min": 1.0372472248919098,
+        "within_limit": true
+      },
+      "camera": {
+        "phase_a_ms": 6.247541335178539,
+        "flip_ms": 5.682548352206747,
+        "ratio": 0.909565547043212,
+        "ratio_gpu_min": 0.909565547043212,
+        "within_limit": true
+      },
+      "play": {
+        "phase_a_ms": 9.921635260106996,
+        "flip_ms": 9.60209352709353,
+        "ratio": 0.9677934408354757,
+        "ratio_gpu_min": 0.9677934408354757,
+        "within_limit": true
+      },
+      "navigation": {
+        "phase_a_ms": 15.363499387477834,
+        "flip_ms": 13.60945801374813,
+        "ratio": 0.8858306086724388,
+        "ratio_gpu_min": 0.8858306086724388,
+        "within_limit": true
+      }
+    }
+  },
+  "checks": {
+    "7": {
+      "navigation_first": {
+        "phase_a_ms": 34.80709384850734,
+        "flip_ms": 19.94659338104459,
+        "ratio": 0.5730611543686798
+      }
+    },
+    "8": {
+      "navigation_first": {
+        "phase_a_ms": 33.14686918286367,
+        "flip_ms": 19.285805565171696,
+        "ratio": 0.5818288737550547
+      }
+    }
+  },
+  "diagnostics": {},
+  "device": {
+    "collected_utc": "2026-09-30T06:07:11.877202+00:00",
+    "command": [
+      "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+      "collect",
+      "--serve",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+      "--scene",
+      "PriceDiscovery",
+      "--serialize",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/serialize",
+      "--output",
+      "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/device"
+    ],
+    "scene": {
+      "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/episodes/Blocks/B3_Equilibrium/Animate.py",
+      "name": "PriceDiscovery",
+      "checkpoint_count": 131,
+      "measured_checkpoints": [
+        9,
+        19,
+        35,
+        48,
+        58,
+        68,
+        86,
+        98,
+        109,
+        115,
+        123,
+        130
+      ],
+      "construct_error": null
+    },
+    "git": {
+      "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+      "branch": "b5-loose-ends",
+      "dirty": true
+    },
+    "machine": {
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+      "plain",
+      "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+      "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+      "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+      "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+      "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+      "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+      "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+      "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+      "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+      "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+      "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+      "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+      "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+      "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+      "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+      "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+      "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+      "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+      "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+      "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+      "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+      "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+      "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+      "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+      "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+      "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+      "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+      "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+      "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+      "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+      "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+      "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+      "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+      "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+      "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+      "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+      "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+      "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+      "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+      "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+      "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+      "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+      "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+      "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+      "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+      "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+      "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+      "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+      "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+      "phase_a_f7": "3686078deaafd4edffd33c61763b89694530835f1fae775112b773b46cbbcf41",
+      "phase_a_f8": "af6d1f87a3f1f2cdd159ce96547d36b2eb33802bec91b9231c14c45a9bc6a6ca",
+      "phase_b_forced_f7": "03b2edd14cd5211e885702509d4c01e14a34a511cddbec671fb6a23a258f7019",
+      "phase_b_forced_f8": "a4b533d664087e39c8ed3ca1b8cae2777b7bac236fce013d26eac4fd853c9c67"
+    }
+  },
+  "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 136,
+    "pausepoints": 12,
+    "play_frames": 124,
+    "worst": {
+      "checkpoint": 130,
+      "phase": "pausepoint",
+      "mean_rgb": 1.1574074074074073e-05,
+      "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+      "max_rgba": 27.0,
+      "mean_alpha": 0.0
+    },
+    "passes": true
+  },
+  "reported_pixels": [
+    {
+      "pair": "phase_b_vs_gpu_border",
+      "frames": 136,
+      "pausepoints": 12,
+      "play_frames": 124,
+      "worst": {
+        "checkpoint": 9,
+        "phase": "pausepoint",
+        "mean_rgb": 0.026969164380429813,
+        "fraction_pixels_rgb_over24": 0.00041152263374485596,
+        "max_rgba": 142.0,
+        "mean_alpha": 0.0
+      },
+      "passes": true
+    }
+  ],
+  "complete": {
+    "7": {
+      "phase_a": {
+        "camera": {
+          "frames": 12,
+          "checkpoints": 12,
+          "serialize_ms": 1.5114167763385922,
+          "page_ms": 0.4920833392275704,
+          "sent": 1.0,
+          "gpu_ms": 3.3690965333333334,
+          "gpu_min_ms": 1.9378631111111109,
+          "done_ms": 4.223958331677649,
+          "passes": 34.0,
+          "wire_bytes": 43295.833333333336,
+          "complete_ms": 5.697173353009882,
+          "complete_gpu_min_ms": 4.24259150511458,
+          "complete_done_ms": 6.277180654255466
+        },
+        "navigation": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 7.177625084295869,
+          "page_ms": 1.0016666650772095,
+          "sent": 1.0,
+          "gpu_ms": 4.591889066666667,
+          "gpu_min_ms": 3.211264,
+          "done_ms": 6.945000012715657,
+          "passes": 10.0,
+          "wire_bytes": 391987.0,
+          "complete_ms": 13.735231508137726,
+          "complete_gpu_min_ms": 13.446873108137726,
+          "complete_done_ms": 17.0109584176292
+        },
+        "navigation_first": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 28.17474992480129,
+          "page_ms": 1.1799999475479126,
+          "sent": 1.0,
+          "gpu_ms": 4.430233599999999,
+          "gpu_min_ms": 3.080192,
+          "done_ms": 7.170000076293945,
+          "passes": 10.0,
+          "wire_bytes": 391987.0,
+          "complete_ms": 34.80709384850734,
+          "complete_gpu_min_ms": 34.47941384850734,
+          "complete_done_ms": 36.79974992480129
+        },
+        "pausepoint": {
+          "frames": 1,
+          "checkpoints": 1,
+          "serialize_ms": 0.4541875096037984,
+          "page_ms": 0.03958334525426229,
+          "sent": 1.0,
+          "gpu_ms": 1.8087936000000002,
+          "gpu_min_ms": 1.6220159999999997,
+          "done_ms": 2.442083309094111,
+          "passes": 2.0,
+          "wire_bytes": 21643.0,
+          "complete_ms": 2.302564454858061,
+          "complete_gpu_min_ms": 2.1157868548580603,
+          "complete_done_ms": 2.935854163952172
+        },
+        "play": {
+          "frames": 100,
+          "checkpoints": 12,
+          "serialize_ms": 3.459364757873118,
+          "page_ms": 0.6650000065565109,
+          "sent": 1.0,
+          "gpu_ms": 4.046848000000001,
+          "gpu_min_ms": 3.0965759999999998,
+          "done_ms": 6.391874983906746,
+          "passes": 4.0,
+          "wire_bytes": 188109.5,
+          "complete_ms": 8.408625877538135,
+          "complete_gpu_min_ms": 7.787068783946708,
+          "complete_done_ms": 10.199364497559145
+        },
+        "ticked": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 0.7001879857853055,
+          "page_ms": 0.21625001231829324,
+          "sent": 1.0,
+          "gpu_ms": 3.1981568,
+          "gpu_min_ms": 1.714858666666667,
+          "done_ms": 3.678333322207133,
+          "passes": 2.0,
+          "wire_bytes": 45726.0,
+          "complete_ms": 3.884284034118016,
+          "complete_gpu_min_ms": 2.6993588184151256,
+          "complete_done_ms": 4.496458023786545
+        }
+      },
+      "phase_b_forced": {
+        "camera": {
+          "frames": 12,
+          "checkpoints": 12,
+          "serialize_ms": 1.1817815247923136,
+          "page_ms": 0.6443749980794059,
+          "sent": 1.0,
+          "gpu_ms": 3.1535559111111113,
+          "gpu_min_ms": 2.2873884444444443,
+          "done_ms": 4.281388890412119,
+          "passes": 33.333333333333336,
+          "wire_bytes": 75396.0,
+          "complete_ms": 4.967306872400583,
+          "complete_gpu_min_ms": 4.115460632252077,
+          "complete_done_ms": 6.288482398131035
+        },
+        "navigation": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 6.881458917632699,
+          "page_ms": 1.6399999856948853,
+          "sent": 1.0,
+          "gpu_ms": 4.2991616,
+          "gpu_min_ms": 2.752512,
+          "done_ms": 6.651666680971782,
+          "passes": 31.0,
+          "wire_bytes": 181705.0,
+          "complete_ms": 12.47420168356955,
+          "complete_gpu_min_ms": 11.17376697850891,
+          "complete_done_ms": 13.551708669712147
+        },
+        "navigation_first": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 12.55408301949501,
+          "page_ms": 1.875,
+          "sent": 1.0,
+          "gpu_ms": 4.25984,
+          "gpu_min_ms": 2.62144,
+          "done_ms": 7.519999980926514,
+          "passes": 31.0,
+          "wire_bytes": 181705.0,
+          "complete_ms": 19.94659338104459,
+          "complete_gpu_min_ms": 17.29893898104459,
+          "complete_done_ms": 21.86858387477696
+        },
+        "pausepoint": {
+          "frames": 1,
+          "checkpoints": 1,
+          "serialize_ms": 0.4372289986349642,
+          "page_ms": 0.06541667381922404,
+          "sent": 1.0,
+          "gpu_ms": 2.4128170666666664,
+          "gpu_min_ms": 1.9169279999999997,
+          "done_ms": 2.9533333281675973,
+          "passes": 2.0,
+          "wire_bytes": 39229.0,
+          "complete_ms": 2.9154627391208545,
+          "complete_gpu_min_ms": 2.419573672454188,
+          "complete_done_ms": 3.4559790006217854
+        },
+        "play": {
+          "frames": 100,
+          "checkpoints": 12,
+          "serialize_ms": 2.5887084775604308,
+          "page_ms": 0.6500000059604645,
+          "sent": 1.0,
+          "gpu_ms": 4.7480832,
+          "gpu_min_ms": 3.137536,
+          "done_ms": 5.969374984502792,
+          "passes": 94.0,
+          "wire_bytes": 84884.5,
+          "complete_ms": 7.768217524930149,
+          "complete_gpu_min_ms": 6.818066256290942,
+          "complete_done_ms": 9.363489710260183
+        },
+        "ticked": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 0.7297079428099096,
+          "page_ms": 0.11874998609224956,
+          "sent": 1.0,
+          "gpu_ms": 2.3658496,
+          "gpu_min_ms": 1.8677759999999999,
+          "done_ms": 3.126666675011317,
+          "passes": 2.0,
+          "wire_bytes": 76441.0,
+          "complete_ms": 3.3294152886410235,
+          "complete_gpu_min_ms": 2.7224899582121767,
+          "complete_done_ms": 4.094478885643184
+        }
+      }
+    },
+    "8": {
+      "phase_a": {
+        "camera": {
+          "frames": 12,
+          "checkpoints": 12,
+          "serialize_ms": 1.5318224905058742,
+          "page_ms": 0.289166670706537,
+          "sent": 1.0,
+          "gpu_ms": 2.9014243555555552,
+          "gpu_min_ms": 1.8969031111111108,
+          "done_ms": 4.2150694413317575,
+          "passes": 34.0,
+          "wire_bytes": 648.3333333333334,
+          "complete_ms": 4.749253843594759,
+          "complete_gpu_min_ms": 3.821555662541285,
+          "complete_done_ms": 6.247541335178539
+        },
+        "navigation": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 7.17795907985419,
+          "page_ms": 1.1266666253407795,
+          "sent": 1.0,
+          "gpu_ms": 3.9234218666666663,
+          "gpu_min_ms": 2.5340586666666667,
+          "done_ms": 6.393333355585734,
+          "passes": 10.0,
+          "wire_bytes": 390425.0,
+          "complete_ms": 12.366231611229157,
+          "complete_gpu_min_ms": 11.147262011229158,
+          "complete_done_ms": 15.363499387477834
+        },
+        "navigation_first": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 28.724250034429133,
+          "page_ms": 1.4199999570846558,
+          "sent": 1.0,
+          "gpu_ms": 3.9059456,
+          "gpu_min_ms": 2.359296,
+          "done_ms": 7.164999961853027,
+          "passes": 10.0,
+          "wire_bytes": 390425.0,
+          "complete_ms": 33.14686918286367,
+          "complete_gpu_min_ms": 32.478401982863666,
+          "complete_done_ms": 36.33124991133809
+        },
+        "pausepoint": {
+          "frames": 1,
+          "checkpoints": 1,
+          "serialize_ms": 0.44908298877999187,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.44908298877999187,
+          "complete_gpu_min_ms": 0.44908298877999187,
+          "complete_done_ms": 0.44908298877999187
+        },
+        "play": {
+          "frames": 100,
+          "checkpoints": 12,
+          "serialize_ms": 3.4375932591501623,
+          "page_ms": 0.5087500065565109,
+          "sent": 1.0,
+          "gpu_ms": 3.4979840000000006,
+          "gpu_min_ms": 2.031616,
+          "done_ms": 5.8587500005960464,
+          "passes": 4.0,
+          "wire_bytes": 145476.5,
+          "complete_ms": 7.5847701829214635,
+          "complete_gpu_min_ms": 5.794989257168025,
+          "complete_done_ms": 9.921635260106996
+        },
+        "ticked": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 0.7013959693722427,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.7013959693722427,
+          "complete_gpu_min_ms": 0.7013959693722427,
+          "complete_done_ms": 0.7013959693722427
+        }
+      },
+      "phase_b_forced": {
+        "camera": {
+          "frames": 12,
+          "checkpoints": 12,
+          "serialize_ms": 1.2022499868180603,
+          "page_ms": 0.26125000913937885,
+          "sent": 1.0,
+          "gpu_ms": 3.1916032000000003,
+          "gpu_min_ms": 2.1599573333333333,
+          "done_ms": 3.9856249872181153,
+          "passes": 33.333333333333336,
+          "wire_bytes": 646.3333333333334,
+          "complete_ms": 4.625519084219107,
+          "complete_gpu_min_ms": 3.634193860382367,
+          "complete_done_ms": 5.682548352206747
+        },
+        "navigation": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 6.811208091676235,
+          "page_ms": 1.371666709582011,
+          "sent": 1.0,
+          "gpu_ms": 3.9365290666666666,
+          "gpu_min_ms": 2.62144,
+          "done_ms": 5.571666677792867,
+          "passes": 31.0,
+          "wire_bytes": 170228.0,
+          "complete_ms": 11.382881684900045,
+          "complete_gpu_min_ms": 10.855183383638979,
+          "complete_done_ms": 13.60945801374813
+        },
+        "navigation_first": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 12.814957997761667,
+          "page_ms": 2.0399999618530273,
+          "sent": 1.0,
+          "gpu_ms": 3.8928384,
+          "gpu_min_ms": 2.555904,
+          "done_ms": 7.200000047683716,
+          "passes": 31.0,
+          "wire_bytes": 170228.0,
+          "complete_ms": 19.285805565171696,
+          "complete_gpu_min_ms": 18.984339965171696,
+          "complete_done_ms": 22.90875006094575
+        },
+        "pausepoint": {
+          "frames": 1,
+          "checkpoints": 1,
+          "serialize_ms": 0.43064600322395563,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.43064600322395563,
+          "complete_gpu_min_ms": 0.43064600322395563,
+          "complete_done_ms": 0.43064600322395563
+        },
+        "play": {
+          "frames": 100,
+          "checkpoints": 12,
+          "serialize_ms": 2.9916045314166695,
+          "page_ms": 0.37062500417232513,
+          "sent": 1.0,
+          "gpu_ms": 4.3204608,
+          "gpu_min_ms": 2.74432,
+          "done_ms": 5.674374967813492,
+          "passes": 94.0,
+          "wire_bytes": 1322.0,
+          "complete_ms": 8.087192551153034,
+          "complete_gpu_min_ms": 6.900233261912971,
+          "complete_done_ms": 9.60209352709353
+        },
+        "ticked": {
+          "frames": 11,
+          "checkpoints": 11,
+          "serialize_ms": 0.7275210227817297,
+          "page_ms": 0.0,
+          "sent": 0.0,
+          "gpu_ms": 0.0,
+          "gpu_min_ms": 0.0,
+          "done_ms": 0.0,
+          "passes": 0.0,
+          "wire_bytes": 0.0,
+          "complete_ms": 0.7275210227817297,
+          "complete_gpu_min_ms": 0.7275210227817297,
+          "complete_done_ms": 0.7275210227817297
+        }
+      }
+    }
+  }
+}

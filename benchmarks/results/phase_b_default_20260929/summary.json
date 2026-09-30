@@ -1,0 +1,3524 @@
+{
+ "increment": "B5.10",
+ "decision": {
+  "date": "2026-09-29",
+  "taylor": "i want to try it first before it becomes the only option ... so long as it's not dramatically slower in any situation and is faster or much faster in most, then i want it to be the default for testing."
+ },
+ "gate": {
+  "limit": 1.25,
+  "majority_at_or_below": 1.0,
+  "formats_judged": [
+   "8"
+  ],
+  "format_7": "quoted, not judged",
+  "pixels": "phase_b_vs_nets <= 0.5% over 24/255 (the surfaces' silhouettes are B5.9's accuracy rule's); phase_b_vs_gpu_border reported"
+ },
+ "passes": false,
+ "default_flipped": false,
+ "failures": [
+  "EpisodeB3: format 8 ticked 1.380",
+  "OrbsScene: format 8 camera 2.741",
+  "OrbsScene: format 8 navigation 1.744",
+  "LatticeScene: format 8 camera 1.631",
+  "LatticeScene: format 8 navigation 1.546",
+  "9 of 23 cells at or below 1.0\u00d7, not more than half"
+ ],
+ "majority": {
+  "bound": 1.0,
+  "cells": 23,
+  "at_or_below": 9,
+  "passes": false,
+  "cells_above": [
+   "EpisodeB2 format 8 pausepoint 1.007",
+   "EpisodeB2 format 8 ticked 1.087",
+   "EpisodeB2 format 8 camera 1.053",
+   "PriceDiscovery format 8 ticked 1.037",
+   "PriceDiscovery format 8 play 1.066",
+   "EpisodeB3 format 8 pausepoint 1.105",
+   "EpisodeB3 format 8 ticked 1.380",
+   "EpisodeB3 format 8 camera 1.087",
+   "OrbsScene format 8 pausepoint 1.117",
+   "OrbsScene format 8 camera 2.741",
+   "OrbsScene format 8 navigation 1.744",
+   "LatticeScene format 8 pausepoint 1.198",
+   "LatticeScene format 8 camera 1.631",
+   "LatticeScene format 8 navigation 1.546"
+  ]
+ },
+ "cells_format_8": [
+  {
+   "scene": "EpisodeB2",
+   "class": "pausepoint",
+   "ratio": 1.0070042173083382
+  },
+  {
+   "scene": "EpisodeB2",
+   "class": "ticked",
+   "ratio": 1.0870698436291304
+  },
+  {
+   "scene": "EpisodeB2",
+   "class": "camera",
+   "ratio": 1.0525997875309805
+  },
+  {
+   "scene": "EpisodeB2",
+   "class": "play",
+   "ratio": 0.6442701695099163
+  },
+  {
+   "scene": "EpisodeB2",
+   "class": "navigation",
+   "ratio": 0.9900874869081122
+  },
+  {
+   "scene": "PriceDiscovery",
+   "class": "pausepoint",
+   "ratio": 0.9589452595251418
+  },
+  {
+   "scene": "PriceDiscovery",
+   "class": "ticked",
+   "ratio": 1.0372472248919098
+  },
+  {
+   "scene": "PriceDiscovery",
+   "class": "camera",
+   "ratio": 0.973946484342476
+  },
+  {
+   "scene": "PriceDiscovery",
+   "class": "play",
+   "ratio": 1.0662409481256097
+  },
+  {
+   "scene": "PriceDiscovery",
+   "class": "navigation",
+   "ratio": 0.9204810359983732
+  },
+  {
+   "scene": "EpisodeB3",
+   "class": "pausepoint",
+   "ratio": 1.105004074810953
+  },
+  {
+   "scene": "EpisodeB3",
+   "class": "ticked",
+   "ratio": 1.3800347426434632
+  },
+  {
+   "scene": "EpisodeB3",
+   "class": "camera",
+   "ratio": 1.0873188405172358
+  },
+  {
+   "scene": "EpisodeB3",
+   "class": "play",
+   "ratio": 0.6554171525802381
+  },
+  {
+   "scene": "EpisodeB3",
+   "class": "navigation",
+   "ratio": 0.9889276069380045
+  },
+  {
+   "scene": "OrbsScene",
+   "class": "pausepoint",
+   "ratio": 1.1170427385599349
+  },
+  {
+   "scene": "OrbsScene",
+   "class": "camera",
+   "ratio": 2.7406439273383496
+  },
+  {
+   "scene": "OrbsScene",
+   "class": "play",
+   "ratio": 0.6448401649541445
+  },
+  {
+   "scene": "OrbsScene",
+   "class": "navigation",
+   "ratio": 1.7439349771846724
+  },
+  {
+   "scene": "LatticeScene",
+   "class": "pausepoint",
+   "ratio": 1.1982623235206349
+  },
+  {
+   "scene": "LatticeScene",
+   "class": "camera",
+   "ratio": 1.6307464364050555
+  },
+  {
+   "scene": "LatticeScene",
+   "class": "play",
+   "ratio": 0.5239495057164796
+  },
+  {
+   "scene": "LatticeScene",
+   "class": "navigation",
+   "ratio": 1.5458282018189926
+  }
+ ],
+ "scenes": {
+  "EpisodeB2": {
+   "ratios": {
+    "7": {
+     "pausepoint": 1.147097800641351,
+     "ticked": 1.2154343956601537,
+     "camera": 1.2656307545339032,
+     "play": 0.7519729783708164,
+     "navigation": 1.173858359830123
+    },
+    "8": {
+     "pausepoint": 1.0070042173083382,
+     "ticked": 1.0870698436291304,
+     "camera": 1.0525997875309805,
+     "play": 0.6442701695099163,
+     "navigation": 0.9900874869081122
+    }
+   },
+   "device_check": {
+    "7": {
+     "pausepoint": 1.2086546352556726,
+     "ticked": 1.3100204029032518,
+     "camera": 1.2305219116685409,
+     "play": 0.8068620476541433,
+     "navigation": 1.061732287287723
+    },
+    "8": {
+     "pausepoint": 1.0070042173083382,
+     "ticked": 1.0870698436291304,
+     "camera": 1.1735439644798098,
+     "play": 0.6897771809873902,
+     "navigation": 0.9814426175156727
+    }
+   },
+   "first_visits": {
+    "7": {
+     "navigation_first": {
+      "phase_a_ms": 33.31970617527581,
+      "flip_ms": 22.054617273586224,
+      "ratio": 0.6619091164120586
+     }
+    },
+    "8": {
+     "navigation_first": {
+      "phase_a_ms": 31.910473621740568,
+      "flip_ms": 20.798833578795648,
+      "ratio": 0.6517870535342173
+     }
+    }
+   },
+   "parts": {
+    "7": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 2.0048540318384767,
+       "page_ms": 0.5106944474909041,
+       "gpu_ms": 3.809826133333333,
+       "done_ms": 3.6023611078659696,
+       "complete_ms": 5.535698015610322,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 31.666666666666664,
+       "wire_bytes": 80556.16666666667
+      },
+      "navigation": {
+       "serialize_ms": 4.892083932645619,
+       "page_ms": 2.050000031789144,
+       "gpu_ms": 4.7316992,
+       "done_ms": 8.584999998410543,
+       "complete_ms": 12.92333623110143,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 26.0,
+       "wire_bytes": 629846.0
+      },
+      "navigation_first": {
+       "serialize_ms": 27.256582980044186,
+       "page_ms": 2.3799999952316284,
+       "gpu_ms": 4.7316991999999995,
+       "done_ms": 9.769999980926514,
+       "complete_ms": 33.31970617527581,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 26.0,
+       "wire_bytes": 629846.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.4378022567834705,
+       "page_ms": 0.11645833651224771,
+       "gpu_ms": 2.4958293333333335,
+       "done_ms": 2.8860416511694593,
+       "complete_ms": 3.15668333548373,
+       "frames": 10,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 70882.0
+      },
+      "play": {
+       "serialize_ms": 7.197520753834397,
+       "page_ms": 1.467500016093254,
+       "gpu_ms": 5.0561024,
+       "done_ms": 7.217499986290932,
+       "complete_ms": 14.102649931390314,
+       "frames": 114,
+       "sent": 1.0,
+       "passes": 12.0,
+       "wire_bytes": 416648.0
+      },
+      "ticked": {
+       "serialize_ms": 2.120500023011118,
+       "page_ms": 0.11562498410542807,
+       "gpu_ms": 2.3511040000000003,
+       "done_ms": 2.7241666863361993,
+       "complete_ms": 4.587229007116546,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 132157.5
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.43886505975388,
+       "page_ms": 0.8193055639664333,
+       "gpu_ms": 4.387089066666666,
+       "done_ms": 5.008402787976795,
+       "complete_ms": 7.006149656368722,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 50.66666666666667,
+       "wire_bytes": 98480.66666666667
+      },
+      "navigation": {
+       "serialize_ms": 6.822666036896408,
+       "page_ms": 2.283333341280619,
+       "gpu_ms": 5.041902933333333,
+       "done_ms": 8.161666671435038,
+       "complete_ms": 15.17016627177393,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 65.0,
+       "wire_bytes": 202823.0
+      },
+      "navigation_first": {
+       "serialize_ms": 16.35095803067088,
+       "page_ms": 3.434999942779541,
+       "gpu_ms": 4.9020928,
+       "done_ms": 9.145000100135803,
+       "complete_ms": 22.054617273586224,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 65.0,
+       "wire_bytes": 202823.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.44315651757642627,
+       "page_ms": 0.15395835538705188,
+       "gpu_ms": 3.0283093333333335,
+       "done_ms": 3.6222916593154273,
+       "complete_ms": 3.6210245114545905,
+       "frames": 10,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 88225.5
+      },
+      "play": {
+       "serialize_ms": 2.5073650176636875,
+       "page_ms": 1.1300000101327896,
+       "gpu_ms": 6.186598399999999,
+       "done_ms": 7.5462500005960464,
+       "complete_ms": 10.604811671828564,
+       "frames": 114,
+       "sent": 1.0,
+       "passes": 68.0,
+       "wire_bytes": 177254.0
+      },
+      "ticked": {
+       "serialize_ms": 2.2922499920241535,
+       "page_ms": 0.27020832399527234,
+       "gpu_ms": 3.0130175999999995,
+       "done_ms": 3.935625006755193,
+       "complete_ms": 5.5754759160194265,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 361049.5
+      }
+     }
+    },
+    "8": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 2.0158752449788153,
+       "page_ms": 0.15062500702010262,
+       "gpu_ms": 3.1011271111111114,
+       "done_ms": 3.188888897498449,
+       "complete_ms": 4.751790757509171,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 31.666666666666664,
+       "wire_bytes": 466.6666666666667
+      },
+      "navigation": {
+       "serialize_ms": 6.557624903507531,
+       "page_ms": 2.0049999554951987,
+       "gpu_ms": 5.037533866666667,
+       "done_ms": 8.744999965031942,
+       "complete_ms": 14.471981673307845,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 26.0,
+       "wire_bytes": 629330.0
+      },
+      "navigation_first": {
+       "serialize_ms": 24.453916936181486,
+       "page_ms": 2.6799999475479126,
+       "gpu_ms": 4.9414144,
+       "done_ms": 9.300000071525574,
+       "complete_ms": 31.910473621740568,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 26.0,
+       "wire_bytes": 629330.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.43720874236896634,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.43720874236896634,
+       "frames": 10,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 7.231447729282081,
+       "page_ms": 1.0812499821186066,
+       "gpu_ms": 4.071424,
+       "done_ms": 6.741874992847443,
+       "complete_ms": 12.372649931589672,
+       "frames": 114,
+       "sent": 1.0,
+       "passes": 12.0,
+       "wire_bytes": 293225.0
+      },
+      "ticked": {
+       "serialize_ms": 2.1164790086913854,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 2.1164790086913854,
+       "frames": 2,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.4432604948524386,
+       "page_ms": 0.27743055091963875,
+       "gpu_ms": 3.428625066666666,
+       "done_ms": 4.834861106342739,
+       "complete_ms": 5.0017339417458295,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 50.66666666666667,
+       "wire_bytes": 464.6666666666667
+      },
+      "navigation": {
+       "serialize_ms": 6.838207948021591,
+       "page_ms": 2.356666684150696,
+       "gpu_ms": 5.133653333333333,
+       "done_ms": 7.903333346048991,
+       "complete_ms": 14.32852796550562,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 65.0,
+       "wire_bytes": 197595.0
+      },
+      "navigation_first": {
+       "serialize_ms": 16.18200005032122,
+       "page_ms": 4.129999995231628,
+       "gpu_ms": 5.5443456,
+       "done_ms": 7.934999942779541,
+       "complete_ms": 20.798833578795648,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 65.0,
+       "wire_bytes": 197595.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.44027104740962386,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.44027104740962386,
+       "frames": 10,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 2.691281260922551,
+       "page_ms": 0.4481250047683716,
+       "gpu_ms": 4.7628288,
+       "done_ms": 6.655000016093254,
+       "complete_ms": 7.971329268712132,
+       "frames": 114,
+       "sent": 1.0,
+       "passes": 68.0,
+       "wire_bytes": 1071.5
+      },
+      "ticked": {
+       "serialize_ms": 2.300760505022481,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 2.300760505022481,
+       "frames": 2,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     }
+    }
+   },
+   "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 151,
+    "pausepoints": 12,
+    "play_frames": 139,
+    "worst": {
+     "checkpoint": 307,
+     "phase": "play",
+     "mean_rgb": 0.00012245656149977138,
+     "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+     "max_rgba": 30.0,
+     "mean_alpha": 0.0,
+     "play_frame": 4
+    },
+    "passes": true
+   },
+   "reported_pixels": [
+    {
+     "pair": "phase_b_vs_gpu_border",
+     "frames": 151,
+     "pausepoints": 12,
+     "play_frames": 139,
+     "worst": {
+      "checkpoint": 307,
+      "phase": "play",
+      "mean_rgb": 0.00012245656149977138,
+      "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+      "max_rgba": 30.0,
+      "mean_alpha": 0.0,
+      "play_frame": 4
+     },
+     "passes": true
+    }
+   ],
+   "device": {
+    "collected_utc": "2026-09-30T06:01:57.390655+00:00",
+    "command": [
+     "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+     "collect",
+     "--serve",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+     "--scene",
+     "EpisodeB2",
+     "--serialize",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b2/serialize",
+     "--output",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b2/device"
+    ],
+    "scene": {
+     "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/episodes/Blocks/B2_Supply/03_Code.py",
+     "name": "EpisodeB2",
+     "checkpoint_count": 308,
+     "measured_checkpoints": [
+      12,
+      44,
+      76,
+      103,
+      120,
+      140,
+      157,
+      177,
+      194,
+      258,
+      277,
+      307
+     ],
+     "construct_error": null
+    },
+    "git": {
+     "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+     "branch": "b5-loose-ends",
+     "dirty": true
+    },
+    "machine": {
+     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+     "machine": "arm64",
+     "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+     "vendor": "apple",
+     "architecture": "metal-3",
+     "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+     "plain",
+     "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+     "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+     "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+     "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+     "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+     "phase_a_f7": "16a5868f645981a93ad3a8c46ca15859fa3fd83daddb85d47288bb936f8e7196",
+     "phase_a_f8": "ad8beb81986ac4c9bac335c777eb322438b328d88042bcd2d0d55234deab3627",
+     "phase_b_forced_f7": "7c248fc97ca55de536324a5933274314c4b1fa8331514b914c83d24ed0ae3246",
+     "phase_b_forced_f8": "e1beba796eaa869b4161d7d56d06fd8a0b9616dd63f49ea79c0f452cd93df26d"
+    }
+   },
+   "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+     "pausepoint",
+     "ticked",
+     "camera",
+     "play",
+     "navigation"
+    ]
+   }
+  },
+  "PriceDiscovery": {
+   "ratios": {
+    "7": {
+     "pausepoint": 1.2661807286087785,
+     "ticked": 0.8571503163509041,
+     "camera": 0.8718897187455771,
+     "play": 0.9238391192645755,
+     "navigation": 0.9081901296078589
+    },
+    "8": {
+     "pausepoint": 0.9589452595251418,
+     "ticked": 1.0372472248919098,
+     "camera": 0.973946484342476,
+     "play": 1.0662409481256097,
+     "navigation": 0.9204810359983732
+    }
+   },
+   "device_check": {
+    "7": {
+     "pausepoint": 1.1771630359082397,
+     "ticked": 0.9106009361108531,
+     "camera": 1.0018004490388384,
+     "play": 0.9180463853900898,
+     "navigation": 0.7966458054278657
+    },
+    "8": {
+     "pausepoint": 0.9589452595251418,
+     "ticked": 1.0372472248919098,
+     "camera": 0.909565547043212,
+     "play": 0.9677934408354757,
+     "navigation": 0.8858306086724388
+    }
+   },
+   "first_visits": {
+    "7": {
+     "navigation_first": {
+      "phase_a_ms": 34.80709384850734,
+      "flip_ms": 19.94659338104459,
+      "ratio": 0.5730611543686798
+     }
+    },
+    "8": {
+     "navigation_first": {
+      "phase_a_ms": 33.14686918286367,
+      "flip_ms": 19.285805565171696,
+      "ratio": 0.5818288737550547
+     }
+    }
+   },
+   "parts": {
+    "7": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 1.5114167763385922,
+       "page_ms": 0.4920833392275704,
+       "gpu_ms": 3.3690965333333334,
+       "done_ms": 4.223958331677649,
+       "complete_ms": 5.697173353009882,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 34.0,
+       "wire_bytes": 43295.833333333336
+      },
+      "navigation": {
+       "serialize_ms": 7.177625084295869,
+       "page_ms": 1.0016666650772095,
+       "gpu_ms": 4.591889066666667,
+       "done_ms": 6.945000012715657,
+       "complete_ms": 13.735231508137726,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 10.0,
+       "wire_bytes": 391987.0
+      },
+      "navigation_first": {
+       "serialize_ms": 28.17474992480129,
+       "page_ms": 1.1799999475479126,
+       "gpu_ms": 4.430233599999999,
+       "done_ms": 7.170000076293945,
+       "complete_ms": 34.80709384850734,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 10.0,
+       "wire_bytes": 391987.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.4541875096037984,
+       "page_ms": 0.03958334525426229,
+       "gpu_ms": 1.8087936000000002,
+       "done_ms": 2.442083309094111,
+       "complete_ms": 2.302564454858061,
+       "frames": 1,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 21643.0
+      },
+      "play": {
+       "serialize_ms": 3.459364757873118,
+       "page_ms": 0.6650000065565109,
+       "gpu_ms": 4.046848000000001,
+       "done_ms": 6.391874983906746,
+       "complete_ms": 8.408625877538135,
+       "frames": 100,
+       "sent": 1.0,
+       "passes": 4.0,
+       "wire_bytes": 188109.5
+      },
+      "ticked": {
+       "serialize_ms": 0.7001879857853055,
+       "page_ms": 0.21625001231829324,
+       "gpu_ms": 3.1981568,
+       "done_ms": 3.678333322207133,
+       "complete_ms": 3.884284034118016,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 45726.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.1817815247923136,
+       "page_ms": 0.6443749980794059,
+       "gpu_ms": 3.1535559111111113,
+       "done_ms": 4.281388890412119,
+       "complete_ms": 4.967306872400583,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 33.333333333333336,
+       "wire_bytes": 75396.0
+      },
+      "navigation": {
+       "serialize_ms": 6.881458917632699,
+       "page_ms": 1.6399999856948853,
+       "gpu_ms": 4.2991616,
+       "done_ms": 6.651666680971782,
+       "complete_ms": 12.47420168356955,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 31.0,
+       "wire_bytes": 181705.0
+      },
+      "navigation_first": {
+       "serialize_ms": 12.55408301949501,
+       "page_ms": 1.875,
+       "gpu_ms": 4.25984,
+       "done_ms": 7.519999980926514,
+       "complete_ms": 19.94659338104459,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 31.0,
+       "wire_bytes": 181705.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.4372289986349642,
+       "page_ms": 0.06541667381922404,
+       "gpu_ms": 2.4128170666666664,
+       "done_ms": 2.9533333281675973,
+       "complete_ms": 2.9154627391208545,
+       "frames": 1,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 39229.0
+      },
+      "play": {
+       "serialize_ms": 2.5887084775604308,
+       "page_ms": 0.6500000059604645,
+       "gpu_ms": 4.7480832,
+       "done_ms": 5.969374984502792,
+       "complete_ms": 7.768217524930149,
+       "frames": 100,
+       "sent": 1.0,
+       "passes": 94.0,
+       "wire_bytes": 84884.5
+      },
+      "ticked": {
+       "serialize_ms": 0.7297079428099096,
+       "page_ms": 0.11874998609224956,
+       "gpu_ms": 2.3658496,
+       "done_ms": 3.126666675011317,
+       "complete_ms": 3.3294152886410235,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 76441.0
+      }
+     }
+    },
+    "8": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 1.5318224905058742,
+       "page_ms": 0.289166670706537,
+       "gpu_ms": 2.9014243555555552,
+       "done_ms": 4.2150694413317575,
+       "complete_ms": 4.749253843594759,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 34.0,
+       "wire_bytes": 648.3333333333334
+      },
+      "navigation": {
+       "serialize_ms": 7.17795907985419,
+       "page_ms": 1.1266666253407795,
+       "gpu_ms": 3.9234218666666663,
+       "done_ms": 6.393333355585734,
+       "complete_ms": 12.366231611229157,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 10.0,
+       "wire_bytes": 390425.0
+      },
+      "navigation_first": {
+       "serialize_ms": 28.724250034429133,
+       "page_ms": 1.4199999570846558,
+       "gpu_ms": 3.9059456,
+       "done_ms": 7.164999961853027,
+       "complete_ms": 33.14686918286367,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 10.0,
+       "wire_bytes": 390425.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.44908298877999187,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.44908298877999187,
+       "frames": 1,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 3.4375932591501623,
+       "page_ms": 0.5087500065565109,
+       "gpu_ms": 3.4979840000000006,
+       "done_ms": 5.8587500005960464,
+       "complete_ms": 7.5847701829214635,
+       "frames": 100,
+       "sent": 1.0,
+       "passes": 4.0,
+       "wire_bytes": 145476.5
+      },
+      "ticked": {
+       "serialize_ms": 0.7013959693722427,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.7013959693722427,
+       "frames": 11,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.2022499868180603,
+       "page_ms": 0.26125000913937885,
+       "gpu_ms": 3.1916032000000003,
+       "done_ms": 3.9856249872181153,
+       "complete_ms": 4.625519084219107,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 33.333333333333336,
+       "wire_bytes": 646.3333333333334
+      },
+      "navigation": {
+       "serialize_ms": 6.811208091676235,
+       "page_ms": 1.371666709582011,
+       "gpu_ms": 3.9365290666666666,
+       "done_ms": 5.571666677792867,
+       "complete_ms": 11.382881684900045,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 31.0,
+       "wire_bytes": 170228.0
+      },
+      "navigation_first": {
+       "serialize_ms": 12.814957997761667,
+       "page_ms": 2.0399999618530273,
+       "gpu_ms": 3.8928384,
+       "done_ms": 7.200000047683716,
+       "complete_ms": 19.285805565171696,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 31.0,
+       "wire_bytes": 170228.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.43064600322395563,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.43064600322395563,
+       "frames": 1,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 2.9916045314166695,
+       "page_ms": 0.37062500417232513,
+       "gpu_ms": 4.3204608,
+       "done_ms": 5.674374967813492,
+       "complete_ms": 8.087192551153034,
+       "frames": 100,
+       "sent": 1.0,
+       "passes": 94.0,
+       "wire_bytes": 1322.0
+      },
+      "ticked": {
+       "serialize_ms": 0.7275210227817297,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.7275210227817297,
+       "frames": 11,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     }
+    }
+   },
+   "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 136,
+    "pausepoints": 12,
+    "play_frames": 124,
+    "worst": {
+     "checkpoint": 130,
+     "phase": "pausepoint",
+     "mean_rgb": 1.1574074074074073e-05,
+     "fraction_pixels_rgb_over24": 4.2866941015089163e-07,
+     "max_rgba": 27.0,
+     "mean_alpha": 0.0
+    },
+    "passes": true
+   },
+   "reported_pixels": [
+    {
+     "pair": "phase_b_vs_gpu_border",
+     "frames": 136,
+     "pausepoints": 12,
+     "play_frames": 124,
+     "worst": {
+      "checkpoint": 9,
+      "phase": "pausepoint",
+      "mean_rgb": 0.026969164380429813,
+      "fraction_pixels_rgb_over24": 0.00041152263374485596,
+      "max_rgba": 142.0,
+      "mean_alpha": 0.0
+     },
+     "passes": true
+    }
+   ],
+   "device": {
+    "collected_utc": "2026-09-30T06:07:11.877202+00:00",
+    "command": [
+     "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+     "collect",
+     "--serve",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+     "--scene",
+     "PriceDiscovery",
+     "--serialize",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/serialize",
+     "--output",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/pd/device"
+    ],
+    "scene": {
+     "path": "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/episodes/Blocks/B3_Equilibrium/Animate.py",
+     "name": "PriceDiscovery",
+     "checkpoint_count": 131,
+     "measured_checkpoints": [
+      9,
+      19,
+      35,
+      48,
+      58,
+      68,
+      86,
+      98,
+      109,
+      115,
+      123,
+      130
+     ],
+     "construct_error": null
+    },
+    "git": {
+     "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+     "branch": "b5-loose-ends",
+     "dirty": true
+    },
+    "machine": {
+     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+     "machine": "arm64",
+     "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+     "vendor": "apple",
+     "architecture": "metal-3",
+     "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+     "plain",
+     "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+     "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+     "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+     "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+     "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+     "phase_a_f7": "3686078deaafd4edffd33c61763b89694530835f1fae775112b773b46cbbcf41",
+     "phase_a_f8": "af6d1f87a3f1f2cdd159ce96547d36b2eb33802bec91b9231c14c45a9bc6a6ca",
+     "phase_b_forced_f7": "03b2edd14cd5211e885702509d4c01e14a34a511cddbec671fb6a23a258f7019",
+     "phase_b_forced_f8": "a4b533d664087e39c8ed3ca1b8cae2777b7bac236fce013d26eac4fd853c9c67"
+    }
+   },
+   "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+     "pausepoint",
+     "ticked",
+     "camera",
+     "play",
+     "navigation"
+    ]
+   }
+  },
+  "EpisodeB3": {
+   "ratios": {
+    "7": {
+     "pausepoint": 1.158438154608967,
+     "ticked": 1.1112661983566536,
+     "camera": 0.8728583536512119,
+     "play": 0.7492984360997518,
+     "navigation": 1.0127171787314866
+    },
+    "8": {
+     "pausepoint": 1.105004074810953,
+     "ticked": 1.3800347426434632,
+     "camera": 1.0873188405172358,
+     "play": 0.6554171525802381,
+     "navigation": 0.9889276069380045
+    }
+   },
+   "device_check": {
+    "7": {
+     "pausepoint": 1.1103472813292856,
+     "ticked": 1.1348013734431703,
+     "camera": 1.0219377416097166,
+     "play": 0.7539250907543682,
+     "navigation": 1.0073423804922255
+    },
+    "8": {
+     "pausepoint": 1.105004074810953,
+     "ticked": 1.3800347426434632,
+     "camera": 1.043103017634334,
+     "play": 0.7006187717351396,
+     "navigation": 1.111629648215494
+    }
+   },
+   "first_visits": {
+    "7": {
+     "navigation_first": {
+      "phase_a_ms": 22.556978828398453,
+      "flip_ms": 25.3792390062402,
+      "ratio": 1.1251169404959773
+     }
+    },
+    "8": {
+     "navigation_first": {
+      "phase_a_ms": 22.24251797533858,
+      "flip_ms": 21.096222837745774,
+      "ratio": 0.9484637872895613
+     }
+    }
+   },
+   "parts": {
+    "7": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 1.4520730182994157,
+       "page_ms": 0.5004861139588885,
+       "gpu_ms": 3.293912177777778,
+       "done_ms": 4.021319440669484,
+       "complete_ms": 5.272149527634241,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 40.666666666666664,
+       "wire_bytes": 48790.833333333336
+      },
+      "navigation": {
+       "serialize_ms": 12.681417050771415,
+       "page_ms": 1.1033333937327068,
+       "gpu_ms": 4.5875200000000005,
+       "done_ms": 6.659999926884969,
+       "complete_ms": 17.95625662660873,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 15.0,
+       "wire_bytes": 514750.0
+      },
+      "navigation_first": {
+       "serialize_ms": 16.370958066545427,
+       "page_ms": 1.4350000619888306,
+       "gpu_ms": 4.6006272,
+       "done_ms": 7.564999938011169,
+       "complete_ms": 22.556978828398453,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 15.0,
+       "wire_bytes": 514750.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5287499516271055,
+       "page_ms": 0.15083330869674683,
+       "gpu_ms": 1.8928981333333337,
+       "done_ms": 2.705000013113022,
+       "complete_ms": 2.5724813936571858,
+       "frames": 1,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 195640.0
+      },
+      "play": {
+       "serialize_ms": 6.577406224096194,
+       "page_ms": 0.9362499415874481,
+       "gpu_ms": 4.5416448,
+       "done_ms": 6.225000023841858,
+       "complete_ms": 11.62773379809903,
+       "frames": 72,
+       "sent": 1.0,
+       "passes": 12.0,
+       "wire_bytes": 309890.5
+      },
+      "ticked": {
+       "serialize_ms": 1.9812294631265104,
+       "page_ms": 0.10000001390775044,
+       "gpu_ms": 2.471799466666667,
+       "done_ms": 3.1187499860922494,
+       "complete_ms": 5.6817761470635135,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 47176.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.2061147717759013,
+       "page_ms": 0.6242361085282432,
+       "gpu_ms": 2.676053333333333,
+       "done_ms": 4.109791662957933,
+       "complete_ms": 4.601839756893838,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 27.333333333333336,
+       "wire_bytes": 66781.83333333333
+      },
+      "navigation": {
+       "serialize_ms": 9.563875035382807,
+       "page_ms": 2.0216666062672934,
+       "gpu_ms": 6.046788266666667,
+       "done_ms": 7.981666684150696,
+       "complete_ms": 18.184609551477756,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 28.0,
+       "wire_bytes": 189490.0
+      },
+      "navigation_first": {
+       "serialize_ms": 13.74458393547684,
+       "page_ms": 2.850000023841858,
+       "gpu_ms": 6.094848000000001,
+       "done_ms": 8.819999933242798,
+       "complete_ms": 25.3792390062402,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 28.0,
+       "wire_bytes": 189490.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5834795301780105,
+       "page_ms": 0.18583333492279053,
+       "gpu_ms": 2.210747733333333,
+       "done_ms": 2.9887499709924064,
+       "complete_ms": 2.980060598434134,
+       "frames": 1,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 257307.0
+      },
+      "play": {
+       "serialize_ms": 2.915270742960274,
+       "page_ms": 0.68812495470047,
+       "gpu_ms": 4.6628864,
+       "done_ms": 6.991249993443489,
+       "complete_ms": 8.71264275029983,
+       "frames": 72,
+       "sent": 1.0,
+       "passes": 60.0,
+       "wire_bytes": 64368.0
+      },
+      "ticked": {
+       "serialize_ms": 2.79306253651157,
+       "page_ms": 0.11416666706403096,
+       "gpu_ms": 2.471799466666667,
+       "done_ms": 3.1500000059604645,
+       "complete_ms": 6.313965778860785,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 56624.0
+      }
+     }
+    },
+    "8": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 1.4726457593496889,
+       "page_ms": 0.25458334055211806,
+       "gpu_ms": 2.595771733333333,
+       "done_ms": 3.7840277784400516,
+       "complete_ms": 4.4384536465053,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 40.666666666666664,
+       "wire_bytes": 587.3333333333334
+      },
+      "navigation": {
+       "serialize_ms": 12.455666088499129,
+       "page_ms": 1.028333306312561,
+       "gpu_ms": 4.264209066666666,
+       "done_ms": 6.399999976158142,
+       "complete_ms": 17.372016486909672,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 15.0,
+       "wire_bytes": 513376.0
+      },
+      "navigation_first": {
+       "serialize_ms": 16.458750003948808,
+       "page_ms": 1.9449999332427979,
+       "gpu_ms": 4.4433408,
+       "done_ms": 6.685000061988831,
+       "complete_ms": 22.24251797533858,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 15.0,
+       "wire_bytes": 513376.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5287500680424273,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.5287500680424273,
+       "frames": 1,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 6.726333260303363,
+       "page_ms": 0.6443750113248825,
+       "gpu_ms": 3.9829504,
+       "done_ms": 5.826874986290932,
+       "complete_ms": 10.976440167273608,
+       "frames": 72,
+       "sent": 1.0,
+       "passes": 12.0,
+       "wire_bytes": 255866.5
+      },
+      "ticked": {
+       "serialize_ms": 2.002666995394975,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 2.002666995394975,
+       "frames": 11,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.2091562675777823,
+       "page_ms": 0.26951388683584,
+       "gpu_ms": 3.3374208,
+       "done_ms": 4.085624997814496,
+       "complete_ms": 4.82601427260764,
+       "frames": 12,
+       "sent": 1.0,
+       "passes": 27.333333333333336,
+       "wire_bytes": 585.3333333333334
+      },
+      "navigation": {
+       "serialize_ms": 9.515083045698702,
+       "page_ms": 1.9983333349227905,
+       "gpu_ms": 4.552567466666667,
+       "done_ms": 7.224999984105428,
+       "complete_ms": 17.179666692087142,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 28.0,
+       "wire_bytes": 173685.0
+      },
+      "navigation_first": {
+       "serialize_ms": 12.809665990062058,
+       "page_ms": 2.7799999713897705,
+       "gpu_ms": 4.4040192,
+       "done_ms": 8.47000002861023,
+       "complete_ms": 21.096222837745774,
+       "frames": 11,
+       "sent": 1.0,
+       "passes": 28.0,
+       "wire_bytes": 173685.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5842709797434509,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.5842709797434509,
+       "frames": 1,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 3.0920727585908026,
+       "page_ms": 0.3700000196695328,
+       "gpu_ms": 3.8846464,
+       "done_ms": 5.2593750059604645,
+       "complete_ms": 7.194147159901822,
+       "frames": 72,
+       "sent": 1.0,
+       "passes": 60.0,
+       "wire_bytes": 1083.0
+      },
+      "ticked": {
+       "serialize_ms": 2.7637500315904617,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 2.7637500315904617,
+       "frames": 11,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      }
+     }
+    }
+   },
+   "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 105,
+    "pausepoints": 12,
+    "play_frames": 93,
+    "worst": {
+     "checkpoint": 1344,
+     "phase": "pausepoint",
+     "mean_rgb": 0.0004546753543667124,
+     "fraction_pixels_rgb_over24": 1.7146776406035665e-06,
+     "max_rgba": 28.0,
+     "mean_alpha": 0.0
+    },
+    "passes": true
+   },
+   "reported_pixels": [
+    {
+     "pair": "phase_b_vs_gpu_border",
+     "frames": 105,
+     "pausepoints": 12,
+     "play_frames": 93,
+     "worst": {
+      "checkpoint": 996,
+      "phase": "pausepoint",
+      "mean_rgb": 0.020875485825331504,
+      "fraction_pixels_rgb_over24": 0.0002602023319615912,
+      "max_rgba": 144.0,
+      "mean_alpha": 0.0
+     },
+     "passes": true
+    }
+   ],
+   "device": {
+    "collected_utc": "2026-09-30T06:13:03.888365+00:00",
+    "command": [
+     "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+     "collect",
+     "--serve",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+     "--scene",
+     "EpisodeB3",
+     "--serialize",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b3/serialize",
+     "--output",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/b3/device"
+    ],
+    "scene": {
+     "path": "/Users/taylorjweidman/Projects/econ-0100/Blocks/B3_Equilibrium/B3_Animation.py",
+     "name": "EpisodeB3",
+     "checkpoint_count": 1345,
+     "measured_checkpoints": [
+      12,
+      116,
+      325,
+      468,
+      624,
+      764,
+      896,
+      996,
+      1079,
+      1172,
+      1264,
+      1344
+     ],
+     "construct_error": null
+    },
+    "git": {
+     "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+     "branch": "b5-loose-ends",
+     "dirty": true
+    },
+    "machine": {
+     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+     "machine": "arm64",
+     "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+     "vendor": "apple",
+     "architecture": "metal-3",
+     "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+     "plain",
+     "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+     "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+     "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+     "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+     "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+     "phase_a_f7": "c36b67cdbb91d9b28a27b6c1ce1bc57366c5d1b6f2d6553b97d0823da94558e5",
+     "phase_a_f8": "e9d0751c195fe4c400126a2c04540cbede8c61142cb9bb5dab3195961ddb60b7",
+     "phase_b_forced_f7": "0666b8f47580f2b582355e28e6988b07b0b27df02614170f7875f1d9d1ea2b01",
+     "phase_b_forced_f8": "312fe005c93e771ad985ad1a300f816bf68adb5e376cae21775884e91602ee7c"
+    }
+   },
+   "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+     "pausepoint",
+     "ticked",
+     "camera",
+     "play",
+     "navigation"
+    ]
+   }
+  },
+  "OrbsScene": {
+   "ratios": {
+    "7": {
+     "pausepoint": 1.9915426578441644,
+     "camera": 2.9131956899281493,
+     "play": 0.6039071934822362,
+     "navigation": 1.4857301495463842
+    },
+    "8": {
+     "pausepoint": 1.1170427385599349,
+     "camera": 2.7406439273383496,
+     "play": 0.6448401649541445,
+     "navigation": 1.7439349771846724
+    }
+   },
+   "device_check": {
+    "7": {
+     "pausepoint": 1.7160102841770286,
+     "camera": 2.3318175685058606,
+     "play": 0.6849834422440122,
+     "navigation": 1.5927252874569124
+    },
+    "8": {
+     "pausepoint": 1.1170427385599349,
+     "camera": 2.0738854457848785,
+     "play": 0.8042797499618036,
+     "navigation": 1.9700823693649123
+    }
+   },
+   "first_visits": {
+    "7": {
+     "navigation_first": {
+      "phase_a_ms": 7.102552605263382,
+      "flip_ms": 6.639369983686954,
+      "ratio": 0.9347864567404706
+     }
+    },
+    "8": {
+     "navigation_first": {
+      "phase_a_ms": 6.974260222639042,
+      "flip_ms": 7.269069548572368,
+      "ratio": 1.042271053347902
+     }
+    }
+   },
+   "parts": {
+    "7": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 0.19297905964776874,
+       "page_ms": 0.021111114157570735,
+       "gpu_ms": 1.1053738666666666,
+       "done_ms": 1.6166666746139526,
+       "complete_ms": 1.3182140284186223,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 1198.6666666666667
+      },
+      "navigation": {
+       "serialize_ms": 3.323707962408662,
+       "page_ms": 0.08583337068557739,
+       "gpu_ms": 1.1053738666666668,
+       "done_ms": 1.9508333404858909,
+       "complete_ms": 4.514915199760907,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381958.0
+      },
+      "navigation_first": {
+       "serialize_ms": 5.933708569500595,
+       "page_ms": 0.08750003576278687,
+       "gpu_ms": 1.081344,
+       "done_ms": 1.912500023841858,
+       "complete_ms": 7.102552605263382,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381958.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.1378334709443152,
+       "page_ms": 0.014583319425582886,
+       "gpu_ms": 1.1599872,
+       "done_ms": 1.60916668176651,
+       "complete_ms": 1.3146535823537528,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 1161.0
+      },
+      "play": {
+       "serialize_ms": 8.861343725584447,
+       "page_ms": 0.088749960064888,
+       "gpu_ms": 1.0846208,
+       "done_ms": 1.9462499618530273,
+       "complete_ms": 10.041402044603917,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381958.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 0.2595415571704507,
+       "page_ms": 0.3127777775128682,
+       "gpu_ms": 3.2673336888888884,
+       "done_ms": 3.6931944456365375,
+       "complete_ms": 3.8402154259919534,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 10240.666666666666
+      },
+      "navigation": {
+       "serialize_ms": 2.6542709674686193,
+       "page_ms": 0.853333334128062,
+       "gpu_ms": 3.2003413333333333,
+       "done_ms": 5.029999991257986,
+       "complete_ms": 6.707945634930015,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 482819.0
+      },
+      "navigation_first": {
+       "serialize_ms": 2.6752499979920685,
+       "page_ms": 1.0149999856948853,
+       "gpu_ms": 2.94912,
+       "done_ms": 5.004999995231628,
+       "complete_ms": 6.639369983686954,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 482819.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.1539584482088685,
+       "page_ms": 0.030833333730697632,
+       "gpu_ms": 2.4302933333333336,
+       "done_ms": 2.834999998410543,
+       "complete_ms": 2.618188689545145,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 10203.0
+      },
+      "play": {
+       "serialize_ms": 1.8092187528964132,
+       "page_ms": 0.6000000089406967,
+       "gpu_ms": 3.6438016,
+       "done_ms": 5.039375022053719,
+       "complete_ms": 6.0640749273835395,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 73.0,
+       "wire_bytes": 46373.0
+      }
+     }
+    },
+    "8": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 0.19906245870515704,
+       "page_ms": 0.019166671567493014,
+       "gpu_ms": 1.0940871111111108,
+       "done_ms": 1.6066666675938501,
+       "complete_ms": 1.3130731976584855,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 642.6666666666666
+      },
+      "navigation": {
+       "serialize_ms": 3.187042020726949,
+       "page_ms": 0.08583331108093262,
+       "gpu_ms": 1.0878975999999998,
+       "done_ms": 1.9150000214576721,
+       "complete_ms": 4.360772931807881,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381243.0
+      },
+      "navigation_first": {
+       "serialize_ms": 5.848791508469731,
+       "page_ms": 0.08999991416931152,
+       "gpu_ms": 1.0354687999999999,
+       "done_ms": 1.925000011920929,
+       "complete_ms": 6.974260222639042,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381243.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.13777049025520682,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.13777049025520682,
+       "frames": 3,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 8.809312246739864,
+       "page_ms": 0.08750000596046448,
+       "gpu_ms": 1.0944512,
+       "done_ms": 1.9268750101327896,
+       "complete_ms": 9.999842722662521,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 2381243.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 0.2642290201038122,
+       "page_ms": 0.23111111919085184,
+       "gpu_ms": 3.0863815111111115,
+       "done_ms": 3.285972214407391,
+       "complete_ms": 3.598666085313477,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 640.6666666666666
+      },
+      "navigation": {
+       "serialize_ms": 2.68220849102363,
+       "page_ms": 0.9249999523162842,
+       "gpu_ms": 3.997696,
+       "done_ms": 6.613333324591319,
+       "complete_ms": 7.604904443339914,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 482120.0
+      },
+      "navigation_first": {
+       "serialize_ms": 2.592500008177012,
+       "page_ms": 0.9999999403953552,
+       "gpu_ms": 3.6765696,
+       "done_ms": 6.692499995231628,
+       "complete_ms": 7.269069548572368,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 482120.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.15389552572742105,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.15389552572742105,
+       "frames": 3,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 2.249520504847169,
+       "page_ms": 0.48999999463558197,
+       "gpu_ms": 3.678208,
+       "done_ms": 5.870624989271164,
+       "complete_ms": 6.4483002307972015,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 73.0,
+       "wire_bytes": 2065.25
+      }
+     }
+    }
+   },
+   "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 48,
+    "pausepoints": 3,
+    "play_frames": 45,
+    "worst": {
+     "checkpoint": 1,
+     "phase": "pausepoint",
+     "mean_rgb": 0.0,
+     "fraction_pixels_rgb_over24": 0.0,
+     "max_rgba": 0.0,
+     "mean_alpha": 0.0
+    },
+    "passes": true
+   },
+   "reported_pixels": [
+    {
+     "pair": "phase_b_vs_gpu_border",
+     "frames": 48,
+     "pausepoints": 3,
+     "play_frames": 45,
+     "worst": {
+      "checkpoint": 1,
+      "phase": "play",
+      "mean_rgb": 0.2116142618312757,
+      "fraction_pixels_rgb_over24": 0.003560474537037037,
+      "max_rgba": 199.0,
+      "mean_alpha": 0.0,
+      "play_frame": 14
+     },
+     "passes": true
+    }
+   ],
+   "device": {
+    "collected_utc": "2026-09-30T05:52:34.626255+00:00",
+    "command": [
+     "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+     "collect",
+     "--serve",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+     "--scene",
+     "OrbsScene",
+     "--serialize",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/orbs/serialize",
+     "--output",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/orbs/device"
+    ],
+    "scene": {
+     "path": "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+     "name": "OrbsScene",
+     "checkpoint_count": 4,
+     "measured_checkpoints": [
+      1,
+      2,
+      3
+     ],
+     "construct_error": null
+    },
+    "git": {
+     "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+     "branch": "b5-loose-ends",
+     "dirty": true
+    },
+    "machine": {
+     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+     "machine": "arm64",
+     "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+     "vendor": "apple",
+     "architecture": "metal-3",
+     "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+     "plain",
+     "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+     "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+     "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+     "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+     "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+     "phase_a_f7": "9c96d7df129ee63fb995d57dc0600b6ed785e95768c66ce6202c4fcaa3d85b20",
+     "phase_a_f8": "30c459bfff966bb4819a0e59b0662810f7065a9777f2c475b5618874947f3aa6",
+     "phase_b_forced_f7": "59deead66a7525e19eedf37eded85a12762ff96d25ac8ecd38f6239e0861c709",
+     "phase_b_forced_f8": "6d50e6a1bc486267e76ca498c7d935c72be17bd9de8b63dcf0e78c67cd01bdbd"
+    }
+   },
+   "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+     "pausepoint",
+     "camera",
+     "play",
+     "navigation"
+    ]
+   }
+  },
+  "LatticeScene": {
+   "ratios": {
+    "7": {
+     "pausepoint": 1.432441789950994,
+     "camera": 1.5718005524499976,
+     "play": 0.4668420615398849,
+     "navigation": 1.5391159697166035
+    },
+    "8": {
+     "pausepoint": 1.1982623235206349,
+     "camera": 1.6307464364050555,
+     "play": 0.5239495057164796,
+     "navigation": 1.5458282018189926
+    }
+   },
+   "device_check": {
+    "7": {
+     "pausepoint": 1.1445985884532088,
+     "camera": 1.3000395193628058,
+     "play": 0.47450783518722267,
+     "navigation": 1.6685421209549027
+    },
+    "8": {
+     "pausepoint": 1.1982623235206349,
+     "camera": 1.383618301597218,
+     "play": 0.542792719029082,
+     "navigation": 1.6461856546291767
+    }
+   },
+   "first_visits": {
+    "7": {
+     "navigation_first": {
+      "phase_a_ms": 34.177608341714674,
+      "flip_ms": 31.139827367347944,
+      "ratio": 0.9111178013395678
+     }
+    },
+    "8": {
+     "navigation_first": {
+      "phase_a_ms": 33.63113672936116,
+      "flip_ms": 29.594231533349813,
+      "ratio": 0.8799652468336883
+     }
+    }
+   },
+   "parts": {
+    "7": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 0.7336874841712415,
+       "page_ms": 0.02041666044129266,
+       "gpu_ms": 1.4286848,
+       "done_ms": 1.9948611160119374,
+       "complete_ms": 2.1826849382326916,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 1200.6666666666667
+      },
+      "navigation": {
+       "serialize_ms": 16.93870796589181,
+       "page_ms": 0.41833335161209106,
+       "gpu_ms": 1.5728639999999998,
+       "done_ms": 3.464166661103566,
+       "complete_ms": 18.9299053175039,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11060360.0
+      },
+      "navigation_first": {
+       "serialize_ms": 32.037457975093275,
+       "page_ms": 0.4099999666213989,
+       "gpu_ms": 1.7301503999999999,
+       "done_ms": 3.4049999713897705,
+       "complete_ms": 34.177608341714674,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11060360.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5372705636546016,
+       "page_ms": 0.012916674216588339,
+       "gpu_ms": 1.5226197333333333,
+       "done_ms": 2.0854166646798453,
+       "complete_ms": 2.0761407210749825,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 1163.0
+      },
+      "play": {
+       "serialize_ms": 48.06902073323727,
+       "page_ms": 0.42875000834465027,
+       "gpu_ms": 1.7432575999999997,
+       "done_ms": 3.4587499797344208,
+       "complete_ms": 50.25511154291563,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11060360.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.1710419785231352,
+       "page_ms": 0.20041665765974256,
+       "gpu_ms": 2.0592867555555556,
+       "done_ms": 2.185555547475815,
+       "complete_ms": 3.4307453917384336,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 62791.666666666664
+      },
+      "navigation": {
+       "serialize_ms": 17.416062473785132,
+       "page_ms": 3.271666705608368,
+       "gpu_ms": 8.4475904,
+       "done_ms": 14.053333342075348,
+       "complete_ms": 29.135319579393503,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 2343947.0
+      },
+      "navigation_first": {
+       "serialize_ms": 19.163166522048414,
+       "page_ms": 3.76500004529953,
+       "gpu_ms": 8.2116608,
+       "done_ms": 14.217500030994415,
+       "complete_ms": 31.139827367347944,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 2343947.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.6383334985002875,
+       "page_ms": 0.03000001112620036,
+       "gpu_ms": 2.3068671999999997,
+       "done_ms": 2.342499981323878,
+       "complete_ms": 2.9739507306867954,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 62754.0
+      },
+      "play": {
+       "serialize_ms": 13.296468736371025,
+       "page_ms": 1.8531249910593033,
+       "gpu_ms": 8.3001344,
+       "done_ms": 9.637499988079071,
+       "complete_ms": 23.461199875611598,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 483.0,
+       "wire_bytes": 312484.0
+      }
+     }
+    },
+    "8": {
+     "phase_a": {
+      "camera": {
+       "serialize_ms": 0.7372085237875581,
+       "page_ms": 0.019722213347752888,
+       "gpu_ms": 1.4290488888888886,
+       "done_ms": 2.091527773274316,
+       "complete_ms": 2.1908336792830956,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 642.6666666666666
+      },
+      "navigation": {
+       "serialize_ms": 16.739937011152506,
+       "page_ms": 0.4149999817212423,
+       "gpu_ms": 1.3697024,
+       "done_ms": 3.4416666626930237,
+       "complete_ms": 18.52463939287375,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11059645.0
+      },
+      "navigation_first": {
+       "serialize_ms": 31.8620415055193,
+       "page_ms": 0.4125000238418579,
+       "gpu_ms": 1.3565952000000001,
+       "done_ms": 3.3700000047683716,
+       "complete_ms": 33.63113672936116,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11059645.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.5346454563550651,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.5346454563550651,
+       "frames": 3,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 48.01649975706823,
+       "page_ms": 0.4312500059604645,
+       "gpu_ms": 1.4008319999999999,
+       "done_ms": 3.556875005364418,
+       "complete_ms": 50.17657492080569,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 11059645.0
+      }
+     },
+     "phase_b_forced": {
+      "camera": {
+       "serialize_ms": 1.180479011964053,
+       "page_ms": 0.07083332538604736,
+       "gpu_ms": 2.37568,
+       "done_ms": 2.6851388845178814,
+       "complete_ms": 3.5726942152470844,
+       "frames": 3,
+       "sent": 1.0,
+       "passes": 2.0,
+       "wire_bytes": 640.6666666666666
+      },
+      "navigation": {
+       "serialize_ms": 17.363333492539823,
+       "page_ms": 3.274999976158142,
+       "gpu_ms": 7.9975765333333335,
+       "done_ms": 13.267500003178913,
+       "complete_ms": 28.635910002031302,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 2343248.0
+      },
+      "navigation_first": {
+       "serialize_ms": 17.779375542886555,
+       "page_ms": 3.884999990463257,
+       "gpu_ms": 7.929856000000001,
+       "done_ms": 15.649999976158142,
+       "complete_ms": 29.594231533349813,
+       "frames": 2,
+       "sent": 1.0,
+       "passes": 3.0,
+       "wire_bytes": 2343248.0
+      },
+      "pausepoint": {
+       "serialize_ms": 0.6406455067917705,
+       "page_ms": 0.0,
+       "gpu_ms": 0.0,
+       "done_ms": 0.0,
+       "complete_ms": 0.6406455067917705,
+       "frames": 3,
+       "sent": 0.0,
+       "passes": 0.0,
+       "wire_bytes": 0.0
+      },
+      "play": {
+       "serialize_ms": 16.74267675844021,
+       "page_ms": 1.2381250262260437,
+       "gpu_ms": 8.2870272,
+       "done_ms": 10.623750001192093,
+       "complete_ms": 26.289991628302047,
+       "frames": 36,
+       "sent": 1.0,
+       "passes": 483.0,
+       "wire_bytes": 13925.25
+      }
+     }
+    }
+   },
+   "pixels": {
+    "pair": "phase_b_vs_nets",
+    "frames": 48,
+    "pausepoints": 3,
+    "play_frames": 45,
+    "worst": {
+     "checkpoint": 1,
+     "phase": "pausepoint",
+     "mean_rgb": 0.0,
+     "fraction_pixels_rgb_over24": 0.0,
+     "max_rgba": 0.0,
+     "mean_alpha": 0.0
+    },
+    "passes": true
+   },
+   "reported_pixels": [
+    {
+     "pair": "phase_b_vs_gpu_border",
+     "frames": 48,
+     "pausepoints": 3,
+     "play_frames": 45,
+     "worst": {
+      "checkpoint": 1,
+      "phase": "pausepoint",
+      "mean_rgb": 0.5914104295267489,
+      "fraction_pixels_rgb_over24": 0.009789255401234568,
+      "max_rgba": 177.0,
+      "mean_alpha": 0.0
+     },
+     "passes": false
+    }
+   ],
+   "device": {
+    "collected_utc": "2026-09-30T05:54:23.572760+00:00",
+    "command": [
+     "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/device_frames.py",
+     "collect",
+     "--serve",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/serve",
+     "--scene",
+     "LatticeScene",
+     "--serialize",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/serialize",
+     "--output",
+     "/private/tmp/claude-501/-Users-taylorjweidman-Projects-ManimLive/672b0eb2-42ee-46d7-a193-01dd8ce18dbe/scratchpad/b5b_work/b510/runs/lattice/device"
+    ],
+    "scene": {
+     "path": "/Users/taylorjweidman/Projects/ManimLive/maniml-b5/benchmarks/surface_scenes.py",
+     "name": "LatticeScene",
+     "checkpoint_count": 4,
+     "measured_checkpoints": [
+      1,
+      2,
+      3
+     ],
+     "construct_error": null
+    },
+    "git": {
+     "commit": "48b7e6d4c724d7218a6c48e272ffe064d4e6e1ed",
+     "branch": "b5-loose-ends",
+     "dirty": true
+    },
+    "machine": {
+     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+     "machine": "arm64",
+     "node": "macbook.local"
+    },
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.16120.0 Chrome/152.0.7977.130 Safari/537.36",
+    "adapter": {
+     "vendor": "apple",
+     "architecture": "metal-3",
+     "description": ""
+    },
+    "timestamps": true,
+    "cross_origin_isolated": true,
+    "rounds": 5,
+    "modes": [
+     "plain",
+     "stamped"
+    ],
+    "overflow": 0,
+    "page_sources": {
+     "device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29",
+     "webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf"
+    },
+    "source_files_sha256": {
+     "maniml/web/static/webgpu.js": "06e734e29c7308164e0709ee2a681b8797a243e6f8752bce0202f426010152bf",
+     "maniml/web/static/renderer_selection.js": "e696c313087d57d5da441ea86d4d98f62b8f08fc8fd110256e8f01e655c9e02d",
+     "maniml/web/static/wgsl/blit.wgsl": "b069e3a05703ac55e3e6ac0ee9725e041eca87303ebd1b8c32df903d3bb1176b",
+     "maniml/web/static/wgsl/border_compute.wgsl": "052efd0af980097a0a0b6b2ff7e61a70a1d2585587365bdf37a31f929072f5c7",
+     "maniml/web/static/wgsl/common.wgsl": "2fc1cf584280662b03836e7feb738fb41ebafb21073a1f0c001229790f8c368d",
+     "maniml/web/static/wgsl/composite.wgsl": "df1ad159525d08afdcd98526f715671600e2fdd8375fb7b4c83877c70afd1f1b",
+     "maniml/web/static/wgsl/dot.wgsl": "d2fe51dbc14c9019d57717e6ed31f0090776581baa2bb3f2cbfd5eff4ff82fd2",
+     "maniml/web/static/wgsl/fill.wgsl": "680acaaea4fed9024b74ded76908ae2329ac8b587099cb292217d751d967745e",
+     "maniml/web/static/wgsl/image.wgsl": "157ee435eea7daebd28832fb43a767a6bb31ed366f0b44e30517852fb3e41715",
+     "maniml/web/static/wgsl/net_compute.wgsl": "766da96e13a30b768e40716e30c7d6abf0f9a0b193ef6739ebdf5a825a6b3ce8",
+     "maniml/web/static/wgsl/paint.wgsl": "55c668aff6296a7593bf5046372b985c8e786a28aad00de9dade5dcc0b096a1b",
+     "maniml/web/static/wgsl/paint_field.wgsl": "f9a37afd3ec70407bb35d92e7fe7f2f5c2efa4a2072f3c2666a648c8584b4531",
+     "maniml/web/static/wgsl/patch_fill.wgsl": "3a9cccf44dcb5285e0ad0e31470adc34931fa55bf8f3e94f3c1220a4c678bb22",
+     "maniml/web/static/wgsl/resolve2.wgsl": "c535c5c175d418b1981e5a53d0a7a16a3ea2dbcbd1d12d42285206229ed86de8",
+     "maniml/web/static/wgsl/row_affine.wgsl": "01727e9076e77535a89606dc8c6d7ad342a33e513272a97ea570e4043f82b9f7",
+     "maniml/web/static/wgsl/row_blend.wgsl": "e4ce8f334d078ea993fcc38c96f26d2d85330e83363a79379210828e9f083a87",
+     "maniml/web/static/wgsl/row_finalize.wgsl": "a1427742b0c0f88ac01078db8ba99c482c542d945609ed4daa1d46c1ce93efb4",
+     "maniml/web/static/wgsl/row_finalize_table.wgsl": "42f7112e654c6e669d02b28e5cd8905cc6a8bccb468496f362a7c84dce38b6c2",
+     "maniml/web/static/wgsl/row_paint.wgsl": "48d3d8dead684988dc1b83ce93698481812a0ae1817fd1fb49219cd24d9f9099",
+     "maniml/web/static/wgsl/row_partial.wgsl": "a0d446fe33547b169765b8e51338679523a79703f459e63dbc8da898574bb5ae",
+     "maniml/web/static/wgsl/stroke.wgsl": "9366857a97b8175fb0383da42e4072d0aef61b81a2bc60415b6bfe8e4b7cbab6",
+     "maniml/web/static/wgsl/surface.wgsl": "77ef880f6260859f74cbf1cd422345e3d23b232620648a8bab220dba4e83cfb3",
+     "maniml/web/static/wgsl/texsurface.wgsl": "aa5fb4422600deba4933b7017b8f5b62f2cd14c151b724b2abc7131a18999aaf",
+     "benchmarks/device_frames.html": "4fe0681a7a202ad146398240606f574864c14f430dccb483a58228a04648ab29"
+    },
+    "streams_sha256": {
+     "phase_a_f7": "f56b104074b63d618f5279f0d5ede698a72f15827ace75d8c796f77897291529",
+     "phase_a_f8": "2a6ab4a998d40b9541c5ff10995e3889adc5b14222cd398eadda16bd1855cef5",
+     "phase_b_forced_f7": "aa01e243f96edbac5da73ea81a7af1779001f36a172ab07c80c5d9dbd6bfb734",
+     "phase_b_forced_f8": "91aa3f0e42c802d58e34f0c65e585da12d9683203de84b5d650b3e54caeecdd6"
+    }
+   },
+   "measured": {
+    "tick_updaters": true,
+    "play_frames": true,
+    "camera_moves": true,
+    "navigations": true,
+    "classes": [
+     "pausepoint",
+     "camera",
+     "play",
+     "navigation"
+    ]
+   }
+  }
+ },
+ "diagnostics": {
+  "OrbsScene": {
+   "note": "a six-serializer run of its own (--diagnostics), not judged",
+   "ratios": {
+    "7": {
+     "pausepoint": 1.5530991862006631,
+     "camera": 1.8600169022243387,
+     "play": 0.589547593403973,
+     "navigation": 1.7214794331404109
+    },
+    "8": {
+     "pausepoint": 1.1087224867275822,
+     "camera": 2.423809724319678,
+     "play": 0.6914888122244935,
+     "navigation": 1.6241589948684043
+    }
+   },
+   "phase_a_nets": {
+    "7": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 1.2698293915855845,
+       "other_ms": 1.9688707181554854,
+       "flip_ms": 1.9721709946852544,
+       "flip_over_other": 1.0016762281542084,
+       "other_over_phase_a": 1.5505001941221697,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.13727101031690836,
+         "page_ms": 0.01416666309038798,
+         "gpu_ms": 1.1162965333333332,
+         "done_ms": 1.8075000147024791
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.1550415181554854,
+         "page_ms": 0.018333335717519123,
+         "gpu_ms": 1.7825792,
+         "done_ms": 2.4558333257834115
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.1560204545967281,
+         "page_ms": 0.05541667342185974,
+         "gpu_ms": 1.7607338666666665,
+         "done_ms": 2.7766666611035666
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 1.3226931845013254,
+       "other_ms": 1.988783758236713,
+       "flip_ms": 2.460231679629401,
+       "flip_over_other": 1.2370533847333314,
+       "other_over_phase_a": 1.5035866076428852,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.1926880213432014,
+         "page_ms": 0.021805551317003038,
+         "gpu_ms": 1.1053738666666666,
+         "done_ms": 1.625416682826148
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.2550000208429992,
+         "page_ms": 0.05430554681354099,
+         "gpu_ms": 1.6802702222222223,
+         "done_ms": 2.3420833316114216
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.2577704726718366,
+         "page_ms": 0.32111112276713055,
+         "gpu_ms": 1.8743295999999998,
+         "done_ms": 3.5456944604714713
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 10.026458553422753,
+       "other_ms": 5.341332218632772,
+       "flip_ms": 5.911074510535064,
+       "flip_over_other": 1.1066667019727392,
+       "other_over_phase_a": 0.5327237119839677,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 8.846427226671949,
+         "page_ms": 0.09125001728534698,
+         "gpu_ms": 1.0780672,
+         "done_ms": 1.9681250154972076
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.847020950866863,
+         "page_ms": 0.7006250023841858,
+         "gpu_ms": 1.8022399999999998,
+         "done_ms": 3.605624958872795
+        },
+        "phase_b_forced": {
+         "serialize_ms": 1.8412497593089938,
+         "page_ms": 0.6456249803304672,
+         "gpu_ms": 3.3193984,
+         "done_ms": 6.474375024437904
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 4.374415269134277,
+       "other_ms": 5.656459449846643,
+       "flip_ms": 7.530465917830032,
+       "flip_over_other": 1.331303792522405,
+       "other_over_phase_a": 1.2930778405421237,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 3.203791507985443,
+         "page_ms": 0.09583336114883423,
+         "gpu_ms": 1.0747904,
+         "done_ms": 2.286666651566823
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.638603968080133,
+         "page_ms": 0.67166668176651,
+         "gpu_ms": 2.3461888,
+         "done_ms": 4.263333320617676
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.6423120289109647,
+         "page_ms": 0.9975000222524006,
+         "gpu_ms": 3.890653866666667,
+         "done_ms": 4.926666657129923
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 7.1557903895282085,
+       "other_ms": 5.704741487400055,
+       "flip_ms": 7.566915192765599,
+       "flip_over_other": 1.3264256074492575,
+       "other_over_phase_a": 0.7972203176532924,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 5.980999965686351,
+         "page_ms": 0.10000002384185791,
+         "gpu_ms": 1.0747904,
+         "done_ms": 2.302500009536743
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.7537494897842407,
+         "page_ms": 0.6899999976158142,
+         "gpu_ms": 2.260992,
+         "done_ms": 3.5325000286102295
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.7395415236242115,
+         "page_ms": 1.052500069141388,
+         "gpu_ms": 3.7748736,
+         "done_ms": 5.224999964237213
+        }
+       }
+      }
+     }
+    },
+    "8": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 0.1385414507240057,
+       "other_ms": 0.15277095371857285,
+       "flip_ms": 0.1536040217615664,
+       "flip_over_other": 1.005453052577836,
+       "other_over_phase_a": 1.102709354638666,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.1385414507240057,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.15277095371857285,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.1536040217615664,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 1.3259545163624518,
+       "other_ms": 1.912268501847069,
+       "flip_ms": 3.213861450764906,
+       "flip_over_other": 1.6806538661598107,
+       "other_over_phase_a": 1.4421825773429076,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.19983347738161683,
+         "page_ms": 0.019861105415556166,
+         "gpu_ms": 1.1050097777777776,
+         "done_ms": 1.5958333445919886
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.2651245449669659,
+         "page_ms": 0.03166666295793322,
+         "gpu_ms": 1.520071111111111,
+         "done_ms": 2.2294444375567966
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.26545795844867826,
+         "page_ms": 0.20680554376708138,
+         "gpu_ms": 2.7357639111111114,
+         "done_ms": 3.0981944302717843
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 10.004156612692064,
+       "other_ms": 6.443917166927153,
+       "flip_ms": 6.917762373418248,
+       "flip_over_other": 1.0735337209055176,
+       "other_over_phase_a": 0.6441239793019523,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 8.824677002849057,
+         "page_ms": 0.08750003576278687,
+         "gpu_ms": 1.0829824000000001,
+         "done_ms": 1.9206249713897705
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.844218775862828,
+         "page_ms": 0.4724999964237213,
+         "gpu_ms": 2.9556736,
+         "done_ms": 2.8612499684095383
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.2658232192043215,
+         "page_ms": 0.46812497079372406,
+         "gpu_ms": 4.2123264,
+         "done_ms": 4.446250006556511
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 4.281224922442955,
+       "other_ms": 6.59772303295798,
+       "flip_ms": 6.953389966840512,
+       "flip_over_other": 1.053907527203832,
+       "other_over_phase_a": 1.54108302004212,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 3.1328750192187726,
+         "page_ms": 0.08666670322418213,
+         "gpu_ms": 1.0616832,
+         "done_ms": 1.9424999952316284
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.6308755623176694,
+         "page_ms": 0.725000003973643,
+         "gpu_ms": 3.241847466666667,
+         "done_ms": 3.8583333293596906
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.631167008075863,
+         "page_ms": 0.9733333587646484,
+         "gpu_ms": 3.3488895999999997,
+         "done_ms": 5.244166672229767
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 7.316171225332427,
+       "other_ms": 6.510814685247284,
+       "flip_ms": 7.207303768016237,
+       "flip_over_other": 1.1069741831766635,
+       "other_over_phase_a": 0.8899210372091106,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 6.127666449174285,
+         "page_ms": 0.08749997615814209,
+         "gpu_ms": 1.1010048000000001,
+         "done_ms": 1.909999966621399
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.664479485247284,
+         "page_ms": 0.6875,
+         "gpu_ms": 3.1588351999999995,
+         "done_ms": 3.324999988079071
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.6747709489427507,
+         "page_ms": 1.1050000190734863,
+         "gpu_ms": 3.4275328000000003,
+         "done_ms": 5.217500030994415
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "LatticeScene": {
+   "note": "a six-serializer run of its own (--diagnostics), not judged",
+   "ratios": {
+    "7": {
+     "pausepoint": 1.4381042843176128,
+     "camera": 1.5535028004511013,
+     "play": 0.47494201431239685,
+     "navigation": 1.564359077438381
+    },
+    "8": {
+     "pausepoint": 1.19211256115966,
+     "camera": 1.6857306412760127,
+     "play": 0.5348598029300641,
+     "navigation": 1.5941816930801558
+    }
+   },
+   "phase_a_nets": {
+    "7": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 2.0080179140920977,
+       "other_ms": 2.9910341869726578,
+       "flip_ms": 2.887739165242362,
+       "flip_over_other": 0.9654651149825724,
+       "other_over_phase_a": 1.4895455692809492,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.5382919916883111,
+         "page_ms": 0.014583339293797811,
+         "gpu_ms": 1.4516224,
+         "done_ms": 2.0795833269755044
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.6416250253096223,
+         "page_ms": 0.0420833428700765,
+         "gpu_ms": 2.299221333333333,
+         "done_ms": 2.362500011920929
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.6492079701274633,
+         "page_ms": 0.042916685342788696,
+         "gpu_ms": 2.2096554666666663,
+         "done_ms": 2.905833343664805
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 2.3031794350541537,
+       "other_ms": 3.405599930989373,
+       "flip_ms": 3.577995702298013,
+       "flip_over_other": 1.0506212634490384,
+       "other_over_phase_a": 1.4786515888239071,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.7499584462493658,
+         "page_ms": 0.02041666375266181,
+         "gpu_ms": 1.5553877333333332,
+         "done_ms": 1.9827777743339539
+        },
+        "phase_a_nets": {
+         "serialize_ms": 1.2159170000813901,
+         "page_ms": 0.17833332220713297,
+         "gpu_ms": 1.997391644444444,
+         "done_ms": 2.150833318630854
+        },
+        "phase_b_forced": {
+         "serialize_ms": 1.2162080383859575,
+         "page_ms": 0.2016666697131263,
+         "gpu_ms": 2.1331968,
+         "done_ms": 2.790138900279999
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 49.802977835750994,
+       "other_ms": 27.506598550798568,
+       "flip_ms": 23.653526612067232,
+       "flip_over_other": 0.8599219044980946,
+       "other_over_phase_a": 0.5523083105896731,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 47.7117290138267,
+         "page_ms": 0.4712499678134918,
+         "gpu_ms": 1.4401536,
+         "done_ms": 3.4618749767541885
+        },
+        "phase_a_nets": {
+         "serialize_ms": 18.109937256667763,
+         "page_ms": 2.9037499725818634,
+         "gpu_ms": 6.4372736,
+         "done_ms": 10.188749998807907
+        },
+        "phase_b_forced": {
+         "serialize_ms": 13.244801986729726,
+         "page_ms": 1.926250010728836,
+         "gpu_ms": 8.43776,
+         "done_ms": 11.474374994635582
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 18.87941359944211,
+       "other_ms": 28.491975613200513,
+       "flip_ms": 29.534182041000886,
+       "flip_over_other": 1.036578945663477,
+       "other_over_phase_a": 1.5091557512168945,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 17.04160397639498,
+         "page_ms": 0.4550000230471293,
+         "gpu_ms": 1.3828095999999999,
+         "done_ms": 3.4416666626930237
+        },
+        "phase_a_nets": {
+         "serialize_ms": 17.396458017174155,
+         "page_ms": 2.9624999960263567,
+         "gpu_ms": 8.1330176,
+         "done_ms": 12.964999973773956
+        },
+        "phase_b_forced": {
+         "serialize_ms": 18.061646027490497,
+         "page_ms": 3.215000013510386,
+         "gpu_ms": 8.257536,
+         "done_ms": 13.779166678587597
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 33.935312293455226,
+       "other_ms": 27.95476357398099,
+       "flip_ms": 29.341512676234224,
+       "flip_over_other": 1.0496068978935653,
+       "other_over_phase_a": 0.8237662094352481,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 32.06189547199756,
+         "page_ms": 0.4775000214576721,
+         "gpu_ms": 1.3959167999999997,
+         "done_ms": 3.4725000262260437
+        },
+        "phase_a_nets": {
+         "serialize_ms": 17.018353973980993,
+         "page_ms": 3.0,
+         "gpu_ms": 7.936409599999999,
+         "done_ms": 12.452499985694885
+        },
+        "phase_b_forced": {
+         "serialize_ms": 17.22033350961283,
+         "page_ms": 3.784999966621399,
+         "gpu_ms": 8.3361792,
+         "done_ms": 14.662500023841858
+        }
+       }
+      }
+     }
+    },
+    "8": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 0.5419999943114817,
+       "other_ms": 0.6415414973162115,
+       "flip_ms": 0.6461250013671815,
+       "flip_over_other": 1.0071445168709185,
+       "other_over_phase_a": 1.1836559115303686,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.5419999943114817,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.6415414973162115,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.6461250013671815,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 2.235174053080871,
+       "other_ms": 3.5345328643152922,
+       "flip_ms": 3.767901389863521,
+       "flip_over_other": 1.0660252809937976,
+       "other_over_phase_a": 1.581323324437951,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.7563750259578228,
+         "page_ms": 0.021805541382895574,
+         "gpu_ms": 1.4596323555555555,
+         "done_ms": 2.0729166766007743
+        },
+        "phase_a_nets": {
+         "serialize_ms": 1.2093334808014333,
+         "page_ms": 0.06847220990392897,
+         "gpu_ms": 2.236233955555556,
+         "done_ms": 2.4784722295072346
+        },
+        "phase_b_forced": {
+         "serialize_ms": 1.2289790320210159,
+         "page_ms": 0.07597222261958653,
+         "gpu_ms": 2.559544888888889,
+         "done_ms": 2.295833339293798
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 49.93692932206376,
+       "other_ms": 27.603063513067475,
+       "flip_ms": 26.70925617613156,
+       "flip_over_other": 0.9676192703569739,
+       "other_over_phase_a": 0.5527585273624652,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 47.90893752942793,
+         "page_ms": 0.4787500202655792,
+         "gpu_ms": 1.4221312,
+         "done_ms": 3.502499997615814
+        },
+        "phase_a_nets": {
+         "serialize_ms": 18.211510236142203,
+         "page_ms": 2.883124992251396,
+         "gpu_ms": 6.4405504,
+         "done_ms": 10.388124987483025
+        },
+        "phase_b_forced": {
+         "serialize_ms": 16.82312527555041,
+         "page_ms": 1.2312500029802322,
+         "gpu_ms": 8.691711999999999,
+         "done_ms": 9.483749985694885
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 18.229904539766345,
+       "other_ms": 28.51903823071547,
+       "flip_ms": 29.06178008389433,
+       "flip_over_other": 1.0190308610265237,
+       "other_over_phase_a": 1.5644096308076993,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 16.363582923077047,
+         "page_ms": 0.46166668335596717,
+         "gpu_ms": 1.4046549333333331,
+         "done_ms": 3.4608333110809326
+        },
+        "phase_a_nets": {
+         "serialize_ms": 17.319145961664617,
+         "page_ms": 3.143333335717519,
+         "gpu_ms": 8.056558933333333,
+         "done_ms": 12.98166666428248
+        },
+        "phase_b_forced": {
+         "serialize_ms": 18.111562472768128,
+         "page_ms": 3.3633333444595337,
+         "gpu_ms": 7.586884266666669,
+         "done_ms": 13.241666674613953
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 33.79900555892935,
+       "other_ms": 28.30935617296184,
+       "flip_ms": 28.52369679853754,
+       "flip_over_other": 1.007571370548526,
+       "other_over_phase_a": 0.837579559067317,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 31.952749530319124,
+         "page_ms": 0.4700000286102295,
+         "gpu_ms": 1.376256,
+         "done_ms": 3.4649999737739563
+        },
+        "phase_a_nets": {
+         "serialize_ms": 17.371124937199056,
+         "page_ms": 2.962500035762787,
+         "gpu_ms": 7.9757312,
+         "done_ms": 12.769999980926514
+        },
+        "phase_b_forced": {
+         "serialize_ms": 17.237395979464054,
+         "page_ms": 3.7300000190734863,
+         "gpu_ms": 7.5563008,
+         "done_ms": 15.084999978542328
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "EpisodeB3": {
+   "note": "a six-serializer run of its own (--diagnostics), not judged",
+   "ratios": {
+    "7": {
+     "pausepoint": 1.0649535107257908,
+     "ticked": 1.2158338833114875,
+     "camera": 0.9519565199733514,
+     "play": 0.7212406964870428,
+     "navigation": 1.0177967250592372
+    },
+    "8": {
+     "pausepoint": 1.1127718561756264,
+     "ticked": 1.4074175274789824,
+     "camera": 1.0915730184732788,
+     "play": 0.6422255575141267,
+     "navigation": 0.9642737614077654
+    }
+   },
+   "phase_a_nets": {
+    "7": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 2.7478906349135297,
+       "other_ms": 2.491728154256483,
+       "flip_ms": 2.9263757787416855,
+       "flip_over_other": 1.1744362135743893,
+       "other_over_phase_a": 0.9067785022437373,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.5362090305425227,
+         "page_ms": 0.15166667103767395,
+         "gpu_ms": 2.060014933333333,
+         "done_ms": 2.5458333492279053
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.527687487192452,
+         "page_ms": 0.14541666706403097,
+         "gpu_ms": 1.818624,
+         "done_ms": 2.856249988079071
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.5871669854968786,
+         "page_ms": 0.1841666599114736,
+         "gpu_ms": 2.155042133333333,
+         "done_ms": 2.9745833476384482
+        }
+       }
+      },
+      "ticked": {
+       "phase_a_ms": 5.588526766269866,
+       "other_ms": 5.710707456347162,
+       "flip_ms": 6.794720200224081,
+       "flip_over_other": 1.1898210952256176,
+       "other_over_phase_a": 1.0218627726388876,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 2.0801250357180834,
+         "page_ms": 0.09625001748402913,
+         "gpu_ms": 2.4707072000000005,
+         "done_ms": 2.784166673819224
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.129207947291434,
+         "page_ms": 0.0941666563351949,
+         "gpu_ms": 2.6684074666666664,
+         "done_ms": 3.2000000278155007
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.894208475481719,
+         "page_ms": 0.10875001549720764,
+         "gpu_ms": 2.4969216,
+         "done_ms": 3.3066666622956595
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 5.722440917996783,
+       "other_ms": 5.960127519502007,
+       "flip_ms": 5.447514942049328,
+       "flip_over_other": 0.9139930184756333,
+       "other_over_phase_a": 1.0415358768943705,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 1.5570104587823153,
+         "page_ms": 0.5686111085944705,
+         "gpu_ms": 3.3408796444444446,
+         "done_ms": 3.998958334326744
+        },
+        "phase_a_nets": {
+         "serialize_ms": 1.6121354710776359,
+         "page_ms": 0.5509722365273371,
+         "gpu_ms": 3.361268622222222,
+         "done_ms": 3.8386805670128927
+        },
+        "phase_b_forced": {
+         "serialize_ms": 1.3253959768917412,
+         "page_ms": 0.6309027853939269,
+         "gpu_ms": 3.0059178666666666,
+         "done_ms": 4.302222228712505
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 11.776843080707284,
+       "other_ms": 11.947889521524726,
+       "flip_ms": 8.493938505947932,
+       "flip_over_other": 0.7109153872443894,
+       "other_over_phase_a": 1.0145239636501269,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 6.603718793485314,
+         "page_ms": 1.0243750214576721,
+         "gpu_ms": 4.643225599999999,
+         "done_ms": 6.731875002384186
+        },
+        "phase_a_nets": {
+         "serialize_ms": 6.675666227238253,
+         "page_ms": 1.0499999821186066,
+         "gpu_ms": 4.749721600000001,
+         "done_ms": 6.653750002384186
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.85198976052925,
+         "page_ms": 0.6856250017881393,
+         "gpu_ms": 4.4843008,
+         "done_ms": 5.938125014305115
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 17.28895713001037,
+       "other_ms": 18.289259170345556,
+       "flip_ms": 17.596643946614105,
+       "flip_over_other": 0.9621299464740231,
+       "other_over_phase_a": 1.0578578587946668,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 10.33008296508342,
+         "page_ms": 1.1700000762939453,
+         "gpu_ms": 4.635579733333333,
+         "done_ms": 7.384999990463257
+        },
+        "phase_a_nets": {
+         "serialize_ms": 11.311125010251999,
+         "page_ms": 1.3166666428248088,
+         "gpu_ms": 4.688008533333333,
+         "done_ms": 6.979999979337056
+        },
+        "phase_b_forced": {
+         "serialize_ms": 9.609458968043327,
+         "page_ms": 2.100000023841858,
+         "gpu_ms": 5.518131199999999,
+         "done_ms": 8.431666731834412
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 22.614938777714407,
+       "other_ms": 24.198073347033823,
+       "flip_ms": 22.41830279932629,
+       "flip_over_other": 0.9264499068920421,
+       "other_over_phase_a": 1.0700039290347094,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 16.385417082346976,
+         "page_ms": 1.3700000047683716,
+         "gpu_ms": 4.9545216,
+         "done_ms": 7.4049999713897705
+        },
+        "phase_a_nets": {
+         "serialize_ms": 18.176208017393947,
+         "page_ms": 1.590000033378601,
+         "gpu_ms": 4.8627712,
+         "done_ms": 7.384999990463257
+        },
+        "phase_b_forced": {
+         "serialize_ms": 14.36745806131512,
+         "page_ms": 2.8249999284744263,
+         "gpu_ms": 5.229772800000001,
+         "done_ms": 9.299999952316284
+        }
+       }
+      }
+     }
+    },
+    "8": {
+     "phase_a_nets": {
+      "pausepoint": {
+       "phase_a_ms": 0.5209585069678724,
+       "other_ms": 0.531250552739948,
+       "flip_ms": 0.5797079647891223,
+       "flip_over_other": 1.0912138571889536,
+       "other_over_phase_a": 1.0197559798610034,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 0.5209585069678724,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_a_nets": {
+         "serialize_ms": 0.531250552739948,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_b_forced": {
+         "serialize_ms": 0.5797079647891223,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        }
+       }
+      },
+      "ticked": {
+       "phase_a_ms": 2.061666513327509,
+       "other_ms": 2.112499962095171,
+       "flip_ms": 2.9016255866736174,
+       "flip_over_other": 1.3735505982190852,
+       "other_over_phase_a": 1.0246564846637671,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 2.061666513327509,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_a_nets": {
+         "serialize_ms": 2.112499962095171,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        },
+        "phase_b_forced": {
+         "serialize_ms": 2.9016255866736174,
+         "page_ms": 0.0,
+         "gpu_ms": 0.0,
+         "done_ms": 0.0
+        }
+       }
+      },
+      "camera": {
+       "phase_a_ms": 4.475072743164959,
+       "other_ms": 4.643990410008726,
+       "flip_ms": 4.88486866214407,
+       "flip_over_other": 1.0518688091207518,
+       "other_over_phase_a": 1.0377463510736815,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 1.5720102528575808,
+         "page_ms": 0.24027777877118853,
+         "gpu_ms": 2.6827889777777774,
+         "done_ms": 3.6369444380203886
+        },
+        "phase_a_nets": {
+         "serialize_ms": 1.6317605040967464,
+         "page_ms": 0.25194445583555436,
+         "gpu_ms": 2.5180387555555557,
+         "done_ms": 3.8086111148198443
+        },
+        "phase_b_forced": {
+         "serialize_ms": 1.3195420324336737,
+         "page_ms": 0.28222223122914636,
+         "gpu_ms": 3.1779498666666663,
+         "done_ms": 4.031597225202455
+        }
+       }
+      },
+      "play": {
+       "phase_a_ms": 11.039057248400779,
+       "other_ms": 11.12855380728345,
+       "flip_ms": 7.089564695784551,
+       "flip_over_other": 0.63706073750073,
+       "other_over_phase_a": 1.008107264675671,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 6.651978997979313,
+         "page_ms": 0.7162499874830246,
+         "gpu_ms": 3.9780352,
+         "done_ms": 6.0299999713897705
+        },
+        "phase_a_nets": {
+         "serialize_ms": 6.777219299692661,
+         "page_ms": 0.7125000059604645,
+         "gpu_ms": 4.1828351999999995,
+         "done_ms": 5.988750010728836
+        },
+        "phase_b_forced": {
+         "serialize_ms": 3.063510521315038,
+         "page_ms": 0.35625000298023224,
+         "gpu_ms": 3.9190527999999993,
+         "done_ms": 5.299375027418137
+        }
+       }
+      },
+      "navigation": {
+       "phase_a_ms": 17.432054349876783,
+       "other_ms": 16.253673130047176,
+       "flip_ms": 16.809272617020284,
+       "flip_over_other": 1.034183010974055,
+       "other_over_phase_a": 0.932401471669463,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 10.36120904609561,
+         "page_ms": 1.096666653951009,
+         "gpu_ms": 4.1811967999999995,
+         "done_ms": 7.141666650772095
+        },
+        "phase_a_nets": {
+         "serialize_ms": 11.086625047028065,
+         "page_ms": 1.2616666555404663,
+         "gpu_ms": 4.382173866666666,
+         "done_ms": 6.513333241144816
+        },
+        "phase_b_forced": {
+         "serialize_ms": 9.633708978071809,
+         "page_ms": 1.996666669845581,
+         "gpu_ms": 4.264209066666667,
+         "done_ms": 7.238333344459534
+        }
+       }
+      },
+      "navigation_first": {
+       "phase_a_ms": 25.172037799471006,
+       "other_ms": 21.630562299196804,
+       "flip_ms": 21.750173294777703,
+       "flip_over_other": 1.0055297219705353,
+       "other_over_phase_a": 0.8593091457876078,
+       "parts": {
+        "phase_a": {
+         "serialize_ms": 19.432624918408692,
+         "page_ms": 1.8250000476837158,
+         "gpu_ms": 4.2991616,
+         "done_ms": 7.940000057220459
+        },
+        "phase_a_nets": {
+         "serialize_ms": 15.666291932575405,
+         "page_ms": 2.0700000524520874,
+         "gpu_ms": 4.1418752,
+         "done_ms": 6.9049999713897705
+        },
+        "phase_b_forced": {
+         "serialize_ms": 13.244624948129058,
+         "page_ms": 2.740000009536743,
+         "gpu_ms": 4.0763392000000005,
+         "done_ms": 8.09500002861023
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "serializer_change": {
+  "what": "RetainedFrame._coalesce (the last frame's runs where its draws are the same objects under the same camera) and the idle encode (_idle_state: an all-carried message returned untouched for the same frame to an unchanged cache); both stacks, byte for byte the same wire",
+  "episode_b2_3i_ticks_ms": {
+   "before": {
+    "phase_a": 1.063,
+    "phase_b": 1.32
+   },
+   "runs_reused": {
+    "phase_a": 0.931,
+    "phase_b": 1.098
+   },
+   "and_the_message": {
+    "phase_a": 0.823,
+    "phase_b": 0.836
+   },
+   "how": "tick_profile.py: two serializers alternating a tick each (the order swapped every round), 300 ticks, the medians of the last 140 per stack, unprofiled"
+  },
+  "episode_b2_8a_ticks_ms_after": {
+   "phase_a": 3.046,
+   "phase_b": 3.567
+  },
+  "episode_b2_still_12_ms_after": {
+   "phase_a": 0.514,
+   "phase_b": 0.582
+  },
+  "lockstep_hits": {
+   "coalesce_reused": 570,
+   "coalesce_walked": 1471,
+   "encode_idle": 84,
+   "encode_full": 1957,
+   "tests": "RetainedFrameLockstep, RowSourcesLockstep, RetainedFrameNavigation"
+  }
+ },
+ "episode_b3_ticked_cause": {
+  "leaves_bumped_a_tick": 60,
+  "prepared_again_every_tick": 40,
+  "what": "the dashes of a DashedVMobject, left by their updater with needs_new_joint_angles set, the unit normal's flag clear and subpath_end_indices cached; compare_rows refuses the joint-only refresh without entry.ends, which _entry records only where both flags were set and the ends uncached; the runs that hold them are made and encoded again every tick",
+  "runs_encoded_a_tick": {
+   "phase_a": 10,
+   "phase_b": 73
+  },
+  "profiled_ms_a_tick_at_996": {
+   "phase_a": 8.175,
+   "phase_b": 12.361
+  }
+ },
+ "orbs_camera_not_isolated": "Phase B's and Phase A with nets' camera messages on the orbs carry the same net descriptors (capacity 8, density 0.0735, 70 members in one run) and make the same calls in Node (2 draws, no dispatch, 0.03-0.07 ms), yet read 2.74 and 1.52 ms of GPU and 0.21 and 0.03 ms of page on the device (diagnostics run)",
+ "conditions": {
+  "machine": "Apple M3, macOS 26.6.2",
+  "python": "3.13.9",
+  "wgpu": "0.32.0",
+  "numpy": "2.5.2",
+  "node": "22.16",
+  "browser": "the desktop app's built-in pane, Chrome 152.0.7977.130, WebGPU adapter apple / metal-3, timestamp-query offered, cross-origin isolated, the page hidden throughout",
+  "serialize_runs": "01:26-01:49 local, 2026-09-30, one at a time, GPU 8-12% busy at each start, load 2.2-3.3",
+  "device_runs": "01:51-02:13 local (orbs, lattice, EpisodeB2, PriceDiscovery, EpisodeB3), five plain and five stamped rounds a stream",
+  "diagnostics": "serialize 02:21-02:44, device 02:46-03:00",
+  "pixels": "03:00-03:07",
+  "tree": "48b7e6d4 plus this increment's working tree, the one committed; every serialize run's sources unchanged from its start to its end"
+ },
+ "commands": [
+  "python -m benchmarks.flip_gates serialize --flip phase_b --scene $S --tick-updaters --play-frames --camera-moves --navigations 4 --record --output runs/<scene>/serialize",
+  "python -m benchmarks.device_frames prepare --serve serve --streams <Scene>=runs/<scene>/serialize/streams ...",
+  "python -m benchmarks.device_frames serve --serve serve --port 8741",
+  "device_frames.html: startAll([[<Scene>, ['phase_a_f7', 'phase_a_f8', 'phase_b_forced_f7', 'phase_b_forced_f8'], 5], ...])",
+  "python -m benchmarks.device_frames collect --serve serve --scene <Scene> --serialize runs/<scene>/serialize --output runs/<scene>/device",
+  "python -m benchmarks.episode_frames --scene $S --variants phase_b_retained nets gpu_border --tick-updaters --play-frames --output runs/<scene>/frames",
+  "python -m benchmarks.flip_gates complete --flip phase_b --serialize runs/<scene>/serialize --device runs/<scene>/device --pixels runs/<scene>/frames --limit 1.25 --output runs/<scene>/complete",
+  "python -m benchmarks.flip_gates gate --flip phase_b --complete runs/{b2,pd,b3,orbs,lattice}/complete --output gate",
+  "diagnostics: serialize ... --diagnostics, the six streams on the device, complete as above"
+ ]
+}

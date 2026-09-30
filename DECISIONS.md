@@ -5,6 +5,60 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase B as the default: measured on the device, not flipped (2026-09-30)
+
+B5.10 (`docs/phase_b4_plan.md`, "Phase B as the default";
+`benchmarks/results/phase_b_default_20260929/`). Taylor, 2026-09-29, on
+making the whole Phase B stack the Default: "i want to try it first before
+it becomes the only option ... so long as it's not dramatically slower in
+any situation and is faster or much faster in most, then i want it to be
+the default for testing." Phase A and Original 2D stay selectable either
+way. The gate as stated to him: the browser-side complete frame (Python
+serialize + page JavaScript + GPU), the page and the GPU measured on the
+page's own device (Chrome's Dawn on this M3) rather than the native
+driver, whose GPU column overcharges Phase B; five classes (pausepoint,
+ticked, camera, play, navigation) on EpisodeB2, PriceDiscovery, EpisodeB3
+and the two scenes that are mostly surfaces; PASS iff no (scene, class)
+cell is above 1.25× Phase A forced and more than half of the cells are at
+or below 1.0×, pixels within 0.5% of Phase A but the surfaces'
+silhouettes (B5.9's accuracy rule).
+
+**It failed, so the defaults stay** (`DEFAULT_FILL` `meshes`,
+`programs.DEFAULT_MODE` `off`; surfaces nets). In the format 8 stream
+every page negotiates, five cells are above 1.25×: OrbsScene's camera
+moves 2.741× and navigations 1.744×, LatticeScene's 1.631× and 1.546×,
+and EpisodeB3's ticked frames 1.380×; and 9 of the 23 cells are at or
+below 1.0× (every play but PriceDiscovery's, at 0.52-0.66×; PriceDiscovery's
+still, camera and navigation; EpisodeB2's and EpisodeB3's navigations).
+EpisodeB2 and PriceDiscovery are within 1.087× in every class. The
+surface scenes' cells are the nets' cost on the device, which the Default
+has paid since B5.9 (in diagnostic runs, nets over grids 1.44-1.58× on
+those cells and Phase B over Phase A with nets 1.02-1.07×, but for the
+orbs' camera moves, 1.68×, a remainder the messages do not explain); EpisodeB3's is 40 dashes an
+updater leaves with the joint-angle flag set and their ends cached, which
+the retained frame re-prepares every tick in both stacks and Phase B
+re-encodes as 73 runs to Phase A's 10. Both are for Taylor: whether a
+default is judged against Phase A or against the Default it replaces, and
+whether the nets' device cost on surface-heavy camera moves and
+navigations (1.5-2.7× Phase A's grids, where B5.7 measured 1.06-1.24×
+with the native GPU) stands. Taylor decided on 2026-09-30, shown
+these numbers: "Keep Phase A default for now". Phase B stays the viewer's
+selection; the Default keeps Phase A's fills with B5.9's nets, whose
+device cost on the surface scenes is small in time (camera moves 1.3 → 1.9
+ms on 70 spheres, 2.3 → 3.5 ms on 480; revisits 4.3 → 5.7 and 18.5 →
+28.5 ms; first visits faster, 7.2 → 5.7 and 33.9 → 28 ms). The fix pass
+that was re-taking the device cells to answer the review's repeatability
+finding was stopped at that decision; the cells stand as measured once,
+without an interval.
+
+Taken on the way, both stacks: the retained frame reuses the last frame's
+runs when every leaf is kept under the same camera, and returns an idle
+frame's message untouched (the wire byte for byte the same), which took
+EpisodeB2's 3.i ticks from 1.24× to 1.02× and every still frame of the
+episodes to within 11% of Phase A's (EpisodeB2 1.007×, PriceDiscovery
+0.959×, EpisodeB3 1.105×). Pixels pass: Phase B against Phase A with
+nets at worst 0.0002% over 24/255.
+
 ## Surfaces are nets by default (2026-09-29)
 
 B5.9 (`docs/phase_b4_plan.md`, "The flips";
