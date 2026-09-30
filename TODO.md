@@ -216,7 +216,8 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   delta per change, and nothing at rest).
 - **Gated and not flipped** (B5.4, "The flips"): patches on both episodes'
   plays and ticked frames (1.15× and 1.48× Phase A's plays), strokes
-  programs on Python no lower than programs off. Nets failed on camera
+  programs on Python no lower than programs off.
+- **Flipped: surfaces are nets** (B5.9, 2026-09-29). Nets failed on camera
   moves (1.25-1.34× grids); B5.5 evaluated a frame's changed nets in one
   dispatch keyed on their step counts and passed the gate's three scenes
   (camera moves 0.997-1.046×), then failed on scenes that are mostly
@@ -225,7 +226,18 @@ stands (the plans hold the record: [Phase B](docs/phase_b_plan.md), [B1](docs/ph
   quarter of the triangles) and coalesced nets as grids are, and judged
   the gate over a timed set holding those two scenes: 1.06-1.15× and
   1.11-1.24×, the lattice's pixels unchanged (silhouettes where nets are
-  the rounder, nearer a supersampled sphere than grids), so grids stay.
+  the rounder). Taylor then made the pixel gate accuracy against the true
+  surface, which nets pass everywhere (the lattice 0.67% of its pixels off
+  against grids' 1.38%), and accepted the still and camera cost, so
+  `geometry.DEFAULT_SURFACE` is `nets`; Phase A keeps grids. Left: the
+  cost itself (the page's per-member walk of a run on a camera move, the
+  serializer's per-net `keep` and reservation check, B5.7's levers), the
+  draw-order bands of a translucent surface that overlaps itself, which
+  nets put patch by patch where grids put them row by row, and
+  `sort_faces_back_to_front` / `always_sort_to_camera`, which reorder the
+  grid's triangles and nothing a net draws (no course or dogfood scene
+  sorts; a net drawing its patches in the sorted order, or a sorted
+  surface falling back to its grid on the Default, would restore it).
 - **Measured whole** (B6, "The final test point"): the numbers under
   "Where things stand" above.
 

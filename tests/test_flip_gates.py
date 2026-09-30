@@ -302,7 +302,34 @@ class TimedSet(unittest.TestCase):
     flip's limit on every class its serialize run measured, every run of
     one tree."""
 
-    FIXTURES = {"passes": True, "worst": "orbs", "fixtures": {"orbs": {"fraction_pixels_rgb_over24": .003}}}
+    GIT = {"commit": "c0ffee", "branch": "b", "dirty": True}
+    GOOD_REFERENCE = {"within_tolerance": True, "error_px": .03, "net_defined": 0}
+    FIXTURES = {"measure": "accuracy", "passes": True, "failing": [], "unsound": {}, "git": GIT,
+                "source_files_sha256": {"tests/surface_fixtures.py": "f"},
+                "fixtures": {"orbs": {"grids": {"pixels_rgb_over24": 2834}, "nets": {"pixels_rgb_over24": 1006},
+                                      "reference": GOOD_REFERENCE}}}
+
+    @classmethod
+    def accuracy(cls, file, name, nets=.0067, grids=.0138, *, commit="c0ffee", sources=None, **fields):
+        """An accuracy run's summary: each stack's share of pixels over
+        24/255 from the true surface, over 12 pausepoints chosen as the
+        serialize command chooses them and 36 frames inside plays, every
+        reference within its tolerance and of its surfaces' functions;
+        ``fields`` override any of it."""
+        judged = {"frames": 48, "grids": round(grids * 2073600), "nets": round(nets * 2073600)}
+        return {"flip": "nets", "scene": {"path": f"/somewhere/{file}", "name": name,
+                                          "measured_checkpoints": list(range(1, 13))},
+                "git": {**cls.GIT, "commit": commit}, "every": 1, "max_frames": 12,
+                "source_files_sha256": {"tests/surface_fixtures.py": "f", f"/somewhere/{file}": f"h-{file}",
+                                        **(sources or {})},
+                "frames": 48, "pausepoints": 12, "play_frames": 36, "tie_frames": 0, "judged": judged,
+                "grids": {"fraction_pixels_rgb_over24": grids, "pixels_rgb_over24": round(grids * 2073600)},
+                "nets": {"fraction_pixels_rgb_over24": nets, "pixels_rgb_over24": round(nets * 2073600)},
+                "reference_within_tolerance": True, "reference_error_px": .031, "net_defined_surfaces": 0,
+                "passes": judged["nets"] <= judged["grids"], **fields}
+
+    def accurate(self):
+        return [self.accuracy(file, name) for file, name in flip_gates.TIMED_SCENES["nets"]]
 
     @staticmethod
     def summary(file, name, ratio=1.0, pixels=.001, *, limit=1.05, classes=("pausepoint", "camera", "play"),
@@ -336,20 +363,25 @@ class TimedSet(unittest.TestCase):
 
     def test_a_scene_missing_from_the_set_fails_the_gate(self):
         fixtures, every = self.FIXTURES, self.every()
-        self.assertTrue(flip_gates.gate_verdict(every, fixtures, "nets")["passes"])
-        without = flip_gates.gate_verdict(every[:3], fixtures, "nets")
+        self.assertTrue(flip_gates.gate_verdict(every, fixtures, "nets", self.accurate())["passes"])
+        without = flip_gates.gate_verdict(every[:3], fixtures, "nets", self.accurate())
         self.assertFalse(without["passes"])
         self.assertEqual(without["missing"], ["OrbsScene (surface_scenes.py)", "LatticeScene (surface_scenes.py)"])
         over = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.2)],
-                                       fixtures, "nets")
+                                       fixtures, "nets", self.accurate())
         self.assertFalse(over["passes"])
         self.assertEqual(len(over["failures"]), 6, "three classes in two formats")
+        self.assertEqual((over["timing_passes"], over["pixels_pass"]), (False, True))
+        self.assertIn("; pixels pass", flip_gates.gate_table(over))
+        # B5.7's lattice, 0.98% of its pixels off the grids': since B5.9 a
+        # diagnostic, the pixels judged against the true surface.
         pixels = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.0, .0098)],
-                                         fixtures, "nets")
-        self.assertEqual(pixels["failures"], ["LatticeScene: pixels 0.9800% over 24/255"])
-        self.assertFalse(flip_gates.gate_verdict(every, None, "nets")["passes"], "the fixtures are part of it")
+                                         fixtures, "nets", self.accurate())
+        self.assertTrue(pixels["passes"], pixels["failures"])
+        self.assertFalse(pixels["scenes"]["LatticeScene (surface_scenes.py)"]["pixels_pass"])
+        self.assertFalse(flip_gates.gate_verdict(every, None, "nets", self.accurate())["passes"], "the fixtures are part of it")
         with self.assertRaises(SystemExit):
-            flip_gates.gate_verdict(every + every[:1], fixtures, "nets")
+            flip_gates.gate_verdict(every + every[:1], fixtures, "nets", self.accurate())
         self.assertIn("Missing from the timed set", flip_gates.gate_table(without))
 
     def test_a_run_judged_at_another_limit_fails_the_gate(self):
@@ -357,7 +389,7 @@ class TimedSet(unittest.TestCase):
         # it at the flip's limit and fails the run for the limit besides.
         loose = flip_gates.gate_verdict(
             self.every()[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.24, limit=1.5)],
-            self.FIXTURES, "nets")
+            self.FIXTURES, "nets", self.accurate())
         self.assertFalse(loose["passes"])
         self.assertEqual(loose["failures"][0], "LatticeScene: judged at --limit 1.5, the gate's is 1.05")
         self.assertEqual(len(loose["failures"]), 1 + 6)
@@ -365,12 +397,12 @@ class TimedSet(unittest.TestCase):
         # A stricter limit is another limit too: the verdict is the gate's.
         strict = flip_gates.gate_verdict(
             self.every()[:4] + [self.summary("surface_scenes.py", "LatticeScene", 1.0, limit=1.0)],
-            self.FIXTURES, "nets")
+            self.FIXTURES, "nets", self.accurate())
         self.assertEqual(strict["failures"], ["LatticeScene: judged at --limit 1.0, the gate's is 1.05"])
 
     def test_every_class_the_run_measured_is_judged_in_both_formats(self):
         def gate(last):
-            return flip_gates.gate_verdict(self.every()[:4] + [last], self.FIXTURES, "nets")
+            return flip_gates.gate_verdict(self.every()[:4] + [last], self.FIXTURES, "nets", self.accurate())
 
         lattice = ("surface_scenes.py", "LatticeScene")
         # The pausepoints alone, of a run that measured the camera and plays.
@@ -386,7 +418,7 @@ class TimedSet(unittest.TestCase):
         # A ticked frame the serialize run measured is required as well.
         b3 = self.every()
         b3[1] = self.summary("B3_Animation.py", "EpisodeB3", measured=("pausepoint", "ticked", "camera", "play"))
-        ticked = flip_gates.gate_verdict(b3, self.FIXTURES, "nets")
+        ticked = flip_gates.gate_verdict(b3, self.FIXTURES, "nets", self.accurate())
         self.assertEqual(ticked["failures"], ["EpisodeB3: format 8 ticked not measured",
                                               "EpisodeB3: format 7 ticked not measured"])
         # A serialize run without camera moves measured none, and the gate
@@ -404,22 +436,206 @@ class TimedSet(unittest.TestCase):
     def test_every_run_is_of_one_tree(self):
         every = self.every()
         other = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
-                                                                  commit="decade")], self.FIXTURES, "nets")
+                                                                  commit="decade")], self.FIXTURES, "nets", self.accurate())
         self.assertEqual(other["failures"], ["the runs name more than one commit: c0ffee, decade"])
         edited = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
                                                                    sources={"maniml/web/geometry.py": "g2"})],
-                                         self.FIXTURES, "nets")
+                                         self.FIXTURES, "nets", self.accurate())
         self.assertEqual(edited["failures"], ["the scenes' runs hash maniml/web/geometry.py differently"])
         mixed = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
                                                                   disagree=["maniml/web/webgpu.js"])],
-                                        self.FIXTURES, "nets")
+                                        self.FIXTURES, "nets", self.accurate())
         self.assertEqual(mixed["failures"], ["LatticeScene: its inputs hash maniml/web/webgpu.js differently"])
         # The two surface scenes share their file, hashed alike (every()
         # passes); edited between their runs, it fails.
         scene_file = {"/somewhere/surface_scenes.py": "h-edited"}
         moved = flip_gates.gate_verdict(every[:4] + [self.summary("surface_scenes.py", "LatticeScene",
-                                                                  sources=scene_file)], self.FIXTURES, "nets")
+                                                                  sources=scene_file)], self.FIXTURES, "nets", self.accurate())
         self.assertEqual(moved["failures"], ["the scenes' runs hash /somewhere/surface_scenes.py differently"])
+
+    def test_the_nets_pixels_are_judged_against_the_true_surface(self):
+        """B5.9: the nets flip's pixel gate is each stack against the true
+        surface, an accuracy run per scene of the set and the fixtures
+        run, nets no further than grids; nets against grids is reported."""
+        every, fixtures = self.every(), self.FIXTURES
+        passed = flip_gates.gate_verdict(every, fixtures, "nets", self.accurate())
+        self.assertTrue(passed["passes"], passed["failures"])
+        self.assertEqual(set(passed["accuracy"]), {f"{name} ({file})" for file, name in flip_gates.TIMED_SCENES["nets"]})
+        table = flip_gates.gate_table(passed)
+        self.assertIn("from the true surface: grids; nets", table)
+        self.assertIn("1.3800%; 0.6700%", table)
+        # A scene without its accuracy run, one where nets are the further.
+        missing = flip_gates.gate_verdict(every, fixtures, "nets", self.accurate()[:4])
+        self.assertEqual(missing["failures"], ["LatticeScene: accuracy not measured"])
+        self.assertEqual((missing["timing_passes"], missing["pixels_pass"]), (True, False))
+        self.assertIn("**not measured**", flip_gates.gate_table(missing))
+        self.assertIn("Verdict: **fails**: timing pass; pixels **fail** (LatticeScene: accuracy not measured)",
+                      flip_gates.gate_table(missing))
+        further = self.accurate()[:4] + [self.accuracy("surface_scenes.py", "LatticeScene", .013, .012)]
+        worse = flip_gates.gate_verdict(every, fixtures, "nets", further)
+        self.assertEqual(worse["failures"], ["LatticeScene: nets further from the true surface than grids "
+                                             "(26957 pixels over 24/255 against 24883, over its 48 frames that "
+                                             "are not ties)"])
+        self.assertIn("**1.3000%**", flip_gates.gate_table(worse))
+        # A tie passes: no further.
+        tie = self.accurate()[:4] + [self.accuracy("surface_scenes.py", "LatticeScene", .012, .012)]
+        self.assertTrue(flip_gates.gate_verdict(every, fixtures, "nets", tie)["passes"])
+        with self.assertRaises(SystemExit):
+            flip_gates.gate_verdict(every, fixtures, "nets", self.accurate() + self.accurate()[:1])
+
+    def test_the_fixtures_are_judged_against_the_true_surface(self):
+        every, accurate = self.every(), self.accurate()
+        failing = {**self.FIXTURES, "passes": False, "failing": ["translucent"],
+                   "fixtures": {"translucent": {"grids": {"pixels_rgb_over24": 307},
+                                                "nets": {"pixels_rgb_over24": 794},
+                                                "reference": self.GOOD_REFERENCE}}}
+        self.assertEqual(flip_gates.gate_verdict(every, failing, "nets", accurate)["failures"],
+                         ["Surface fixture translucent: nets further from the true surface than grids "
+                          "(794 pixels against 307)"])
+        # A fixture whose reference is no measure of the true surface fails,
+        # read from the fixture's own reference whatever the run's verdict.
+        for reference, problem in (({**self.GOOD_REFERENCE, "within_tolerance": False, "error_px": 7.5},
+                                    "its reference 7.500 px from the surface, beyond its tolerance"),
+                                   ({**self.GOOD_REFERENCE, "net_defined": 1},
+                                    "1 surface(s) of its reference drawn from their own net, not their function")):
+            unsound = {**self.FIXTURES, "fixtures": {"bent": {**self.FIXTURES["fixtures"]["orbs"],
+                                                              "reference": reference}}}
+            self.assertEqual(flip_gates.gate_verdict(every, unsound, "nets", accurate)["failures"],
+                             [f"Surface fixture bent: {problem}"])
+        # B5.7's fixtures run measured nets against grids.
+        old = {"passes": True, "worst": "orbs", "git": self.GIT,
+               "fixtures": {"orbs": {"fraction_pixels_rgb_over24": .003}}}
+        self.assertEqual(flip_gates.gate_verdict(every, old, "nets", accurate)["failures"],
+                         ["Surface fixtures measured nets against grids, not against the true surface: "
+                          "re-run fixtures"])
+        verdict = flip_gates.gate_verdict(every, None, "nets", accurate)
+        self.assertEqual(verdict["failures"], ["Surface fixtures not measured"])
+        self.assertIn("Surface fixtures, nets no further from the true surface than grids: **no**",
+                      flip_gates.gate_table(verdict))
+
+    def test_an_accuracy_run_measures_the_true_surface_over_the_gates_frames(self):
+        """A scene's accuracy run passes the gate only where its references
+        measured the true surface (every one within its tolerance, every
+        surface its function's: a surface drawn from its own net is what
+        nets converge to) and it measured the serialize command's frames
+        and frames inside the plays into them."""
+        every, fixtures, lattice = self.every(), self.FIXTURES, ("surface_scenes.py", "LatticeScene")
+        cases = (
+            ({"reference_within_tolerance": False, "reference_error_px": 7.5},
+             "LatticeScene: its reference 7.500 px from the surface, beyond its tolerance"),
+            ({"net_defined_surfaces": 3},
+             "LatticeScene: 3 surface(s) of its reference drawn from their own net, not their function"),
+            ({"play_frames": 0, "frames": 12}, "LatticeScene: no frame inside a play measured (--play-frames)"),
+            ({"max_frames": 1}, "LatticeScene: its frames chosen with --every 1 --max-frames 1, not as the "
+                                "serialize command chooses them (1, 12)"),
+            ({"pausepoints": 11}, "LatticeScene: 11 of its 12 chosen frames measured"),
+            ({"source_files_unchanged_during_run": False}, "LatticeScene: a source file changed during its "
+                                                           "accuracy run"),
+        )
+        for fields, failure in cases:
+            with self.subTest(fields=fields):
+                runs = self.accurate()[:4] + [self.accuracy(*lattice, **fields)]
+                verdict = flip_gates.gate_verdict(every, fixtures, "nets", runs)
+                self.assertEqual(verdict["failures"], [failure])
+                self.assertEqual((verdict["timing_passes"], verdict["pixels_pass"]), (True, False))
+
+    def test_the_accuracy_runs_are_of_one_tree(self):
+        """The accuracy runs and the fixtures run, of one tree among
+        themselves (the timing's runs are held to theirs)."""
+        every = self.every()
+        other = self.accurate()[:4] + [self.accuracy("surface_scenes.py", "LatticeScene", commit="decade")]
+        self.assertEqual(flip_gates.gate_verdict(every, self.FIXTURES, "nets", other)["failures"],
+                         ["the accuracy runs name more than one commit: c0ffee, decade"])
+        edited = self.accurate()[:4] + [self.accuracy("surface_scenes.py", "LatticeScene",
+                                                      sources={"tests/surface_fixtures.py": "f2"})]
+        self.assertEqual(flip_gates.gate_verdict(every, self.FIXTURES, "nets", edited)["failures"],
+                         ["the accuracy runs hash tests/surface_fixtures.py differently"])
+        # The complete runs may be of another tree than the accuracy runs.
+        timed = [self.summary(file, name, commit="efcb262c") for file, name in flip_gates.TIMED_SCENES["nets"]]
+        self.assertTrue(flip_gates.gate_verdict(timed, self.FIXTURES, "nets", self.accurate())["passes"])
+
+
+class Accuracy(unittest.TestCase):
+    """The accuracy and fixtures commands' reductions (B5.9), on stand-in
+    frames."""
+
+    @staticmethod
+    def frame(grids, nets, *, phase="pausepoint", checkpoint=1, within=True, apart=None, net_defined=0, **where):
+        """A frame's accuracy: ``apart``, the pixels over 24/255 between
+        grids and nets (by default the difference of their counts; 0 is a
+        tie)."""
+        pair = lambda count: {"pixels_rgb_over24": count, "fraction_pixels_rgb_over24": count / 100}
+        apart = abs(grids - nets) if apart is None else apart
+        return {"checkpoint": checkpoint, "phase": phase, **where, "resolution": [10, 10],
+                "grids": pair(grids), "nets": pair(nets), "nets_vs_grids": pair(apart),
+                "reference_orders": pair(0),
+                "where_they_differ": {"pixels": 3, "nets_nearer": 2, "grids_nearer": 1, "equal": 0},
+                "reference": {"within_tolerance": within, "error_px": .03, "net_defined": net_defined},
+                "tie": apart == 0, "passes": apart == 0 or nets <= grids}
+
+    def test_a_scene_passes_on_its_frames_summed(self):
+        frames = [self.frame(10, 4), self.frame(3, 5, phase="play", play_checkpoint=1, play_frame=5),
+                  self.frame(0, 0, checkpoint=2)]
+        summary = flip_gates.accuracy_summary(frames)
+        self.assertEqual((summary["frames"], summary["pausepoints"], summary["play_frames"]), (3, 2, 1))
+        self.assertEqual((summary["grids"]["pixels_rgb_over24"], summary["nets"]["pixels_rgb_over24"]), (13, 9))
+        self.assertAlmostEqual(summary["nets"]["fraction_pixels_rgb_over24"], 9 / 300)
+        self.assertTrue(summary["passes"])
+        self.assertEqual(summary["frames_nets_further"],
+                         [{"checkpoint": 1, "phase": "play", "play_checkpoint": 1, "play_frame": 5, "nets": 5,
+                           "grids": 3}])
+        self.assertEqual(summary["where_they_differ"], {"pixels": 9, "nets_nearer": 6, "grids_nearer": 3, "equal": 0})
+        self.assertTrue(summary["reference_within_tolerance"])
+        self.assertEqual((summary["tie_frames"], summary["judged"]), (1, {"frames": 2, "grids": 13, "nets": 9}))
+        self.assertFalse(flip_gates.accuracy_summary(frames + [self.frame(1, 6)])["passes"])
+        self.assertFalse(flip_gates.accuracy_summary([self.frame(1, 1, within=False)])["reference_within_tolerance"])
+        self.assertIn("nets no further: yes", flip_gates.accuracy_table(summary))
+
+    def test_a_frame_where_grids_and_nets_agree_is_a_tie(self):
+        """Grids and nets nowhere more than 24/255 apart are one picture by
+        the gate's threshold: their counts against their references differ
+        by noise at its edge (the orbit demo: 596 against 589), which the
+        gate does not judge."""
+        noise = self.frame(596, 589, apart=0, phase="play", play_checkpoint=1, play_frame=17)
+        self.assertTrue(noise["tie"])
+        summary = flip_gates.accuracy_summary([self.frame(72, 70), noise])
+        self.assertEqual((summary["tie_frames"], summary["judged"]), (1, {"frames": 1, "grids": 72, "nets": 70}))
+        self.assertEqual((summary["grids"]["pixels_rgb_over24"], summary["nets"]["pixels_rgb_over24"]), (668, 659))
+        self.assertTrue(summary["passes"])
+        # A tie's nets further than its grids do not fail the scene either.
+        summary = flip_gates.accuracy_summary([self.frame(72, 70), self.frame(589, 596, apart=0)])
+        self.assertTrue(summary["passes"])
+        self.assertEqual(summary["frames_nets_further"], [])
+        self.assertIn("1 ties", flip_gates.accuracy_table(summary))
+        self.assertIn("(a tie)", flip_gates.accuracy_line("frame", {**self.frame(3, 5, apart=0),
+                                                                    "reference": {"error_px": .03, "triangles": 9}}))
+
+    def test_a_plays_frames_are_spread_strictly_inside_it(self):
+        self.assertEqual(flip_gates.play_picks(30, 30, 1.0, 3), [7, 14, 21])
+        # The landing (alpha 1) is the pausepoint's own picture.
+        self.assertEqual(flip_gates.play_picks(2, 30, 2 / 30, 3), [0])
+        self.assertEqual(flip_gates.play_picks(30, 30, 1.0, 0), [])
+
+    def test_the_fixtures_verdict_is_every_fixtures_accuracy(self):
+        def result(grids, nets, apart):
+            return {**self.frame(grids, nets), "nets_vs_grids": {"fraction_pixels_rgb_over24": apart}}
+
+        report = flip_gates.fixture_report({"orbs": result(28, 10, .0028), "translucent": result(0, 0, .0008)})
+        self.assertEqual((report["measure"], report["passes"], report["failing"]), ("accuracy", True, []))
+        self.assertEqual(report["nets_vs_grids"]["worst"], "orbs")
+        self.assertTrue(report["nets_vs_grids"]["within"])
+        report = flip_gates.fixture_report({"orbs": result(28, 10, .0028), "translucent": result(3, 8, .0098)})
+        self.assertEqual((report["passes"], report["failing"]), (False, ["translucent"]))
+        self.assertFalse(report["nets_vs_grids"]["within"], "reported, not judged")
+        # A reference that is no measure of the true surface fails the run,
+        # however the stacks compare against it.
+        bent = {**self.frame(28, 10, net_defined=1), "nets_vs_grids": {"fraction_pixels_rgb_over24": .0028}}
+        report = flip_gates.fixture_report({"orbs": result(28, 10, .0028), "bent": bent})
+        self.assertEqual((report["passes"], report["failing"]), (False, []))
+        self.assertEqual(report["unsound"], {"bent": ["1 surface(s) of its reference drawn from their own net, "
+                                                      "not their function"]})
+        wide = {**self.frame(28, 10, within=False), "nets_vs_grids": {"fraction_pixels_rgb_over24": .0028}}
+        self.assertFalse(flip_gates.fixture_report({"wide": wide})["passes"])
 
 
 class Programs(unittest.TestCase):

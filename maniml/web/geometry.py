@@ -244,8 +244,13 @@ RENDERERS = ("triangles", "phase_a", "phase_b", "winding")
 # What a forced renderer draws: (fill, surface, programs).
 FORCED_STACKS = {"phase_a": ("meshes", "grids", "off"), "phase_b": ("patches", "nets", "gpu")}
 # The generators "triangles" draws where no environment flag says otherwise.
+# Surfaces are nets (B5.9, docs/phase_b4_plan.md, "The flips"; Taylor,
+# 2026-09-29): measured against the true surface nets are no further from
+# it than grids on every scene of the gate's timed set and every Surface
+# fixture, and their cost on surface-heavy still frames and camera moves
+# was accepted. MANIML_SURFACE=grids draws the grids, as Phase A forced does.
 DEFAULT_FILL = "meshes"
-DEFAULT_SURFACE = "grids"
+DEFAULT_SURFACE = "nets"
 # What a patch fill is sent as wherever patches are drawn, forced or not,
 # unless MANIML_PATCH_SOURCE says otherwise (B5.6, docs/phase_b4_plan.md):
 # the path's rows, which each driver finalizes, not its records packed.

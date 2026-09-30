@@ -1157,8 +1157,11 @@ const cases = {
       const scene = passes.find(pass => pass.descriptor && pass.descriptor.depthStencilAttachment);
       for (const draw of scene.draws) stages.add(draw.pipeline.descriptor.vertex.entryPoint);
     }
-    // Patch fans, patch covers and the strips, strokes and nets all drew.
-    assert.deepEqual([...stages].sort(), ["vs_cover", "vs_fan", "vs_main", "vs_patch"]);
+    // Patch fans, patch covers and the strips, strokes and nets all drew;
+    // an export of another stack names the stages it draws (the Default's
+    // meshes, strokes and nets, B5.9: vs_main alone).
+    const expected = process.argv[4] ? process.argv[4].split(",") : ["vs_cover", "vs_fan", "vs_main", "vs_patch"];
+    assert.deepEqual([...stages].sort(), expected.sort());
     await d.destroy();
     assert.ok(d.buffers.every(buffer => buffer.destroyed));
     process.stdout.write(JSON.stringify({frames: frames.length, rendered: order.length}));

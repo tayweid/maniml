@@ -8,8 +8,10 @@ frames of a course episode (docs/phase_b4_plan.md, "The flips", B5.4).
         --browser <dir>/browser --gpu <dir>/gpu --pixels <dir>/frames --limit 1.0 \\
         --output <dir>/complete
     python -m benchmarks.flip_gates fixtures --output <dir>/fixtures
+    python -m benchmarks.flip_gates accuracy --scene /abs/path/benchmarks/surface_scenes.py LatticeScene \\
+        --play-frames 3 --output <dir>/accuracy
     python -m benchmarks.flip_gates gate --flip nets --complete <dir per scene>/complete \\
-        --fixtures <dir>/fixtures --output <dir>/gate
+        --fixtures <dir>/fixtures --accuracy <dir per scene>/accuracy --output <dir>/gate
     python -m benchmarks.flip_gates programs --plays <play_frames dirs> --render <play_frames --render dirs> \\
         --output <dir>/programs
 
@@ -58,26 +60,40 @@ readback (flag_off_check): the stamps an attribution run takes cost each
 pass ~30 µs, so where the flip changes the pass count (a net or a program
 is a pass of its own) the attribution run's GPU overstates the stack with
 more passes, while the readback in the wall clock dilutes every ratio;
-the two bracket the flip. The nets flip's pixel gate also reads every
-Surface fixture (tests/surface_fixtures.py): the third command draws each
-from Phase A's grids and from nets natively and writes the pairs.
+the two bracket the flip.
+
+The nets flip's pixel gate (B5.9, Taylor, 2026-09-29) is accuracy: each
+stack against a reference of the same frame drawn from the true surface
+(tests/surface_fixtures.py, against_reference: every Surface's uv_func
+evaluated until its facets are within 1/32 of a pixel of it, drawn as
+Phase A draws a grid with 16 times the samples per pixel, once in each
+stack's order of a surface's triangles), nets no further from it than
+grids by the pixels over 24/255. The third command measures every Surface
+fixture so; the fourth a scene's measured frames and frames inside the
+plays into them. A net is drawn rounder than its grid, so the nets against
+grids pairs complete reads (and the fixtures' own, still written) measure
+sameness to the old look: reported, not judged.
 
 A default reaches every scene the Default, --render, checkpoint stills and
 --export draw, so a flip is judged over a timed set of scenes
-(TIMED_SCENES, B5.7). The fourth command reads one complete run per scene
+(TIMED_SCENES, B5.7). The fifth command reads one complete run per scene
 of the set and passes the flip only when none is missing, each was judged
 at the flip's limit (GATE_LIMITS) from a serialize run with every switch
 (GATE_SWITCHES), every class that run measured (the camera and play
-classes always) is judged in both formats and within the limit, every
-scene's pixels pass and, for nets, the fixtures', and every run is of one
-tree (one commit, each source file hashed alike wherever it was hashed).
+classes always) is judged in both formats and within the limit, every run
+is of one tree (one commit, each source file hashed alike wherever it was
+hashed), and the pixels pass: for nets an accuracy run per scene of the
+set and the fixtures run, all of one tree, nets no further from the true
+surface than grids (ACCURACY_FLIPS); for another flip every scene's
+pixels within 0.5% of Phase A's. Its verdict says whether the timing or
+the pixels failed.
 
 The programs flip reads other numbers (the plan's "The flips"): Python ms
 per play frame under the candidate mode against programs off over every
 play of an episode, and the pixels of every play frame against the CPU
 path. benchmarks/play_frames.py measures both (--every-play, the modes
 taking turns replay by replay and the mode that opens a play alternating
-play by play; --render for the pixels); the fifth command reduces its
+play by play; --render for the pixels); the sixth command reduces its
 reports: per episode and format, each frame's serialize_ms plus scene_ms
 (the scene's own Python since the frame before; a play's entry follows
 none of its frames and counts its serialize alone), their total over every
@@ -149,6 +165,17 @@ GATE_LIMITS = {"nets": 1.05}
 # that the camera and play classes, and the ticked class wherever a
 # checkpoint's updaters tick, are in the verdict.
 GATE_SWITCHES = ("tick_updaters", "play_frames", "camera_moves")
+# The flips whose pixel gate is accuracy (B5.9, Taylor, 2026-09-29): each
+# stack measured against the true surface (tests/surface_fixtures.py,
+# against_reference), the flip no further from it than Phase A, over every
+# scene of the timed set (the accuracy command) and every Surface fixture
+# (the fixtures command). A net is drawn rounder than its grid, so nets
+# against grids measured sameness to the old look; it is reported beside
+# the gate.
+ACCURACY_FLIPS = ("nets",)
+# The frames the serialize command measures (episode_frames.select_frames
+# at these), which an accuracy run must measure too.
+SELECT_DEFAULTS = {"every": 1, "max_frames": 12}
 
 
 def stacks(flip):
@@ -493,35 +520,248 @@ def markdown_table(summary):
     return "\n".join(lines)
 
 
+def reference_problems(reference):
+    """What makes a frame's reference (tests.surface_fixtures.reference_summary)
+    no measure of the true surface: facets beyond its tolerance, or a
+    surface drawn from its own net evaluated densely rather than from its
+    function (``net_defined``: what nets converge to, so such a frame
+    favours nets by construction)."""
+    problems = []
+    if not reference.get("within_tolerance", False):
+        problems.append(f"its reference {reference.get('error_px', float('nan')):.3f} px from the surface, "
+                        f"beyond its tolerance")
+    if reference.get("net_defined", 1):
+        problems.append(f"{reference.get('net_defined', '?')} surface(s) of its reference drawn from their own net, "
+                        f"not their function")
+    return problems
+
+
+def fixture_report(fixtures):
+    """The fixtures command's verdict over ``fixtures`` ({name:
+    tests.surface_fixtures.against_reference result}): the gate (B5.9),
+    every fixture's nets no further from the true surface than its grids
+    (a tie, the two within 24/255 everywhere, passes) against a reference
+    that measures the true surface (reference_problems: within its
+    tolerance, every surface its function's); B5.4's nets against grids
+    within PIXEL_LIMIT beside it, a diagnostic."""
+    worst = max(fixtures, key=lambda name: fixtures[name]["nets_vs_grids"]["fraction_pixels_rgb_over24"])
+    unsound = {name: reference_problems(result["reference"]) for name, result in fixtures.items()
+               if reference_problems(result["reference"])}
+    return {"measure": "accuracy",
+            "passes": all(result["passes"] for result in fixtures.values()) and not unsound,
+            "failing": [name for name, result in fixtures.items() if not result["passes"]],
+            "unsound": unsound,
+            "reference_within_tolerance": all(result["reference"]["within_tolerance"] for result in fixtures.values()),
+            "nets_vs_grids": {"limit": PIXEL_LIMIT, "worst": worst,
+                              "worst_fraction": fixtures[worst]["nets_vs_grids"]["fraction_pixels_rgb_over24"],
+                              "within": fixtures[worst]["nets_vs_grids"]["fraction_pixels_rgb_over24"] <= PIXEL_LIMIT},
+            "fixtures": fixtures}
+
+
+def accuracy_line(name, result):
+    """One frame's accuracy: each stack's pixels over 24/255 from the true
+    surface, and the diagnostics."""
+    grids, nets = result["grids"], result["nets"]
+    return (f"{name}: grids {100 * grids['fraction_pixels_rgb_over24']:.4f}% ({grids['pixels_rgb_over24']}), "
+            f"nets {100 * nets['fraction_pixels_rgb_over24']:.4f}% ({nets['pixels_rgb_over24']}) over 24/255 from "
+            f"the true surface{' (a tie)' if result.get('tie') else '' if result['passes'] else ' **nets further**'}; "
+            f"nets vs grids "
+            f"{100 * result['nets_vs_grids']['fraction_pixels_rgb_over24']:.4f}%; reference "
+            f"{result['reference']['error_px']:.3f} px, {result['reference']['triangles']} triangles")
+
+
 def run_fixtures(args):
-    """tests.surface_fixtures' nets against grids, every fixture, one
-    native driver per stack for the whole run."""
+    """tests.surface_fixtures' accuracy on every fixture (against_reference:
+    grids, nets and the true surface, one native driver each for the whole
+    run)."""
     from maniml.web.wgpu_renderer import WgpuRenderer
-    from tests.surface_fixtures import SURFACE_FIXTURES, nets_against_grids
+    from tests.surface_fixtures import REFERENCE_SUPERSAMPLE, REFERENCE_TOLERANCE, SURFACE_FIXTURES, against_reference
 
     for key in CLEARED:
         os.environ.pop(key, None)
-    grids, nets = WgpuRenderer(), WgpuRenderer()
+    drivers, samples = [WgpuRenderer() for _ in range(3)], {}
     fixtures = {}
     try:
         for name in SURFACE_FIXTURES:
-            fixtures[name] = result = nets_against_grids(name, grids, nets)
-            print(f"{name}: {100 * result['fraction_pixels_rgb_over24']:.4f}% over 24/255, largest channel "
-                  f"{result['max_rgba']:.0f} ({result['grid_batches']} grid batches, {result['net_batches']} nets)",
-                  flush=True)
+            fixtures[name] = result = against_reference(SURFACE_FIXTURES[name](), *drivers, samples_cache=samples)
+            print(accuracy_line(name, result), flush=True)
     finally:
-        grids.close()
-        nets.close()
-    worst = max(fixtures, key=lambda name: fixtures[name]["fraction_pixels_rgb_over24"])
+        for driver in drivers:
+            driver.close()
     report = {"recorded_utc": datetime.now(timezone.utc).isoformat(), "command": sys.argv, "git": git_state(ROOT),
               "machine": {"platform": platform.platform(), "machine": platform.machine(), "node": platform.node()},
-              "source_files_sha256": source_hashes([Path(__file__), ROOT / "tests/surface_fixtures.py",
-                                                    *(ROOT / "maniml/web").glob("*.py")]),
-              "limit": PIXEL_LIMIT, "worst": worst,
-              "passes": fixtures[worst]["fraction_pixels_rgb_over24"] <= PIXEL_LIMIT,
-              "fixtures": fixtures}
+              "source_files_sha256": source_hashes([Path(__file__), *accuracy_sources()]),
+              "reference": {"supersample": REFERENCE_SUPERSAMPLE, "tolerance_px": REFERENCE_TOLERANCE},
+              **fixture_report(fixtures)}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+
+
+def accuracy_sources():
+    """The files that make the pixels the accuracy and fixtures commands
+    judge, which each hashes: the reference's code, the serializer and the
+    native driver (maniml/web), the net's evaluation (bezier_net, which the
+    reference evaluates directly, and the Surface that samples it) and the
+    WGSL the native driver compiles (net_compute, surface and texsurface
+    draw the nets and the reference)."""
+    return sorted([ROOT / "tests/surface_fixtures.py", ROOT / "maniml/utils/bezier_net.py",
+                   ROOT / "maniml/mobject/types/surface.py", *(ROOT / "maniml/web").glob("*.py"),
+                   *(ROOT / "maniml/web/static/wgsl").glob("*.wgsl")])
+
+
+def play_picks(count, fps, run_time, per_play):
+    """``per_play`` frames of a play of ``count`` frames spread evenly
+    through it, each strictly inside it (alpha below 1: the landing is the
+    pausepoint's own picture)."""
+    picks = {min(count - 1, max(0, round((j + 1) * count / (per_play + 1)) - 1)) for j in range(per_play)}
+    return sorted(k for k in picks if (k + 1) / fps / run_time < 1 - 1e-9)
+
+
+def measure_accuracy(scene, indices, drivers, *, play_frames=0, log=None):
+    """tests.surface_fixtures.against_reference on every frame of
+    ``indices`` (the pausepoint as a navigation shows it) and, with
+    ``play_frames``, on that many frames inside the play into it, each
+    play once; ``drivers`` draw grids, nets and the references."""
+    from tests.surface_fixtures import against_reference
+
+    checkpoints, frames, plays, samples = scene.animation_checkpoints, [], set(), {}
+    for index in indices:
+        show_frame(scene, index)
+        frame = {"checkpoint": index, "phase": "pausepoint", "line": checkpoints[index]["line_number"],
+                 **against_reference(scene, *drivers, samples_cache=samples)}
+        frames.append(frame)
+        if log is not None:
+            log(frame)
+        target = play_before(checkpoints, index) if play_frames else None
+        if target is None or target in plays:
+            continue
+        plays.add(target)
+        run_time, fps = checkpoints[target]["run_time"], scene.camera.fps
+        picks = set(play_picks(play_frame_count(fps, run_time), fps, run_time, play_frames))
+
+        def on_frame(k, index=index, target=target, run_time=run_time, fps=fps, picks=picks):
+            if k not in picks:
+                return
+            scene.camera.refresh_uniforms()
+            frame = {"checkpoint": index, "phase": "play", "play_checkpoint": target, "play_frame": k,
+                     "alpha": (k + 1) / fps / run_time, "line": checkpoints[target]["line_number"],
+                     **against_reference(scene, *drivers, samples_cache=samples)}
+            frames.append(frame)
+            if log is not None:
+                log(frame)
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            replay_play(scene, target, on_frame)
+    return frames
+
+
+def accuracy_summary(frames):
+    """A scene's accuracy over its frames: each stack's pixels over 24/255
+    from the true surface, summed over every frame, and the gate (B5.9):
+    nets no further from it than grids over the scene's frames that are
+    not ties (``judged``: a frame whose grids and nets are nowhere more
+    than 24/255 apart is one picture by the gate's threshold, and counts
+    for neither). Beside it the frames where nets were the further, B5.4's
+    nets against grids (the worst frame), how far the draw order alone
+    moved the references, and whether every reference measured the true
+    surface (within its tolerance, every surface its function's), which
+    the gate requires (accuracy_verdict)."""
+    pixels = sum(frame["resolution"][0] * frame["resolution"][1] for frame in frames)
+
+    def total(stack):
+        count = sum(frame[stack]["pixels_rgb_over24"] for frame in frames)
+        return {"pixels_rgb_over24": count, "fraction_pixels_rgb_over24": count / pixels if pixels else 0.0,
+                "worst_frame_fraction": max((frame[stack]["fraction_pixels_rgb_over24"] for frame in frames),
+                                            default=0.0)}
+
+    grids, nets = total("grids"), total("nets")
+    judged = [frame for frame in frames if not frame.get("tie")]
+    judged_grids = sum(frame["grids"]["pixels_rgb_over24"] for frame in judged)
+    judged_nets = sum(frame["nets"]["pixels_rgb_over24"] for frame in judged)
+    where = lambda frame: {key: frame[key] for key in ("checkpoint", "phase", "play_checkpoint", "play_frame")
+                           if key in frame}
+    return {"frames": len(frames), "pausepoints": sum(frame["phase"] == "pausepoint" for frame in frames),
+            "play_frames": sum(frame["phase"] == "play" for frame in frames), "pixels": pixels,
+            "grids": grids, "nets": nets, "nets_vs_grids": total("nets_vs_grids"),
+            "reference_orders": total("reference_orders"),
+            "tie_frames": len(frames) - len(judged),
+            "judged": {"frames": len(judged), "grids": judged_grids, "nets": judged_nets},
+            "where_they_differ": {key: sum(frame["where_they_differ"][key] for frame in frames)
+                                  for key in ("pixels", "nets_nearer", "grids_nearer", "equal")},
+            "frames_nets_further": [{**where(frame), "nets": frame["nets"]["pixels_rgb_over24"],
+                                     "grids": frame["grids"]["pixels_rgb_over24"]}
+                                    for frame in frames if not frame["passes"]],
+            "reference_within_tolerance": all(frame["reference"]["within_tolerance"] for frame in frames),
+            "reference_error_px": max((frame["reference"]["error_px"] for frame in frames), default=0.0),
+            "net_defined_surfaces": sum(frame["reference"]["net_defined"] for frame in frames),
+            "sorted_surfaces": sum(frame["reference"].get("sorted_surfaces", 0) for frame in frames),
+            "passes": judged_nets <= judged_grids}
+
+
+def accuracy_table(summary):
+    """The accuracy run's reading: the scene's totals and the gate."""
+    grids, nets = summary["grids"], summary["nets"]
+    return (f"{summary['frames']} frames ({summary['pausepoints']} pausepoints, {summary['play_frames']} inside "
+            f"plays): pixels over 24/255 from the true surface, grids {100 * grids['fraction_pixels_rgb_over24']:.4f}% "
+            f"({grids['pixels_rgb_over24']}), nets {100 * nets['fraction_pixels_rgb_over24']:.4f}% "
+            f"({nets['pixels_rgb_over24']}); {summary['tie_frames']} ties (grids and nets within 24/255 "
+            f"everywhere); over the other {summary['judged']['frames']}, grids {summary['judged']['grids']}, nets "
+            f"{summary['judged']['nets']}: nets no further: {'yes' if summary['passes'] else '**no**'} "
+            f"(frames where nets are further: {len(summary['frames_nets_further'])}); nets vs grids, worst frame "
+            f"{100 * summary['nets_vs_grids']['worst_frame_fraction']:.4f}% (diagnostic); references within "
+            f"{summary['reference_error_px']:.3f} px")
+
+
+def run_accuracy(args):
+    """The accuracy command: one scene's frames (select_frames, as the
+    serialize command and episode_frames choose them) and, with
+    --play-frames N, N frames inside each play into them, each drawn by
+    grids, nets and the true surface (measure_accuracy)."""
+    from maniml.web.wgpu_renderer import WgpuRenderer
+    from tests.surface_fixtures import REFERENCE_SUPERSAMPLE, REFERENCE_TOLERANCE
+
+    scene_path = Path(os.path.abspath(args.scene[0]))
+    if not scene_path.is_file():
+        raise SystemExit(f"no scene file at {scene_path}")
+    os.environ.update(ENVIRONMENT)
+    for key in CLEARED:
+        os.environ.pop(key, None)
+    args.output.mkdir(parents=True, exist_ok=True)
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        scene, error = load_episode(scene_path, args.scene[1])
+    indices = select_frames(scene.animation_checkpoints, args.every, args.max_frames)
+    hashes = source_hashes([Path(__file__), ROOT / "benchmarks/episode_frames.py", *accuracy_sources(), scene_path])
+    drivers, stream = [WgpuRenderer() for _ in range(3)], sys.stdout
+
+    def log(frame):
+        # A play's frames arrive inside its replay, whose output is muted.
+        where = f"checkpoint {frame['checkpoint']}" + (f" play {frame['play_checkpoint']} frame {frame['play_frame']}"
+                                                         if frame["phase"] == "play" else "")
+        print(accuracy_line(where, frame), file=stream, flush=True)
+
+    try:
+        frames = measure_accuracy(scene, indices, drivers, play_frames=args.play_frames, log=log)
+    finally:
+        for driver in drivers:
+            driver.close()
+    summary = {"recorded_utc": datetime.now(timezone.utc).isoformat(), "command": sys.argv, "flip": "nets",
+               "scene": {"path": str(scene_path), "name": args.scene[1],
+                         "checkpoint_count": len(scene.animation_checkpoints), "measured_checkpoints": indices,
+                         "construct_error": error},
+               "git": git_state(ROOT),
+               "machine": {"platform": platform.platform(), "machine": platform.machine(), "node": platform.node()},
+               "environment": {key: value for key, value in os.environ.items() if key.startswith("MANIML_")},
+               "every": args.every, "max_frames": args.max_frames, "play_frames": args.play_frames,
+               "reference": {"supersample": REFERENCE_SUPERSAMPLE, "tolerance_px": REFERENCE_TOLERANCE},
+               "source_files_sha256": hashes,
+               "source_files_unchanged_during_run": source_hashes(
+                   [ROOT / path if not Path(path).is_absolute() else Path(path) for path in hashes]) == hashes,
+               **accuracy_summary(frames)}
+    (args.output / "report.json").write_text(json.dumps({**summary, "per_frame": frames}, indent=2) + "\n")
+    (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    table = accuracy_table(summary)
+    (args.output / "summary.md").write_text(table + "\n")
+    print(table)
 
 
 def play_python(mode):
@@ -868,17 +1108,98 @@ def within(judged, limit):
     return judged["ratio"] is not None and judged["ratio"] <= limit
 
 
-def gate_verdict(summaries, fixtures, flip):
+def accuracy_verdict(accuracy, fixtures, required):
+    """The nets flip's pixel gate since B5.9 (docs/phase_b4_plan.md, "The
+    flips"): per scene of the timed set, the accuracy command's run, nets
+    no further from the true surface than grids over its frames that are
+    not ties, measured over the frames the serialize command measures
+    (select_frames at its defaults) and frames inside the plays into them,
+    against references that measure the true surface (reference_problems);
+    the fixtures command's run, the same on every Surface fixture; and
+    every one of these runs of one tree. Returns (per scene, failures,
+    commits)."""
+    by_scene, failures = {}, []
+    for summary in accuracy:
+        key = scene_key(summary["scene"])
+        if key in by_scene:
+            raise SystemExit(f"two accuracy runs of {key[1]} ({key[0]})")
+        by_scene[key] = summary
+    scenes = {}
+    for file, name in required:
+        summary = by_scene.get((file, name))
+        if summary is None:
+            failures.append(f"{name}: accuracy not measured")
+            continue
+        scenes[f"{name} ({file})"] = summary
+        if not summary["passes"]:
+            judged = summary.get("judged") or {"frames": summary.get("frames"),
+                                               "grids": summary["grids"]["pixels_rgb_over24"],
+                                               "nets": summary["nets"]["pixels_rgb_over24"]}
+            failures.append(f"{name}: nets further from the true surface than grids ({judged['nets']} pixels "
+                            f"over 24/255 against {judged['grids']}, over its {judged['frames']} frames that are "
+                            f"not ties)")
+        failures += [f"{name}: {problem}" for problem in reference_problems(
+            {"within_tolerance": summary.get("reference_within_tolerance", False),
+             "error_px": summary.get("reference_error_px", float("nan")),
+             "net_defined": summary.get("net_defined_surfaces", "?")})]
+        measured = len((summary.get("scene") or {}).get("measured_checkpoints") or [])
+        if (summary.get("every"), summary.get("max_frames")) != (SELECT_DEFAULTS["every"],
+                                                                  SELECT_DEFAULTS["max_frames"]):
+            failures.append(f"{name}: its frames chosen with --every {summary.get('every')} --max-frames "
+                            f"{summary.get('max_frames')}, not as the serialize command chooses them "
+                            f"({SELECT_DEFAULTS['every']}, {SELECT_DEFAULTS['max_frames']})")
+        if not measured or summary.get("pausepoints", 0) != measured:
+            failures.append(f"{name}: {summary.get('pausepoints', 0)} of its {measured} chosen frames measured")
+        if not summary.get("play_frames"):
+            failures.append(f"{name}: no frame inside a play measured (--play-frames)")
+        if not summary.get("source_files_unchanged_during_run", True):
+            failures.append(f"{name}: a source file changed during its accuracy run")
+    for key in by_scene.keys() - set(required):
+        scenes[f"{key[1]} ({key[0]}) (outside the set)"] = by_scene[key]
+    if fixtures is None:
+        failures.append("Surface fixtures not measured")
+    elif fixtures.get("measure") != "accuracy":
+        failures.append("Surface fixtures measured nets against grids, not against the true surface: re-run fixtures")
+    else:
+        found = [f"Surface fixture {name}: nets further from the true surface than grids "
+                 f"({fixtures['fixtures'][name]['nets']['pixels_rgb_over24']} pixels against "
+                 f"{fixtures['fixtures'][name]['grids']['pixels_rgb_over24']})" for name in fixtures["failing"]]
+        # Read from each fixture's own reference, so a run whose report
+        # predates the check is held to it too.
+        found += [f"Surface fixture {name}: {problem}" for name, result in fixtures["fixtures"].items()
+                  for problem in reference_problems(result.get("reference") or {})]
+        if not fixtures["passes"] and not found:
+            found.append("Surface fixtures: the run does not pass")
+        failures += found
+    runs = list(by_scene.values()) + ([fixtures] if fixtures else [])
+    commits = sorted({(run.get("git") or {}).get("commit") for run in runs}, key=str)
+    if len(commits) > 1:
+        failures.append("the accuracy runs name more than one commit: " + ", ".join(str(c) for c in commits))
+    hashed, differ = {}, set()
+    for run in runs:
+        for path, digest in (run.get("source_files_sha256") or {}).items():
+            if hashed.setdefault(path, digest) != digest:
+                differ.add(path)
+    if differ:
+        failures.append("the accuracy runs hash " + ", ".join(sorted(differ)) + " differently")
+    return scenes, failures, commits
+
+
+def gate_verdict(summaries, fixtures, flip, accuracy=None):
     """The flip's verdict over its timed set: every scene of TIMED_SCENES
     present among the complete runs' ``summaries`` (one per scene), each
     judged at the flip's GATE_LIMITS and measured with GATE_SWITCHES, every
     class its serialize run measured (the camera and play classes always)
-    judged in both formats and within the limit, every scene's pixels and,
-    for nets, the Surface fixtures' within PIXEL_LIMIT, and every run of
-    one tree: one commit, and each source file hashed alike by every input
-    that hashed it. A scene of the set without a run, or a run of a scene
+    judged in both formats and within the limit, and every run of one
+    tree: one commit, and each source file hashed alike by every input
+    that hashed it (the timing). And the pixels: for nets (B5.9) the
+    accuracy runs (``accuracy``, one per scene) and the fixtures run, each
+    stack against the true surface, nets no further than grids
+    (accuracy_verdict), the complete runs' nets against grids reported
+    beside it; for another flip, every scene's pixels within PIXEL_LIMIT of
+    Phase A's. A scene of the set without a run, or a run of a scene
     outside it, is said; the flip passes only when nothing is missing and
-    nothing fails."""
+    nothing fails, and the verdict says which part failed."""
     required, limit = TIMED_SCENES[flip], GATE_LIMITS[flip]
     by_scene = {}
     for summary in summaries:
@@ -888,7 +1209,7 @@ def gate_verdict(summaries, fixtures, flip):
         if key in by_scene:
             raise SystemExit(f"two complete runs of {key[1]} ({key[0]})")
         by_scene[key] = summary
-    scenes, failures = {}, []
+    scenes, failures, pixel_failures = {}, [], []
     for key, summary in by_scene.items():
         measured, problems = summary.get("measured"), []
         if summary["limit"] != limit:
@@ -915,9 +1236,9 @@ def gate_verdict(summaries, fixtures, flip):
                  "pixels_pass": bool(pixels and pixels["passes"]), "in_timed_set": key in required}
         scenes[f"{key[1]} ({key[0]})"] = entry
         failures += [f"{key[1]}: {item}" for item in problems + unmeasured + over]
-        if not entry["pixels_pass"]:
-            failures.append(f"{key[1]}: pixels " + ("not measured" if not pixels else
-                            f"{100 * pixels['worst']['fraction_pixels_rgb_over24']:.4f}% over 24/255"))
+        if flip not in ACCURACY_FLIPS and not entry["pixels_pass"]:
+            pixel_failures.append(f"{key[1]}: pixels " + ("not measured" if not pixels else
+                                  f"{100 * pixels['worst']['fraction_pixels_rgb_over24']:.4f}% over 24/255"))
     commits = sorted({commit for summary in by_scene.values() for commit in run_commits(summary)}, key=str)
     if len(commits) > 1:
         failures.append("the runs name more than one commit: " + ", ".join(str(commit) for commit in commits))
@@ -929,24 +1250,32 @@ def gate_verdict(summaries, fixtures, flip):
     if differ:
         failures.append("the scenes' runs hash " + ", ".join(sorted(differ)) + " differently")
     missing = [f"{name} ({file})" for file, name in required if (file, name) not in by_scene]
-    fixture_pass = None
-    if flip == "nets":
-        fixture_pass = bool(fixtures and fixtures["passes"])
-        if not fixture_pass:
-            failures.append("Surface fixtures " + ("not measured" if not fixtures else
-                            f"{fixtures['worst']} {100 * fixtures['fixtures'][fixtures['worst']]['fraction_pixels_rgb_over24']:.4f}%"))
+    accuracy_scenes, accuracy_commits, fixture_pass = None, None, None
+    if flip in ACCURACY_FLIPS:
+        accuracy_scenes, found, accuracy_commits = accuracy_verdict(accuracy or [], fixtures, required)
+        pixel_failures += found
+        fixture_pass = bool(fixtures and fixtures.get("measure") == "accuracy" and fixtures["passes"])
     return {"flip": flip, "limit": limit, "timed_set": [f"{name} ({file})" for file, name in required],
             "missing": missing, "commits": commits, "scenes": scenes, "fixtures_pass": fixture_pass,
-            "failures": failures, "passes": not missing and not failures}
+            "accuracy": accuracy_scenes, "accuracy_commits": accuracy_commits,
+            "timing_failures": failures, "pixel_failures": pixel_failures,
+            "timing_passes": not missing and not failures, "pixels_pass": not pixel_failures,
+            "failures": failures + pixel_failures, "passes": not missing and not failures and not pixel_failures}
 
 
 def gate_table(gate):
     """Per scene: each class's ratio in format 8; format 7 (bold over the
     limit; a class the gate requires and the run lacks is named missing),
-    and its pixels."""
-    limit = gate["limit"]
+    its pixels against Phase A's and, for nets, each stack's pixels from
+    the true surface (the pixel gate since B5.9; the pixels against grids
+    beside it are a diagnostic)."""
+    limit, accuracy = gate["limit"], gate.get("accuracy")
+    head = "| Scene | pausepoint | ticked | camera | play | pixels over 24/255 |"
+    if accuracy is not None:
+        head = ("| Scene | pausepoint | ticked | camera | play | nets vs grids (diagnostic) "
+                "| from the true surface: grids; nets |")
     lines = [f"Timed set ({gate['flip']}, each class ≤ {limit}× Phase A): " + ", ".join(gate["timed_set"]), "",
-             "| Scene | pausepoint | ticked | camera | play | pixels over 24/255 |", "|---|---:|---:|---:|---:|---:|"]
+             head, "|---|---:|---:|---:|---:|---:|" + ("---:|" if accuracy is not None else "")]
     for name, entry in gate["scenes"].items():
         cells = []
         for cls in CLASSES:
@@ -959,24 +1288,41 @@ def gate_table(gate):
                 for judged in ratios))
         pixels = entry["pixels"]
         worst = "–" if not pixels or not pixels["worst"] else f"{100 * pixels['worst']['fraction_pixels_rgb_over24']:.4f}%"
-        lines.append(f"| {name}{'' if entry['in_timed_set'] else ' (outside the set)'} | " + " | ".join(cells)
-                     + f" | {worst if entry['pixels_pass'] else '**' + worst + '**'} |")
+        if accuracy is not None:
+            measured = accuracy.get(name)
+            cells.append(worst)
+            cells.append("**not measured**" if measured is None else
+                         f"{100 * measured['grids']['fraction_pixels_rgb_over24']:.4f}%; "
+                         + ("" if measured["passes"] else "**")
+                         + f"{100 * measured['nets']['fraction_pixels_rgb_over24']:.4f}%"
+                         + ("" if measured["passes"] else "**"))
+        else:
+            cells.append(worst if entry["pixels_pass"] else "**" + worst + "**")
+        lines.append(f"| {name}{'' if entry['in_timed_set'] else ' (outside the set)'} | " + " | ".join(cells) + " |")
     lines.append("")
     if gate["missing"]:
         lines.append("Missing from the timed set: " + ", ".join(gate["missing"]))
     if gate["fixtures_pass"] is not None:
-        lines.append(f"Surface fixtures within {100 * PIXEL_LIMIT}%: {'yes' if gate['fixtures_pass'] else '**no**'}")
-    lines.append(f"Verdict: {'passes' if gate['passes'] else '**fails**'}"
-                 + ("" if gate["passes"] else " (" + "; ".join(gate["failures"] + [f"missing {m}" for m in gate["missing"]]) + ")"))
+        lines.append("Surface fixtures, nets no further from the true surface than grids: "
+                     + ("yes" if gate["fixtures_pass"] else "**no**"))
+    def part(name, passes, failures):
+        return f"{name} pass" if passes else f"{name} **fail** (" + "; ".join(failures) + ")"
+
+    lines.append(f"Verdict: {'passes' if gate['passes'] else '**fails**'}" + ("" if gate["passes"] else ": " + "; ".join([
+        part("timing", gate["timing_passes"],
+             gate["timing_failures"] + [f"missing {m}" for m in gate["missing"]]),
+        part("pixels", gate["pixels_pass"], gate["pixel_failures"])])))
     return "\n".join(lines)
 
 
 def run_gate(args):
     summaries = [json.loads((Path(directory) / "summary.json").read_text()) for directory in args.complete]
     fixtures = json.loads((args.fixtures / "summary.json").read_text()) if args.fixtures else None
-    gate = gate_verdict(summaries, fixtures, args.flip)
+    accuracy = [json.loads((Path(directory) / "summary.json").read_text()) for directory in args.accuracy]
+    gate = gate_verdict(summaries, fixtures, args.flip, accuracy)
     gate["inputs"] = {"complete": [str(path) for path in args.complete],
-                      "fixtures": None if args.fixtures is None else str(args.fixtures)}
+                      "fixtures": None if args.fixtures is None else str(args.fixtures),
+                      "accuracy": [str(path) for path in args.accuracy]}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "summary.json").write_text(json.dumps(gate, indent=2) + "\n")
     table = gate_table(gate)
@@ -995,8 +1341,8 @@ def main(argv=None):
     serialize.add_argument("--samples", type=int, default=12)
     serialize.add_argument("--warmups", type=int, default=3)
     serialize.add_argument("--replays", type=int, default=4, help="replays of each play per serializer")
-    serialize.add_argument("--every", type=int, default=1)
-    serialize.add_argument("--max-frames", type=int, default=12)
+    serialize.add_argument("--every", type=int, default=SELECT_DEFAULTS["every"])
+    serialize.add_argument("--max-frames", type=int, default=SELECT_DEFAULTS["max_frames"])
     serialize.add_argument("--tick-updaters", action="store_true")
     serialize.add_argument("--play-frames", action="store_true")
     serialize.add_argument("--camera-moves", action="store_true")
@@ -1012,13 +1358,25 @@ def main(argv=None):
     complete.add_argument("--limit", type=float, required=True,
                           help="the flip's complete frame over Phase A's that passes, per class")
     complete.add_argument("--output", type=Path, required=True)
-    fixtures = commands.add_parser("fixtures", help="every Surface fixture drawn from grids and from nets")
+    fixtures = commands.add_parser("fixtures", help="every Surface fixture drawn from grids, from nets and from "
+                                   "the true surface")
     fixtures.add_argument("--output", type=Path, required=True)
+    accurate = commands.add_parser("accuracy", help="a scene's frames drawn from grids, from nets and from the "
+                                   "true surface (the nets flip's pixel gate)")
+    accurate.add_argument("--scene", nargs=2, metavar=("FILE", "SCENE"), required=True,
+                          help="episode file and scene class")
+    accurate.add_argument("--output", type=Path, required=True)
+    accurate.add_argument("--every", type=int, default=SELECT_DEFAULTS["every"])
+    accurate.add_argument("--max-frames", type=int, default=SELECT_DEFAULTS["max_frames"])
+    accurate.add_argument("--play-frames", type=int, default=0,
+                          help="frames inside the play into each measured frame, spread through it")
     timed = commands.add_parser("gate", help="the flip's verdict over its timed set of scenes (TIMED_SCENES)")
     timed.add_argument("--flip", choices=tuple(TIMED_SCENES), required=True)
     timed.add_argument("--complete", type=Path, nargs="+", required=True,
                        help="this module's complete output, one per scene of the timed set")
-    timed.add_argument("--fixtures", type=Path, help="this module's fixtures output (the nets flip's other pixel gate)")
+    timed.add_argument("--fixtures", type=Path, help="this module's fixtures output (the nets flip's pixel gate)")
+    timed.add_argument("--accuracy", type=Path, nargs="*", default=[],
+                       help="this module's accuracy output, one per scene of the timed set (the nets flip's pixel gate)")
     timed.add_argument("--output", type=Path, required=True)
     gate = commands.add_parser("programs", help="Python ms per play frame and pixels, from play_frames reports")
     gate.add_argument("--plays", type=Path, nargs="+", required=True,
@@ -1036,6 +1394,10 @@ def main(argv=None):
         run_programs(args)
     elif args.command == "gate":
         run_gate(args)
+    elif args.command == "accuracy":
+        if min(args.every, args.max_frames) < 1 or args.play_frames < 0:
+            parser.error("every and max-frames must be positive, play-frames not negative")
+        run_accuracy(args)
     else:
         run_fixtures(args)
 

@@ -242,8 +242,11 @@ decided on measured gates (the plan's "The flips"), not by this switch; on
 2026-09-28 none passed (nets on camera moves, patches on plays and ticked
 frames, strokes on Python no lower than programs off; B5.5's nets then
 passed the gate's three scenes and failed on scenes that are mostly
-surfaces, and B5.7's, drawn as grids are, still fail those), so the
-default is Phase A's stack.
+surfaces, and B5.7's, drawn as grids are, still fail those). On 2026-09-29
+Taylor flipped surfaces (B5.9): nets' pixel gate measures accuracy against
+the true surface, which they pass, and their cost on surface-heavy still
+and camera frames was accepted, so the default is Phase A's meshes and
+programs off with surfaces as nets.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -425,9 +428,15 @@ two steps per patch, which is the sample grid to a float32 ulp
 Phase B selection) sends the net instead and each driver evaluates it at
 screen density (`net_compute.wgsl`, capacity reserved from the second
 difference with the border stage's headroom, capped per object); a zoomed
-sphere then shows no facets. The default stays `grids`, as does Phase A
-forced. A driver decides a net's steps itself
-(`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
+sphere then shows no facets. Nets are the default since B5.9
+(`geometry.DEFAULT_SURFACE`, 2026-09-29), so the Default renderer, native
+capture (`--render`, checkpoint stills) and `--export` draw them; Phase A
+forced and `MANIML_SURFACE=grids` draw grids. A net is drawn in the order
+of its patches, so `sort_faces_back_to_front` (and `always_sort_to_camera`),
+which reorders the grid's triangle indices in place, changes nothing a net
+draws: on the Default a sorted translucent surface draws as it does
+unsorted (accepted with the flip; grids still sort). A driver decides a
+net's steps itself (`gpu_net_geometry.evaluation_steps`, `netSteps` in `webgpu.js`: the same
 double-precision rule from the descriptor's density and the packed
 uniforms), so an output depends on its control points, capacity and steps
 alone and a pan, an orbit or a zoom that moves no step count evaluates
@@ -463,8 +472,24 @@ in 0.86% of the frame, grids in 1.60%;
 `benchmarks/results/b57_net_runs_20260929/`). What is left is what makes a
 net round, 2.25-3.7× grids' triangles (+0.2-0.4 ms of GPU), the page's
 per-member walk of a run on a camera move and the serializer's per-net
-`keep` and reservation check; and the pixel gate measures distance from
-the grid. Recordings
+`keep` and reservation check. B5.9 made the nets pixel gate accuracy
+(Taylor, 2026-09-29): each stack against a reference of the same frame
+drawn from the true surface (`tests/surface_fixtures.py`,
+`against_reference`: every Surface's `uv_func` sampled patch by patch
+until its facets are within 1/32 of a pixel, drawn by Phase A's grid path
+with 16 times the samples per pixel, once in each stack's triangle order,
+which decides what shows where a translucent surface overlaps itself:
+grids' the surface's own triangle indices, nets' patch by patch), nets no
+further from it than grids by the pixels over 24/255 on every scene of
+the timed set and every Surface fixture, a frame where the two are within
+24/255 everywhere a tie, and every reference within its tolerance and
+drawn from its surfaces' functions (`flip_gates accuracy`, `fixtures`,
+`gate --accuracy`; nets against grids is reported, not judged). Nets
+pass everywhere (the lattice: 0.67% of its pixels over 24/255 against
+grids' 1.38%; the orbit demo a tie), and B5.7's still and camera costs
+were accepted, so nets flipped
+(`benchmarks/results/b59_nets_default_20260929/`).
+Recordings
 (`--export`) made with any of the Phase B switches on play since 2026-09-26:
 `geometry_recording.js` indexes `object_data`, `net_data` and `program_data`
 beside the paint and border tables and carries every record a frame's
@@ -520,10 +545,13 @@ wall clock (`flag_off_check`: the stamps cost each pass ~30 µs, so where a
 flip changes the pass count, as programs do (and nets did before B5.5), the
 attribution run overstates the stack with more passes; the gate's text and
 the measuring contract disagree there, and both are quoted), `fixtures` draws every
-Surface fixture (`tests/surface_fixtures.py`) from grids and from nets,
-`gate` judges a flip over its timed set (`TIMED_SCENES`: a complete run per
+Surface fixture (`tests/surface_fixtures.py`) from grids, from nets and
+from the true surface, `accuracy` a scene's frames so (B5.9), `gate`
+judges a flip over its timed set (`TIMED_SCENES`: a complete run per
 scene, each at the flip's `GATE_LIMITS`, every class its serialize run
-measured present in both formats, every run of one tree), and
+measured present in both formats, every run of one tree; for nets an
+accuracy run per scene and the fixtures, nets no further from the true
+surface than grids), and
 `programs` reduces `play_frames --every-play` runs (the opening mode
 alternating play by play) to Python ms per play frame, order-balanced, and
 play pixels; `benchmarks/README.md`, "Flip gates", has the commands.
