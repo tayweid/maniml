@@ -9,7 +9,9 @@ feels janky. and then for it to be easily updatable and on a path for
 consistency with knuth and plass so i don't need to understand many systems."
 Status: step 1 built and merged (2026-09-29); steps 2-4 not started. The
 suite's direction, decided the same day, is the last section: Electron for
-all three Claerbout apps, one Chromium shared on disk.
+all three Claerbout apps, one Chromium shared on disk. Knuth went first and
+shipped on it 2026-09-29/30; what that taught is at the end of the last
+section.
 
 ## The decision
 
@@ -139,7 +141,7 @@ Google Colab for students; Plass opened to researchers soon; ManimLive for a
 narrower audience that is active and avid.
 
 **One shell template, three apps.** The shell is written once, as Electron
-(JavaScript, no compile step), and built three times: Knuth.app, Plass.app and
+(JavaScript; as built, plus one small compiled launcher, below), and built three times: Knuth.app, Plass.app and
 ManimLive.app, each with its own name, icon, Dock entry, menus, file types and
 install line (Taylor wants separate icons; a single suite app hosting all three
 kinds of window was ruled out for that). Each app keeps its engine, which
@@ -203,11 +205,15 @@ for now.
 **Order.**
 
 1. The shell template, with Knuth on it for next semester, Mac and Windows.
-   Knuth's Swift app stays until the Electron one has proved itself. Windows
-   needs the engine's Mac-only corners fixed (its parent-process check uses
-   `os.kill(pid, 0)`, which is not a liveness test there), a PowerShell
-   install line in the shape of uv's own, and the Windows leg back in CI.
-2. Plass on the template when it opens to researchers, with its small engine.
+   DONE on the Mac 2026-09-29/30 (knuth `app/shell/`, design and record in
+   knuth `docs/APP.md`, "Electron, one shell for Claerbout"); Knuth's Swift
+   source stays until the Electron app has proved itself. Windows is on hold
+   (Taylor, 2026-09-30); it needs the engine's Mac-only corners fixed (its
+   parent-process check uses `os.kill(pid, 0)`, which is not a liveness test
+   there), a PowerShell install line in the shape of uv's own, and the
+   Windows leg back in CI.
+2. Plass on the template when it opens to researchers (its ROADMAP.md has
+   the Plass-specific notes).
 3. ManimLive on the template when it is worth it; its launcher (above) serves
    until then.
 
@@ -221,3 +227,67 @@ folder in Application Support (cloning from an installed sibling shares the
 same disk with nothing hidden to manage). GitHub Pages holds a
 ~150 MB zip beside a site (a ~1 GB artifact, no 100 MB per-file limit), so the
 Knuth/Plass distribution standard carries Electron apps unchanged.
+
+### What building Knuth on it taught (2026-09-29/30)
+
+The details and the measurements are in knuth `docs/APP.md` ("What building
+it found"); these are the ones every Claerbout app inherits.
+
+- **Where the template lives.** In knuth for now: the generic shell is
+  `app/shell/` (`main.js`, `preload.js`, `launcher.swift`, `complete.sh`),
+  each app's particulars one JSON config (`app/knuth.json`: name, bundle
+  id, env prefix, port, scheme, engine command, file types, icon). It
+  moves to its own repository when a second app uses it. Packaged with
+  `@electron/packager` by `app/package.mjs`.
+- **The page protocol** is `window.claerbout.request({type, ...}) →
+  Promise` and `window.claerbout.on(event, listener)`, exposed by the
+  preload over one IPC channel that checks the sender's origin. Node's URL
+  gives a custom scheme the origin `"null"`, so the bundled page is
+  recognized by scheme and host.
+- **Electron's framework must stay Electron's exact bytes**, or it cannot be
+  cloned from a sibling or replaced by Electron's release. The packager
+  breaks this by default: since Electron 41 it writes an asar's integrity
+  digest into the framework binary and re-signs it. So: `asar: false`, and
+  no fuses (also bits in that binary). Each app records the framework
+  binary's SHA-256 and the Electron version in its Info.plist
+  (`ClaerboutFrameworkSHA256`, `ClaerboutElectronVersion`); a sibling is
+  cloned, or a download accepted, only on an exact hash match. Only
+  `Electron Framework.framework` is left out and shared; the three small
+  frameworks stay in each app.
+- **Signing without a Developer ID.** The packager's renamed helper apps and
+  Electron's Mantle, ReactiveObjC and Squirrel frameworks all need fresh
+  ad-hoc signatures: the stock small frameworks fail `codesign --verify
+  --deep --strict`, and a browser download's Gatekeeper checks deeply and
+  calls the app "damaged", with no Open Anyway. Re-signed, it gets the
+  ordinary "Not Opened" and Open Anyway, as the Swift apps do. Arm64 only;
+  Electron's x64 release is unsigned and Intel Macs run it so.
+- **The app completes itself, and every launch is one flow** (Taylor: "open,
+  check for electron, if it's there, use it, if not, find it, then run").
+  Every zip, the site's download button's too, is the app without the
+  framework (2.8 MB for Knuth). The bundle's executable is a compiled
+  launcher: framework present, it `execv`s Electron before touching AppKit;
+  absent, it shows a progress window, runs `complete.sh` (the same script
+  the install line runs: clone from a sibling, else download and check),
+  then `execv`s Electron with the launch's documents as arguments. Opened
+  from Downloads (App Translocation, read-only), it asks to be moved first.
+  It has to be compiled: any AppKit process a launch starts (a script's
+  `osascript` window, even windowless) takes the launch's "open document"
+  event and loses it, and Apple's `osascript` cannot be copied into the
+  bundle (it is killed on launch). Verified by hand through a real browser
+  download (2026-09-30).
+- **macOS 13** is Electron 44's minimum.
+- **No service worker inside a shell**: it can only serve a stale page there,
+  and under Playwright's debugger a registered one wedges navigation.
+- **Chromium's storage** goes inside the app's own config folder
+  (`app.setPath('userData', …)`), so a test config folder isolates the page
+  too, and removing the folder resets everything.
+- **Testing**: Playwright drives Electron (`_electron.launch`); knuth's
+  `app/smoke.mjs` launches a built app on a document in a throwaway config
+  folder and checks the result, and the deploy runs it on the installed app
+  and on a download completing itself. A single-instance lock hands a
+  second launch to a running one, so tests must be sure the last instance
+  is gone.
+- **Plass may not need an engine.** Knuth's shell already serves its page
+  from a custom scheme and does the file operations itself in the main
+  process (its in-window Python mode), which is most of what the "small
+  engine for Plass" above was for. OPEN until Plass is ported.
