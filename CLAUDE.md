@@ -91,6 +91,12 @@ maniml app [dir]
 # second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
+# The Mac app, no terminal (app/): installs ManimLive.app into Applications,
+# a script that starts `maniml app ~ --exit-when-idle` when nothing answers on
+# 8685 and opens the page as a Chromium app window (Safari without one). The
+# engine stops 3 minutes after its last window closes.
+app/build.sh
+
 # Full suite (~200s; nothing needs a display: test_web_viewer is a
 # headless end-to-end drive of the viewer over a real WebSocket, and the
 # interaction handlers are driven directly on window=None scenes). CI's
@@ -748,6 +754,27 @@ What remains, and why:
   `choose_python_file`). The engine shows the platform dialog and gets a real
   path, which the watcher and the scene's `__file__`-relative imports both need.
   A browser file handle cannot provide one.
+
+### ManimLive.app: the app without a terminal
+
+`app/` builds `ManimLive.app` (`app/build.sh`, into Applications) in the shape
+of Edit <course>.app rather than Knuth's Swift shell: a bash script as the
+bundle's executable (`app/ManimLive`), `LSUIElement` so it keeps no Dock icon
+of its own. It starts `maniml app ~ --no-browser --exit-when-idle` when nothing
+answers on 8685 (reading where it landed from `~/Library/Logs/ManimLive.log`
+if 8685 is taken), and opens the page as an app window (`--app=`) of the first
+installed Chromium browser (Brave, Chrome, Edge, Chromium, Vivaldi), else a
+Safari tab: V8 and the WebGPU the viewer is developed on, borrowed from the
+browser rather than bundled (`docs/app_plan.md` records WebKit measured
+against Chrome, and why). `--exit-when-idle` (`AppServer(idle_exit=)`,
+`cli.IDLE_EXIT_SECONDS`, 180) stops the server once no page has held a socket
+to it for that long; every open page holds one, the landing page its control
+socket and a viewer its relay, and shutdown takes the scene processes down.
+The app runs whatever maniml its recorded Python imports
+(`Contents/Resources/python`: the interpreter behind the `maniml` command at
+build time), so an editable install's edits reach it with no rebuild. The
+agent and the PWA below predate it; while the agent holds 8685, the app uses
+it rather than starting an engine of its own.
 
 ### The installed app is the local one
 

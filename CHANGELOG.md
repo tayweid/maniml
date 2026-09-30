@@ -286,6 +286,14 @@ interfaces may still change before the first public release.
 
 ### Delivery
 
+- **ManimLive.app** (macOS, `app/`): ManimLive without a terminal.
+  `app/build.sh` puts it in Applications; opening it starts the engine when
+  none is running and opens the landing page as an app window of the first
+  Chromium browser installed (a Safari tab without one), and the engine
+  stops itself three minutes after its last window closes, taking its
+  scene processes with it. New for it: `maniml app --exit-when-idle`.
+  `maniml app` started with a bare PATH (from Finder or launchd) now finds
+  latex, dvisvgm and ffmpeg in their usual places, as the agent did.
 - New `--export-present`: renders the scene and writes
   `media/<Scene>_present/`, a self-contained folder — a page that steps
   through the episode by pausepoint, both directions, plus the mp4 —

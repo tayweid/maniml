@@ -318,6 +318,56 @@ class PortFallbackTests(unittest.TestCase):
         self.assertEqual(DEFAULT_APP_PORT, 8685)
 
 
+class IdleExitTests(unittest.TestCase):
+    """ManimLive.app starts the engine and nothing else will stop it: with
+    idle_exit the server stops once no window has held a socket to it for that
+    long, while a window that stays open keeps it up however long it idles."""
+
+    def _serving(self, idle_exit):
+        import tempfile
+        from maniml.web.app import AppServer
+
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        server = AppServer(tmpdir.name, port=0, idle_exit=idle_exit)
+        self.addCleanup(server.shutdown)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, thread
+
+    def test_an_engine_no_window_opens_stops_itself(self):
+        _, thread = self._serving(0.3)
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "an engine nobody opened kept serving")
+
+    def test_an_open_window_keeps_it_serving_until_it_closes(self):
+        server, thread = self._serving(0.3)
+        with ws_connect(f"ws://localhost:{server.port}/", origin=server.origin,
+                        open_timeout=3) as ws:
+            self.assertEqual(json.loads(ws.recv())["type"], "ready")
+            thread.join(timeout=1.5)
+            self.assertTrue(thread.is_alive(), "stopped with a window open")
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "kept serving after the last window closed")
+
+    def test_without_idle_exit_it_serves_until_stopped(self):
+        _, thread = self._serving(None)
+        thread.join(timeout=1.0)
+        self.assertTrue(thread.is_alive())
+
+    def test_run_app_returns_when_idle(self):
+        import tempfile
+        from maniml.web.cli import run_app
+
+        self.addCleanup(os.environ.__setitem__, "PATH", os.environ.get("PATH", ""))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            thread = threading.Thread(target=run_app, daemon=True, kwargs=dict(
+                root=tmpdir, open_browser=False, port=0, idle_exit=0.3))
+            thread.start()
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive(), "run_app outlived its idle exit")
+
+
 class NativeDialogGrantTests(unittest.TestCase):
     """The Open action hands over a file the user picked in the native
     dialog. A file with several scenes cannot be opened directly, so it

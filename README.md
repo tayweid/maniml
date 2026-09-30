@@ -88,6 +88,29 @@ local origin — one port for the page and its socket alike — so there is noth
 to deploy, nothing to pair, no address to configure, and no way for the page to
 be out of step with the engine that answers it.
 
+### ManimLive.app (macOS)
+
+The app is how to use ManimLive without a terminal. From a checkout, with
+maniml installed:
+
+```bash
+app/build.sh
+```
+
+puts `ManimLive.app` in Applications. Opening it starts the engine in the
+background if none is running and opens the landing page in a window of its
+own: an app window of the first Chromium browser installed (Brave, Chrome,
+Edge, Chromium or Vivaldi), which is the V8 and WebGPU the viewer is built on,
+or a Safari tab without one. Opening it again while the engine runs just opens
+another window, and the engine stops itself three minutes after its last
+window closes, taking its scenes with it. The app runs the maniml you have
+installed (the Python behind your `maniml` command, recorded when you build
+it), so updating maniml needs nothing more; rebuild only after changing
+`app/`. The engine's output goes to `~/Library/Logs/ManimLive.log`.
+
+With the app, the background engine below is optional. While it holds
+`http://localhost:8685`, the app uses it instead of starting its own.
+
 ### Background engine (macOS)
 
 The first time you run `maniml app` it offers to keep the engine running in the
