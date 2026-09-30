@@ -114,7 +114,13 @@ With the app, the background engine below is optional. While it holds
 
 The same app as an Electron window, with a Python of its own installed by
 uv on first launch (nothing on the machine used), is built from
-`app/maniml.json` by the Claerbout shell; see `docs/claerbout_experiment.md`.
+`app/maniml.json` by the Claerbout shell, which `package.json` pins:
+
+```bash
+npm install && npm run app:build
+```
+
+See `docs/claerbout_experiment.md`.
 
 ### Background engine (macOS)
 

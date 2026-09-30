@@ -141,3 +141,6 @@ media/
 
 # The Claerbout packager stages ManimLive.app here (app/maniml.json)
 app/build/
+
+# The Claerbout shell, pinned in package.json
+node_modules/

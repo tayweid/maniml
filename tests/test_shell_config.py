@@ -47,6 +47,18 @@ class ShellConfigTests(unittest.TestCase):
         self.assertEqual(config["pythons"], ["uv"])
         self.assertEqual(config["engine"]["args"][:3], ["-m", "maniml", "app"])
 
+    def test_package_json_pins_the_shell_and_the_version(self):
+        """The shell comes from a claerbout release tarball (its Electron is
+        pinned; every app moves together), and the app's version is the
+        package's, which package.mjs reads from this file."""
+        package = json.loads((ROOT / "package.json").read_text())
+        pinned = package["devDependencies"]["claerbout"]
+        self.assertRegex(pinned, r"^https://github\.com/tayweid/claerbout/archive/refs/tags/v\d+\.\d+\.\d+\.tar\.gz$")
+        declared = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        self.assertEqual(package["version"], declared["project"]["version"])
+        for script in ("app", "app:build", "app:smoke"):
+            self.assertIn("app/maniml.json", package["scripts"][script])
+
     def test_the_probe_matches_the_landing_page(self):
         page = (PACKAGE / "web" / "static" / "app.html").read_text().lower()
         self.assertIn(self.config["engine"]["probe"], page)

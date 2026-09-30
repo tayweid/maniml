@@ -107,8 +107,12 @@ app/build.sh
 # shell starts the engine as `maniml app --allow-outside-root --port N
 # --parent PID` (its port, its pid: the engine stops when the shell is gone)
 # and hands a Finder-opened scene to the landing page as ?open=<path>.
-node ../claerbout/package.mjs --config app/maniml.json            # into Applications
-node ../claerbout/smoke.mjs --config app/maniml.json uv          # launch and check
+# package.json pins the shell (a claerbout release tarball; every app moves
+# to a new Electron together) and names the scripts:
+npm install            # once: the shell and Electron, under node_modules/
+npm run app            # the shell on this checkout, in a window
+npm run app:build      # ManimLive.app into Applications
+npm run app:smoke      # launch on a scene in a throwaway config folder, check it
 
 # Full suite (~200s; nothing needs a display: test_web_viewer is a
 # headless end-to-end drive of the viewer over a real WebSocket, and the

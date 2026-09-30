@@ -1,0 +1,19 @@
+{
+  "name": "maniml",
+  "private": true,
+  "version": "0.0.1",
+  "description": "ManimLive.app: the maniml engine in the Claerbout shell (app/maniml.json). Python is the project; this file pins the shell and names its scripts.",
+  "license": "MIT",
+  "scripts": {
+    "app": "CLAERBOUT_APP=app/maniml.json electron node_modules/claerbout",
+    "app:build": "node node_modules/claerbout/package.mjs --config app/maniml.json",
+    "app:smoke": "node node_modules/claerbout/smoke.mjs --config app/maniml.json uv",
+    "app:install-script": "node node_modules/claerbout/package.mjs --config app/maniml.json --install-script site/install"
+  },
+  "devDependencies": {
+    "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.1.5.tar.gz"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
