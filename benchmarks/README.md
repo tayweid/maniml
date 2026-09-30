@@ -440,14 +440,45 @@ spheres), where B5.5's recipe failed while the three passed. The six
 commands above run per scene, `fixtures` once, and then
 
 ```bash
+python -m benchmarks.flip_gates accuracy --scene $S --play-frames 3 --output <d>/<scene>/accuracy  # per scene
 python -m benchmarks.flip_gates gate --flip nets --complete <d>/{orbit,b3,b4,orbs,lattice}/complete \
-    --fixtures <d>/fixtures --output <d>/gate
+    --fixtures <d>/fixtures --accuracy <d>/{orbit,b3,b4,orbs,lattice}/accuracy --output <d>/gate
 ```
 
 reads the complete runs by their scenes (file name and class): the flip
 passes only when every scene of the set has a run, every class of each is
-within the limit in both formats, every scene's pixels pass and so do the
-fixtures'; a scene missing from the set is named and fails it. The limit
+within the limit in both formats, the pixels pass (below) and so do the
+fixtures'; a scene missing from the set is named and fails it.
+
+**The nets pixels are accuracy** (B5.9, Taylor, 2026-09-29). A net is
+drawn rounder than its grid, so nets against grids measured sameness to
+the old look (B5.7's lattice failed it where its nets were the nearer the
+true spheres). `accuracy` draws a scene's measured frames (and, with
+`--play-frames N`, N frames spread strictly inside the play into each)
+from grids, from nets and from a reference of the same frame drawn from
+the true surface (`tests/surface_fixtures.py`, `against_reference`: every
+Surface's `uv_func` evaluated patch by patch until its facets are within
+1/32 of a pixel of it, drawn as Phase A draws a grid, with 16 times the
+samples per pixel through the clip transform's tiles, once in each
+stack's order of a surface's triangles, which decides what shows where a
+translucent surface overlaps itself: grids' the surface's own triangle
+indices, sorted or not, nets' patch by patch), and reduces each stack's
+pixels over 24/255 from it over the scene's frames; `fixtures` does the
+same for every Surface fixture. A frame where grids and nets are nowhere
+more than 24/255 apart is a tie, one picture by the gate's threshold, and
+counts for neither (their counts against the references differ there by
+noise at the threshold's edge). The gate passes the pixels when, on every
+scene of the set and every fixture, nets are no further from the true
+surface than grids over the frames that are not ties, every reference
+measured the true surface (within its tolerance, and every surface drawn
+from its function, not its own net, which is what nets converge to), each
+accuracy run measured the frames the serialize command measures (`--every
+1 --max-frames 12`) and frames inside the plays into them, and the
+accuracy runs and the fixtures run are of one tree among themselves (they
+hash the reference, the serializer and driver, `bezier_net.py`,
+`surface.py` and the WGSL); the complete runs' nets against grids stay in
+the table as a diagnostic, and the verdict names whether the timing or
+the pixels failed. Nothing in these two commands is timed. The limit
 is the flip's (`flip_gates.GATE_LIMITS`, 1.05 for nets), not the run's: a
 run reduced with another `--limit` fails. "Every class" is every class the
 scene's serialize run measured, which `complete` records (`measured`), the

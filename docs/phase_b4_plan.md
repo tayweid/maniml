@@ -903,7 +903,10 @@ the gate's three scenes and failed on scenes that are mostly surfaces, so
 grids stay the default. B5.7 drew each net's steps and coalesced them as
 grids are, and took the gate over a timed set that holds two such scenes:
 it fails there still, on still and camera frames and the lattice's
-pixels, so grids stay.)
+pixels, so grids stay. B5.9 made the nets pixel gate accuracy against the
+true surface, which nets pass on every scene and fixture, and Taylor
+accepted their cost on surface-heavy still and camera frames: surfaces
+are nets by default since 2026-09-29.)
 
 | Flip | Gate | Measured | Verdict |
 | --- | --- | --- | --- |
@@ -1806,6 +1809,177 @@ not isolated.
 
 Archive: `benchmarks/results/b58_rows_one_dispatch_20260929/`.
 
+### B5.9: surfaces are nets by default, judged against the true surface
+
+B5.9 (2026-09-29, branch `b5-nets-default` from B5.7's commit). After
+B5.7's numbers Taylor was asked "Make smooth 3D surfaces the default? ...
+The one pixel 'failure' is because the test compares against the faceted
+version; against a true sphere, smooth is more accurate", and chose "Flip
+it (Recommended)": "Smooth surfaces become the Default (and in rendered
+movies). Phase A in the dropdown keeps the faceted grids. Also change the
+pixel test to measure against a supersampled true surface, so it measures
+accuracy, not sameness to the old look." So the nets pixel gate became
+accuracy, measured, and the default flipped on it; B5.7's still and camera
+costs on the scenes that are mostly surfaces (orbs 1.06-1.15× grids,
+lattice 1.11-1.24×; plays 0.61-0.73×) are the ones the decision accepted,
+and were not retaken (another agent timed on the machine; B5.9 changes no
+driver or serializer, only the default and the harness).
+
+**The reference** (`tests/surface_fixtures.py`, `against_reference`). For
+the frame, every Surface of the scene is drawn as its true surface: its
+`uv_func` (a TexturedSurface's is its uv_surface's, with its ranges),
+carried into the frame by the affine map fitted from the construction's
+samples of it to the surface's own sample grid, which must fit to float32
+rounding (a shift, a scale, a rotation, a fade; a surface that is no
+affine image of its function, a morph or a partial surface, would be its
+own net evaluated densely and reported `net_defined`: none was, on any
+frame). Each patch is sampled at k_u × k_v times the surface's samples,
+grown until the facet error estimated from the projected samples (an
+eighth of the second difference along each parameter, a quarter of the
+twist, over the facets past the near plane that meet the frame) is within
+1/32 of a pixel, a third each, up to 1024 a direction (the 64× sphere,
+whose eye is 0.011 units from its surface, needs that near the near
+plane); the normals are the function's derivatives' (the surface's own
+where they vanish, at a pole), and every other field (colour, opacity,
+image coordinates) is the net evaluated there, which is how a surface
+defines it. Triangles that draw no pixel (past the near plane, off the
+frame) are left out. The result is drawn by Phase A's grid path, the CPU
+vertex surface pipeline in which no net is evaluated, through a
+`get_shader_data` of its own, in 4×4 tiles of the frame's size that the
+uniforms' clip transform places, box-filtered back: 16 times the samples
+per pixel over the driver's own. The scene is put back as it was (its
+rows, nets and caches untouched; revisions moved). Proof
+(`NetEvaluationOnTheGpu.test_the_reference_is_the_true_surface_and_puts_the_scene_back`):
+the tiles return the plain frame to its edges' antialiasing (4 and 8
+pixels over 24/255 on the orbs and the orbit demo); a quarter of the
+tolerance (the orbs' 702,136 triangles 2,667,600) moves no pixel over
+24/255 (the largest channel 6/255); the reference exposes the orbs'
+facets (2,834 pixels off grids').
+
+**The draw order.** A translucent surface that overlaps itself is drawn
+with the depth test on in index order, so which of its triangles comes
+first decides what shows through: grids draw the grid's triangles in the
+surface's own index order (`get_shader_data` reads the grid through
+`get_triangle_indices`: cell by cell, row by row, two triangles a cell,
+unless `sort_faces_back_to_front` reordered them), nets patch by patch
+(each patch's steps row by row). The two orders put the bands in
+different places, true surface or not (the archive's
+`translucent_orders_crop.png`: the reference in grids' order matches
+grids, in nets' order nets). So the reference is drawn in each stack's
+order and each stack is measured against its own: in grids' order each
+reference triangle takes the rank of the grid triangle its centroid lies
+in (`grid_ranks`), in nets' its patch's. The order alone moves 409 pixels
+of the translucent fixture (where each stack is 0 pixels from its
+reference) and 6,068 of the orbit demo's frame mid-fade, which is what
+B5.4 measured there as nets against grids (0.29-0.31%). Opaque frames are
+the same in both orders. The bands under nets are one visible difference
+the flip brings that is not accuracy; drawing a net's triangles row by
+row across its patches would move them back.
+
+**A sort.** `sort_faces_back_to_front` (and `always_sort_to_camera`,
+whose updater calls it) reorders the grid's triangle indices in place:
+grids draw the new order, a net draws no triangle indices, so on the
+Default a translucent surface sorted back to front draws as it does
+unsorted. On the translucent fixture sorted to its camera grids move
+7,886 pixels and nets none; the Default after the flip is 7,542 pixels
+(1.45% of the frame) from the Default before it, against 405 unsorted.
+The reference follows the sort (its grid order from the triangle indices:
+sorted grids are 0 pixels from it, 8,036 from a reference in the cells'
+order), so the gate judges grids against what they draw. It is the other
+visible difference that is not accuracy, accepted rather than fixed here:
+a sorted surface falling back to its grid on the Default would change
+what the forced Phase B draws, or make the two stacks' nets differ, and
+the retained frame's rule for such a net (the pin records a sorted net as
+compared, not prepared, under Phase B); no course or dogfood scene sorts.
+Levers: a sorted surface drawn from its grid, or a net's patches drawn in
+the sort's order.
+`test_a_default_net_is_drawn_in_its_own_order_whatever_the_sort` pins it;
+`MANIML_SURFACE=grids` and Phase A draw the sort.
+
+**The gate** (`benchmarks/flip_gates.py`, `ACCURACY_FLIPS`). `accuracy`
+draws a scene's measured frames (`select_frames`, as `serialize` and
+`episode_frames` choose them) and, with `--play-frames N`, N frames
+spread strictly inside the play into each, from grids, from nets and from
+the references, and sums each stack's pixels over 24/255 from its
+reference over the frames; `fixtures` does the same for every Surface
+fixture. A frame where grids and nets are nowhere more than 24/255 apart
+is a tie, one picture by the gate's threshold, and counts for neither:
+there the two stacks' counts against their references differ by noise at
+the threshold's edge (the orbit demo's frame 17 of its first play: 597
+against 589, where the stacks and the references agree within 24/255
+everywhere). For nets, `gate --accuracy` passes the pixels when every
+scene of the timed set has an accuracy run, on every one (over its frames
+that are not ties) and every fixture nets are no further from the true
+surface than grids, every reference measured the true surface (within its
+tolerance, every surface drawn from its function: one drawn from its own
+net, the fallback for a surface that is no affine image of its function,
+is what nets converge to), each run measured the serialize command's
+frames and frames inside the plays into them, and the accuracy runs and
+the fixtures run are of one tree among themselves (hashing the reference,
+the serializer and the driver, `bezier_net.py`, `surface.py` and the
+WGSL); the complete runs' nets against grids stay in its table as a
+diagnostic, and its verdict says whether the timing or the pixels failed.
+The fixtures test
+(`test_every_surface_fixture_is_no_further_from_the_true_surface_as_nets`)
+replaces B5.4's 0.5% against grids. Nothing in these commands is timed.
+
+| Pixels over 24/255 from the true surface, summed over the frames | frames (pausepoints + inside plays) | ties | grids | nets | the frames not ties: grids; nets | nets vs grids, worst frame (diagnostic) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Orbit demo | 8 (2 + 6) | 6 | 0.0245% (4,059) | 0.0244% (4,049) | 72; 70 | 0.291% (draw order) |
+| EpisodeB3 | 45 (12 + 33) | 6 | 0.0263% (27,632) | 0.0114% (11,969) | 26,406; 10,743 | 0.026% |
+| B4 | 48 (12 + 36) | 25 | 0.0122% (13,621) | 0.0066% (7,351) | 11,232; 4,962 | 0.023% |
+| Orbs, 70 spheres | 12 (3 + 9) | 0 | 0.390% (96,968) | 0.102% (25,326) | 96,968; 25,326 | 0.344% |
+| Lattice, 480 spheres | 12 (3 + 9) | 0 | 1.378% (342,834) | 0.673% (167,348) | 342,834; 167,348 | 0.979% |
+
+No frame of the 125 has nets the further (37 are ties); every reference
+is within 1/32 of a pixel (at most 0.031), every surface drew from its
+function and none was sorted. Where grids and nets differ by more than
+24/255, nets are the nearer their reference at 206,975 of the lattice's
+213,206 pixels, 74,407 of the orbs' 74,819, 12,138 of EpisodeB3's 12,224
+and 5,508 of B4's 5,593; the orbit demo's 6,032 are its frame mid-fade,
+the draw order (grids the nearer their reference at 2,329, nets at
+1,689), and its other frames are ties or a pixel apart, so the orbit demo
+is a tie: over its two frames that are not, grids 72 pixels from the true
+surface and nets 70. The lattice's checkpoint 1 reads 1.587% and 0.808%
+(B5.7's single-order reference with eight times the patches read 1.596%
+and 0.858%). The Surface fixtures, grids; nets (pixels): the port's
+surfaces 148; 148, the default sphere at 1×, 4×, 16× and 64× 0; 0, 49;
+49, 459; 204 and 1,018; 111, the saddle 579; 579, the textured flat 0; 0,
+the orbs 2,834; 1,006, the orbit demo 16; 16, Cobb-Douglas 381; 173, fill
+by value 76; 76, the textured zoom 586; 586, the translucent 0; 0. Eight
+are ties, grids and nets within 1/255 everywhere (their nets evaluate at
+two steps there); nets are the nearer on the 16× and 64× spheres, the
+orbs and Cobb-Douglas. Against the passes before review, whose reference
+ordered each grid cell's triangles row by row over the cell rather than
+by the grid triangle each lies in, nets read the same on every frame and
+fixture and grids moved by at most 153 pixels a scene (the lattice), the
+fixtures not at all.
+
+**The flip.** `geometry.DEFAULT_SURFACE = "nets"`; the forced Phase A
+stays `grids` and the forced Phase B `nets`; `MANIML_SURFACE=grids` draws
+grids on the Default. Native capture and the export recorder serialize
+the Default (`"triangles"`), so movies, checkpoint stills and exports
+draw nets: `test_the_default_draws_surfaces_as_nets_and_phase_a_as_grids`
+pins the stacks and a native capture, and `PhaseBWebExportE2E`'s
+`test_a_default_export_records_nets_and_replays_through_the_indexer` an
+export made with no stack switch (nets and runs of nets, cached and not,
+through the player's seek and the browser driver, which draws it with
+`vs_main` alone). No test pins the Default stack's surface pixels, and
+the tests that compare nets with grids state their stack, so none moved
+with the flip (a net at a normal view is not its grid in general: the
+orbs fixture at zoom 1 is 1,459 pixels over 24/255 apart, Cobb-Douglas
+zoomed out 250). The golden pin holds the forced stacks and passes
+untouched: 83 OK in each of the default, `MANIML_VERIFY_LEDGER=1` and
+`MANIML_RETAINED_FRAME=0`; nothing was re-recorded. The whole suite with
+the PriceDiscovery link tree: 1,097 tests OK, 61 skipped, 325 s.
+
+**The gate over the timed set** (B5.7's pass 3 complete runs, B5.9's
+accuracy runs and fixtures): pixels pass; timing fails where B5.7
+measured it, the orbs' and the lattice's still and camera classes in both
+formats (1.063-1.243), which Taylor accepted. Archive:
+`benchmarks/results/b59_nets_default_20260929/` (every accuracy run's
+frames, the fixtures, the gate, the crops).
+
 ## The final test point
 
 Since B5.6 the selection's Phase B sends its patches as rows; the Phase B
@@ -2136,6 +2310,15 @@ the pin untouched (it states each net a batch of its own); the three
 scenes pass, the orbs (1.06-1.15×) and the lattice (1.11-1.24×, and 0.98%
 of its pixels, silhouettes where the net is the rounder) fail, so grids
 stay ("The flips", B5.7).
+
+**B5.9 Nets by default.** Taylor's decision (2026-09-29) after B5.7:
+the nets pixel gate measures each stack against a supersampled true
+surface, and surfaces flip to nets, their cost on surface-heavy still and
+camera frames accepted. Done 2026-09-29: nets no further from the true
+surface than grids on every scene of the timed set and every fixture
+(the orbit demo a tie), `geometry.DEFAULT_SURFACE` is `nets`, the pin
+untouched; a sorted surface's sort is not drawn by a net, accepted
+("The flips", B5.9).
 
 **B6 The final test point.** Both episodes through `episode_frames.py
 --tick-updaters --play-frames` with variants `[gpu_border, retained,

@@ -24,6 +24,23 @@ interfaces may still change before the first public release.
   EpisodeB2's 8.a sends 545 KB a frame instead of 602, its Python 4 ms a
   frame dearer for the split; a still frame's full message is 13 KB larger
   there, each batch now naming its colours.
+- **3D surfaces are smooth by default** (docs/phase_b4_plan.md, "The
+  flips", B5.9): the Default renderer, `--render` movies, checkpoint stills
+  and `--export` draw a `Surface` as its Bézier net, evaluated by the GPU
+  at screen density, so a sphere shows no facets at any zoom. The **Phase
+  A** selection and `MANIML_SURFACE=grids` keep the faceted CPU grids.
+  Measured against the true surface (supersampled), nets are as accurate
+  as grids or more on every scene and fixture the gate draws: on 480 small
+  spheres 0.67% of the frame is visibly off against grids' 1.38%. Frames
+  that are mostly surfaces cost more to redraw at rest and on camera moves
+  (1.06-1.24× grids on 70 and 480 spheres) and less in plays (0.61-0.73×).
+  A translucent surface that overlaps itself shows its draw-order bands in
+  other places than it did, and `sort_faces_back_to_front` /
+  `always_sort_to_camera` no longer reorder a surface on the Default: a net
+  is drawn in the order of its patches (a translucent sphere and torus
+  sorted to the camera draw as they do unsorted, 1.5% of the frame
+  otherwise than grids drew them). Sorting still works under **Phase A**
+  and `MANIML_SURFACE=grids`.
 - Surfaces drawn as Bézier nets (the **Phase B** selection, or
   `MANIML_SURFACE=nets`) are cheaper to redraw (docs/phase_b4_plan.md,
   "The flips", B5.7): each net draws only the triangles of the steps it is

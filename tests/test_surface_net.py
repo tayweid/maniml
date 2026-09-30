@@ -344,6 +344,30 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ReferenceOrder(unittest.TestCase):
+    """The accuracy reference's grid order (tests/surface_fixtures.py,
+    grid_ranks, B5.9) is the order grids draw: the surface's triangle
+    indices, however sorted."""
+
+    def test_the_grid_order_is_the_surfaces_triangle_indices(self):
+        from tests.surface_fixtures import grid_ranks
+
+        sphere = Sphere(radius=1, resolution=(9, 7))
+        ranks, order = grid_ranks(sphere)
+        self.assertEqual(order, "cells")
+        np.testing.assert_array_equal(ranks, np.arange(2 * 8 * 6))
+        natural = sphere.get_triangle_indices().reshape(-1, 3).copy()
+        sphere.sort_faces_back_to_front(RIGHT)
+        ranks, order = grid_ranks(sphere)
+        self.assertEqual(order, "sorted")
+        drawn = sphere.get_triangle_indices().reshape(-1, 3)
+        np.testing.assert_array_equal(drawn[ranks], natural)
+        self.assertFalse(np.array_equal(ranks, np.arange(len(ranks))))
+        sphere.triangle_indices = sphere.triangle_indices[:-3]
+        with self.assertRaises(ValueError):
+            grid_ranks(sphere)
+
+
 @unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "GPU image comparison not requested")
 class NetEvaluationOnTheGpu(unittest.TestCase):
     """The driver's net stage against the CPU grid (docs/phase_b2_plan.md)."""
@@ -413,24 +437,102 @@ class NetEvaluationOnTheGpu(unittest.TestCase):
                 self.assertLessEqual(smooth, .005)
                 self.assertGreater(header["batches"][0]["net"]["capacity"], 4)
 
-    def test_every_surface_fixture_is_within_the_flip_gate(self):
-        """B5.4's nets gate (docs/phase_b4_plan.md, "The flips"): every
-        Surface fixture drawn from nets is within 0.5% of pixels over 24/255
-        of Phase A's grids, each drawing its surfaces as nets there and as
-        grids here."""
+    def test_every_surface_fixture_is_no_further_from_the_true_surface_as_nets(self):
+        """The nets gate since B5.9 (docs/phase_b4_plan.md, "The flips";
+        Taylor, 2026-09-29): every Surface fixture drawn from nets is no
+        further from the true surface than drawn from Phase A's grids, by
+        the pixels over 24/255 from a reference of the same frame (each
+        surface's uv_func within 1/32 of a pixel, 16 times the samples per
+        pixel, in each stack's order of a surface's triangles). Nets
+        against grids, B5.4's gate, is reported and not judged: a net is
+        drawn rounder than its grid, so it measured sameness to the old
+        look."""
         from maniml.web.wgpu_renderer import WgpuRenderer
-        from tests.surface_fixtures import PIXEL_LIMIT, SURFACE_FIXTURES, nets_against_grids
+        from tests.surface_fixtures import SURFACE_FIXTURES, against_reference
 
-        nets = WgpuRenderer()
+        nets, reference = WgpuRenderer(), WgpuRenderer()
         try:
             for name in SURFACE_FIXTURES:
                 with self.subTest(fixture=name):
-                    result = nets_against_grids(name, self.driver, nets)
+                    result = against_reference(SURFACE_FIXTURES[name](), self.driver, nets, reference)
                     self.assertGreater(result["grid_batches"], 0)
                     self.assertGreater(result["net_batches"], 0)
-                    self.assertLessEqual(result["fraction_pixels_rgb_over24"], PIXEL_LIMIT)
+                    self.assertTrue(result["reference"]["within_tolerance"], result["reference"])
+                    self.assertEqual(result["reference"]["net_defined"], 0, "each surface is its function's")
+                    self.assertLessEqual(result["nets"]["pixels_rgb_over24"], result["grids"]["pixels_rgb_over24"],
+                                         {key: result[key] for key in ("grids", "nets", "nets_vs_grids")})
         finally:
             nets.close()
+            reference.close()
+
+    def test_the_reference_is_the_true_surface_and_puts_the_scene_back(self):
+        """The reference's own proof (tests/surface_fixtures.py): drawn
+        supersampled through the clip transform's tiles, a frame is the
+        frame the driver draws, to its edges' antialiasing; with the
+        surfaces true it shows the facets a grid has at a zoom and it
+        converges (a quarter of the tolerance moves no pixel over 24/255);
+        the order of a surface's triangles moves the translucent fixture's
+        picture and not an opaque one's; and the scene is put back as it
+        was."""
+        from unittest.mock import patch
+        from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        from tests import surface_fixtures as fixtures
+
+        reference = WgpuRenderer()
+        try:
+            for name in ("orbs", "orbit_demo"):
+                scene = fixtures.SURFACE_FIXTURES[name]()
+                with patch.dict(os.environ, fixtures.PHASE_A):
+                    header, payload = parse_geometry_message(
+                        serialize_scene(scene, GeometryCache(), renderer="phase_a"))
+                plain = np.asarray(self.driver.render(header, payload), dtype=float)
+                tiled = fixtures.supersampled(reference, header, payload)
+                with self.subTest(fixture=name, check="tiles"):
+                    self.assertLess(fixtures.difference(tiled, plain)["fraction_pixels_rgb_over24"], 5e-5)
+                    self.assertLess(fixtures.difference(tiled, plain)["mean_rgb"], .1)
+            scene = fixtures.SURFACE_FIXTURES["orbs"]()
+            surfaces = fixtures.surfaces_of(scene)
+            before = [(surface._data, surface._data.tobytes(), surface.resolution, surface.revision)
+                      for surface in surfaces]
+            grids, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            coarse, records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            fine, fine_records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"],
+                                                           tolerance=fixtures.REFERENCE_TOLERANCE / 4)
+            self.assertGreater(sum(r["triangles"] for r in fine_records), 3 * sum(r["triangles"] for r in records))
+            self.assertEqual(fixtures.difference(fine["grid"], coarse["grid"])["pixels_rgb_over24"], 0)
+            self.assertEqual(fixtures.difference(coarse["grid"], coarse["net"])["pixels_rgb_over24"], 0,
+                             "opaque: the order moves nothing")
+            self.assertGreater(fixtures.difference(coarse["grid"], grids)["pixels_rgb_over24"], 1000,
+                               "the grids' facets")
+            for surface, (rows, data, shape, revision) in zip(surfaces, before):
+                self.assertIs(surface._data, rows)
+                self.assertEqual(surface._data.tobytes(), data)
+                self.assertEqual(surface.resolution, shape)
+                self.assertNotIn("get_shader_data", surface.__dict__)
+                self.assertGreater(surface.revision, revision)
+            again, _ = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            self.assertTrue(np.array_equal(again, grids))
+            scene = fixtures.SURFACE_FIXTURES["translucent"]()
+            _, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            orders, _ = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            self.assertGreater(fixtures.difference(orders["grid"], orders["net"])["pixels_rgb_over24"], 100,
+                               "where a translucent surface overlaps itself, the order decides what shows")
+            # Faces sorted back to front (always_sort_to_camera's updater):
+            # grids draw the triangle indices' new order and the grid-order
+            # reference follows it (0 pixels over 24/255 from grids here,
+            # 8,036 from a reference in the cells' order); a net draws its
+            # own order, and its reference does not move.
+            for surface in fixtures.surfaces_of(scene):
+                surface.sort_faces_back_to_front(scene.camera.get_location() - surface.get_center())
+            sorted_grids, header = fixtures.draw(scene, self.driver, "phase_a", fixtures.PHASE_A)
+            resorted, records = fixtures.reference_frames(scene, reference, header["camera"], header["resolution"])
+            self.assertEqual([record["grid_order"] for record in records], ["sorted", "sorted"])
+            self.assertGreater(fixtures.difference(orders["grid"], resorted["grid"])["pixels_rgb_over24"], 1000)
+            self.assertEqual(fixtures.difference(orders["net"], resorted["net"])["pixels_rgb_over24"], 0)
+            self.assertLess(fixtures.difference(resorted["grid"], sorted_grids)["pixels_rgb_over24"], 50)
+        finally:
+            reference.close()
 
     def test_one_dispatch_evaluates_what_changed_and_a_small_zoom_nothing(self):
         """B5.5: every changed net of a frame in one dispatch, gathered and

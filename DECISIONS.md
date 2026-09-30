@@ -5,6 +5,83 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Surfaces are nets by default (2026-09-29)
+
+B5.9 (`docs/phase_b4_plan.md`, "The flips";
+`benchmarks/results/b59_nets_default_20260929/`). After B5.7's numbers
+Taylor was asked "Make smooth 3D surfaces the default? ... The one pixel
+'failure' is because the test compares against the faceted version;
+against a true sphere, smooth is more accurate", and chose "Flip it
+(Recommended)": "Smooth surfaces become the Default (and in rendered
+movies). Phase A in the dropdown keeps the faceted grids. Also change the
+pixel test to measure against a supersampled true surface, so it measures
+accuracy, not sameness to the old look."
+
+So `geometry.DEFAULT_SURFACE` is `nets`: the Default renderer, native
+capture (`--render`, checkpoint stills) and `--export` draw a Surface as
+its net evaluated at screen density; Phase A forced and
+`MANIML_SURFACE=grids` draw the grid. The cost that decision accepted is
+B5.7's: on the scenes that are mostly surfaces a still or camera frame
+costs 1.06-1.15× grids (70 spheres) and 1.11-1.24× (480), a play
+0.61-0.73×; the gate's three course scenes are within 1.05 in every
+class. It was not retaken.
+
+**The accuracy rule.** The nets pixel gate measures each stack against a
+reference of the same frame drawn from the true surface: each Surface's
+`uv_func`, carried into the frame by the affine map its construction's
+samples fit (a surface that is no affine image of its function would be
+its own net, densely; none was), sampled patch by patch until its facets
+are within 1/32 of a pixel (their normals the function's, their colours
+and image coordinates the net's), drawn by Phase A's grid path with 16
+times the samples per pixel. Nets must be no further from it than grids,
+by the pixels over 24/255, on every scene of the timed set (its measured
+frames and three inside each play into them) and every Surface fixture;
+nets against grids is reported and no longer judged. A frame where grids
+and nets are nowhere more than 24/255 apart is a tie and counts for
+neither: their counts against the references differ there by noise at the
+threshold's edge. The gate also requires every reference within its
+tolerance and drawn from its surfaces' functions (one drawn from its own
+net is what nets converge to), and each scene's run over the frames the
+serialize command measures and frames inside its plays. The reference is
+drawn in each stack's order of a surface's triangles, since where a
+translucent surface overlaps itself the order decides what shows (grids
+the surface's own triangle indices, row by row unless sorted; nets patch
+by patch): measured against one order, the translucent fixture's 409
+pixels of order alone would count against nets. Nets pass everywhere, no
+frame of 125 further than grids: the lattice 0.67% of its pixels against
+grids' 1.38%, the orbs 0.10% against 0.39%, EpisodeB3 0.011% against
+0.026%, B4 0.0066% against 0.012%. The orbit demo is a tie: 6 of its 8
+frames are ties, and over the other two grids are 72 pixels from the true
+surface and nets 70 (its 0.29-0.31% against grids mid-fade is the order:
+at the frame measured here 6,031 pixels between grids and nets, 6,068
+between the two references). Of the 13 fixtures, 8 are ties, the two
+stacks within 1/255 everywhere; nets are the nearer on 4 (the 64× sphere
+111 pixels against 1,018, the orbs 1,006 against 2,834); the translucent
+one is exact in each order. The gate's timing part fails where B5.7
+measured it and was accepted; `flip_gates gate` now says which part
+failed.
+
+No golden was re-recorded: the pin holds the forced stacks, and it passes
+untouched in its three modes. No test pins the Default stack's surface
+pixels, and the tests that compare nets with grids state their stack, so
+none moved; the flip is pinned by its stacks, a native capture and a
+Default export replayed through the player and the browser driver. What
+is left visible that is not accuracy is order. A translucent surface that
+overlaps itself shows its order bands in other places than under grids.
+And a net ignores a sort: `sort_faces_back_to_front` (and
+`always_sort_to_camera`, whose updater calls it) reorders the grid's
+triangle indices in place, which grids draw and a net does not, so on the
+Default a translucent surface sorted back to front draws as it does
+unsorted (the translucent fixture sorted to its camera: grids move 7,886
+pixels, nets none, and the Default after the flip is 7,542 pixels from
+the Default before it, against 405 unsorted). Accepted rather than fixed
+here: a sorted surface falling back to its grid on the Default would
+change what the forced Phase B draws or make the two stacks' nets differ,
+and the retained frame's rule for a net with them (the pin records a
+sorted net as compared, not prepared); no course or dogfood scene sorts,
+and `MANIML_SURFACE=grids` or Phase A draws the sort.
+`test_a_default_net_is_drawn_in_its_own_order_whatever_the_sort` pins it.
+
 ## Nets drawn as grids are; the nets gate over a timed set; surfaces stay grids (2026-09-29)
 
 B5.7 (`docs/phase_b4_plan.md`, "The flips";

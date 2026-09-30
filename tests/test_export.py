@@ -240,6 +240,62 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 if mode == "export":
                     self.assertEqual(set(report["tags"]), {"objects", "border", "net", "rows"})
 
+    def test_a_default_export_records_nets_and_replays_through_the_indexer(self):
+        """B5.9 (docs/phase_b4_plan.md, "The flips"): surfaces are nets on
+        the Default, so an export made with no stack switch in the
+        environment records each sphere as a net or a run of nets, by
+        hash, cached and not, and the player's seek and the browser driver
+        draw every frame from what it carries (meshes, strokes and nets:
+        vs_main alone)."""
+        import gzip
+        import tempfile
+        from unittest.mock import patch
+        from maniml.web.geometry import parse_geometry_message
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ):
+            for name in [name for name in os.environ if name.startswith("MANIML_") and name != "MANIML_LYON_LIBRARY"]:
+                os.environ.pop(name)
+            scene_path = os.path.join(tmp, "phase_b_scene.py")
+            with open(scene_path, "w") as f:
+                f.write(PHASE_B_SCENE_SOURCE)
+            result = subprocess.run(
+                [sys.executable, "-m", "maniml", scene_path, "PhaseBDemo", "--export"],
+                cwd=tmp, env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            out = os.path.join(tmp, "media", "PhaseBDemo_web")
+            with open(os.path.join(out, "scene.json")) as f:
+                meta = json.load(f)
+            with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
+                blob = f.read()
+            defined, seen, offset = set(), set(), 0
+            for frame in meta["frames"]:
+                header, _ = parse_geometry_message(blob[offset:offset + frame["len"]])
+                offset += frame["len"]
+                self.assertEqual(header["renderer"], "triangles")
+                defined.update(header["net_data"])
+                for batch in header["batches"]:
+                    self.assertNotIn(batch["pipeline"], ("patch",), "the Default's fills are meshes")
+                    self.assertNotIn("program", batch, "and its programs off")
+                    if "net" not in batch:
+                        continue
+                    members = batch["net"] if isinstance(batch["net"], list) else [batch["net"]]
+                    for member in members:
+                        self.assertIn(member["hash"], defined)
+                    tag = "net run" if isinstance(batch["net"], list) else "net"
+                    seen.add(tag + (" cached" if batch.get("cached") else ""))
+            self.assertLessEqual({"net", "net cached", "net run", "net run cached"}, seen)
+            for harness, mode, *stages in (("player_commands.cjs", "export"),
+                                           ("generated_webgpu_commands.cjs", "recordingReplay", "vs_main")):
+                replay = subprocess.run(
+                    ["node", os.path.join(REPO_ROOT, "tests", harness), mode, out, *stages],
+                    input="", capture_output=True, text=True, timeout=60)
+                self.assertEqual(replay.returncode, 0, f"{mode}: {replay.stdout}{replay.stderr}")
+                report = json.loads(replay.stdout)
+                self.assertEqual(report["frames"], len(meta["frames"]))
+                if mode == "export":
+                    self.assertEqual(set(report["tags"]), {"net"})
+
     def test_a_row_sourced_export_records_rows_and_replays_through_the_indexer(self):
         """B5.1 (docs/phase_b4_plan.md): with MANIML_PATCH_SOURCE=rows (the
         default wherever patches are drawn since B5.6) the patch fills and
