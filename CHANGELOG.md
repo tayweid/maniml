@@ -286,14 +286,25 @@ interfaces may still change before the first public release.
 
 ### Delivery
 
-- **ManimLive.app** (macOS, `app/`): ManimLive without a terminal.
-  `app/build.sh` puts it in Applications; opening it starts the engine when
-  none is running and opens the landing page as an app window of the first
-  Chromium browser installed (a Safari tab without one), and the engine
-  stops itself three minutes after its last window closes, taking its
-  scene processes with it. New for it: `maniml app --exit-when-idle`.
-  `maniml app` started with a bare PATH (from Finder or launchd) now finds
-  latex, dvisvgm and ffmpeg in their usual places, as the agent did.
+- **ManimLive.app** (macOS, `app/`): ManimLive without a terminal, on the
+  Claerbout shell shared with Knuth and Plass (Electron). `npm run
+  app:build` puts it in Applications; its first launch installs a Python of
+  its own with uv and the engine's packages, pinned by
+  `app/engine-requirements.txt`; the engine runs as the app's child
+  (`maniml app --port N --parent PID`) and stops with it; a scene
+  double-clicked in Finder opens in its own window. The first version, a
+  launcher script that opened the page in the installed Chromium browser's
+  app window, is retired; its `maniml app --exit-when-idle` stays for an
+  engine a script starts. `maniml app` started with a bare PATH (from
+  Finder or launchd) now finds latex, dvisvgm and ffmpeg in their usual
+  places, as the agent did.
+- **The dependency list is what the app uses** (DECISIONS.md, "The
+  dependency trim"): scipy, matplotlib, screeninfo, rich and tqdm are gone
+  (rotations, the banded solve behind smooth handles and the assignment
+  behind Tex glyph labelling are maniml's own, held to scipy's numbers in
+  tests), and moderngl/PyOpenGL are the `gl` extra for the reference GL
+  camera. The app's first-launch install is 85 MB where it was 243. Named
+  colormaps (`get_color_map("viridis")`) now need matplotlib installed.
 - New `--export-present`: renders the scene and writes
   `media/<Scene>_present/`, a self-contained folder — a page that steps
   through the episode by pausepoint, both directions, plus the mp4 —

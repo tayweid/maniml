@@ -5,7 +5,6 @@ from colour import hex2rgb
 from colour import rgb2hex
 import numpy as np
 import random
-from matplotlib import pyplot
 
 from maniml.constants import COLORMAP_3B1B
 from maniml.constants import WHITE
@@ -158,6 +157,15 @@ def get_colormap_from_colors(colors: Iterable[ManimColor]) -> Callable[[Sequence
 def get_color_map(map_name: str) -> Callable[[Sequence[float]], Vect4Array]:
     if map_name == "3b1b_colormap":
         return get_colormap_from_colors(COLORMAP_3B1B)
+    # matplotlib is not a dependency (2026-09-30): a named colormap needs
+    # it installed, and says so; the 3b1b colormap needs nothing.
+    try:
+        from matplotlib import pyplot
+    except ImportError as exc:
+        raise ImportError(
+            f"the colormap {map_name!r} comes from matplotlib, which is not "
+            "installed; pip install matplotlib to use named colormaps"
+        ) from exc
     return pyplot.get_cmap(map_name)
 
 
@@ -178,11 +186,16 @@ def get_colormap_list(
     twilight_shifted
     turbo
     """
-    from matplotlib.cm import cmaps_listed
-
     if map_name == "3b1b_colormap":
         rgbs = np.array([color_to_rgb(color) for color in COLORMAP_3B1B])
     else:
+        try:
+            from matplotlib.cm import cmaps_listed
+        except ImportError as exc:
+            raise ImportError(
+                f"the colormap {map_name!r} comes from matplotlib, which is "
+                "not installed; pip install matplotlib to use named colormaps"
+            ) from exc
         rgbs = cmaps_listed[map_name].colors  # Make more general?
     return resize_with_interpolation(np.array(rgbs), n_colors)
 

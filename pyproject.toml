@@ -35,36 +35,39 @@ dependencies = [
     "numpy>=1.19.0",
     "pillow>=8.0.0",
     "pydub>=0.25.1",
-    "scipy>=1.5.0",
     "colour>=0.1.5",
     "pygments>=2.6.0",
     "PyYAML>=5.3.0",
     "addict>=2.4.0",
     "validators>=0.18.0",
-    "screeninfo>=0.6.0",
     "appdirs>=1.4.0",
-    "matplotlib>=3.0.0",
     "mapbox-earcut>=1.0.0",
     "svgelements>=1.0.0",
     "isosurfaces>=0.1.0",
     "manimpango>=0.4.0",
-    "tqdm>=4.0.0",
     # maniml uses the new websockets.asyncio implementation added in 13.0.
     "websockets>=13.0",
-    "rich>=13.0.0",
     "fonttools>=4.0.0",
     "wgpu>=0.32",
-    # Explicit native GL comparison camera; Phase A remains the default.
-    "moderngl>=5.6.0",
-    "PyOpenGL>=3.1.0",
 ]
 
 [project.optional-dependencies]
 # Retain the old install extra as an alias; native WebGPU is now required.
 webgpu = []
+# The reference GL camera (camera_class = NativeGLCamera) and the frozen GL
+# comparison references under tests/. Not the app's: its window is WebGPU.
+gl = [
+    "moderngl>=5.6.0",
+    "PyOpenGL>=3.1.0",
+]
 
 [dependency-groups]
 dev = [
+    # scipy and matplotlib left the dependencies on 2026-09-30 (the trim);
+    # the tests still hold maniml's replacements to scipy's numbers, and
+    # test_fill_paint's reference interpolates with it.
+    "scipy>=1.5.0",
+    "matplotlib>=3.0.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "black>=24.0.0",

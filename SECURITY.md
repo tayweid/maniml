@@ -33,7 +33,11 @@ not constrain a malicious scene or turn the process group into a sandbox.
 
 `maniml app DIR` treats `DIR` as the authorized scene root. It rejects files
 outside that root by default, including symlinks that resolve outside it. The
-`--allow-outside-root` option is an explicit compatibility escape hatch.
+`--allow-outside-root` option is an explicit compatibility escape hatch. The
+Claerbout shell's engine runs with it: every path that reaches the page there
+is one the user named (Finder, the app's Open panel, the command line), the
+page has no other way to name one, and the Origin check above is what keeps
+other pages out.
 
 Scene files may refer to images, vectors, and sounds by HTTP(S) URL. Those
 downloads have a 15-second socket timeout, a 60-second transfer deadline, and a
@@ -49,7 +53,9 @@ loaded in a browser can still attempt connections to localhost. **The Origin
 check is what stops them.** Every ManimLive server — the app's control channel
 and each scene viewer — serves its page and accepts its WebSocket on one
 loopback port, and completes a handshake only when the request carries that
-server's exact origin. Browsers set `Origin` themselves and a page cannot forge
+server's exact origin (`http://localhost:<port>` or `http://127.0.0.1:<port>`,
+the same loopback under both names; the Claerbout shell loads the second).
+Browsers set `Origin` themselves and a page cannot forge
 it, so no website can drive the engine regardless of the port it guesses. A
 request with no `Origin` at all is refused for the same reason: it is not the
 page this server handed out.

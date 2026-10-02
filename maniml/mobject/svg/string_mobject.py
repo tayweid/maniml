@@ -3,8 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import itertools as it
 import re
-from scipy.optimize import linear_sum_assignment
-from scipy.spatial.distance import cdist
+from maniml.utils.assignment import linear_sum_assignment
 
 from maniml.constants import DEFAULT_MOBJECT_COLOR
 from maniml.logger import log
@@ -171,9 +170,10 @@ class StringMobject(SVGMobject, ABC):
 
         labelled_svg = VGroup(*labelled_submobs)
         labelled_svg.replace(VGroup(*unlabelled_submobs))
-        distance_matrix = cdist(
-            [submob.get_center() for submob in unlabelled_submobs],
-            [submob.get_center() for submob in labelled_submobs]
+        unlabelled = np.array([submob.get_center() for submob in unlabelled_submobs])
+        labelled = np.array([submob.get_center() for submob in labelled_submobs])
+        distance_matrix = np.linalg.norm(
+            unlabelled[:, None, :] - labelled[None, :, :], axis=2
         )
         _, indices = linear_sum_assignment(distance_matrix)
         labelled_submobs[:] = [labelled_submobs[index] for index in indices]

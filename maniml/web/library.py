@@ -13,9 +13,24 @@ import ast
 import json
 import os
 
-RECENTS_PATH = os.environ.get(
-    "MANIML_RECENTS_PATH", os.path.expanduser("~/.maniml_recents.json")
-)
+
+
+def recents_path() -> str:
+    """Where the recents list lives: named outright by MANIML_RECENTS_PATH,
+    else inside MANIML_CONFIG_DIR (the folder the Claerbout shell gives its
+    engine for everything it keeps; removing that folder returns the app to
+    its first launch), else the home-folder file a terminal's `maniml app`
+    has always used."""
+    named = os.environ.get("MANIML_RECENTS_PATH")
+    if named:
+        return named
+    config_dir = os.environ.get("MANIML_CONFIG_DIR")
+    if config_dir:
+        return os.path.join(config_dir, "recents.json")
+    return os.path.expanduser("~/.maniml_recents.json")
+
+
+RECENTS_PATH = recents_path()
 RECENTS_MAX = 12
 
 

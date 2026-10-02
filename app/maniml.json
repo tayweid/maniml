@@ -1,0 +1,56 @@
+{
+  "name": "ManimLive",
+  "id": "io.tayweid.manimlive",
+  "envPrefix": "MANIML",
+  "package": "maniml",
+  "devPython": "..",
+  "site": "https://maniml.tayweid.io",
+  "elsewhere": "Elsewhere, see https://github.com/tayweid/maniml#readme.",
+  "port": 8690,
+  "pythons": [
+    "uv"
+  ],
+  "scheme": "manimlive",
+  "setupPage": "static/setup.html",
+  "defaultDocument": "scene.py",
+  "engine": {
+    "args": [
+      "-m",
+      "maniml",
+      "app",
+      "--allow-outside-root"
+    ],
+    "marker": "web/app.py",
+    "probe": "manimlive",
+    "python": "3.13",
+    "startTimeout": 60000,
+    "requirementsFile": "engine-requirements.txt"
+  },
+  "window": {
+    "width": 1280,
+    "height": 820,
+    "minWidth": 640,
+    "minHeight": 400
+  },
+  "icon": "../maniml/web/static/icons/maniml-512.png",
+  "copyright": "© 2026 Taylor J Weidman. MIT License.",
+  "smoke": {
+    "document": "smoke.py",
+    "text": "from manim import *\n\nclass Smoke(Scene):\n    def construct(self):\n        self.add(Square())\n",
+    "ready": "#file-name",
+    "readyText": "smoke.py"
+  },
+  "documentTypes": [
+    {
+      "name": "Manim scene",
+      "role": "Viewer",
+      "rank": "Alternate",
+      "contentTypes": [
+        "public.python-script"
+      ],
+      "extensions": [
+        "py"
+      ]
+    }
+  ]
+}

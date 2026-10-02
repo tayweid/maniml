@@ -220,7 +220,7 @@ class AppServer:
         self.url = f"{self.origin}/"
         # The whole boundary: the control socket is accepted only from the
         # origin this server serves its own page on.
-        self.allowed_origins = {self.origin}
+        self.allowed_origins = {self.origin, f"http://127.0.0.1:{self.port}"}
         self._start_server()
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
@@ -456,6 +456,7 @@ class AppServer:
         import asyncio
 
         import websockets.asyncio.server as ws_server
+        from websockets.exceptions import ConnectionClosed
 
         def process_request(connection, request):
             if is_websocket_upgrade(request):
@@ -525,6 +526,11 @@ class AppServer:
             self._connections += 1
             try:
                 await serve_connection(ws)
+            except ConnectionClosed:
+                # The page went away without a close frame: a window the
+                # shell closed, a tab the browser killed. Not a failure, and
+                # not worth a traceback in the log for every closed window.
+                pass
             finally:
                 self._connections -= 1
                 if self._connections == 0:

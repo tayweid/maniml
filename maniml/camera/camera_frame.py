@@ -4,7 +4,7 @@ import math
 import warnings
 
 import numpy as np
-from scipy.spatial.transform import Rotation
+from maniml.utils.rotation import Rotation
 
 from maniml.constants import DEG, RADIANS
 from maniml import constants as _constants

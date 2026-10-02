@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>maniml</title>
-<link rel="icon" href="icons/maniml-192.png">
+<link rel="icon" type="image/svg+xml" href="icons/maniml.svg">
+<link rel="icon" type="image/png" href="icons/maniml-192.png">
 <meta name="theme-color" content="#2b2a2d">
 <link rel="stylesheet" href="shell.css">
 <style>
@@ -977,7 +978,7 @@ function applyEnv(state) {
   presentBtn.classList.toggle("stale", !!state.present_bundle && !state.present_fresh);
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
-    document.title = state.scene + " — maniml";
+    document.title = state.file ? state.file : state.scene + " — maniml";
     renderSceneMenu(state.scene);
   }
   if (state.file) document.getElementById("file-name").textContent = state.file;

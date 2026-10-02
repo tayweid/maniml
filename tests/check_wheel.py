@@ -119,15 +119,23 @@ def check_wheel(path: Path) -> None:
         raise SystemExit(
             f"unexpected Python requirement: {metadata['Requires-Python']}"
         )
-    if metadata.get_all("Provides-Extra") != ["webgpu"]:
+    if metadata.get_all("Provides-Extra") != ["gl", "webgpu"]:
         raise SystemExit(
             f"unexpected public extras: {metadata.get_all('Provides-Extra')}"
         )
 
     dependencies = [value.lower() for value in metadata.get_all("Requires-Dist", [])]
-    for required in ("audioop-lts", "pydub", "websockets", "wgpu", "moderngl", "pyopengl"):
+    for required in ("audioop-lts", "pydub", "websockets", "wgpu"):
         if not any(value.startswith(required) for value in dependencies):
             raise SystemExit(f"wheel is missing dependency metadata for {required}")
+    # The trim (2026-09-30): nothing the app's window never uses, and
+    # nothing that pulls in a package the size of the rest.
+    for gone in ("scipy", "matplotlib", "screeninfo", "rich", "tqdm"):
+        if any(value.startswith(gone) for value in dependencies):
+            raise SystemExit(f"wheel still depends on {gone}")
+    for extra in ("moderngl", "pyopengl"):
+        if not any(value.startswith(extra) and 'extra == "gl"' in value for value in dependencies):
+            raise SystemExit(f"wheel is missing {extra} under the gl extra")
     if any(value.startswith("diskcache") for value in dependencies):
         raise SystemExit("wheel still depends on unsafe pickle cache diskcache")
 

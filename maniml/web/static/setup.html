@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <link rel="stylesheet" href="./setup.css" />
+    <title>ManimLive</title>
+  </head>
+  <body>
+    <!-- The first launch of ManimLive.app in the Claerbout shell. ManimLive
+         offers one Python, uv's, so there is nothing to choose: the shell
+         opens this page with ?choose=uv and it is the progress screen while
+         uv installs a Python and the engine's packages. The engine serves
+         every other page; this one is loaded from the bundle. -->
+    <main>
+      <img src="./icons/maniml-192.png" alt="" width="56" height="56" />
+      <h1>Setting up Python</h1>
+      <p class="lead">ManimLive runs its engine on a Python that <b>uv</b>
+        installs for it. Nothing already on this computer is used or changed,
+        and the engine's packages are installed once, into ManimLive's own
+        folder.</p>
+
+      <div class="options">
+        <button type="button" class="primary" data-python="uv">
+          <span class="name">Install Python with uv</span>
+          <span class="what">ManimLive downloads uv if there is none, uv installs a
+            Python that belongs to ManimLive, and the engine's packages
+            follow.</span>
+          <span class="cost">About 150 MB, once</span>
+        </button>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+      <p class="foot">Scenes needing LaTeX or ffmpeg use the ones installed on this computer.</p>
+    </main>
+    <script src="./setup.js"></script>
+  </body>
+</html>

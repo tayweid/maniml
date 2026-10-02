@@ -34,6 +34,15 @@ class LocalOnlyTests(unittest.TestCase):
             ):
                 self.assertNotIn(forbidden, page, f"{name}: {forbidden}")
 
+    def test_the_landing_page_opens_the_document_it_was_given(self):
+        """A Finder double-click (through the Claerbout shell) or an Open
+        panel arrives as ?open=<path>; the page opens it once the engine is
+        there, and the engine, not the page, decides whether the path may
+        open."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn('.get("open")', page)
+        self.assertIn("openRequested()", page)
+
     def test_the_landing_page_is_not_a_file_browser(self):
         """It offers one action and the files you have opened before. Listing
         every scene class under the launch directory was noise in front of the

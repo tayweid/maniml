@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**maniml** is a ManimCE-compatible API using a shared triangle/WebGPU backend, with an interactive checkpoint system for rapid iteration. Installed editable (`pip install -e .`) as the `maniml` command.
+**maniml** is a ManimCE-compatible API using a shared triangle/WebGPU backend, with an interactive checkpoint system for rapid iteration. Installed editable (`uv sync`) as the `maniml` command; the product is the app (below), which runs `python -m maniml app` and never needs the command on a PATH.
 
 The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE install. Unmodified CE scene files still work: the CLI installs a process-local import alias (`_CEAliasFinder` in `maniml/__main__.py`) mapping `manim`/`manim.*` to maniml, so `from manim import *` resolves correctly under the `maniml` command while leaving any installed ManimCE untouched elsewhere.
 
@@ -20,7 +20,9 @@ Three names for one project, and they do not move together: **ManimLive** is the
 cd /tmp && python -c "import maniml; print(maniml.__file__)"   # must be this repo
 ```
 
-Run it from **outside** the repo. A checkout directory named `maniml` — any capitalisation, since macOS filesystems are case-insensitive — is importable as the package from its parent directory, so the same command run from `~/Projects` can report the working tree while the installed copy is what actually runs everywhere else. Restore with `pip install -e . --no-deps` (`--no-deps` so a reinstall cannot quietly upgrade numpy out from under the rest of the environment).
+Run it from **outside** the repo. A checkout directory named `maniml` — any capitalisation, since macOS filesystems are case-insensitive — is importable as the package from its parent directory, so the same command run from `~/Projects` can report the working tree while the installed copy is what actually runs everywhere else. Restore with `uv sync --extra gl` (or `uv pip install -e . --no-deps` into the environment; `--no-deps` so a reinstall cannot quietly upgrade numpy out from under the rest of the environment).
+
+**uv, not pip** (Taylor, 2026-09-30): the checkout is a uv project (`uv sync --extra gl` builds the helper and installs the dev group; `uv run python -m maniml ...` runs a scene; `uv lock` after touching the dependencies, and `tests/test_shell_config.py` holds `app/maniml.json` to them), and the app installs its engine's dependencies with uv into a folder of its own. The dependency list is deliberately short (DECISIONS.md, "The dependency trim"): scipy, matplotlib, rich, tqdm and screeninfo are gone, and moderngl/PyOpenGL are the `gl` extra for the reference GL camera, which CI installs for the frozen GL references under tests/. Do not add a dependency for a convenience; the app installs the list on every machine it runs on.
 
 Useful sibling checkouts (reference only, not tracked here — clone as needed):
 
@@ -91,11 +93,24 @@ maniml app [dir]
 # second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
-# The Mac app, no terminal (app/): installs ManimLive.app into Applications,
-# a script that starts `maniml app ~ --exit-when-idle` when nothing answers on
-# 8685 and opens the page as a Chromium app window (Safari without one). The
-# engine stops 3 minutes after its last window closes.
-app/build.sh
+# The Mac app, no terminal: ManimLive.app in the Claerbout shell (Electron,
+# one shell for Knuth, Plass and ManimLive; docs/claerbout_experiment.md).
+# app/maniml.json is the config, the shell builds ManimLive.app from it with the maniml package
+# (and the prebuilt Lyon helper) in Resources/python, and on first launch
+# installs uv's Python and the dependency list into its own folder. The
+# shell starts the engine as `maniml app --allow-outside-root --port N
+# --parent PID` (its port, its pid: the engine stops when the shell is gone)
+# and hands a Finder-opened scene to the landing page as ?open=<path>.
+# package.json pins the shell (a claerbout release tarball; every app moves
+# to a new Electron together) and names the scripts:
+npm install            # once: the shell and Electron, under node_modules/
+npm run app            # the shell on this checkout, in a window
+npm run app:build      # ManimLive.app into Applications
+npm run app:smoke      # launch on a scene in a throwaway config folder, check it
+# The engine's packages are app/engine-requirements.txt, an exact export of
+# uv.lock the shell installs (claerbout 0.1.7), so every install resolves
+# alike; after `uv lock`, regenerate it (test_shell_config holds it current):
+uv export --no-dev --no-emit-project --no-hashes -o app/engine-requirements.txt
 
 # Full suite (~200s; nothing needs a display: test_web_viewer is a
 # headless end-to-end drive of the viewer over a real WebSocket, and the
@@ -757,24 +772,37 @@ What remains, and why:
 
 ### ManimLive.app: the app without a terminal
 
-`app/` builds `ManimLive.app` (`app/build.sh`, into Applications) in the shape
-of Edit <course>.app rather than Knuth's Swift shell: a bash script as the
-bundle's executable (`app/ManimLive`), `LSUIElement` so it keeps no Dock icon
-of its own. It starts `maniml app ~ --no-browser --exit-when-idle` when nothing
-answers on 8685 (reading where it landed from `~/Library/Logs/ManimLive.log`
-if 8685 is taken), and opens the page as an app window (`--app=`) of the first
-installed Chromium browser (Brave, Chrome, Edge, Chromium, Vivaldi), else a
-Safari tab: V8 and the WebGPU the viewer is developed on, borrowed from the
-browser rather than bundled (`docs/app_plan.md` records WebKit measured
-against Chrome, and why). `--exit-when-idle` (`AppServer(idle_exit=)`,
-`cli.IDLE_EXIT_SECONDS`, 180) stops the server once no page has held a socket
-to it for that long; every open page holds one, the landing page its control
-socket and a viewer its relay, and shutdown takes the scene processes down.
-The app runs whatever maniml its recorded Python imports
-(`Contents/Resources/python`: the interpreter behind the `maniml` command at
-build time), so an editable install's edits reach it with no rebuild. The
-agent and the PWA below predate it; while the agent holds 8685, the app uses
-it rather than starting an engine of its own.
+The first ManimLive.app (2026-09-29, `docs/app_plan.md`) was a launcher
+script in the shape of Edit <course>.app: it started `maniml app ~
+--exit-when-idle` when nothing answered on 8685 and opened the page as an app
+window of the installed Chromium browser (WebKit measured against Chrome, and
+why, are in that plan). Retired 2026-10-01 for the Claerbout shell below,
+once the Electron build was the one in Applications. `--exit-when-idle`
+(`AppServer(idle_exit=)`, `cli.IDLE_EXIT_SECONDS`, 180) stays for an engine a
+script starts: the server stops once no page has held a socket to it for that
+long (every open page holds one, the landing page its control socket and a
+viewer its relay), and shutdown takes the scene processes down. The shell's
+engine is the shell's child instead (`--parent`) and needs no idle rule.
+
+**The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is
+ManimLive.app: an Electron window around the page, built from
+`app/maniml.json` by the shell `package.json` pins (`npm run app:build`). The engine is `maniml app --allow-outside-root --port N
+--parent PID`: the shell's own port (8690 preferred, apart from a terminal's
+8685) and its pid, which `cli.watch_parent` polls so a force-quit leaves no
+engine; `MANIML_CONFIG_DIR` (the shell's state folder) is where the recents
+list lives (`library.recents_path`). The engine's Origin allowlist accepts
+both loopback spellings because the shell loads `http://127.0.0.1:N/`. A
+document the shell opens (Finder, its Open panel, the command line) arrives
+as `?open=<path>` and `app.html` opens it once the engine is there; the root
+is widened because every path the shell hands over is the user's own action
+and the page has no other way to name one. `web/static/setup.html` is the
+first launch's progress screen, the one page the bundle serves itself.
+`tests/test_shell_config.py` holds `app/engine-requirements.txt`, the export
+of `uv.lock` the shell installs, current (the bundle carries maniml; uv
+installs the rest, all wheels, at the locked versions). Since claerbout
+0.1.6 the venv lives at `~/.local/share/uv/claerbout/maniml`, beside uv's
+own Pythons, and Application Support holds only the app's state; since
+0.1.7 the shell re-installs it when the export changes.
 
 ### The installed app is the local one
 

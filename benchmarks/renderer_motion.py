@@ -14,7 +14,7 @@ from time import perf_counter
 from typing import Callable
 
 import numpy as np
-from scipy.spatial.transform import Rotation
+from maniml.utils.rotation import Rotation
 from benchmarks.renderer_timing import COMPLETION_SCOPE, completion_distribution
 
 from maniml.animation.creation import Write
