@@ -23,8 +23,8 @@ App:
   --allow-outside-root
                    Allow the app to open explicitly entered scene paths
                    outside [dir] (off by default)
-  --exit-when-idle Stop 3 minutes after the last window closes (how
-                   ManimLive.app starts the engine; see app/)
+  --exit-when-idle Stop 3 minutes after the last window closes (for an
+                   engine a script starts; ManimLive.app's is its child)
   --port N         Serve on port N rather than 8685 (0: any free port)
   --parent PID     Stop when process PID is gone: the Claerbout shell
                    starts the engine with its own pid here, so a

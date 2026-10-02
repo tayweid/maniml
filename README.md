@@ -91,36 +91,28 @@ be out of step with the engine that answers it.
 
 ### ManimLive.app (macOS)
 
-The app is how to use ManimLive without a terminal. From a checkout, with
-maniml installed:
-
-```bash
-app/build.sh
-```
-
-puts `ManimLive.app` in Applications. Opening it starts the engine in the
-background if none is running and opens the landing page in a window of its
-own: an app window of the first Chromium browser installed (Brave, Chrome,
-Edge, Chromium or Vivaldi), which is the V8 and WebGPU the viewer is built on,
-or a Safari tab without one. Opening it again while the engine runs just opens
-another window, and the engine stops itself three minutes after its last
-window closes, taking its scenes with it. The app runs the maniml you have
-installed (the Python behind your `maniml` command, recorded when you build
-it), so updating maniml needs nothing more; rebuild only after changing
-`app/`. The engine's output goes to `~/Library/Logs/ManimLive.log`.
-
-With the app, the background engine below is optional. While it holds
-`http://localhost:8685`, the app uses it instead of starting its own.
-
-The same app as an Electron window, with a Python of its own installed by
-uv on first launch (nothing on the machine used), is built from
-`app/maniml.json` by the Claerbout shell, which `package.json` pins:
+The app is how to use ManimLive without a terminal: the landing page and the
+viewer in a window of their own, on the Claerbout shell (Electron; one shell
+for Knuth, Plass and ManimLive, built from `app/maniml.json`). On its first
+launch the app installs a Python of its own with uv and the engine's packages
+at the versions `app/engine-requirements.txt` pins; nothing already on the
+machine is used or changed. The engine runs as the app's child, on a port of
+its own, and stops with the app; its output goes to
+`~/Library/Logs/ManimLive.log`. A scene double-clicked in Finder, or chosen
+with Open…, opens in its own window. Scenes needing LaTeX or ffmpeg use the
+ones installed on the computer. From a checkout:
 
 ```bash
 npm install && npm run app:build
 ```
 
-See `docs/claerbout_experiment.md`.
+puts `ManimLive.app` in Applications; `npm run app` runs the shell on the
+checkout instead, and `npm run app:smoke` launches it on a scene in a
+throwaway folder and checks it. How the port was made is in
+`docs/claerbout_experiment.md`.
+
+The background engine below is a terminal's: the app has an engine of its own
+and never uses it.
 
 ### Background engine (macOS)
 

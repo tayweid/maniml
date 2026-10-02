@@ -93,15 +93,9 @@ maniml app [dir]
 # second one, and restarts an agent still serving pre-upgrade code.
 maniml agent install [dir]
 
-# The Mac app, no terminal (app/): installs ManimLive.app into Applications,
-# a script that starts `maniml app ~ --exit-when-idle` when nothing answers on
-# 8685 and opens the page as a Chromium app window (Safari without one). The
-# engine stops 3 minutes after its last window closes.
-app/build.sh
-
-# The same app in the Claerbout shell (Electron, one shell for Knuth, Plass
-# and ManimLive; docs/claerbout_experiment.md): app/maniml.json is the
-# config, the shell builds ManimLive.app from it with the maniml package
+# The Mac app, no terminal: ManimLive.app in the Claerbout shell (Electron,
+# one shell for Knuth, Plass and ManimLive; docs/claerbout_experiment.md).
+# app/maniml.json is the config, the shell builds ManimLive.app from it with the maniml package
 # (and the prebuilt Lyon helper) in Resources/python, and on first launch
 # installs uv's Python and the dependency list into its own folder. The
 # shell starts the engine as `maniml app --allow-outside-root --port N
@@ -778,28 +772,21 @@ What remains, and why:
 
 ### ManimLive.app: the app without a terminal
 
-`app/` builds `ManimLive.app` (`app/build.sh`, into Applications) in the shape
-of Edit <course>.app rather than Knuth's Swift shell: a bash script as the
-bundle's executable (`app/ManimLive`), `LSUIElement` so it keeps no Dock icon
-of its own. It starts `maniml app ~ --no-browser --exit-when-idle` when nothing
-answers on 8685 (reading where it landed from `~/Library/Logs/ManimLive.log`
-if 8685 is taken), and opens the page as an app window (`--app=`) of the first
-installed Chromium browser (Brave, Chrome, Edge, Chromium, Vivaldi), else a
-Safari tab: V8 and the WebGPU the viewer is developed on, borrowed from the
-browser rather than bundled (`docs/app_plan.md` records WebKit measured
-against Chrome, and why). `--exit-when-idle` (`AppServer(idle_exit=)`,
-`cli.IDLE_EXIT_SECONDS`, 180) stops the server once no page has held a socket
-to it for that long; every open page holds one, the landing page its control
-socket and a viewer its relay, and shutdown takes the scene processes down.
-The app runs whatever maniml its recorded Python imports
-(`Contents/Resources/python`: the interpreter behind the `maniml` command at
-build time), so an editable install's edits reach it with no rebuild. The
-agent and the PWA below predate it; while the agent holds 8685, the app uses
-it rather than starting an engine of its own.
+The first ManimLive.app (2026-09-29, `docs/app_plan.md`) was a launcher
+script in the shape of Edit <course>.app: it started `maniml app ~
+--exit-when-idle` when nothing answered on 8685 and opened the page as an app
+window of the installed Chromium browser (WebKit measured against Chrome, and
+why, are in that plan). Retired 2026-10-01 for the Claerbout shell below,
+once the Electron build was the one in Applications. `--exit-when-idle`
+(`AppServer(idle_exit=)`, `cli.IDLE_EXIT_SECONDS`, 180) stays for an engine a
+script starts: the server stops once no page has held a socket to it for that
+long (every open page holds one, the landing page its control socket and a
+viewer its relay), and shutdown takes the scene processes down. The shell's
+engine is the shell's child instead (`--parent`) and needs no idle rule.
 
-**The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is the
-same app as an Electron window, built from `app/maniml.json` by the shell in
-`../claerbout`. The engine is `maniml app --allow-outside-root --port N
+**The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is
+ManimLive.app: an Electron window around the page, built from
+`app/maniml.json` by the shell `package.json` pins (`npm run app:build`). The engine is `maniml app --allow-outside-root --port N
 --parent PID`: the shell's own port (8690 preferred, apart from a terminal's
 8685) and its pid, which `cli.watch_parent` polls so a force-quit leaves no
 engine; `MANIML_CONFIG_DIR` (the shell's state folder) is where the recents

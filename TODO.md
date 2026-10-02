@@ -434,11 +434,12 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
 
 ## Design questions, not scheduled
 
-- **ManimLive.app** (`docs/app_plan.md`): built (step 1): a launcher script,
-  the shape of Edit <course>.app, that starts the engine and opens the page
-  as the installed Chromium browser's app window; the engine stops three
-  minutes after its last window. Next: retire the agent and the PWA, a
-  one-line install for others (deploy-built wheel + uv), Windows with Edge.
+- **ManimLive.app** (`docs/app_plan.md`, `docs/claerbout_experiment.md`):
+  on the Claerbout shell since 2026-10-01 (`app/maniml.json`; the launcher
+  script of 2026-09-29 is retired). Next: the deploy that builds the wheel
+  with the Lyon helper on a GitHub Mac and publishes the app zips with the
+  install line beside the site, as Knuth's and Plass's deploys do; Windows,
+  with Knuth's; retire the agent and the PWA.
 - **Cell-marked scene files.** Stepping runs a whole unit (a `for` loop
   of plays is one press) and a scene opens on an empty frame because
   its `self.add(...)` preamble shares the first play's unit. Both

@@ -7,9 +7,13 @@ the terminal and the app and it's a little clunky feeling"; and, choosing:
 it needs both the pwa and the terminal maintained separately is annoying and
 feels janky. and then for it to be easily updatable and on a path for
 consistency with knuth and plass so i don't need to understand many systems."
-Status: step 1 built and merged (2026-09-29); steps 2-4 not started. The
-suite's direction, decided the same day, is the last section: Electron for
-all three Claerbout apps, one Chromium shared on disk. Knuth went first and
+Status: step 1 built and merged (2026-09-29), then retired 2026-10-01 when
+ManimLive moved onto the Claerbout shell (`docs/claerbout_experiment.md`,
+`app/maniml.json`), which is the Electron direction below carried out. Of
+the Next list, the one-line install and Windows remain, now the shell's work
+shared with Knuth and Plass. The suite's direction, decided the same day, is
+the last section: Electron for all three Claerbout apps, one Chromium shared
+on disk. Knuth went first and
 shipped on it 2026-09-29/30; what that taught is at the end of the last
 section.
 
@@ -53,6 +57,10 @@ life in stages through 2028), not the switch; if the switch ever went, the
 launcher opens a tab instead, a one-line change.
 
 ## Next
+
+(Written for the launcher. 2026-10-01: item 1 is moot, the shell's app has
+an engine and a port of its own; items 2 and 3 are the shell's deploy and
+Windows work, shared with Knuth; item 4 stands.)
 
 1. **Retire the agent and the PWA** once the app is the daily driver (Knuth's
    step 5 did the same): `maniml agent uninstall`, uninstall the PWA in Chrome,
