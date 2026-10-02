@@ -22,6 +22,7 @@ class WindowKeys:
     TAB = 0xFF09
     ENTER = 0xFF0D
     ESCAPE = 0xFF1B
+    HOME = 0xFF50
     LEFT = 0xFF51
     UP = 0xFF52
     RIGHT = 0xFF53

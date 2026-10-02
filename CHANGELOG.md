@@ -249,6 +249,12 @@ interfaces may still change before the first public release.
   connection, the file re-imported and `setup()` run again. The button
   turns until the restarted scene answers, and a recording playing on
   the stage is left first so the result is what you see.
+- **Start**, first on the bottom bar before Back, and the **Home** key:
+  a jump to the start with the timeline kept — the Start chip's own
+  jump, as a control and a key — so Next then replays what was built.
+  Disabled at the start like Back; in a recorded presentation it seeks
+  the recording to its first pausepoint. The student bundle's page has
+  the same control.
 - The **Scene renderer** selector gains **Phase B**: the Phase A driver fed
   the whole Phase B stack — patch fills, net surfaces and GPU programs —
   regardless of the `MANIML_FILL` / `MANIML_SURFACE` / `MANIML_PROGRAMS`

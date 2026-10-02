@@ -189,6 +189,9 @@
 
 <div id="navbar" class="pod-run" aria-label="Presentation controls">
   <div class="pod transport-pod">
+    <button id="start" class="icon-button" aria-label="Jump to the start" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
+    </button>
     <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
     </button>
@@ -257,6 +260,8 @@
     onRest: (index) => presenter.moveEnded(synthState(index)),
   });
 
+  document.getElementById("start").onclick =
+    () => ManimlPresentation.seekCheckpoint(0);
   document.getElementById("previous").onclick =
     () => ManimlPresentation.playToPreviousStop();
   document.getElementById("next").onclick =

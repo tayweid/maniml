@@ -526,6 +526,12 @@
      and the rail it moves along is one more pod in the same run. -->
 <div id="navbar" class="pod-run" aria-label="Presentation controls">
   <div class="pod transport-pod">
+    <!-- Start: the Start chip's jump as a control — checkpoint 0 with the
+         built rail kept, so Next then replays the history. Home does the
+         same; disabled at the start like Back. -->
+    <button id="start" class="icon-button" aria-label="Jump to the start" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
+    </button>
     <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
     </button>
@@ -1018,6 +1024,7 @@ function pulseKey(key) {
   if (stageSource === "playback") {
     if (key === "ArrowRight") ManimlPresentation.playToNextStop();
     else if (key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
+    else if (key === "Home") ManimlPresentation.seekCheckpoint(0);
     canvas.focus();
     return;
   }
@@ -1025,6 +1032,10 @@ function pulseKey(key) {
   send({ type: "key", action: "up", key });
   canvas.focus();
 }
+// Start goes through the engine as the Home key rather than as a chip
+// click: a key is coalesced with stale arrows and deferred through a
+// pause(loop=True) lap like the arrows are; a chip message is neither.
+document.getElementById("start").onclick = () => pulseKey("Home");
 document.getElementById("previous").onclick = () => pulseKey("ArrowLeft");
 document.getElementById("next").onclick = () => pulseKey("ArrowRight");
 // Restart: the scene as if just opened, at checkpoint 0 with no history.
@@ -1359,7 +1370,7 @@ if (document.fullscreenEnabled) {
 }
 
 // -- Keyboard --
-const FORWARDED = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "]);
+const FORWARDED = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", " "]);
 // Keys handled here rather than by the scene. Tracked so the keyup below does
 // not hand the engine a release for a press it never saw.
 const claimed = new Set();
@@ -1389,6 +1400,7 @@ document.addEventListener("keydown", (e) => {
     else if (e.key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
     else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(1);
     else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(-1);
+    else if (e.key === "Home") ManimlPresentation.seekCheckpoint(0);
     else if (e.key === " ") ManimlPresentation.togglePause();
     else if (e.key === "Escape") exitPlayback({ endPresentation: true });
     return;

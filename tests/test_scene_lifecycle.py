@@ -346,6 +346,25 @@ class LoopPauseTests(unittest.TestCase):
         scene._maybe_replay_loop_pause()
         scene.run_next_animation.assert_called_once_with()
 
+    def test_home_mid_lap_is_deferred_like_an_arrow(self):
+        """Start (HOME) arriving mid-lap must not restore checkpoint 0
+        inside the running exec: like an arrow it is recorded, and the
+        lap's end applies it from the pausepoint. Between laps it is the
+        jump it always is."""
+        from maniml.event_constants import WindowKeys
+
+        scene = self.parked_scene()
+        scene._jump_to_start = MagicMock()
+        scene._loop_hold_index = 4
+        scene.on_key_press(WindowKeys.HOME, 0)
+        scene._jump_to_start.assert_not_called()
+        self.assertEqual(scene._loop_exit_key, WindowKeys.HOME)
+
+        scene._loop_hold_index = None
+        scene.on_key_press(WindowKeys.HOME, 0)
+        scene._jump_to_start.assert_called_once_with()
+        self.assertFalse(scene._processing_key)
+
     def test_interact_only_replays_with_a_client_attached(self):
         """The loop is a live-viewer behavior: the interact loop consults the
         driver only on passes where a browser client is connected."""

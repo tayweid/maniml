@@ -61,13 +61,16 @@ JS_KEY_TO_SYMBOL = {
     "ArrowRight": WindowKeys.RIGHT,
     "ArrowUp": WindowKeys.UP,
     "ArrowDown": WindowKeys.DOWN,
+    "Home": WindowKeys.HOME,
     "Enter": WindowKeys.ENTER,
     "Escape": WindowKeys.ESCAPE,
     "Backspace": WindowKeys.BACKSPACE,
     "Tab": WindowKeys.TAB,
     " ": WindowKeys.SPACE,
 }
-NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"})
+# The keys that move the scene: a stale press of one (made while the scene
+# was moving) is coalesced to the latest, not dropped.
+NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home"})
 JS_BUTTON_TO_MASK = {
     0: MouseButtons.LEFT,
     1: MouseButtons.MIDDLE,

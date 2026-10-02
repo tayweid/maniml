@@ -5,6 +5,29 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Start is the Start chip's jump, as a control and the Home key (2026-10-02)
+
+Taylor: "i'd like a way to go back to zero. maybe that's refresh." Zero
+already existed in one form — the rail's first chip is titled "Start"
+and a click on it restores checkpoint 0 — but there was no key and no
+transport control for it: Back and LEFT reach it one pausepoint at a
+time, and Restart (above) is a different thing now. Three zeros were on
+the table: a jump to checkpoint 0 with the built rail kept; a rebuild of
+checkpoint 0 from a reloaded module with the history discarded; and a
+fresh Scene instance. The last two are Restart. Decided: Start is the
+first, promoted — the chip's word, the first control in the transport
+pod before Back, disabled at the start like Back, and the Home key.
+It keeps the frontier, so RIGHT from the start replays the retained
+history at real speed with every chip standing, and like LEFT it is a
+jump that announces no move. It goes through the engine as a key
+(`WindowKeys.HOME`, mapped from the page's "Home") rather than as the
+chip message, because a key is coalesced with stale arrows and deferred
+through a `pause(loop=True)` lap where a chip message would restore
+inside the running exec. In recorded playback the page claims it and
+seeks the recording to its first pausepoint, as the Start chip does
+there. Not changed: the position badge still reads 1 / N at checkpoint
+0; "zero" is the Start chip, not the badge's number.
+
 ## Restart is a restart (2026-10-02)
 
 Taylor: "i think the refresh button doesn't quite work. i often need to

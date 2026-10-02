@@ -1169,6 +1169,45 @@ class TimelineRailE2E(_ViewerHarness, unittest.TestCase):
             self.assertEqual(latest_current(states, None), current - 1,
                              "LEFT did not land one checkpoint back")
 
+    def test_home_is_an_instant_jump_to_the_start_that_keeps_the_rail(self):
+        """Home (the transport pod's Start) is the Start chip's own jump,
+        as a key: checkpoint 0, no move announced, and the built history
+        kept — the count does not change, and RIGHT from there replays the
+        first stretch rather than running it anew."""
+        def latest(states, field):
+            values = [s.get(field) for s in states if s.get("type") == "state"]
+            return values[-1] if values else None
+
+        with self._connect() as ws:
+            _, states = self._collect(ws, 2)
+            # Two stretches in, wherever the tests sharing this scene
+            # process left it (replays count as much as first runs here).
+            for _ in range(2):
+                self._press(ws, "ArrowRight")
+                _, more = self._collect(ws, 8)
+                states += more
+            current, count = latest(states, "current"), latest(states, "count")
+            self.assertGreater(current, 0)
+            self.assertGreater(count, 1)
+
+            self._press(ws, "Home")
+            _, states = self._collect(ws, 8)
+            moves = [m for m in self._moves(states) if m["from"] is not None]
+            self.assertFalse(moves, "a jump must not announce a move")
+            self.assertEqual(latest(states, "current"), 0,
+                             "Home did not land on the start")
+            self.assertEqual(latest(states, "count"), count,
+                             "Home dropped the built history")
+
+            # The frontier survived: RIGHT replays the retained first
+            # stretch (a move from Start) and saves nothing new.
+            self._press(ws, "ArrowRight")
+            _, states = self._collect(ws, 8)
+            starts = [m for m in self._moves(states) if m["from"] is not None]
+            self.assertEqual([(m["from"], m["to"]) for m in starts[:1]], [(0, 1)])
+            self.assertEqual(latest(states, "count"), count)
+            self.assertEqual(latest(states, "current"), 1)
+
 
 MULTI_SCENE_SOURCE = """
 from manim import *

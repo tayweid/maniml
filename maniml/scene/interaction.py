@@ -289,6 +289,21 @@ class InteractionMixin:
         self._restore_checkpoint_for_display(target)
         self.update_frame(dt=0, force_draw=True)
 
+    def _jump_to_start(self) -> None:
+        """HOME (the transport pod's Start): jump instantly to checkpoint 0.
+
+        The Start chip's own jump, as a key: the rail stays built — the
+        frontier is kept, so RIGHT from the start replays the retained
+        history at real speed, with every chip it knows still standing.
+        A jump, like LEFT, for the same reason.
+        """
+        if self.current_animation_index <= 0:
+            print("Already at the start")
+            return
+        print(f"⇤ Back to the start (0/{len(self.animation_checkpoints) - 1})")
+        self._restore_checkpoint_for_display(0)
+        self.update_frame(dt=0, force_draw=True)
+
     def on_key_release(
         self,
         symbol: int,
@@ -312,12 +327,22 @@ class InteractionMixin:
         # pausepoint.
         if getattr(self, '_loop_hold_index', None) is not None and symbol in (
                 WindowKeys.LEFT, WindowKeys.RIGHT,
-                WindowKeys.UP, WindowKeys.DOWN):
+                WindowKeys.UP, WindowKeys.DOWN, WindowKeys.HOME):
             self._loop_exit_key = symbol
             return
 
+        # HOME - jump to the start, the rail kept
+        if symbol == WindowKeys.HOME:
+            if hasattr(self, '_processing_key') and self._processing_key:
+                return
+            self._processing_key = True
+            try:
+                self._jump_to_start()
+            finally:
+                self._processing_key = False
+
         # Handle UP arrow - jump to next animation
-        if symbol == WindowKeys.UP:
+        elif symbol == WindowKeys.UP:
             # Prevent if we're processing another key
             if hasattr(self, '_processing_key') and self._processing_key:
                 return
