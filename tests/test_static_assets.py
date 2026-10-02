@@ -146,10 +146,14 @@ class ViewerTests(unittest.TestCase):
         mid-presentation. Nothing may open it but the toggle."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('id="console-toggle"', viewer)
-        # The toggle is a fixed corner pill above the panel it opens — the way
-        # in and the way out are the same spot — and it sits outside the
-        # toolbar so it cannot recede with the chrome in full screen.
-        self.assertIn("#console-toggle {\n    position: fixed; top: 14px; right: 12px;", viewer)
+        # The toggle is the bar's last tile, fixed over the corner its panel
+        # opens under — the way in and the way out are the same spot — and
+        # it sits outside the bar so it cannot recede with the chrome in
+        # full screen.
+        self.assertIn("#console-toggle {\n    position: fixed; top: calc((var(--topbar) - 32px) / 2); "
+                      "right: var(--edge);", viewer)
+        toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index("</header>")]
+        self.assertNotIn('id="console-toggle"', toolbar)
         self.assertIn("body.console #console { display: flex; }", viewer)
         # In full screen it rides with the rest of the chrome rather than
         # being suppressed: presenting is when a scene's own output matters
@@ -242,14 +246,16 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('id="start"', present)
         self.assertIn('document.getElementById("start").onclick', present)
 
-    def test_chrome_is_a_run_of_pods(self):
-        """The seams and stadium ends come from shell.css, so both bars and
-        the landing page's header stay one visual family."""
+    def test_the_presenters_bar_is_a_run_of_pods(self):
+        """The seams and stadium ends come from shell.css. Since the frame
+        (2026-10-02) the presenter's bar is the one run of pods: the bar at
+        the top is the frame's, as Knuth's and Plass's are."""
         shell = (STATIC / "shell.css").read_text()
         self.assertIn(".pod-run > .pod:first-child", shell)
         self.assertIn(".pod-run > .pod:last-child", shell)
-        for name in ("viewer.html", "app.html"):
-            self.assertIn('class="pod-run"', (STATIC / name).read_text(), name)
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('<div id="navbar" class="pod-run"', viewer)
+        self.assertNotIn('<header id="toolbar" class="pod-run"', viewer)
 
     def test_the_rail_can_light_a_single_stretch(self):
         """A link between two chips is a real element precisely so one of
@@ -297,15 +303,26 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("function destinationGroup(", rail)
 
     def test_the_two_pages_share_their_controls(self):
-        """The landing page is the same bar as the viewer's, so the slug and
-        the icon button are defined once rather than resembling each other."""
+        """The landing page is the same bar as the viewer's, so the bar, the
+        pill, the slug, the tiles and the menus are defined once (shell.css)
+        and behave once (bar.js) rather than resembling each other."""
         shell = (STATIC / "shell.css").read_text()
-        for shared in (".document-slug", ".slug-separator", ".icon-button",
-                       ".control-label"):
+        for shared in ("#toolbar {", ".doc-pod {", ".document-slug {", ".slug-separator",
+                       ".icon-button", ".control-label", ".tb-end {", ".bar-pill {",
+                       ".bar-menu {", ".bar-menu-item {"):
             self.assertIn(shared, shell, shared)
+        for name in ("viewer.html", "app.html"):
+            page = (STATIC / name).read_text()
+            for control in ('<header id="toolbar"', 'id="file-menu" class="icon-button"',
+                            'class="bar-menu"', 'class="doc-pod"', 'class="document-slug"',
+                            'class="tb-end"', 'id="updatebtn" class="icon-button"',
+                            '<script src="bar.js"></script>', "ManimlBar.menu(",
+                            "ManimlBar.updates("):
+                self.assertIn(control, page, f"{name}: {control}")
+            # The update's handling is bar.js's alone now.
+            self.assertNotIn('shell.request({ type: "update"', page, name)
         app = (STATIC / "app.html").read_text()
-        self.assertIn('class="document-slug"', app)
-        self.assertIn('id="openbtn" class="icon-button"', app)
+        self.assertIn('id="openbtn" class="bar-menu-item"', app)
 
     def test_scene_picker_switches_within_a_file(self):
         viewer = (STATIC / "viewer.html").read_text()
@@ -389,6 +406,85 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("ManimlRail.create", present)
         self.assertNotIn("shell.css", present)
         self.assertNotIn("WebSocket", present)
+
+
+class FrameTests(unittest.TestCase):
+    """Zen's shape, as Knuth and Plass have it (docs/ZEN-DRAFT.md): the
+    frame, the bar across its top beside the traffic lights, the room. The
+    numbers are theirs so the three apps measure the same."""
+
+    def test_the_frame_has_knuths_and_plasss_numbers(self):
+        shell = (STATIC / "shell.css").read_text()
+        for value in ("--frame: #18181a;", "--pill: #232326;", "--tile: #2e2e32;",
+                      "--topbar: env(titlebar-area-height, 44px);", "--edge: 8px;",
+                      "--serif: 'STIX Two Text', 'Charter', 'Georgia', serif;"):
+            self.assertIn(value, shell, value)
+        bar = shell[shell.index("#toolbar {"):]
+        bar = bar[:bar.index("}")]
+        self.assertIn("height: var(--topbar);", bar)
+        self.assertIn("gap: 6px;", bar)
+        # Beside the lights' room in the app; 8 px in, over the room's
+        # left edge, in a tab (no rail to centre over).
+        self.assertIn("padding-inline: calc(12px + env(titlebar-area-x, -4px)) var(--edge);", bar)
+        # The window moves by the bar, and by nothing in it.
+        self.assertIn("-webkit-app-region: drag;", bar)
+        self.assertIn("#toolbar > *, .bar-menu { -webkit-app-region: no-drag; }", shell)
+        pill = shell[shell.index(".doc-pod {"):]
+        pill = pill[:pill.index("}")]
+        for value in ("height: 30px;", "padding: 0 10px;", "gap: 9px;",
+                      "max-width: min(560px, 50vw);", "border-radius: 9px;",
+                      "background: var(--pill);"):
+            self.assertIn(value, pill, value)
+        tile = shell[shell.index("#toolbar .icon-button {"):]
+        tile = tile[:tile.index("}")]
+        for value in ("width: 32px;", "height: 32px;", "border-radius: 9px;"):
+            self.assertIn(value, tile, value)
+        self.assertIn("#toolbar .icon-button svg { width: 18px; height: 18px; }", shell)
+        self.assertIn("font: 15px/1.5 var(--serif); letter-spacing: 0.09em;", shell)
+
+    def test_the_stage_is_the_room(self):
+        """The rendered scene sits in Zen's rounded panel, under the bar and
+        the frame's edge in from the window's other three sides; full
+        screen has no frame."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("#stage {\n    position: absolute; inset: var(--topbar) var(--edge) var(--edge);",
+                      viewer)
+        self.assertIn("border-radius: 12px; background: var(--bg);", viewer)
+        self.assertIn("background: var(--frame); color: var(--text);", viewer)
+        self.assertIn("body.fullscreen { --edge: 0px; }", viewer)
+        self.assertIn("body.fullscreen #stage { inset: 0; border-radius: 0; box-shadow: none; }", viewer)
+        # The presenter's bar keeps its place over the room's foot: 12 px
+        # above the room's floor, as it was above the window's.
+        self.assertIn("left: 0; right: 0; bottom: calc(var(--edge) + 12px);", viewer)
+
+    def test_the_name_is_exactly_the_files_name(self):
+        """The shell's smoke waits for #file-name to read the document's
+        name exactly (app/maniml.json `smoke.ready`), so the folder and the
+        scene are siblings beside it, never inside it."""
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('<span id="file-name">scene.py</span>', viewer)
+        self.assertIn('id="doc-folder" class="doc-folder" hidden><span dir="ltr"></span></span>', viewer)
+        self.assertIn('if ("path" in state) ManimlBar.setDocument(state.path, docFolder);', viewer)
+
+    def test_an_open_menu_keeps_its_keys_from_the_scene(self):
+        """The viewer forwards every key it hears to the engine, so a menu in
+        the bar takes the keys it is given in the capture phase, before the
+        forwarder, and their releases with them."""
+        bar = (STATIC / "bar.js").read_text()
+        keydown = bar[bar.index('document.addEventListener("keydown"'):]
+        keydown = keydown[:keydown.index("}, true);")]
+        self.assertIn("event.stopPropagation();", keydown)
+        self.assertIn("swallowed.add(key);", keydown)
+        self.assertIn('if (swallowed.delete(event.key)) event.stopPropagation();', bar)
+        # The folder is the shell's answer, never a path it refused.
+        self.assertIn('shell.request({ type: "document", path: wanted })', bar)
+        for forbidden in ("maniml://", "WebSocket", "fetch("):
+            self.assertNotIn(forbidden, bar, forbidden)
+
+    def test_the_setup_page_moves_the_window_by_the_lights_band(self):
+        setup = (STATIC / "setup.css").read_text()
+        self.assertIn("height: env(titlebar-area-height, 0px);\n  -webkit-app-region: drag;", setup)
+        self.assertIn("padding: calc(24px + env(titlebar-area-height, 0px)) 0 40px;", setup)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,29 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The frame and its bar, Knuth's and Plass's, without a rail (2026-10-02)
+
+Taylor: "eventually id like maniml to have the same kind of topbar as
+plass and knuth. basically everything will be nearly the same. the only
+difference is i don't think there's any reason to add a sidebar to
+maniml, just need to keep the nav rail at the bottom as is." Decided
+(`docs/ZEN-DRAFT.md`): Zen's shape with the other two apps' numbers —
+the #18181a frame, a 44 px bar with the traffic lights in it
+(`titleBarStyle: "hiddenInset"`, the lights at {14, 15}, so their band is
+the bar), the name pill and the bar's tiles at Knuth's sizes, the stage
+as the room, 8 px in, rounded 12 px — and no side rail. The bar holds
+what the old top bar held: File (now Knuth's click-to-open text menu),
+the file and scene names with the folder, Restart, the renders, the
+renderer, the status, and the console's toggle as its last tile; the
+landing page has the same bar. The presenter's bar keeps its markup,
+script and look; Start and Present stay on it rather than moving up,
+since they are what is touched while presenting. The page tells the shell
+which scene file its window holds, so the folder in the pill is the
+shell's answer and an update's relaunch reopens the scene. The bar's
+behaviour (its menus, the folder, the update tile) is one file,
+`static/bar.js`, for both pages; an open menu takes the plain keys before
+the viewer's forwarder can send them to a scene.
+
 ## Start is the Start chip's jump, as a control and the Home key (2026-10-02)
 
 Taylor: "i'd like a way to go back to zero. maybe that's refresh." Zero

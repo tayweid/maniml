@@ -1016,6 +1016,12 @@ class WebViewer:
             "scene": type(scene).__name__,
             "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",
+            # The file itself, for the page's name pill: its folder shows
+            # beside the name, and under the app the page tells the shell
+            # which file its window holds (the shell's `document`). As
+            # given, not resolved, so a folder reached by a link reads as
+            # the link's.
+            "path": os.path.abspath(raw_source) if raw_source else None,
             "current": current,
             "count": len(checkpoints),
             "present": bool(getattr(scene, "_present_mode", False)),

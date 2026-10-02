@@ -6,7 +6,7 @@
 <title>maniml</title>
 <link rel="icon" type="image/svg+xml" href="icons/maniml.svg">
 <link rel="icon" type="image/png" href="icons/maniml-192.png">
-<meta name="theme-color" content="#2b2a2d">
+<meta name="theme-color" content="#18181a">
 <link rel="stylesheet" href="shell.css">
 <style>
   :root {
@@ -14,36 +14,63 @@
   }
   html, body {
     margin: 0; height: 100%;
-    background: var(--bg); color: var(--text);
+    background: var(--frame); color: var(--text);
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: hidden;
   }
+  /* The stage is the room: Zen's inset panel under the bar, the frame's
+     edge from the window's left, right and bottom, rounded, the grey a
+     scene has always sat on. The scene centres in it, clear of the
+     presenter's bar over its foot: 78 px is that bar's 12 px floor, its
+     42 px pods and 24 px over them. What would spill past the rounded
+     edge (the canvas's shadow) is cut at it. */
   #stage {
-    position: absolute; inset: 0;
+    position: absolute; inset: var(--topbar) var(--edge) var(--edge);
     display: flex; align-items: center; justify-content: center;
-    gap: 10px; padding: 72px 22px 78px;
+    gap: 10px; padding: 22px 22px 78px;
+    border-radius: 12px; background: var(--bg);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+    overflow: hidden;
   }
   /* The console. Toggled by hand and never by itself: stepping through a
      scene prints on every arrow key, so a panel that opened on output would
-     be opening constantly — and it must never appear mid-presentation. */
+     be opening constantly — and it must never appear mid-presentation.
+     Its toggle is the bar's last tile, at the bar's right end over the
+     room's edge (the bar's right padding keeps its place), lit while the
+     panel shows. It is fixed outside the bar so that it stays when the bar
+     recedes in full screen, where it is the floating glass pill it was. */
   #console-toggle {
-    position: fixed; top: 14px; right: 12px; z-index: 60;
+    position: fixed; top: calc((var(--topbar) - 32px) / 2); right: var(--edge); z-index: 60;
     display: inline-flex; align-items: center; justify-content: center;
     width: 32px; height: 32px; padding: 0;
-    background: var(--glass); border: 1px solid var(--line);
-    border-radius: 999px; color: var(--text); cursor: pointer;
-    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-    opacity: .45; transition: opacity .25s ease, background .12s;
+    background: transparent; border: 0; border-radius: 9px;
+    color: rgba(240, 238, 233, 0.62); cursor: pointer;
+    transition: opacity .25s ease, background .12s, color .12s;
+    -webkit-app-region: no-drag;
   }
-  #console-toggle:hover, body.console #console-toggle {
-    opacity: 1; background: rgba(255,255,255,.12);
+  #console-toggle:hover, #console-toggle:focus-visible {
+    color: #fff; background: rgba(255,255,255,.08);
   }
+  #console-toggle:focus-visible { outline: 2px solid #9db8d6; outline-offset: 2px; }
+  body.console #console-toggle { color: #fff; background: var(--tile); }
   #console-toggle svg {
-    width: 16px; height: 16px; fill: none; stroke: currentColor;
+    width: 18px; height: 18px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
   }
+  body.fullscreen #console-toggle {
+    right: 12px; background: var(--glass); border: 1px solid var(--line);
+    border-radius: 999px; color: var(--text); opacity: .45;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  body.fullscreen #console-toggle:hover, body.fullscreen.console #console-toggle {
+    opacity: 1; background: rgba(255,255,255,.12);
+  }
+  body.fullscreen #console-toggle svg { width: 16px; height: 16px; }
+  /* The panel: a column inside the room at its right, 12 px in from its
+     right edge and under its top, above the presenter's bar. */
   #console {
-    position: fixed; z-index: 19; top: 66px; right: 12px; bottom: 74px;
+    position: fixed; z-index: 19; top: calc(var(--topbar) + 12px);
+    right: calc(var(--edge) + 12px); bottom: calc(var(--edge) + 74px);
     width: 340px; display: none; flex-direction: column;
     border: 1px solid var(--line); border-radius: 13px;
     background: var(--glass); box-shadow: var(--shadow);
@@ -52,15 +79,15 @@
   }
   body.console #console { display: flex; }
   body.console #stage { padding-right: 366px; }
-  /* The panel is a column between the two bars, so the bars give up its
-     width rather than running underneath it. */
-  body.console #toolbar, body.console #navbar { padding-right: 366px; }
+  /* The panel is a column above the presenter's bar, so that bar gives up
+     its width rather than running underneath it. */
+  body.console #navbar { padding-right: calc(var(--edge) + 366px); }
   /* Presenting is where a scene's own output matters most, so the console
      keeps its place in full screen — it rides with the rest of the chrome,
      receding when the chrome does. It overlays there rather than reflowing:
      the frame must not resize every time the pointer nears an edge. */
   body.fullscreen #stage { padding-right: 0; }
-  body.fullscreen #toolbar, body.fullscreen #navbar { padding-right: 14px; }
+  body.fullscreen #navbar { padding-right: 14px; }
   #console-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 12px; border-bottom: 1px solid var(--line);
@@ -92,6 +119,13 @@
      clicks meant for the canvas. */
   body.fullscreen #stage { padding: 0; }
   body.fullscreen #stage canvas { border-radius: 0; box-shadow: none; }
+  /* There is no frame in full screen: the room is the display, and what
+     was measured from the frame's edge is measured from the display's, as
+     before the frame. The bar slides in over the scene as the frame's
+     band it is, keeping the console toggle's place at its right. */
+  body.fullscreen { --edge: 0px; }
+  body.fullscreen #stage { inset: 0; border-radius: 0; box-shadow: none; }
+  body.fullscreen #toolbar { background: var(--frame); padding-right: calc(12px + 32px + 6px); }
   body.fullscreen #toolbar,
   body.fullscreen #navbar,
   body.fullscreen #console {
@@ -184,101 +218,52 @@
   body.nogpu #view { display: none; }
   body.nogpu #gpu-unsupported { display: block; }
 
-  /* The chrome is Plass's, and deliberately its metrics rather than an
-     imitation of them: a 60px bar, 42px pods pressed into a run, contents
-     asleep until the pointer nears the bar, and flyouts that lay the group's
-     labelled icons OVER their trigger so the cursor never crosses a gap. */
-  #toolbar {
-    position: fixed; z-index: 20; top: 0; left: 0; right: 0; height: 60px;
-    display: flex; justify-content: center; align-items: center;
-    gap: 5px; padding: 0 14px; pointer-events: none;
-  }
-  /* Both a pod and a flyout carry backdrop-filter, which is a stacking
-     context — so a flyout's z-index is trapped inside its own pod and a
-     LATER sibling paints over it. Lift whichever pod the cursor is in.
-     (Plass learned this one the hard way; it is not decoration.) */
-  #toolbar > *, #navbar > * { position: relative; }
-  #toolbar > *:hover, #toolbar > *:focus-within,
+  /* The bar is the frame's (shell.css), the same bar as Knuth's and
+     Plass's: File and the name pill beside the traffic lights, the scene's
+     tools after them as the bar's tiles, and at the right end the
+     renderer, the update when there is one and the engine's status — then
+     the console's toggle (fixed, above), whose place the bar's right
+     padding keeps. */
+  #toolbar { padding-right: calc(var(--edge) + 32px + 6px); }
+  /* A pod carries backdrop-filter, which is a stacking context — so a
+     word tag's z-index is trapped inside its own pod and a LATER sibling
+     paints over it. Lift whichever pod the cursor is in. (Plass learned
+     this one the hard way; it is not decoration.) */
+  #navbar > * { position: relative; }
   #navbar > *:hover, #navbar > *:focus-within { z-index: 20; }
 
-  .doc-pod { gap: 9px; padding: 0 6px 0 16px; }
-  .tools-pod { gap: 4px; }
-  /* A group inside a pod: related controls plus the quiet text they own. */
-  .tool-group { display: inline-flex; align-items: center; gap: 2px; }
-  #file-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
-  .scene-picker { position: relative; display: inline-flex; }
+  /* A group in the bar: related tiles, 3 px apart as on Knuth's rail, and
+     the quiet text they own. */
+  .tool-group { display: inline-flex; align-items: center; gap: 3px; }
+  .bar-file { display: inline-flex; }
+  /* The name: exactly the file's name (the shell's smoke reads it), with
+     the 4 px either side Knuth's and Plass's names keep, so the three
+     names start at the same x. */
+  #file-name {
+    flex: 0 1 auto; min-width: 0; max-width: 40ch;
+    overflow: hidden; text-overflow: ellipsis; padding: 1px 4px;
+  }
+  /* The scene inside the file: the slug's quiet second part, a button
+     whose menu drops under the pill (.scene-picker is not positioned, so
+     the pill holds the menu, and the menu lines up with the pill). */
+  .scene-picker { display: inline-flex; min-width: 0; }
   #scene-name {
-    padding: 1px 5px; border: 0; border-radius: 6px; background: transparent;
-    color: var(--dim); font: inherit; font-size: 12px; letter-spacing: .035em;
+    min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis;
+    padding: 1px 4px; border: 0; border-radius: 5px; background: transparent;
+    color: var(--frame-ink-soft); font: inherit; letter-spacing: inherit;
     cursor: pointer; transition: color 140ms ease, background 140ms ease;
   }
   #scene-name:hover, #scene-name:focus-visible {
-    color: var(--text); background: rgba(255,255,255,.07); outline: none;
+    color: #fff; background: rgba(255,255,255,.08);
   }
   /* A file with a single scene has nothing to switch to: keep the name, drop
      the affordance rather than opening an empty menu. */
-  #scene-name:disabled { cursor: default; background: transparent; color: var(--dim); }
-  #scene-menu {
-    position: absolute; z-index: 40; top: calc(100% + 9px); left: -4px;
-    display: flex; flex-direction: column; gap: 1px; padding: 4px;
-    min-width: 150px; max-height: min(46vh, 340px); overflow-y: auto;
-    border-radius: 11px; background: var(--glass-light);
-    border: 1px solid rgba(255,255,255,.5); box-shadow: 0 10px 28px rgba(0,0,0,.3);
-    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-  }
-  #scene-menu[hidden] { display: none; }
-  .scene-option {
-    padding: 6px 10px; border: 0; border-radius: 7px; background: transparent;
-    color: var(--ink); font: inherit; font-size: 12px; text-align: left;
-    white-space: nowrap; cursor: pointer; opacity: .72;
-  }
-  .scene-option:hover, .scene-option:focus-visible {
-    background: rgba(20,19,22,.08); opacity: 1; outline: none;
-  }
-  .scene-option[aria-current="true"] { font-weight: 650; opacity: 1; }
+  #scene-name:disabled { cursor: default; background: transparent; color: var(--frame-ink-soft); }
+  #scene-menu { left: -1px; }
+  .scene-option[aria-current="true"]::after { content: "\2713"; color: var(--frame-ink-soft); }
 
-  /* The icon button, its word tag, and the slug are shared with the landing
-     page and live in shell.css. A flyout's actions are the same object one
-     size up, but must not inherit the bar's sleep tier — the open flyout is
-     awake by definition. */
-  .fly-action {
-    position: relative; display: grid; place-items: center;
-    padding: 0; border: 0; border-radius: 8px; background: transparent;
-    color: var(--text); cursor: pointer;
-    transition: color 140ms ease, background 140ms ease, transform 140ms ease;
-  }
-  .fly-action svg {
-    fill: none; stroke: currentColor;
-    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
-  }
   #navbar .control-label { top: auto; bottom: calc(100% + 10px);
     transform: translate(-50%, 3px); }
-  .fly-action:hover .control-label, .fly-action:focus-visible .control-label {
-    opacity: 1; visibility: visible; transform: translate(-50%, 0);
-  }
-
-  /* The flyout: a pill a step lighter than the pod it covers, centred on its
-     trigger so it reads as a card sitting ON TOP of the bar. Its buttons are
-     the full rail size — the open state is the bigger object. */
-  .flyover { position: relative; display: inline-flex; }
-  .flyout {
-    position: absolute; z-index: 30; left: 50%; top: 50%;
-    display: flex; align-items: center; gap: 2px; padding: 5px 8px;
-    background: color-mix(in srgb, #3a3840 94%, transparent);
-    border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
-    box-shadow: 0 5px 18px rgba(0,0,0,.45);
-    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-    opacity: 0; visibility: hidden; transform: translate(-50%, -50%);
-    transition: opacity 140ms ease, visibility 140ms; pointer-events: none;
-  }
-  .flyover:hover .flyout, .flyover:focus-within .flyout {
-    opacity: 1; visibility: visible; pointer-events: auto;
-  }
-  .fly-action { width: 40px; height: 40px; opacity: 1; font-size: 11px;
-    letter-spacing: .02em; }
-  .fly-action svg { width: 22px; height: 22px; }
-  .fly-action[hidden] { display: none; }
-  .fly-action:hover, .fly-action:focus-visible { background: rgba(255,255,255,.13); }
 
   #position {
     min-width: 54px; padding: 0 8px; text-align: center; color: var(--dim);
@@ -288,7 +273,7 @@
   #position-total { color: var(--dim); }
   #job-status {
     display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-    padding: 0 6px; color: var(--dim); font-size: 11px;
+    padding: 0 6px 0 3px; color: var(--frame-ink-soft); font-size: 11px;
   }
   #export-pod.active #job-status { display: block; }
   #export-pod.working .export-icon.running { color: var(--warn); opacity: 1; }
@@ -300,24 +285,29 @@
   @keyframes restart-turn { to { transform: rotate(360deg); } }
   #restart-scene.working { color: var(--warn); opacity: 1; }
   #restart-scene.working svg { animation: restart-turn 900ms linear infinite; }
-  #renderer-select { margin: 0 5px; padding: 4px; color: var(--text);
-    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
-    font: inherit; font-size: 11px; }
+  /* The renderer: a pill of the bar's height, corners and hairline. */
+  #renderer-select {
+    height: 30px; padding: 0 8px; color: var(--frame-ink-soft);
+    background: var(--pill); border: 1px solid rgba(255,255,255,.08); border-radius: 9px;
+    font: 12px var(--sans); cursor: pointer;
+  }
+  #renderer-select:hover:not(:disabled) { color: var(--frame-ink); }
+  #renderer-select:disabled { opacity: .5; cursor: default; }
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
     color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
-  #connection-pod { padding: 0 6px 0 8px; gap: 7px; color: var(--dim); font-size: 11px;
-    border-left: 1px solid var(--line); margin-left: 2px; }
-  #conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 0 3px rgba(121,191,139,.08); }
+  /* The engine's status: the right end's pill (shell.css), as Knuth's
+     kernel status. */
   #conn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-  body.disconnected #conn-dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(218,119,119,.08); }
+  body.disconnected #conn-dot { background: #cd6452; }
   body.disconnected #conn { color: #cf9494; }
   body.disconnected #export-menu { opacity: .16; pointer-events: none; }
 
   /* ---------- the presenter's bar ---------- */
+  /* It floats over the room's foot, 12 px above the room's bottom edge as
+     it was 12 px above the window's before the frame. */
   #navbar {
-    position: fixed; z-index: 18; left: 0; right: 0; bottom: 12px;
+    position: fixed; z-index: 18; left: 0; right: 0; bottom: calc(var(--edge) + 12px);
     display: flex; justify-content: center; align-items: center;
     gap: 5px; padding: 0 14px; pointer-events: none;
   }
@@ -409,18 +399,22 @@
     #file-name { max-width: 125px; }
     #stage { padding-inline: 12px; }
   }
+  /* Short of room in the bar: the folder gives way first (shell.css, under
+     760 px, as Knuth's), the renderer's pill with it. */
+  @media (max-width: 759px) {
+    #renderer-pod { display: none; }
+  }
   @media (max-width: 620px) {
-    #toolbar, #navbar { gap: 4px; padding-inline: 7px; }
+    #toolbar { gap: 4px; }
+    #navbar { gap: 4px; padding-inline: 7px; }
     .pod { height: 38px; padding-inline: 4px; }
-    .doc-pod { padding-left: 12px; }
     .icon-button { width: 31px; height: 31px; }
     #scene-name, .slug-separator, #connection-pod #conn { display: none; }
-    #connection-pod { border-left: 0; }
     #file-name { max-width: 104px; }
     #position { min-width: 54px; padding-inline: 3px; }
     #job-status { max-width: 95px; }
-    #navbar { bottom: 8px; }
-    #stage { padding: 62px 8px 72px; }
+    #navbar { bottom: calc(var(--edge) + 8px); }
+    #stage { padding: 12px 8px 72px; }
   }
 </style>
 </head>
@@ -450,38 +444,55 @@
   </section>
 </div>
 
-<header id="toolbar" class="pod-run" aria-label="Scene controls">
-  <div class="pod doc-pod">
-    <div class="document-slug" title="Current scene file">
-      <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
-    </div>
-    <div class="flyover">
-      <button id="file-menu" class="icon-button" aria-label="File options" aria-haspopup="menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        <span class="control-label">File</span>
-      </button>
-      <div class="flyout" role="menu" aria-label="File options">
-        <button id="open-file" class="fly-action" role="menuitem" aria-label="Open another scene">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="control-label">Open</span>
-        </button>
-      </div>
+<!-- The bar: the frame's top edge and, in ManimLive.app, the window's
+     title bar, with the traffic lights in its left end (shell.css). File
+     and the name pill are the document's way in and out, Restart and the
+     renders the scene's own tools; the right end is the engine's — the
+     renderer, the app's update when there is one, the status — and the
+     console's toggle (below, outside the bar) sits after it. -->
+<header id="toolbar" aria-label="Scene controls">
+  <!-- File: a text menu dropped under the tile (bar.js), as Knuth's and
+       Plass's File, so leaving the scene for the landing page is two
+       deliberate clicks, as the flyout it replaces was. -->
+  <div class="bar-file">
+    <button id="file-menu" class="icon-button" type="button" aria-label="File" aria-haspopup="menu" aria-expanded="false" aria-controls="file-list">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span class="control-label">File</span>
+    </button>
+    <div id="file-list" class="bar-menu" role="menu" aria-label="File" hidden>
+      <button id="open-file" class="bar-menu-item" type="button" role="menuitem">Open another scene&hellip;</button>
     </div>
   </div>
 
-  <div class="pod tools-pod">
-    <span id="export-pod" class="tool-group">
-      <button id="export-video" class="icon-button export-icon" data-format="video" aria-label="Render video, pausepoints, and the student bundle" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
-      </button>
-      <!-- Its own button because it is its own artifact: one full-size PNG
-           per checkpoint outweighs the movie several times over, so the
-           stills are rendered when they are wanted, not on every download. -->
-      <button id="export-checkpoints" class="icon-button export-icon" data-format="checkpoints" aria-label="Render a PNG of every checkpoint" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg><span class="control-label">Stills</span>
-      </button>
-      <span id="job-status" role="status" aria-live="polite"></span>
-    </span>
+  <div id="doc-pod" class="doc-pod">
+    <div class="document-slug" title="Current scene file">
+      <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
+    </div>
+    <span id="doc-folder" class="doc-folder" hidden><span dir="ltr"></span></span>
+  </div>
 
+  <!-- A true restart: the scene as if just opened — under the app a new
+       scene process, which reloads this page too; on a bare scene process
+       a fresh instance of the scene on this same socket. -->
+  <button id="restart-scene" class="icon-button" aria-label="Restart the scene from the beginning" aria-busy="false" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg>
+    <span class="control-label">Restart</span>
+  </button>
+
+  <span id="export-pod" class="tool-group">
+    <button id="export-video" class="icon-button export-icon" data-format="video" aria-label="Render video, pausepoints, and the student bundle" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
+    </button>
+    <!-- Its own button because it is its own artifact: one full-size PNG
+         per checkpoint outweighs the movie several times over, so the
+         stills are rendered when they are wanted, not on every download. -->
+    <button id="export-checkpoints" class="icon-button export-icon" data-format="checkpoints" aria-label="Render a PNG of every checkpoint" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg><span class="control-label">Stills</span>
+    </button>
+    <span id="job-status" role="status" aria-live="polite"></span>
+  </span>
+
+  <div class="tb-end">
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
       <select id="renderer-select" aria-label="Scene renderer" disabled>
         <option value="triangles" selected>Default</option>
@@ -491,24 +502,19 @@
       </select>
       <span id="glwarn"></span>
     </span>
-
-    <!-- A true restart: the scene as if just opened — under the app a new
-         scene process, which reloads this page too; on a bare scene process
-         a fresh instance of the scene on this same socket. -->
-    <button id="restart-scene" class="icon-button" aria-label="Restart the scene from the beginning" aria-busy="false" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg>
-      <span class="control-label">Restart</span>
+    <button id="updatebtn" class="icon-button" type="button" hidden aria-label="Update ManimLive">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0 0 14.9 3M20 10A8 8 0 0 0 5.1 7"/><path d="M4 4v4h4M20 20v-4h-4"/></svg>
+      <span class="control-label">Update</span>
     </button>
-
-    <span id="connection-pod" class="tool-group" title="Connection to the local ManimLive engine">
-      <span id="conn-dot"></span><span id="conn">Connecting</span>
+    <span id="connection-pod" class="bar-pill" title="Connection to the local ManimLive engine">
+      <span id="conn-dot" class="status-dot"></span><span id="conn">Connecting</span>
     </span>
   </div>
 </header>
 
-<!-- The console's handle: a quiet floating pill in the corner its panel
+<!-- The console's handle: the bar's last tile, over the corner its panel
      opens under, so the way in and the way out are the same spot (Knuth's
-     view toggle). Fixed and outside the toolbar because a scene's output
+     view toggle). Fixed and outside the bar because a scene's output
      matters most mid-presentation — it must not recede with the chrome. -->
 <button id="console-toggle" aria-label="Console" aria-pressed="false" title="Console (C)">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>
@@ -562,6 +568,7 @@
 <script src="renderer_selection.js"></script>
 <script src="presentation.js"></script>
 <script src="rail.js"></script>
+<script src="bar.js"></script>
 <script>
 "use strict";
 const canvas = document.getElementById("view");
@@ -583,6 +590,10 @@ const scenePrefix = sceneParam
   ? "/scene/" + encodeURIComponent(sceneParam) : "";
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
 document.getElementById("open-file").onclick = () => { window.location = appUrl; };
+// File is the bar's text menu (bar.js); closing it hands the keyboard back
+// to the stage, which forwards it to the scene.
+ManimlBar.menu(document.getElementById("file-menu"), document.getElementById("file-list"),
+  { restore: () => canvas.focus() });
 let ws = null;
 let rendererConnection = 0;
 let rendererNegotiated = false;
@@ -939,21 +950,39 @@ function handleMessage(data) {
 
 // Scene picker: every Scene class the engine found in the open file, so one
 // file's animations are reachable without going back to the landing page.
+// It is one of the bar's menus (bar.js): a click on the name drops it
+// under the pill, the arrows walk it, Escape or a click elsewhere closes
+// it, and the stage gets the keyboard back.
 const sceneButton = document.getElementById("scene-name");
 const sceneMenu = document.getElementById("scene-menu");
+const sceneMenuControl = ManimlBar.menu(sceneButton, sceneMenu,
+  { restore: () => canvas.focus() });
 let sceneNames = [];
+let sceneMenuDrawn = "";
 
 function closeSceneMenu() {
-  sceneMenu.hidden = true;
-  sceneButton.setAttribute("aria-expanded", "false");
+  sceneMenuControl.close();
 }
 
 function renderSceneMenu(current) {
+  // Every state message names the scenes; the menu is rebuilt only when
+  // they or the current one change, so an open menu keeps its focus while
+  // a scene plays.
+  const drawn = JSON.stringify([sceneNames, current]);
+  if (drawn !== sceneMenuDrawn) {
+    sceneMenuDrawn = drawn;
+    drawSceneMenu(current);
+  }
+  sceneButton.disabled = sceneNames.length < 2;
+  if (sceneButton.disabled) closeSceneMenu();
+}
+
+function drawSceneMenu(current) {
   sceneMenu.replaceChildren();
   for (const name of sceneNames) {
     const option = document.createElement("button");
     option.type = "button";
-    option.className = "scene-option";
+    option.className = "bar-menu-item scene-option";
     option.setAttribute("role", "menuitem");
     option.textContent = name;
     if (name === current) option.setAttribute("aria-current", "true");
@@ -963,29 +992,7 @@ function renderSceneMenu(current) {
     };
     sceneMenu.appendChild(option);
   }
-  sceneButton.disabled = sceneNames.length < 2;
-  if (sceneButton.disabled) closeSceneMenu();
 }
-
-sceneButton.onclick = () => {
-  const opening = sceneMenu.hidden;
-  sceneMenu.hidden = !opening;
-  sceneButton.setAttribute("aria-expanded", String(opening));
-};
-
-document.addEventListener("click", (event) => {
-  if (!sceneMenu.hidden && !event.target.closest(".scene-picker")) {
-    closeSceneMenu();
-  }
-});
-document.addEventListener("keydown", (event) => {
-  // Only claim Escape while the menu is open; the canvas owns the keyboard
-  // otherwise and forwards keys to the scene.
-  if (event.key === "Escape" && !sceneMenu.hidden) {
-    closeSceneMenu();
-    event.stopPropagation();
-  }
-}, true);
 
 function applyEnv(state) {
   if (Array.isArray(state.scenes)) sceneNames = state.scenes;
@@ -1000,7 +1007,11 @@ function applyEnv(state) {
     renderSceneMenu(state.scene);
   }
   if (state.file) document.getElementById("file-name").textContent = state.file;
+  // The folder beside the name (bar.js): the scene file's, as the shell
+  // took it. Only the engine's states carry the path; a recording's do not.
+  if ("path" in state) ManimlBar.setDocument(state.path, docFolder);
 }
+const docFolder = document.getElementById("doc-folder");
 
 // The rail and its presenter live in rail.js so a Node simulation can
 // replay message sequences against them (tests/rail_sim.mjs): the
@@ -1020,6 +1031,9 @@ const rail = ManimlRail.create({
 const presenter = rail.presenter;
 
 // -- Toolbar actions --
+// The app's update (bar.js): a tile at the bar's right end once the shell
+// knows of a newer ManimLive; nothing in a tab.
+ManimlBar.updates(document.getElementById("updatebtn"));
 function pulseKey(key) {
   if (stageSource === "playback") {
     if (key === "ArrowRight") ManimlPresentation.playToNextStop();
@@ -1314,8 +1328,7 @@ function chromeHeld() {
     || consolePanel.matches(":hover")
     || toolbar.contains(document.activeElement)
     || navbar.contains(document.activeElement)
-    || !sceneMenu.hidden
-    || !!document.querySelector(".flyover:hover");
+    || !!document.querySelector("#toolbar .bar-menu:not([hidden])");
 }
 
 function showChrome() {

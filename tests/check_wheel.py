@@ -17,6 +17,8 @@ REQUIRED_ASSETS = {
     "maniml/web/static/app.html",
     "maniml/web/static/shell.css",
     "maniml/web/static/viewer.html",
+    # The bar both pages share: its menus, the folder, the update tile.
+    "maniml/web/static/bar.js",
     "maniml/web/static/player.html",
     "maniml/web/static/player.js",
     "maniml/web/static/geometry_recording.js",
