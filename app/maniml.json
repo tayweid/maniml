@@ -23,26 +23,8 @@
     "marker": "web/app.py",
     "probe": "manimlive",
     "python": "3.13",
-    "requirements": [
-      "audioop-lts>=0.2.1; python_version >= '3.13'",
-      "numpy>=1.19.0",
-      "pillow>=8.0.0",
-      "pydub>=0.25.1",
-      "colour>=0.1.5",
-      "pygments>=2.6.0",
-      "PyYAML>=5.3.0",
-      "addict>=2.4.0",
-      "validators>=0.18.0",
-      "appdirs>=1.4.0",
-      "mapbox-earcut>=1.0.0",
-      "svgelements>=1.0.0",
-      "isosurfaces>=0.1.0",
-      "manimpango>=0.4.0",
-      "websockets>=13.0",
-      "fonttools>=4.0.0",
-      "wgpu>=0.32"
-    ],
-    "startTimeout": 60000
+    "startTimeout": 60000,
+    "requirementsFile": "engine-requirements.txt"
   },
   "window": {
     "width": 1280,

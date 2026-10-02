@@ -8,6 +8,7 @@ so `requirements` is the dependency list, and nothing else.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,13 +27,33 @@ class ShellConfigTests(unittest.TestCase):
     def setUpClass(cls):
         cls.config = json.loads(CONFIG.read_text())
 
-    def test_requirements_are_the_declared_dependencies(self):
+    def test_the_engine_installs_the_exported_lockfile(self):
+        """The shell installs app/engine-requirements.txt (claerbout 0.1.7,
+        `requirementsFile`): an exact export of uv.lock, so every install of
+        the app resolves to the same versions. The export must be current:
+        regenerate it with the command in its header after `uv lock`."""
+        engine = self.config["engine"]
+        self.assertNotIn("requirements", engine, "the ranges are replaced by the export")
+        exported = CONFIG.parent / engine["requirementsFile"]
+        self.assertTrue(exported.is_file(), exported)
         declared = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        self.assertEqual(
-            self.config["engine"]["requirements"],
-            declared["project"]["dependencies"],
-            "app/maniml.json's requirements must match pyproject.toml",
-        )
+        pinned = {line.split("==")[0].lower() for line in exported.read_text().splitlines()
+                  if "==" in line and not line.startswith("#")}
+        for requirement in declared["project"]["dependencies"]:
+            name = requirement.split(";")[0].split(">")[0].split("=")[0].strip().lower()
+            self.assertIn(name, pinned, f"{name} is declared but not in the export")
+        uv = shutil.which("uv")
+        if uv is None:
+            self.skipTest("uv is not on PATH; cannot check the export is current")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "export.txt"
+            subprocess.run([uv, "export", "--no-dev", "--no-emit-project", "--no-hashes",
+                            "--frozen", "-q", "-o", str(out)], cwd=ROOT, check=True)
+            self.assertEqual(
+                [l for l in out.read_text().splitlines() if not l.startswith("#")],
+                [l for l in exported.read_text().splitlines() if not l.startswith("#")],
+                "app/engine-requirements.txt is stale: re-run the uv export in its header",
+            )
 
     def test_the_bundle_carries_the_package_and_names_what_exists(self):
         config = self.config

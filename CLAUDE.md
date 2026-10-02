@@ -113,6 +113,10 @@ npm install            # once: the shell and Electron, under node_modules/
 npm run app            # the shell on this checkout, in a window
 npm run app:build      # ManimLive.app into Applications
 npm run app:smoke      # launch on a scene in a throwaway config folder, check it
+# The engine's packages are app/engine-requirements.txt, an exact export of
+# uv.lock the shell installs (claerbout 0.1.7), so every install resolves
+# alike; after `uv lock`, regenerate it (test_shell_config holds it current):
+uv export --no-dev --no-emit-project --no-hashes -o app/engine-requirements.txt
 
 # Full suite (~200s; nothing needs a display: test_web_viewer is a
 # headless end-to-end drive of the viewer over a real WebSocket, and the
@@ -806,8 +810,12 @@ as `?open=<path>` and `app.html` opens it once the engine is there; the root
 is widened because every path the shell hands over is the user's own action
 and the page has no other way to name one. `web/static/setup.html` is the
 first launch's progress screen, the one page the bundle serves itself.
-`tests/test_shell_config.py` holds the config to `pyproject.toml`'s
-dependencies (the bundle carries maniml; uv installs the rest, all wheels).
+`tests/test_shell_config.py` holds `app/engine-requirements.txt`, the export
+of `uv.lock` the shell installs, current (the bundle carries maniml; uv
+installs the rest, all wheels, at the locked versions). Since claerbout
+0.1.6 the venv lives at `~/.local/share/uv/claerbout/maniml`, beside uv's
+own Pythons, and Application Support holds only the app's state; since
+0.1.7 the shell re-installs it when the export changes.
 
 ### The installed app is the local one
 
