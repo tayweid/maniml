@@ -59,7 +59,9 @@ launcher opens a tab instead, a one-line change.
 ## Next
 
 (Written for the launcher. 2026-10-01: item 1 is moot, the shell's app has
-an engine and a port of its own; item 2 is done the shell's way, with no
+an engine and a port of its own — and 2026-10-02 it is done: the agent, the
+manifest and the install offer are gone, `sw.js` stays as a kill switch for
+the worker browsers installed (DECISIONS.md); item 2 is done the shell's way, with no
 wheel — `.github/workflows/deploy.yml` builds the app on a GitHub Mac with
 the Lyon helper in the bundle and publishes the zips, the install line and
 `latest.json` beside the site, and the app updates itself from there; item

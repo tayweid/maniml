@@ -298,6 +298,18 @@ interfaces may still change before the first public release.
   engine a script starts. `maniml app` started with a bare PATH (from
   Finder or launchd) now finds latex, dvisvgm and ffmpeg in their usual
   places, as the agent did.
+- **The login agent and the installable page are retired** (2026-10-02).
+  `maniml agent` — the launchd job that kept `http://localhost:8685` up
+  without a terminal, and `maniml app`'s first-run offer of it and hand-off
+  to it — and the landing page's Install button, with its manifest and
+  caching service worker, are gone: ManimLive.app is the installed app,
+  with a window, an icon, a port and an engine lifetime of its own. The
+  engine still serves `sw.js`, as a kill switch: a browser that installed
+  the old worker keeps running it until a worker at the same URL
+  unregisters it. A terminal's `maniml app` is otherwise as it was
+  (`--port`, `--parent`, `--exit-when-idle`, `--allow-outside-root`,
+  `--no-browser`); when the port it asked for is taken it says which one
+  it landed on.
 - **The dependency list is what the app uses** (DECISIONS.md, "The
   dependency trim"): scipy, matplotlib, screeninfo, rich and tqdm are gone
   (rotations, the banded solve behind smooth handles and the assignment

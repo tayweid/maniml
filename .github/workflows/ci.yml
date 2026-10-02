@@ -57,9 +57,7 @@ jobs:
           tests.test_ce_extractor
           tests.test_web_security
           tests.test_web_server_events
-          tests.test_web_cli
           tests.test_app_relay
-          tests.test_agent
           tests.test_analytic_geometry
           tests.test_analytic_scene
           tests.test_performance

@@ -14,7 +14,6 @@ maniml - ManimCE-compatible API on a shared WebGPU backend
 
 Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
-       maniml agent [install [dir] | open | status | uninstall]
 
 App:
   maniml app       Persistent local app: a landing page listing the
@@ -29,10 +28,6 @@ App:
   --parent PID     Stop when process PID is gone: the Claerbout shell
                    starts the engine with its own pid here, so a
                    force-quit of the app leaves no engine behind
-  maniml agent install [dir]
-                   Keep the app running as a macOS login agent, so
-                   http://localhost:8685 is always there
-  maniml agent open | status | restart | uninstall
 
 Modes:
   (default)        Interactive development in the browser: checkpoints,
@@ -92,35 +87,6 @@ def main():
     flags = {a for a in sys.argv[1:] if a.startswith("-")}
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
 
-    if args and args[0] == "agent":
-        from pathlib import Path
-
-        from maniml import agent as agent_module
-
-        action = args[1] if len(args) > 1 else "status"
-        target = args[2] if len(args) > 2 else None
-        port = agent_module.DEFAULT_APP_PORT
-        for flag in flags:
-            if flag.startswith("--port="):
-                port = int(flag.split("=", 1)[1])
-        if action == "install":
-            sys.exit(agent_module.install(target, port))
-        if action == "serve":
-            sys.exit(agent_module.serve(target or str(Path.home()), port))
-        if action == "uninstall":
-            sys.exit(agent_module.uninstall())
-        if action == "status":
-            sys.exit(agent_module.status())
-        if action == "restart":
-            sys.exit(agent_module.restart())
-        if action == "open":
-            sys.exit(agent_module.open_app())
-        print(
-            "Usage: maniml agent "
-            "[install [dir] | open | status | restart | uninstall]"
-        )
-        sys.exit(1)
-
     if args and args[0] == "app":
         import argparse
 
@@ -139,19 +105,13 @@ def main():
         parser.add_argument("--allow-outside-root", action="store_true")
         parser.add_argument("--exit-when-idle", action="store_true")
         options = parser.parse_args(sys.argv[2:])
-        # ManimLive.app starts the engine this way: no one is at a terminal to
-        # answer the agent offer, and nothing else will ever stop it. An
-        # engine with a parent is the shell's child, and the shell stops it.
-        from_app = options.exit_when_idle or options.parent is not None
         run_app(
             root=options.root,
+            # The shell's engine is its window's; a tab would be a second one.
             open_browser=not options.no_browser and options.parent is None,
             allow_outside_root=options.allow_outside_root,
             port=options.port,
             parent=options.parent,
-            # Only the command a person typed may reuse a running engine or
-            # ask about the login agent; `maniml agent serve` is the agent.
-            offer_agent=not from_app,
             idle_exit=IDLE_EXIT_SECONDS if options.exit_when_idle else None,
         )
         return

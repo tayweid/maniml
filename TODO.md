@@ -426,11 +426,10 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
 - **`AddTextWordByWord`** groups label/isolate spans rather than words.
   Fix if a course scene uses it; diagnosis in `docs/performance_2026-08.md`.
 - **Typography drift vs CE** for multi-part `MathTex` joins. Cosmetic.
-- **Test debt** (2026-08-18 review, still true): `web/cli.py`'s
-  `hand_off_to_a_running_engine` restart/reuse branches; `agent`
-  `status`/`restart`/`uninstall`/`serve` against the mocked launchctl;
-  relay failure paths in `web/app.py`; recents/choose over the real
-  control socket; log messages through the app relay.
+- **Test debt** (2026-08-18 review, still true): relay failure paths in
+  `web/app.py`; recents/choose over the real control socket; log messages
+  through the app relay. (The agent and the hand-off on that list were
+  retired 2026-10-02.)
 
 ## Design questions, not scheduled
 
@@ -440,9 +439,10 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
   2026-10-01) builds the app on a GitHub Mac with the Lyon helper and
   publishes it beside the site with the install line and `latest.json`,
   as Knuth's and Plass's deploys do, and the app updates itself from
-  there. Next: Windows, with Knuth's; retire the agent and the PWA (the
-  landing page's install offer and `sw.js`, `maniml agent`), which the
-  shell's app has no use for.
+  there. The agent and the PWA (`maniml agent`, the landing page's install
+  offer and its manifest), which the shell's app had no use for, were
+  retired 2026-10-02 (DECISIONS.md); `sw.js` stays as a kill switch for
+  the worker browsers installed. Next: Windows, with Knuth's.
 - **Cell-marked scene files.** Stepping runs a whole unit (a `for` loop
   of plays is one press) and a scene opens on an empty frame because
   its `self.add(...)` preamble shares the first play's unit. Both

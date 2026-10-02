@@ -85,7 +85,7 @@ def bind_loopback(preferred: int, scan: int = 1) -> socket.socket:
 
     `preferred` is a rendezvous, not a requirement: `scan` consecutive ports
     are tried so several scene viewers can coexist, and anything still taken
-    (an agent holding the default, say) lands on an OS-assigned port.
+    (another engine holding the default, say) lands on an OS-assigned port.
     """
     for port in range(preferred, preferred + scan) if preferred else ():
         try:

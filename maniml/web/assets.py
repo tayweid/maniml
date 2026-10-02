@@ -29,7 +29,6 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 # The WebGPU renderer fetches its shader sources as text; nothing maps these.
 SHADER_CONTENT_TYPES = {
     ".wgsl": "text/plain",
-    ".webmanifest": "application/manifest+json",
 }
 
 VERSION_PLACEHOLDER = "__MANIML_VERSION__"
@@ -176,13 +175,11 @@ def static_response(request: Request, index: str) -> Response:
 
     body = target.read_bytes()
     if VERSION_PLACEHOLDER.encode() in body:
-        # Stamp whatever asks for it with the installed version. Two things
-        # depend on this: the service worker, because a browser decides
-        # whether to install a new one by comparing bytes and because the
-        # stamp keys its shell cache; and the app page, so `maniml app` can
-        # ask a running engine what it is serving. pip replaces files, it
-        # does not restart processes, and an engine that has been up since
-        # before an upgrade keeps serving what it booted with.
+        # Stamp whatever asks for it with the installed version: the app
+        # page carries it in a <meta>, so a GET of a running engine says
+        # what it is serving. An install replaces files, it does not restart
+        # processes, and an engine that has been up since before an upgrade
+        # keeps serving what it booted with.
         body = body.replace(
             VERSION_PLACEHOLDER.encode(), _package_version().encode()
         )

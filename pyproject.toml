@@ -109,7 +109,6 @@ maniml = [
     "web/static/*.html",
     "web/static/*.css",
     "web/static/*.js",
-    "web/static/*.webmanifest",
     "web/static/icons/*",
     "web/static/wgsl/*",
     "web/static/winding_wgsl/*",

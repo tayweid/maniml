@@ -87,12 +87,6 @@ maniml script.py SceneName
 # above; the viewer's scene picker switches scenes within that process.
 maniml app [dir]
 
-# Keep it running as a macOS login agent at http://localhost:8685. `maniml
-# app` offers this once, on first run, so the terminal need not stay open;
-# it also hands off to an engine already on the port rather than binding a
-# second one, and restarts an agent still serving pre-upgrade code.
-maniml agent install [dir]
-
 # The Mac app, no terminal: ManimLive.app in the Claerbout shell (Electron,
 # one shell for Knuth, Plass and ManimLive; docs/claerbout_experiment.md).
 # app/maniml.json is the config, the shell builds ManimLive.app from it with the maniml package
@@ -161,11 +155,11 @@ keeps that name. Module map:
 - `viewer.py` — `WebViewer`, the Window stand-in; streaming policy; the console tap.
 - `app.py` — `AppServer` and its `SceneProcess` children: the relay, the control protocol.
 - `library.py` — what the app knows about scene files: the AST scene scan, the recents list. Pure filesystem functions; `viewer.py`'s scene picker imports from here without touching the app machinery.
-- `cli.py` — `run_app`, `running_engine`, and the handoff to an engine already on the port. What `maniml app` runs.
+- `cli.py` — `run_app` (with `search_path` for a Finder-launched engine's bare PATH, and `watch_parent` for the shell's pid). What `maniml app` runs, and what the shell starts its engine with.
 - `assets.py` — static serving from `web/static/`, the CSP, version-stamping.
 - `security.py` — the Origin check, scene-root confinement, bounded JSON parsing.
 - `geometry.py`, `wgpu_renderer.py`, `export.py` — Stage 2 client rendering and the baked player (below).
-- `static/` — `viewer.html` and `app.html` (each one file; shared tokens, the pod run, *and the controls a pod holds* — slug, icon button, word tag — in `shell.css`, since the landing page is the same bar as the viewer's — the chrome is Plass's toolbar with its metrics, not an imitation: 60px bar, 42px pods pressed into a run with stadium ends, contents asleep until the pointer nears, flyouts as pills laid over their trigger), `webgpu.js`/`wgsl/` (WebGPU), `player.*` (the baked player, deliberately standalone — no `shell.css`), `manifest.webmanifest` + `sw.js` (the installable local app).
+- `static/` — `viewer.html` and `app.html` (each one file; shared tokens, the pod run, *and the controls a pod holds* — slug, icon button, word tag — in `shell.css`, since the landing page is the same bar as the viewer's — the chrome is Plass's toolbar with its metrics, not an imitation: 60px bar, 42px pods pressed into a run with stadium ends, contents asleep until the pointer nears, flyouts as pills laid over their trigger), `webgpu.js`/`wgsl/` (WebGPU), `player.*` (the baked player, deliberately standalone — no `shell.css`), `sw.js` (a kill switch for the worker of the once-installable page; "The installed app is ManimLive.app" below).
 
 ### The viewer
 
@@ -718,9 +712,9 @@ one); not flipped.
 
 ## Delivery: one artifact, local only
 
-The interface is served by the engine that runs the scenes. `maniml app` (and
-`maniml agent`) binds **one** loopback port, serves `web/static/` from the
-installed package, and accepts the page's control WebSocket on that same port.
+The interface is served by the engine that runs the scenes. `maniml app`
+binds **one** loopback port, serves `web/static/` from the installed package,
+and accepts the page's control WebSocket on that same port.
 There is no hosted origin, no deployment step, and no version negotiation:
 frontend and engine are the same pip install, so they cannot drift.
 
@@ -734,12 +728,14 @@ because the Origin allowlist needs the resolved port at that moment. A scene
 runs in its own subprocess (crash isolation: scene files are arbitrary code)
 and that process is a complete server in its own right — which is what
 `maniml file.py Scene --web` uses — but a scene opened *through the app* must
-not move the browser to that process's port, because **the port is the
-installed app's identity**: a PWA installed from `http://localhost:8685` is
-scoped to it, and navigating elsewhere would pop the browser out of the app
-window. So `app.py` serves the viewer page itself and relays `/scene/<id>` to
-the process backing it, connecting as an ordinary client. The browser only
-ever sees one port.
+not move the browser to that process's port, because **one port is the app's
+whole origin**: the page and every window the shell opens are on the port the
+engine was started on, and a scene process's port is an address nothing but
+the engine knows (while the page was installable, a PWA installed from
+`http://localhost:8685` was scoped to it too, and navigating elsewhere popped
+the browser out of the app window). So `app.py` serves the viewer page itself
+and relays `/scene/<id>` to the process backing it, connecting as an ordinary
+client. The browser only ever sees one port.
 
 This replaced an architecture where the UI was a PWA on GitHub Pages talking
 to localhost; everything that bridged that gap — roughly 1,400 lines — is
@@ -760,11 +756,12 @@ What remains, and why:
   `SECURITY.md`'s table: *embedding a token and keeping a token are different
   decisions, and doing the first without noticing turns the second into
   decoration.*
-- **The launchd agent** (`maniml/agent.py`) keeps `http://localhost:8685` up
-  without a terminal. It owns the default port for the login session, so a
-  foreground `maniml app` started alongside it lands on an OS-assigned port and
-  opens a page on *that* origin — which then talks to itself, not the agent,
-  because the page only ever speaks to where it came from.
+- **The default port is a rendezvous.** A terminal's `maniml app` asks for
+  8685 and, finding it taken, lands on an OS-assigned port, says so, and opens
+  a page on *that* origin — which talks to itself, because the page only ever
+  speaks to where it came from. ManimLive.app's engine is started on the
+  shell's own port (8690) and never competes. (The launchd agent that once
+  held 8685 for the whole login session was retired 2026-10-02; below.)
 - **The native file dialog** (`maniml/desktop.py`, now only
   `choose_python_file`). The engine shows the platform dialog and gets a real
   path, which the watcher and the scene's `__file__`-relative imports both need.
@@ -817,27 +814,40 @@ installs the rest, all wheels, at the locked versions). Since claerbout
 own Pythons, and Application Support holds only the app's state; since
 0.1.7 the shell re-installs it when the export changes.
 
-### The installed app is the local one
+### The installed app is ManimLive.app
 
-`web/static/manifest.webmanifest` + `sw.js` make `http://localhost:8685` an
-installable app: its own icon, a window without a tab strip, and — because the
-worker caches the shell — a window that still opens when the engine is not
-running, says so, and heals itself when it starts (the page reconnects on its
-own). `app.html` offers the install once the browser says it can.
+Until 2026-10-02 the engine served `manifest.webmanifest` and a caching
+`sw.js`, which made `http://localhost:8685` an installable app (its own icon,
+a window without a tab strip, a shell that still opened when the engine was
+not running and healed when it started), `app.html` offered the install once
+the browser said it could, and `maniml agent` (`maniml/agent.py`, a launchd
+login agent) kept 8685 up without a terminal, with `maniml app` handing off to
+an engine already on the port and restarting one serving pre-upgrade code.
+Both were retired the day after ManimLive.app on the Claerbout shell became
+the app: the shell's app has its own window, icon, port (8690) and engine
+lifetime (the engine is its child and stops with it), so the PWA's identity
+and the agent's persistence had nothing left to do, and each was one more
+system to keep straight beside the shell's (DECISIONS.md, "The login agent
+and the PWA are retired"). What remains, and why:
 
-- **The port is the identity.** A PWA is scoped to the origin it was installed
-  from, which is why a scene opened through the app is relayed rather than
-  navigated to (above), and why `run_app` says so out loud when the default
-  port was taken and it landed elsewhere.
-- **The worker is version-stamped as it is served** (`assets.py` replaces
-  `__MANIML_VERSION__`). A browser installs a new worker only when the bytes
-  differ, and the cache name carries the same stamp, so `pip install --upgrade`
-  cannot leave an old shell in front of a new engine.
-- **No `file_handlers` yet, deliberately.** A `.py` double-click arrives
-  through `launchQueue` as a browser file handle, which has no filesystem path
-  — and the watcher and the scene's own `__file__`-relative imports both need a
-  real one (that is why `desktop.py`'s native dialog exists). Registering
-  handlers would claim every `.py` on the machine and then fail to open them.
+- **`sw.js` is a kill switch**, in the shape of `site/sw.js`: a browser that
+  installed the old worker keeps running it until a worker at the same URL
+  retires it, so the file must keep existing and is served as before. It
+  registers no fetch handler, clears the caches, unregisters itself and
+  reloads any window still under the old worker. `tests/test_static_assets.py`
+  holds it to that shape and `tests/check_wheel.py` has it ship. Do not
+  delete it.
+- **The version stamp** (`assets.py` replaces `__MANIML_VERSION__` as it
+  serves a file) stays for `app.html`'s `<meta name="maniml">`, so a GET of a
+  running engine says what it is serving; it no longer keys a cache.
+- **No file handlers in the page, still.** A browser file handle has no
+  filesystem path, and the watcher and the scene's `__file__`-relative imports
+  need one (that is why `desktop.py`'s native dialog exists). The shell
+  registers the `.py` type (`documentTypes` in `app/maniml.json`) and hands
+  the path over as `?open=<path>`.
+- **`search_path`** moved from `agent.py` to `web/cli.py`: a Finder-launched
+  engine has launchd's bare PATH and must still find latex, dvisvgm and
+  ffmpeg.
 
 ### The hosted origin is a preview, and only a preview
 
@@ -848,8 +858,9 @@ CI and in the test run, because two invariants meet there:
 
 - A public origin must never talk to loopback. That is the rule above.
 - **Only one app may own the `.py` double-click.** If the hosted build were
-  installable it would compete with the local one for every file the user
-  opens, so the install offer belongs to `http://localhost:8685` alone.
+  installable it would compete with ManimLive.app for every file the user
+  opens, so nothing hosted may be installable (and since 2026-10-02 nothing
+  the engine serves is either; above).
 
 `site/sw.js` is a kill switch rather than a worker: the pre-collapse hosted
 build registered a caching service worker, and a browser that has it keeps

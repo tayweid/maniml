@@ -48,9 +48,10 @@ from maniml.web.server import bind_loopback
 VIEWER_LAUNCH_PATTERN = re.compile(
     r"^maniml web viewer: (?P<url>http://localhost:\d+/)\s*$"
 )
-# One port for the page and its control socket. It is a rendezvous, not a
-# requirement: a background agent holds it for the login session, and a
-# foreground `maniml app` started alongside falls back to an OS-assigned one.
+# One port for the page and its control socket, for a terminal's `maniml
+# app`. It is a rendezvous, not a requirement: a second engine started
+# alongside falls back to an OS-assigned one. ManimLive.app's engine is
+# given the shell's own port (8690, app/maniml.json) and never competes.
 DEFAULT_APP_PORT = 8685
 
 

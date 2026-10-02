@@ -122,31 +122,6 @@ ManimLive menu → Check for Updates…) downloads the new build, swaps it in
 and relaunches. How the port was made is in
 `docs/claerbout_experiment.md`.
 
-The background engine below is a terminal's: the app has an engine of its own
-and never uses it.
-
-### Background engine (macOS)
-
-The first time you run `maniml app` it offers to keep the engine running in the
-background. Accept and the terminal is free: the app stays at
-`http://localhost:8685` across logouts and reboots, and later `maniml app`
-simply opens it. It asks once and remembers your answer.
-
-You can do the same by hand at any time:
-
-```bash
-python -m maniml agent install ~/Projects   # scenes live under this directory
-python -m maniml agent open                 # open the app
-```
-
-`maniml agent status`, `restart`, `uninstall` manage the job; the log is
-`~/Library/Logs/maniml-agent.log`. The address carries nothing secret, so it
-is worth bookmarking: it keeps working across restarts and logins.
-
-The agent holds the default port for the whole login session. A foreground
-`maniml app` started alongside it binds an OS-assigned port instead and opens
-the page on *that* address, so both remain usable.
-
 ## Interactive controls
 
 In the browser viewer:

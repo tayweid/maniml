@@ -25,29 +25,11 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 from pathlib import Path
 from typing import Any
 
 
 MAX_CONTROL_MESSAGE = 64 * 1024
-
-CONFIG_DIR = Path.home() / ".maniml"
-
-
-def prepare_config_dir() -> Path:
-    """Return ~/.maniml, created 0700, refusing a symlinked or non-directory."""
-    directory = CONFIG_DIR
-    try:
-        info = directory.lstat()
-    except FileNotFoundError:
-        directory.mkdir(mode=0o700, parents=True)
-    else:
-        if not stat.S_ISDIR(info.st_mode) or directory.is_symlink():
-            raise RuntimeError(f"maniml config path is not a directory: {directory}")
-    if os.name != "nt":
-        directory.chmod(0o700)
-    return directory
 
 
 def parse_json_object(message: Any) -> dict | None:

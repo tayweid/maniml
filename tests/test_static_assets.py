@@ -7,7 +7,6 @@ which is exactly what these tests are here to keep true.
 
 from __future__ import annotations
 
-import json
 import re
 import unittest
 from pathlib import Path
@@ -30,7 +29,7 @@ class LocalOnlyTests(unittest.TestCase):
                 "tayweid.github.io",      # hosted origins
                 "maniml.tayweid.io",
                 "WEB_PROTOCOL_VERSION",   # engine/frontend skew negotiation
-                "launchQueue",            # see test_no_file_handlers_yet
+                "launchQueue",            # OS file delivery: the shell hands ?open=<path> instead
             ):
                 self.assertNotIn(forbidden, page, f"{name}: {forbidden}")
 
@@ -54,41 +53,49 @@ class LocalOnlyTests(unittest.TestCase):
         for absent in ("fileCard", 'id="files"', 'id="picked"', "No scene files"):
             self.assertNotIn(absent, page, absent)
 
-    def test_the_installable_app_is_the_local_one(self):
-        """The manifest and worker are served by the engine, so the app you
-        install is the one that can run a scene. The hosted preview must have
-        neither — tests/check_site.py holds that end."""
-        manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
-        self.assertEqual(manifest["scope"], "/")
-        self.assertEqual(manifest["start_url"], "/")
-        self.assertEqual(manifest["display"], "standalone")
-        self.assertTrue((STATIC / "sw.js").is_file())
-        self.assertIn('rel="manifest"', (STATIC / "app.html").read_text())
+    def test_the_page_is_not_installable(self):
+        """Until 2026-10-02 a manifest, an Install button and a caching
+        worker made http://localhost:8685 an installable app. ManimLive.app
+        on the Claerbout shell is the installed app now, with a window, an
+        icon, a port and an engine lifetime of its own, so the page offers
+        nothing a browser could install. The hosted preview never could —
+        tests/check_site.py holds that end."""
+        self.assertFalse((STATIC / "manifest.webmanifest").exists())
+        page = (STATIC / "app.html").read_text()
+        for absent in ('rel="manifest"', "installbtn", "beforeinstallprompt",
+                       "appinstalled", "serviceWorker"):
+            self.assertNotIn(absent, page, absent)
         # index.html was the hosted build's redirect stub; the engine serves
         # app.html at its root directly.
         self.assertFalse((STATIC / "index.html").exists())
 
-    def test_no_file_handlers_yet(self):
-        """A `.py` double-click would arrive through launchQueue as a browser
-        file handle, which has no filesystem path — and the watcher and the
-        scene's own __file__-relative imports both need a real one. That is
-        why the engine shows the native dialog instead. Registering handlers
-        before that is solved would claim every .py on the machine and then
-        fail to open them."""
-        manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
-        self.assertNotIn("file_handlers", manifest)
-
-    def test_the_worker_is_versioned_by_the_engine_that_serves_it(self):
-        """A browser installs a new worker only when the bytes differ, and the
-        cache is keyed the same way, so an upgraded engine cannot be handed a
-        shell its predecessor cached."""
+    def test_the_worker_is_a_kill_switch(self):
+        """A browser that installed the old worker keeps running it until a
+        worker at the same URL retires it, so sw.js must keep existing, be
+        served as before, and unregister its predecessor rather than serve
+        anything (the shape of site/sw.js)."""
         worker = (STATIC / "sw.js").read_text()
-        self.assertIn(assets.VERSION_PLACEHOLDER, worker)
-        self.assertIn(f"maniml-shell-${{VERSION}}", worker)
+        self.assertIn("registration.unregister()", worker)
+        self.assertIn("caches.delete(", worker)
+        self.assertIn("client.navigate(client.url)", worker)
+        for serving in ('addEventListener("fetch"', "addEventListener('fetch'",
+                        "respondWith", assets.VERSION_PLACEHOLDER):
+            self.assertNotIn(serving, worker, serving)
         request = SimpleNamespace(method="GET", path="/sw.js", headers={})
+        served = assets.static_response(request, index="app.html")
+        self.assertEqual(served.status_code, 200)
+        self.assertIn("javascript", served.headers["Content-Type"])
+        self.assertEqual(served.body.decode(), worker)
+
+    def test_the_page_says_what_the_engine_serves(self):
+        """An install replaces files without restarting processes, so the
+        page is stamped with the version of the engine that served it."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn(f'<meta name="maniml" content="{assets.VERSION_PLACEHOLDER}">', page)
+        request = SimpleNamespace(method="GET", path="/", headers={})
         served = assets.static_response(request, index="app.html").body.decode()
         self.assertNotIn(assets.VERSION_PLACEHOLDER, served)
-        self.assertIn(assets._package_version(), served)
+        self.assertIn(f'<meta name="maniml" content="{assets._package_version()}">', served)
 
     def test_app_page_talks_only_to_its_own_origin(self):
         page = (STATIC / "app.html").read_text()

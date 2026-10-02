@@ -37,9 +37,10 @@ REQUIRED_ASSETS = {
     "maniml/camera/native_gl_camera.py",
     "maniml/rendering/shader_wrapper.py",
     "maniml/rendering/gl_shaders.py",
-    # The installed app's identity: without these the engine serves a page
-    # that cannot be installed, and the icon and offline shell disappear.
-    "maniml/web/static/manifest.webmanifest",
+    # sw.js is the kill switch for the worker the engine served until
+    # 2026-10-02: a browser that installed it keeps running it until a
+    # worker at the same URL retires it, so the file must ship. The icons
+    # are the page's favicon and the shell's app icon.
     "maniml/web/static/sw.js",
     "maniml/web/static/icons/maniml-192.png",
     "maniml/web/static/icons/maniml-512.png",

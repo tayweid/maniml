@@ -1,58 +1,27 @@
-// The installed app's shell.
+// Kill switch, not a service worker.
 //
-// This exists so ManimLive opens when you click its icon even if the engine
-// is not running: the window appears, says the engine is not there, and heals
-// itself the moment you start it, because the page reconnects on its own.
+// Until 2026-10-02 the engine served a manifest and a caching worker here,
+// which made http://localhost:8685 an installable app: its own icon, a
+// window without a tab strip, a shell that opened when the engine was not
+// running. ManimLive.app on the Claerbout shell is the installed app now,
+// with a window, an icon, a port and an engine lifetime of its own, so the
+// manifest and the install offer are gone. Deleting this file is not
+// enough: a browser that installed the old worker keeps running it, and
+// would go on serving its cached shell against an engine whose page has
+// moved on. So this file has to keep existing at the same URL, and its
+// only job is to remove its predecessor.
 //
-// Network-first, always. The engine serves this file, so the network is a
-// local process — fast, and authoritative about its own assets. The cache is
-// only the fallback for when it is not running.
-//
-// VERSION is replaced by the installed package version when the engine serves
-// this file (web/assets.py). That matters twice: the bytes change on upgrade,
-// which is what makes the browser install the new worker at all, and the
-// cache name changes with it, so an upgraded engine can never be handed a
-// shell cached by the old one.
-const VERSION = "__MANIML_VERSION__";
-const CACHE = `maniml-shell-${VERSION}`;
-const SHELL = ["/", "/app.html", "/viewer.html", "/shell.css"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    await cache.addAll(SHELL).catch(() => {});
-    await self.skipWaiting();
-  })());
-});
+// It registers no fetch handler, so it never serves anything.
+self.addEventListener("install", () => self.skipWaiting());
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    for (const key of await caches.keys()) {
-      if (key !== CACHE) await caches.delete(key);
-    }
-    await self.clients.claim();
-  })());
-});
-
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-  if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) {
-    return;
-  }
-  event.respondWith((async () => {
-    try {
-      const response = await fetch(request);
-      if (response.ok && request.mode === "navigate") {
-        const cache = await caches.open(CACHE);
-        await cache.put(request, response.clone());
-      }
-      return response;
-    } catch (error) {
-      // The engine is not running. Serve the shell so the window still opens.
-      const cached = await caches.match(request)
-        || await caches.match("/app.html");
-      if (cached) return cached;
-      throw error;
+    for (const key of await caches.keys()) await caches.delete(key);
+    await self.registration.unregister();
+    // Reload any window still running under the old worker so it lands on the
+    // engine's current page rather than whatever the dead cache last held.
+    for (const client of await self.clients.matchAll({ type: "window" })) {
+      client.navigate(client.url);
     }
   })());
 });

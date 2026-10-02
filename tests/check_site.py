@@ -1,17 +1,17 @@
 """Guard the published preview against becoming the application again.
 
-`site/` goes to a public origin. The application does not: it is served by the
-engine that runs your scenes, from the same pip install, and that local copy is
-the only installable one. Two rules follow, and this script enforces both so
-that a future edit cannot quietly undo them.
+`site/` goes to a public origin. The application does not: it is ManimLive.app,
+whose page is served by the engine that runs your scenes. Two rules follow,
+and this script enforces both so that a future edit cannot quietly undo them.
 
 **Nothing here may reach a local engine.** A public page talking to loopback is
 the seam that caused essentially every delivery bug this project has had; it
 was deleted deliberately (see CLAUDE.md, "Delivery: one artifact, local only").
 
 **Nothing here may be installable.** Only one installed app can own the `.py`
-double-click. If the hosted build were installable it would compete with the
-local one for every file the user opens.
+double-click. If the hosted build were installable it would compete with
+ManimLive.app for every file the user opens. (Since 2026-10-02 the engine's own
+page is not installable either: the shell's app replaced the PWA.)
 
 Run standalone (this is what CI does), or via tests/test_hosted_site.py:
 
@@ -38,7 +38,7 @@ FORBIDDEN = {
     "fetch(": "a request to a local engine",
     'rel="manifest"': "a web app manifest, which would make it installable",
     "file_handlers": "a file-type registration competing with the local app",
-    "beforeinstallprompt": "an install prompt; installing belongs to the local app",
+    "beforeinstallprompt": "an install prompt; the installed app is ManimLive.app",
     "launchQueue": "OS file delivery, which only the local app should receive",
 }
 

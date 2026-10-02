@@ -5,6 +5,41 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The login agent and the PWA are retired (2026-10-02)
+
+Taylor, asked whether to retire `maniml agent` and the installable page
+now that ManimLive.app is the app: "yeah lets retire", "yeah clean that
+all up". Both existed to make a terminal command feel like an application.
+The launchd agent (`maniml/agent.py`) kept `http://localhost:8685`
+up across logouts, `maniml app` offered it on first run and handed off to
+an engine already on the port (restarting one serving pre-upgrade code),
+and the manifest with a caching service worker gave that origin an icon, a
+window without a tab strip and a shell that opened when the engine was
+down. ManimLive.app on the Claerbout shell (2026-10-01) does all of it as
+an app does: its own window and icon, its own port (8690), an engine that
+is its child and stops with it, updates from the site. The two older paths
+were the second and third system Taylor had already named as the problem
+(`docs/app_plan.md`: "the fact that it needs both the pwa and the terminal
+maintained separately is annoying and feels janky"), and Knuth's port
+retired its equivalents at the same step.
+
+What went: `maniml/agent.py` and the `agent` command; `run_app`'s
+`offer_agent` and `state_path` with the hand-off (`running_engine`,
+`hand_off_to_a_running_engine`); `~/.maniml` (`security.CONFIG_DIR`, the
+agent's state folder, which nothing else used); `manifest.webmanifest`, the
+Install button and the worker registration in `app.html`; their tests and
+CI entries; the README's "Background engine" section. What stayed, and
+why: `search_path`, now in `web/cli.py`, because a Finder-launched engine
+has launchd's bare PATH and must find latex, dvisvgm and ffmpeg; the
+version stamp in `app.html`'s `<meta name="maniml">`, because a GET of a
+running engine should say what it serves; and `sw.js`, rewritten as a kill
+switch in the shape of `site/sw.js` — a browser that installed the old
+worker keeps running it until a worker at the same URL unregisters it, so
+the file keeps existing at that URL, serves nothing, clears the caches,
+unregisters itself and reloads the window. `tests/test_static_assets.py`
+holds the page uninstallable and the worker to that shape. Decided in the
+same conversation: no Intel Mac build; the deploy stays Apple silicon only.
+
 ## The dependency trim, and the app as the product (2026-09-30)
 
 Taylor, on the Claerbout experiment's install figures (243 MB of

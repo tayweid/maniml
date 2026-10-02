@@ -60,7 +60,8 @@ it, so no website can drive the engine regardless of the port it guesses. A
 request with no `Origin` at all is refused for the same reason: it is not the
 page this server handed out.
 
-There is no capability token, and the address (`http://localhost:8685/`)
+There is no capability token, and the address (`http://localhost:8685/` for a
+terminal's `maniml app`; ManimLive.app's engine is on the shell's own port)
 carries no secret. That is a deliberate narrowing of the threat model rather
 than an oversight, so it is worth stating what it does and does not cover:
 
