@@ -248,7 +248,9 @@ interfaces may still change before the first public release.
   for; from a terminal a fresh instance of the scene on the same
   connection, the file re-imported and `setup()` run again. The button
   turns until the restarted scene answers, and a recording playing on
-  the stage is left first so the result is what you see.
+  the stage is left first so the result is what you see. A restart while
+  the file does not load (a syntax error mid-edit) restarts from the
+  code that last loaded, the error on the console, in both cases.
 - **Start**, first on the bottom bar before Back, and the **Home** key:
   a jump to the start with the timeline kept — the Start chip's own
   jump, as a control and a key — so Next then replays what was built.

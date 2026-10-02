@@ -260,9 +260,18 @@ class AppServer:
         reconnect loop finds the new process at the same /scene/<id>; its
         ready message carries a new boot id, and the page reloads itself on
         that (viewer.html), which resets the page as thoroughly as the
-        engine. The new process is started before the old one is stopped:
-        the relay that saw the old one die finds the map already pointing
-        at its successor.
+        engine.
+
+        The replacement is built and waited for before it takes the id and
+        the old process is stopped. A Restart while the file does not load
+        (a syntax error mid-edit) is a replacement that dies at import;
+        stopping the old process first left the id naming nothing — every
+        reconnect refused, the error nowhere (a failed process's output is
+        read only when an open fails), the scene gone until the landing
+        page assigned a new id. So a replacement that does not serve is
+        stopped and None returned with both maps untouched, and the relay
+        forwards the restart to the process it has, which restarts from the
+        code that last loaded as a terminal restart does.
         """
         with self._lock:
             if self._shutdown_complete:
@@ -270,13 +279,23 @@ class AppServer:
             previous = self._scenes_by_id.get(scene_id)
             if previous is None:
                 return None
-            process = SceneProcess(
-                previous.path, previous.scene, identifier=scene_id,
-            )
+        # Outside the lock: the wait is the new process's whole start-up.
+        process = SceneProcess(previous.path, previous.scene, identifier=scene_id)
+        if process.wait_for_url() is None:
+            process.stop()
+            return None
+        with self._lock:
+            if self._shutdown_complete:
+                process.stop()
+                return None
+            # Whatever holds the id by now: the process this restart
+            # replaces, or a concurrent restart's replacement, which this
+            # one displaces rather than orphans.
+            displaced = self._scenes_by_id.get(scene_id, previous)
             self.processes[(previous.path, previous.scene or "")] = process
             self._scenes_by_id[scene_id] = process
         # Outside the lock: stopping waits for the old process to go.
-        previous.stop()
+        displaced.stop()
         return process
 
     def recents_payload(self) -> dict:
@@ -509,10 +528,9 @@ class AppServer:
             """
             process = self._scenes_by_id.get(scene_id)
             if process is not None and process.url is None and process.alive():
-                # Just started, or just restarted under this id: hold the
-                # page's socket until the scene serves, so a Restart's
-                # reconnect lands on the new process rather than on the
-                # "can't reach the engine" overlay.
+                # Still starting under this id: hold the page's socket
+                # until the scene serves, so the page lands on the scene
+                # rather than on the "can't reach the engine" overlay.
                 await asyncio.to_thread(process.wait_for_url)
             target = process.ws_url if process is not None else None
             if target is None or not process.alive():
@@ -525,13 +543,22 @@ class AppServer:
                 is the app's to act on: the scene process cannot restart
                 itself as thoroughly as the app can replace it (above),
                 so the message is taken here, the process is replaced,
-                and this socket closes for the page to reconnect."""
+                and this socket closes for the page to reconnect. When
+                the replacement does not serve (the file does not load:
+                a syntax error mid-edit) the app keeps the process it
+                has and the message goes through to it after all: the
+                scene restarts from the code that last loaded, as a
+                terminal restart does, the traceback on its console,
+                and the state it announces clears the page's busy
+                button."""
                 async for message in source:
                     if isinstance(message, str) and "restart" in message:
                         event = parse_json_object(message)
                         if event is not None and event.get("type") == "restart":
-                            await asyncio.to_thread(self.restart_scene, scene_id)
-                            return
+                            replaced = await asyncio.to_thread(
+                                self.restart_scene, scene_id)
+                            if replaced is not None:
+                                return
                     await sink.send(message)
 
             try:

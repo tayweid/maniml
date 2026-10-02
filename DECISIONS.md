@@ -63,6 +63,18 @@ which it does well. Not done: reloading the scene's own helper modules
 inside a process (the app's respawn covers it; a terminal run does not
 reload helpers, as before).
 
+Review found the one edge where the app's path was worse than the
+button it replaced: a Restart while the file does not load (a syntax
+error mid-edit). `restart_scene` stopped the old process before the
+replacement had served, the replacement died at import, and the id then
+named nothing — every reconnect refused, the error nowhere (a failed
+process's output is read only when an open fails), the only way back
+the landing page and a new id. The replacement is now built and waited
+for before it takes the id, and one that does not serve leaves the old
+process in place and the restart goes through to it: the terminal
+path's restart from the code that last loaded, under the app too, the
+traceback on the console.
+
 ## The login agent and the PWA are retired (2026-10-02)
 
 Taylor, asked whether to retire `maniml agent` and the installable page

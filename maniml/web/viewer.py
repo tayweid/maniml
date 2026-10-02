@@ -651,8 +651,11 @@ class WebViewer:
             # checkpoint 0 with no history — on this same viewer and
             # socket. (_restart_from_source, the watcher's path for an
             # edit outside construct(), re-execs the file and keeps the
-            # rest; it is not this.) Under the app this message never
-            # arrives: the relay takes it and replaces the whole process.
+            # rest; it is not this.) Under the app the relay takes this
+            # message and replaces the whole process; it arrives here
+            # only when the replacement could not serve (the file does
+            # not load), and is then the same restart from the code that
+            # last loaded that a terminal run gets.
             self._pending_scene = type(scene).__name__
             scene.quit_interaction = True
 
