@@ -442,6 +442,52 @@ class FrameTests(unittest.TestCase):
         self.assertIn("#toolbar .icon-button svg { width: 18px; height: 18px; }", shell)
         self.assertIn("font: 15px/1.5 var(--serif); letter-spacing: 0.09em;", shell)
 
+    def test_the_engines_status_keeps_its_width(self):
+        """In class the status pill is the one place that says whether the
+        engine is still answering, so the bar's right end never shrinks: the
+        name pill's folder gives way first, then the name. Shrinkable, it
+        was cut to a dot, or pushed under the console tile, at projector
+        widths (1024 with the update showing)."""
+        shell = (STATIC / "shell.css").read_text()
+        end = shell[shell.index(".tb-end {"):]
+        end = end[:end.index("}")]
+        self.assertIn("flex: none;", end)
+        self.assertNotIn("min-width: 0", end)
+        pill = shell[shell.index(".doc-pod {"):]
+        pill = pill[:pill.index("}")]
+        self.assertIn("flex: 0 1 auto; min-width: 0;", pill)
+
+    def test_the_bars_quiet_text_stays_in_the_bar(self):
+        """A render's status and the renderer's warning are one line each,
+        as the old bar's pods kept them: wrapped, they ran down out of the
+        bar over the room. The render's status is the bar's own item, so it
+        gives way with the name pill rather than pushing the right end; the
+        warning, inside the right end, keeps to 95 px when the bar is short."""
+        viewer = (STATIC / "viewer.html").read_text()
+        style = viewer[:viewer.index("</style>")]
+        job = style[style.index("  #job-status {"):]
+        job = job[:job.index("}")]
+        for value in ("flex: 0 1 auto; min-width: 0;", "white-space: nowrap;", "text-overflow: ellipsis;"):
+            self.assertIn(value, job, value)
+        warn = style[style.index("  #glwarn {"):]
+        warn = warn[:warn.index("}")]
+        self.assertIn("white-space: nowrap;", warn)
+        self.assertIn("#export-pod.active + #job-status { display: block; }", style)
+        self.assertIn("@media (max-width: 859px) {\n    #glwarn { max-width: 95px; }", style)
+        # A sibling after the group, not inside it: a group's text could
+        # not shrink without its tiles.
+        self.assertIn('</span>\n  <span id="job-status" role="status" aria-live="polite"></span>', viewer)
+
+    def test_the_landing_page_holds_no_document(self):
+        """The viewer tells the shell which scene its window holds; File →
+        Open another scene… comes back to the landing page in the same
+        window, so the landing page tells it none, or the Window menu and an
+        update's relaunch would name the scene just left."""
+        page = (STATIC / "app.html").read_text()
+        self.assertIn("ManimlBar.setDocument(null);", page)
+        bar = (STATIC / "bar.js").read_text()
+        self.assertIn("if (!folder) return;", bar)
+
     def test_the_stage_is_the_room(self):
         """The rendered scene sits in Zen's rounded panel, under the bar and
         the frame's edge in from the window's other three sides; full

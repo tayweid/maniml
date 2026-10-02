@@ -52,14 +52,22 @@ which centres theirs over the rail ManimLive does not have):
   never edits the file. The separator lost its rose colour, since a red
   dot beside the name is Knuth's and Plass's mark for unsaved changes.
 - **Restart** (`#restart-scene`), **Download** and **Stills**
-  (`#export-video`, `#export-checkpoints`, with their status text), the
-  bar's tiles, awake (the old bar's sleep-until-hover stays the
-  presenter's bar's alone), captions in the frame's dark glass.
+  (`#export-video`, `#export-checkpoints`), the bar's tiles, awake (the
+  old bar's sleep-until-hover stays the presenter's bar's alone),
+  captions in the frame's dark glass; then a render's **status**
+  (`#job-status`), one line cut by its ellipsis, 6 px after Stills. It is
+  the bar's own item, after the group rather than in it, so that it gives
+  way with the name pill when the bar is short (a group's text cannot
+  shrink without its tiles).
 - At the right end (`.tb-end`): the **renderer** (`#renderer-select`, a
-  pill of the bar's height; hidden under 760 px with the folder), the
-  **update** (`#updatebtn`, a tile that appears when the shell knows of a
-  newer ManimLive, as the landing page's button did — new in the viewer),
-  and the **engine's status** (`#connection-pod`), Knuth's status pill.
+  pill of the bar's height; hidden under 760 px with the folder) and its
+  warning (`#glwarn`, one line, 95 px at most under 860), the **update**
+  (`#updatebtn`, a tile that appears when the shell knows of a newer
+  ManimLive, as the landing page's button did — new in the viewer), and
+  the **engine's status** (`#connection-pod`), Knuth's status pill. The
+  right end keeps its width (`flex: none`): when the bar is short the
+  folder gives way first, then the name, never the status, which in class
+  is the one place that says whether the engine is still answering.
 - After it, over the room's right edge: the **console's toggle**
   (`#console-toggle`), the bar's last tile, lit while the panel shows. It
   stays fixed and outside the bar, so it does not recede with the chrome
@@ -81,7 +89,10 @@ absolute, as the engine opened it), and the page tells the shell which
 file its window holds (the shell's `document` request); the folder is
 the shell's answer, so it never names a file the shell refused. The
 window's document follows the scene opened from the landing page (an
-update's relaunch reopens it). In a tab the folder is the path's own.
+update's relaunch reopens it), and the landing page tells the shell its
+window holds none (`{path: null}`), so after File → Open another scene…
+the Window menu and a relaunch do not name the scene just left. In a tab
+the folder is the path's own.
 
 **The landing page** (`app.html`) is the same frame: the bar with File
 (its menu: **Open a scene…**, `#openbtn`), the pill reading
@@ -138,13 +149,28 @@ icon 68 px down. At 640 × 400, the minimum, the bar holds File, the pill
 (name and scene), Restart, Download, Stills, the status and the console
 tile.
 
+Narrower, the right end holds. On a long file and scene name in a long
+folder, with the update tile, a render's status and the renderer's
+warning added one by one, the status pill keeps its full width (102 px
+for `Connected`), ends 6 px before the console tile and the bar never
+overflows: in the app at 1500, 1100, 1024, 960, 860, 800, 760, 700 and
+640 px, and on the page alone (the lights' 100 px simulated) every 4 px
+from 640 to 1500 with all of them showing at once and `Engine
+unavailable` as the status. Before, the status was cut to a dot under
+about 1020 px (1024 with the update showing) or pushed under the console
+tile, and a render's status wrapped down out of the bar. At 1100 and 1500
+nothing moved but the render's status box, which starts 3 px later with
+its text where it was.
+
 ## Checks
 
 - `tests.test_static_assets` and `tests.test_shell_config`: the frame's
   numbers, the bar a drag region with its controls the page's, the stage
-  as the room, the name exactly the file's name, the menus taking their
-  keys before the forwarder, the shared bar on both pages, the setup
-  page's band, the config's lights making a 44 px band.
+  as the room, the name exactly the file's name, the right end keeping
+  its width, the bar's quiet text on one line, the menus taking their
+  keys before the forwarder, the shared bar on both pages, the landing
+  page holding no document, the setup page's band, the config's lights
+  making a 44 px band.
 - `tests.test_web_viewer`: the state carries the scene file's path.
 - `npm run app:smoke` (uv): ok, with the shell's overlay check for a
   hidden title bar (x past the lights, 2·15 + 14 = 44 tall).
@@ -156,8 +182,10 @@ tile.
   scene, ArrowDown and Enter switching scene with the name unchanged; C
   and the tile opening and closing the console; the drag region; F in
   and out of full screen; Restart back at the start with the pill as it
-  was; the landing page's bar and room and its File menu. The console
-  clean throughout.
+  was; the landing page's bar and room and its File menu; the window's
+  represented file the scene's, none on the landing page after File →
+  Open another scene…, and the new scene's after one is picked there. The
+  console clean throughout.
 
 ## What is open
 
@@ -180,6 +208,11 @@ tile.
    back as a solid frame band, 44 px, not the old 60 px glass pods.
 6. **The folder is the file as the engine opened it**, links resolved
    (above). Knuth names the folder as given.
-7. **Merging**: the scene-environment work in progress on main touches
+7. **A render's status shrinks with the name pill, not after it.** Flex
+   shares a short bar between the two, so with a long folder the status
+   can be cut ("Video e…") while some of the folder still shows; the
+   tile's colour still says working, done or failed. Strictly folder
+   first, then the status, is not something the bar's CSS can say.
+8. **Merging**: the scene-environment work in progress on main touches
    `app.html` (other hunks), and adds to the tops of `DECISIONS.md` and
    `CHANGELOG.md` as this branch does: keep both.

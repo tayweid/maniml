@@ -21,10 +21,12 @@ the file and scene names with the folder, Restart, the renders, the
 renderer, the status, and the console's toggle as its last tile; the
 landing page has the same bar. The presenter's bar keeps its markup,
 script and look; Start and Present stay on it rather than moving up,
-since they are what is touched while presenting. The page tells the shell
-which scene file its window holds, so the folder in the pill is the
-shell's answer and an update's relaunch reopens the scene. The bar's
-behaviour (its menus, the folder, the update tile) is one file,
+since they are what is touched while presenting. The bar's right end
+keeps its width: when the bar is short the folder and then the name give
+way, never the engine's status. The page tells the shell which scene file
+its window holds, so the folder in the pill is the shell's answer and an
+update's relaunch reopens the scene; the landing page tells it none. The
+bar's behaviour (its menus, the folder, the update tile) is one file,
 `static/bar.js`, for both pages; an open menu takes the plain keys before
 the viewer's forwarder can send them to a scene.
 

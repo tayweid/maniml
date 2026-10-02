@@ -1018,9 +1018,11 @@ class WebViewer:
             "file": Path(raw_source).name if raw_source else "scene.py",
             # The file itself, for the page's name pill: its folder shows
             # beside the name, and under the app the page tells the shell
-            # which file its window holds (the shell's `document`). As
-            # given, not resolved, so a folder reached by a link reads as
-            # the link's.
+            # which file its window holds (the shell's `document`).
+            # os.path.abspath, not resolved here; under the app the engine
+            # has already resolved links before opening the scene
+            # (security.resolve_authorized_file), so the folder is the
+            # file's real one.
             "path": os.path.abspath(raw_source) if raw_source else None,
             "current": current,
             "count": len(checkpoints),

@@ -499,7 +499,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(start_state["future"], "no units left to run")
             self.assertEqual(start_state["file"], "web_scene.py")
             # The file itself, for the name pill's folder and the shell's
-            # `document`: absolute, as given, never resolved through links.
+            # `document`: absolute (this harness loads the file directly;
+            # under the app the path arrives already resolved).
             self.assertEqual(
                 start_state["path"],
                 os.path.abspath(os.path.join(self.tmpdir.name, self.FILENAME)))

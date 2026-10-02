@@ -271,11 +271,19 @@
   }
   #position strong { color: var(--text); font-weight: 550; }
   #position-total { color: var(--dim); }
+  /* The bar's two lines of quiet text, the render's status and the
+     renderer's warning, stay one line, cut by their ellipsis, as the old
+     bar's pods kept them (nowrap): wrapped, they ran down out of the bar
+     over the room once the bar was short. The render's status is the bar's
+     own item, after the tiles it reports on, so it gives way with the name
+     pill (inside their group it could not shrink without them), 6 px after
+     Stills as it was. */
   #job-status {
-    display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-    padding: 0 6px 0 3px; color: var(--frame-ink-soft); font-size: 11px;
+    display: none; flex: 0 1 auto; min-width: 0; max-width: 180px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 0 6px 0 0; color: var(--frame-ink-soft); font-size: 11px;
   }
-  #export-pod.active #job-status { display: block; }
+  #export-pod.active + #job-status { display: block; }
   #export-pod.working .export-icon.running { color: var(--warn); opacity: 1; }
   #export-pod.success .export-icon.running { color: var(--good); opacity: 1; }
   #export-pod.failed .export-icon.running { color: var(--bad); opacity: 1; }
@@ -294,7 +302,7 @@
   #renderer-select:hover:not(:disabled) { color: var(--frame-ink); }
   #renderer-select:disabled { opacity: .5; cursor: default; }
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-    color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
+    white-space: nowrap; color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
   /* The engine's status: the right end's pill (shell.css), as Knuth's
      kernel status. */
@@ -399,8 +407,12 @@
     #file-name { max-width: 125px; }
     #stage { padding-inline: 12px; }
   }
-  /* Short of room in the bar: the folder gives way first (shell.css, under
-     760 px, as Knuth's), the renderer's pill with it. */
+  /* Short of room in the bar: the renderer's warning keeps to 95 px (the
+     right end does not shrink, shell.css), and under 760 px the folder
+     goes (shell.css, as Knuth's) and the renderer's pill with it. */
+  @media (max-width: 859px) {
+    #glwarn { max-width: 95px; }
+  }
   @media (max-width: 759px) {
     #renderer-pod { display: none; }
   }
@@ -489,8 +501,8 @@
     <button id="export-checkpoints" class="icon-button export-icon" data-format="checkpoints" aria-label="Render a PNG of every checkpoint" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg><span class="control-label">Stills</span>
     </button>
-    <span id="job-status" role="status" aria-live="polite"></span>
   </span>
+  <span id="job-status" role="status" aria-live="polite"></span>
 
   <div class="tb-end">
     <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">

@@ -125,7 +125,8 @@
    *  the one the macOS window menu names and an update's relaunch reopens.
    *  The folder beside the name is the answer's, so it never names a file
    *  the shell refused. In a tab there is no shell to tell, and the folder
-   *  is the path's own. Told once per path. */
+   *  is the path's own. Told once per path. A page holding no file (the
+   *  landing page) tells null and has no folder to fill. */
   let reported;
   async function setDocument(path, folder) {
     const wanted = typeof path === "string" && path ? path : null;
@@ -141,6 +142,7 @@
       }
       if (wanted !== reported) return;   // a later report has the say
     }
+    if (!folder) return;
     const where = file ? dirname(file) : "";
     folder.firstElementChild.textContent = where ? tilde(where) : "";
     folder.title = where;

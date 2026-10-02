@@ -257,6 +257,12 @@ connectControl();
 // tile at the bar's right end once the shell knows of a newer build; a
 // failed install says why in the error box too.
 ManimlBar.menu(document.getElementById("file-menu"), document.getElementById("file-list"));
+// The landing page holds no scene: the window's document is none, so the
+// Window menu and an update's relaunch do not name the scene just left
+// (File → Open another scene… comes back here in the same window). A
+// ?open=<path> launch is unaffected: the viewer it goes on to reports the
+// scene again on its first state.
+ManimlBar.setDocument(null);
 ManimlBar.updates(document.getElementById("updatebtn"), {
   failed(text) {
     errorEl.textContent = text;

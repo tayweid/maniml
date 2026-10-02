@@ -222,9 +222,12 @@ button { font: inherit; }
   .doc-folder { display: none; }
 }
 
-/* The bar's right end: the engine's status, at the room's right edge. */
+/* The bar's right end: the engine's status, at the room's right edge. It
+   keeps its width: when the bar is short the name pill's folder gives way
+   first, then the name, never the status, which in class is the one place
+   that says whether the engine is still answering. */
 .tb-end {
-  margin-left: auto; flex: 0 1 auto; min-width: 0;
+  margin-left: auto; flex: none;
   display: flex; align-items: center; gap: 6px;
 }
 
