@@ -77,6 +77,9 @@ if [ "${1:-}" = "--check" ]; then
         echo "ManimLive: not installed at $app; the site has build $latest ($when). Run the install line to install it."
     elif [ "$(field "$stamp" build)" = "$latest" ]; then
         echo "ManimLive: up to date at $app (build $latest, $when)."
+    elif [ -z "$(field "$stamp" build)" ]; then
+        # Built before the shell stamped builds (0.2.0): it cannot say which.
+        echo "ManimLive: an earlier build at $app, with no build stamp; the site has build $latest ($when). Run the install line again to update."
     else
         echo "ManimLive: installed build $(field "$stamp" build) ($(field "$stamp" built | cut -c1-10)) at $app; the site has build $latest ($when). Run the install line again to update."
     fi
@@ -88,6 +91,16 @@ fi
 # prefix.)
 if pgrep -f "^(/private)?${app#/private}/Contents/MacOS/" >/dev/null 2>&1; then
     die "ManimLive is open. Quit it (ManimLive menu → Quit ManimLive), then run this again."
+fi
+
+# An app built for one processor only (ManimLive, Apple silicon): the
+# site's latest.json names the zips there are, so say so plainly instead
+# of failing on a download that cannot exist. Without the file (an older
+# deploy) the download decides.
+if fetch "$site/app/latest.json" "$work/latest.json" 2>/dev/null \
+    && ! grep -q "\"$arch\":" "$work/latest.json"; then
+    have="$(grep -oE '"(arm64|x64)":' "$work/latest.json" | tr -d '":' | sort -u | sed 's/arm64/Apple silicon/; s/x64/Intel/' | paste -sd, - | sed 's/,/, /g')"
+    die "no ManimLive.app for this processor ($(uname -m)); the site builds it for ${have:-another one}."
 fi
 
 echo "ManimLive: downloading…"

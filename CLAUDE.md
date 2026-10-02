@@ -761,7 +761,7 @@ What remains, and why:
   a page on *that* origin — which talks to itself, because the page only ever
   speaks to where it came from. ManimLive.app's engine is started on the
   shell's own port (8690) and never competes. (The launchd agent that once
-  held 8685 for the whole login session was retired 2026-10-02; below.)
+  held 8685 for the whole login session was retired 2026-10-01; below.)
 - **The native file dialog** (`maniml/desktop.py`, now only
   `choose_python_file`). The engine shows the platform dialog and gets a real
   path, which the watcher and the scene's `__file__`-relative imports both need.
@@ -816,14 +816,14 @@ own Pythons, and Application Support holds only the app's state; since
 
 ### The installed app is ManimLive.app
 
-Until 2026-10-02 the engine served `manifest.webmanifest` and a caching
+Until 2026-10-01 the engine served `manifest.webmanifest` and a caching
 `sw.js`, which made `http://localhost:8685` an installable app (its own icon,
 a window without a tab strip, a shell that still opened when the engine was
 not running and healed when it started), `app.html` offered the install once
 the browser said it could, and `maniml agent` (`maniml/agent.py`, a launchd
 login agent) kept 8685 up without a terminal, with `maniml app` handing off to
 an engine already on the port and restarting one serving pre-upgrade code.
-Both were retired the day after ManimLive.app on the Claerbout shell became
+Both were retired the same day ManimLive.app on the Claerbout shell became
 the app: the shell's app has its own window, icon, port (8690) and engine
 lifetime (the engine is its child and stops with it), so the PWA's identity
 and the agent's persistence had nothing left to do, and each was one more
@@ -859,7 +859,7 @@ CI and in the test run, because two invariants meet there:
 - A public origin must never talk to loopback. That is the rule above.
 - **Only one app may own the `.py` double-click.** If the hosted build were
   installable it would compete with ManimLive.app for every file the user
-  opens, so nothing hosted may be installable (and since 2026-10-02 nothing
+  opens, so nothing hosted may be installable (and since 2026-10-01 nothing
   the engine serves is either; above).
 
 `site/sw.js` is a kill switch rather than a worker: the pre-collapse hosted

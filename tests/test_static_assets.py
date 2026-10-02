@@ -54,7 +54,7 @@ class LocalOnlyTests(unittest.TestCase):
             self.assertNotIn(absent, page, absent)
 
     def test_the_page_is_not_installable(self):
-        """Until 2026-10-02 a manifest, an Install button and a caching
+        """Until 2026-10-01 a manifest, an Install button and a caching
         worker made http://localhost:8685 an installable app. ManimLive.app
         on the Claerbout shell is the installed app now, with a window, an
         icon, a port and an engine lifetime of its own, so the page offers
@@ -79,7 +79,7 @@ class LocalOnlyTests(unittest.TestCase):
         self.assertIn("caches.delete(", worker)
         self.assertIn("client.navigate(client.url)", worker)
         for serving in ('addEventListener("fetch"', "addEventListener('fetch'",
-                        "respondWith", assets.VERSION_PLACEHOLDER):
+                        "onfetch", "respondWith", assets.VERSION_PLACEHOLDER):
             self.assertNotIn(serving, worker, serving)
         request = SimpleNamespace(method="GET", path="/sw.js", headers={})
         served = assets.static_response(request, index="app.html")

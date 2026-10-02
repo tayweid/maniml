@@ -10,7 +10,7 @@ was deleted deliberately (see CLAUDE.md, "Delivery: one artifact, local only").
 
 **Nothing here may be installable.** Only one installed app can own the `.py`
 double-click. If the hosted build were installable it would compete with
-ManimLive.app for every file the user opens. (Since 2026-10-02 the engine's own
+ManimLive.app for every file the user opens. (Since 2026-10-01 the engine's own
 page is not installable either: the shell's app replaced the PWA.)
 
 Run standalone (this is what CI does), or via tests/test_hosted_site.py:
@@ -26,9 +26,8 @@ from pathlib import Path
 SITE = Path(__file__).resolve().parent.parent / "site"
 
 # Substrings that would mean the preview had grown an engine or an identity.
-# Naming `http://localhost:8685` in prose is the page's job; opening a
-# connection to it is what must never appear, so these match the mechanisms
-# rather than the address.
+# Naming an address in prose is fine; opening a connection to one is what
+# must never appear, so these match the mechanisms rather than the address.
 FORBIDDEN = {
     "ws://": "a socket to a local engine",
     "wss://": "a socket to a local engine",

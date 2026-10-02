@@ -122,8 +122,9 @@ class AppShellE2E(unittest.TestCase):
         with self._control() as ws:
             opened = self._request(ws, "open", path=scene_path, scene="AppDemo")
             self.assertIn("url", opened, opened.get("error"))
-            # The page is never sent to another port: the port is the
-            # installed app's identity, so a scene opens inside it.
+            # The page is never sent to another port: one port is the app's
+            # whole origin (the shell's window stays on it), so a scene opens
+            # inside it.
             self.assertEqual(
                 opened["viewer_url"], f"viewer.html?scene={opened['scene_id']}")
 
@@ -268,6 +269,23 @@ class AppShellE2E(unittest.TestCase):
         with self.assertRaises(Exception):
             with ws_connect(self._control_url(), open_timeout=3):
                 pass
+
+
+class SearchPathTests(unittest.TestCase):
+    """run_app widens a bare PATH (a Finder or launchd launch) to the usual
+    tool folders so a scene's latex, dvisvgm or ffmpeg is found; it only
+    ever adds somewhere to look (the test the agent module carried)."""
+
+    def test_search_path_only_ever_adds_somewhere_to_look(self):
+        from maniml.web import cli
+
+        base = os.pathsep.join(["/usr/bin", "/bin"])
+        result = cli.search_path(base).split(os.pathsep)
+        self.assertEqual(result[:2], ["/usr/bin", "/bin"])
+        self.assertEqual(len(result), len(set(result)), result)
+        for extra in result[2:]:
+            self.assertIn(extra, list(cli.TOOL_DIRS))
+            self.assertTrue(os.path.isdir(extra), extra)
 
 
 class PortFallbackTests(unittest.TestCase):

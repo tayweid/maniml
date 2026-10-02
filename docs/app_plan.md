@@ -41,15 +41,16 @@ same (`app/ManimLive`, installed by `app/build.sh`):
 - It runs the maniml that is installed: `app/build.sh` records the Python
   behind the `maniml` command, so for development the editable checkout's
   edits reach the app with no rebuild. A Finder launch gets a bare PATH, so
-  the script adds the agent's tool folders (TeX, Homebrew) before Python
+  the script adds the tool folders `cli.TOOL_DIRS` lists (TeX, Homebrew) before Python
   starts, and `run_app` applies `search_path()` too.
 - `.py` stays Knuth's: scenes are opened from the app's landing page (recents
   and Open…), never by double-click, so the launcher needs no file-open
   handling and none of the grant design below.
 
-This replaces, for daily use, both the launchd agent and the Chrome PWA. While
-the agent holds 8685 the app simply uses it; once the app has proved itself,
-`maniml agent uninstall` and removing the PWA leave one system.
+This replaced, for daily use, both the launchd agent and the Chrome PWA.
+While the agent held 8685 the launcher simply used it. Done 2026-10-01: the
+agent and the PWA are retired (DECISIONS.md), and the one system is
+ManimLive.app on the Claerbout shell.
 
 **The `--app` switch** is an old Chromium command-line switch, not a documented
 API. What Google is retiring is Chrome Apps (the packaged-app platform, end of
@@ -58,10 +59,10 @@ launcher opens a tab instead, a one-line change.
 
 ## Next
 
-(Written for the launcher. 2026-10-01: item 1 is moot, the shell's app has
-an engine and a port of its own — and 2026-10-02 it is done: the agent, the
-manifest and the install offer are gone, `sw.js` stays as a kill switch for
-the worker browsers installed (DECISIONS.md); item 2 is done the shell's way, with no
+(Written for the launcher. 2026-10-01: the shell's app has an engine and a
+port of its own, and item 1 is done — the agent, the manifest and the
+install offer are gone, and `sw.js` stays as a kill switch for the worker
+a browser may have installed (DECISIONS.md); item 2 is done the shell's way, with no
 wheel — `.github/workflows/deploy.yml` builds the app on a GitHub Mac with
 the Lyon helper in the bundle and publishes the zips, the install line and
 `latest.json` beside the site, and the app updates itself from there; item
@@ -82,7 +83,7 @@ the Lyon helper in the bundle and publishes the zips, the install line and
 3. **Windows, when students need it**: the same launcher as a PowerShell
    script with Edge (always installed, Chromium, WebGPU on by default) in
    `--app` mode, plus a Windows wheel. The engine has Mac-only corners to fix
-   first (the agent, tool discovery; Knuth's report found its `--parent`
+   first (tool discovery; Knuth's report found its `--parent`
    check uses `os.kill(pid, 0)`, which is not a liveness test on Windows).
 4. **TeX for anyone else**: the course scenes lean on MathTex (B5_Animation.py
    alone has ~250 lines of it), and maniml runs `latex` and `dvisvgm`. The

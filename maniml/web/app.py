@@ -285,9 +285,10 @@ class AppServer:
     def _relay_scene_asset(self, request):
         """Serve a scene's output folders through the app's own origin.
 
-        The page speaks only to where it came from — the app's port is the
-        installed app's identity — so /scene/<id>/present/* and
-        /scene/<id>/baked/* are fetched here and answered from the scene
+        The page speaks only to where it came from — one port is the app's
+        whole origin, the one the shell's window stays on — so
+        /scene/<id>/present/* and /scene/<id>/baked/* are fetched here and
+        answered from the scene
         process backing that id, the same way its socket is relayed. Only
         those two mounts, only GET, Range passed through for <video>
         seeking.
@@ -383,9 +384,10 @@ class AppServer:
                 "hint": missing_module_hint(tail),
             }
         # The page stays on this origin: it opens the viewer here and the app
-        # relays its socket to the scene process. One origin means one
-        # installable app, and a scene opens *inside* it rather than popping
-        # the browser out to another port.
+        # relays its socket to the scene process. One port is the app's whole
+        # address (the page, and every window the shell opens, is on the port
+        # the engine was started on); a scene process's port is one only the
+        # engine knows, so a scene opens *here* rather than moving the browser.
         process = self.processes.get((path, scene or ""))
         if process is None or not process.id:
             return {"error": "scene process disappeared while starting"}
@@ -473,8 +475,9 @@ class AppServer:
             The scene process is a full server in its own right — `maniml
             file.py Scene --web` on its own is unchanged — but a scene opened
             through the app must not move the browser to another port, because
-            the port is the installed app's identity. So the app connects to
-            it as a client and copies frames both ways.
+            one port is the app's whole origin and the page speaks only to
+            where it came from. So the app connects to it as a client and
+            copies frames both ways.
             """
             process = self._scenes_by_id.get(scene_id)
             target = process.ws_url if process is not None else None

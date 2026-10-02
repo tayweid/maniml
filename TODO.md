@@ -429,7 +429,7 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
 - **Test debt** (2026-08-18 review, still true): relay failure paths in
   `web/app.py`; recents/choose over the real control socket; log messages
   through the app relay. (The agent and the hand-off on that list were
-  retired 2026-10-02.)
+  retired 2026-10-01.)
 
 ## Design questions, not scheduled
 
@@ -441,7 +441,7 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
   as Knuth's and Plass's deploys do, and the app updates itself from
   there. The agent and the PWA (`maniml agent`, the landing page's install
   offer and its manifest), which the shell's app had no use for, were
-  retired 2026-10-02 (DECISIONS.md); `sw.js` stays as a kill switch for
+  retired 2026-10-01 (DECISIONS.md); `sw.js` stays as a kill switch for
   the worker browsers installed. Next: Windows, with Knuth's.
 - **Cell-marked scene files.** Stepping runs a whole unit (a `for` loop
   of plays is one press) and a scene opens on an empty frame because

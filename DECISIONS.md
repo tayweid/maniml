@@ -5,7 +5,7 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
-## The login agent and the PWA are retired (2026-10-02)
+## The login agent and the PWA are retired (2026-10-01)
 
 Taylor, asked whether to retire `maniml agent` and the installable page
 now that ManimLive.app is the app: "yeah lets retire", "yeah clean that

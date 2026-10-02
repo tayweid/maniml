@@ -1,6 +1,6 @@
 // Kill switch, not a service worker.
 //
-// Until 2026-10-02 the engine served a manifest and a caching worker here,
+// Until 2026-10-01 the engine served a manifest and a caching worker here,
 // which made http://localhost:8685 an installable app: its own icon, a
 // window without a tab strip, a shell that opened when the engine was not
 // running. ManimLive.app on the Claerbout shell is the installed app now,

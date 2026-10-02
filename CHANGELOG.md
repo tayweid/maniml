@@ -298,7 +298,7 @@ interfaces may still change before the first public release.
   engine a script starts. `maniml app` started with a bare PATH (from
   Finder or launchd) now finds latex, dvisvgm and ffmpeg in their usual
   places, as the agent did.
-- **The login agent and the installable page are retired** (2026-10-02).
+- **The login agent and the installable page are retired** (2026-10-01).
   `maniml agent` — the launchd job that kept `http://localhost:8685` up
   without a terminal, and `maniml app`'s first-run offer of it and hand-off
   to it — and the landing page's Install button, with its manifest and

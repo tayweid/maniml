@@ -16,9 +16,11 @@ Usage: maniml [file] [Scene] [mode]
        maniml app [dir]
 
 App:
-  maniml app       Persistent local app: a landing page listing the
-                   scene files under [dir] (default: cwd); each scene
-                   opens in the browser viewer, one process per scene
+  maniml app       Persistent local app: a landing page with Open… and
+                   the files you have opened before, under [dir]
+                   (default: cwd); each scene opens in the browser
+                   viewer, one process per scene
+  --no-browser     Do not open the page in a browser
   --allow-outside-root
                    Allow the app to open explicitly entered scene paths
                    outside [dir] (off by default)

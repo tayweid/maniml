@@ -38,7 +38,7 @@ REQUIRED_ASSETS = {
     "maniml/rendering/shader_wrapper.py",
     "maniml/rendering/gl_shaders.py",
     # sw.js is the kill switch for the worker the engine served until
-    # 2026-10-02: a browser that installed it keeps running it until a
+    # 2026-10-01: a browser that installed it keeps running it until a
     # worker at the same URL retires it, so the file must ship. The icons
     # are the page's favicon and the shell's app icon.
     "maniml/web/static/sw.js",
@@ -74,7 +74,13 @@ REQUIRED_ASSETS.update(
 )
 REQUIRED_LICENSES = {"LICENSE", "LICENSE.community", "THIRD_PARTY_LICENSES.txt",
                      "RUST_STANDARD_LIBRARY_LICENSES.html"}
-RETIRED_ASSETS = {"maniml/web/static/gl.js"}
+RETIRED_ASSETS = {
+    "maniml/web/static/gl.js",
+    # The login agent and the installable page, retired 2026-10-01: a build/
+    # tree setuptools reuses could ship them again.
+    "maniml/agent.py",
+    "maniml/web/static/manifest.webmanifest",
+}
 RETIRED_PREFIXES = ("maniml/web/static/glsl/",)
 
 
@@ -97,7 +103,7 @@ def check_wheel(path: Path) -> None:
             if name in RETIRED_ASSETS or name.startswith(RETIRED_PREFIXES)
         )
         if retired:
-            raise SystemExit(f"wheel contains retired GL assets: {retired[:5]}")
+            raise SystemExit(f"wheel contains retired assets: {retired[:5]}")
         leaked = sorted(
             name for name in names if name.startswith(("tests/", "example_scenes/"))
         )
@@ -120,7 +126,7 @@ def check_wheel(path: Path) -> None:
         raise SystemExit(
             f"unexpected Python requirement: {metadata['Requires-Python']}"
         )
-    if metadata.get_all("Provides-Extra") != ["gl", "webgpu"]:
+    if sorted(metadata.get_all("Provides-Extra") or []) != ["gl", "webgpu"]:
         raise SystemExit(
             f"unexpected public extras: {metadata.get_all('Provides-Extra')}"
         )
