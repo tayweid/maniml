@@ -797,6 +797,15 @@ as `?open=<path>` and `app.html` opens it once the engine is there; the root
 is widened because every path the shell hands over is the user's own action
 and the page has no other way to name one. `web/static/setup.html` is the
 first launch's progress screen, the one page the bundle serves itself.
+The deploy (`.github/workflows/deploy.yml`) builds it on a GitHub Mac —
+`uv sync --locked --no-dev` compiles the Lyon helper into the package, the
+shell packages the bundle with it — installs it with the install line
+(`site/install`, rendered from the shell's template by `npm run
+app:install-script`; commit it), smoke-tests it in uv mode, as the page's
+download completing itself, and updating itself, and publishes
+`app/ManimLive-arm64.zip`, `app/ManimLive.app.zip` and `app/latest.json`
+beside the site; a failed app build keeps the live app. Apple silicon
+only: the helper is built on the runner for its own processor.
 The app updates itself (shell 0.2.0, `update.js`): the shell compares its
 build with the site's `app/latest.json` after launch and on ManimLive menu
 → Check for Updates…, and the landing page's Update button (`app.html`,

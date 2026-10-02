@@ -129,11 +129,17 @@
     <div>
       <h2>Install it</h2>
       <p>ManimLive runs your scenes, your packages and your files, so it runs on
-         your computer. Nothing on this page connects to it.</p>
+         your computer: ManimLive.app, for a Mac with Apple silicon. Nothing on
+         this page connects to it. One line in Terminal installs it into
+         Applications, and running the line again updates it:</p>
       <div class="command-row">
-        <code id="cmd-install">python -m pip install --upgrade --force-reinstall --no-cache-dir "maniml @ git+https://github.com/tayweid/maniml.git"</code>
+        <code id="cmd-install">curl -fsSL https://maniml.tayweid.io/install | bash</code>
         <button class="command-copy" data-for="cmd-install">Copy</button>
       </div>
+      <p>Or <a href="app/ManimLive.app.zip">download ManimLive.app</a> and drag
+         it into Applications. The download is a few megabytes; the app
+         completes itself on its first launch and sets up a Python of its
+         own with uv, touching nothing else on your Mac.</p>
     </div>
   </section>
 
@@ -141,14 +147,11 @@
     <span class="step-number">2</span>
     <div>
       <h2>Open it</h2>
-      <p>Starts the engine and opens the app at <code>http://localhost:8685</code>,
-         where it offers to install as a desktop app with its own icon and window.
-         That offer belongs to the local app, not to this page, so only one
-         ManimLive ever owns your Python files.</p>
-      <div class="command-row">
-        <code id="cmd-run">maniml app ~/Projects</code>
-        <button class="command-copy" data-for="cmd-run">Copy</button>
-      </div>
+      <p>Open a scene file from the app's landing page, or double-click a
+         <code>.py</code> and choose ManimLive. Every scene runs in a window of
+         its own. The app checks this site for a newer build and updates
+         itself when you ask it to (ManimLive menu → Check for Updates…).
+         Scenes needing LaTeX or ffmpeg use the ones installed on your Mac.</p>
     </div>
   </section>
 

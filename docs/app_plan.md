@@ -59,8 +59,11 @@ launcher opens a tab instead, a one-line change.
 ## Next
 
 (Written for the launcher. 2026-10-01: item 1 is moot, the shell's app has
-an engine and a port of its own; items 2 and 3 are the shell's deploy and
-Windows work, shared with Knuth; item 4 stands.)
+an engine and a port of its own; item 2 is done the shell's way, with no
+wheel — `.github/workflows/deploy.yml` builds the app on a GitHub Mac with
+the Lyon helper in the bundle and publishes the zips, the install line and
+`latest.json` beside the site, and the app updates itself from there; item
+3 is Windows, shared with Knuth; item 4 stands.)
 
 1. **Retire the agent and the PWA** once the app is the daily driver (Knuth's
    step 5 did the same): `maniml agent uninstall`, uninstall the PWA in Chrome,

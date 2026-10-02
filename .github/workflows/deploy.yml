@@ -1,0 +1,168 @@
+name: Deploy the site and the app
+
+# The hosted origin is a preview and the app's download, nothing more: it
+# shows what ManimLive is and how to install it, and it reaches no engine
+# (maniml/CLAUDE.md, "Delivery: one artifact, local only"; never publish
+# maniml/web/static here, which tests/check_site.py enforces). The
+# application is ManimLive.app, built here on a Mac from app/maniml.json
+# by the Claerbout shell (the `claerbout` package, pinned to a tag in
+# package.json) and published beside the site, without Electron's
+# framework: app/ManimLive-arm64.zip for the install line, which completes
+# it before moving it into place; app/ManimLive.app.zip for the page's
+# download, which completes itself on its first launch; and
+# app/latest.json, what an installed app checks for an update. Nothing is
+# committed; every deploy is the app's release. A failure of the app
+# build never holds the site back: the deploy then republishes the app
+# that is already live.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      # The packager fetches Electron for each architecture itself.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Set up the pinned native-helper toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal
+          rustup default 1.97.0
+      # The package the bundle carries, with the Lyon helper compiled in
+      # place (maniml/web/maniml_lyon_fill.*.so): uv cannot build it on a
+      # user's machine, so it ships built. The engine's dependencies are
+      # not needed here; the app installs them on its first launch.
+      - name: Build the Lyon helper into the package
+        run: uv sync --locked --no-dev
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Package ManimLive.app
+        run: node node_modules/claerbout/package.mjs --config app/maniml.json --arch arm64 --zip published/app
+      # The way a user gets it: the install line against these zips, which
+      # fetches Electron's release and checks it. Then the app itself, on a
+      # scene: uv's Python installed, the engine started, the viewer up.
+      - name: Install it with the install line
+        run: MANIML_SITE="$PWD/published" MANIML_APP="$RUNNER_TEMP/ManimLive.app" MANIML_SIBLINGS="" bash site/install
+      - name: Smoke-test the installed app
+        run: node node_modules/claerbout/smoke.mjs --config app/maniml.json uv "$RUNNER_TEMP/ManimLive.app"
+      # The page's download: the app completing itself on its first launch,
+      # with no sibling to clone from, so Electron's release is fetched.
+      - name: Smoke-test the download completing itself
+        run: |
+          mkdir "$RUNNER_TEMP/download"
+          ditto -x -k published/app/ManimLive.app.zip "$RUNNER_TEMP/download"
+          CLAERBOUT_SIBLINGS=/nonexistent node node_modules/claerbout/smoke.mjs --config app/maniml.json uv "$RUNNER_TEMP/download/ManimLive.app"
+      # The installed app updating itself (shell 0.2.0): the same app
+      # packaged again under another build id into a site folder of its
+      # own, and the installed one asked, through its page, to take it.
+      - name: Smoke-test the app updating itself
+        run: |
+          CLAERBOUT_BUILD=next node node_modules/claerbout/package.mjs --config app/maniml.json --arch arm64 --zip "$RUNNER_TEMP/next/app"
+          node node_modules/claerbout/smoke.mjs --config app/maniml.json update "$RUNNER_TEMP/ManimLive.app" "$RUNNER_TEMP/next"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app
+          path: published/app
+          retention-days: 1
+
+  deploy:
+    # Runs whether or not the app built.
+    if: ${{ !cancelled() }}
+    needs: [app]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Refuse to publish the application itself
+        run: python3 tests/check_site.py
+
+      - name: Stage the site
+        run: |
+          mkdir -p published
+          cp -R site/. published/
+
+      - if: needs.app.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: app
+          path: published/app
+
+      # A deploy replaces the whole site, so an app that did not build this
+      # time would otherwise vanish from under the install line.
+      - name: Keep the live app when this build of it failed
+        if: needs.app.result != 'success'
+        run: |
+          mkdir -p published/app
+          kept=0
+          for file in ManimLive-arm64.zip ManimLive.app.zip latest.json; do
+            if curl -fsSL -o "published/app/$file" "https://maniml.tayweid.io/app/$file"; then
+              kept=$((kept + 1))
+            else
+              rm -f "published/app/$file"
+            fi
+          done
+          if [ "$kept" -eq 3 ]; then
+            echo "::warning::ManimLive.app did not build; the site keeps serving the previous app."
+          else
+            echo "::warning::ManimLive.app did not build and the previous app was not all found; maniml.tayweid.io/install may fail until it does."
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        with:
+          enablement: true
+
+      - name: Package the site
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: published
+
+      - name: Deploy
+        id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      - name: Wait before retrying a transient Pages failure
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+
+      - name: Retry deploy
+        if: steps.deployment.outcome == 'failure'
+        id: deployment_retry
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

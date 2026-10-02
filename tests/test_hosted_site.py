@@ -20,7 +20,8 @@ class HostedSiteTests(unittest.TestCase):
         page = (SITE / "index.html").read_text()
         self.assertIn("preview", page.lower())
         # The two commands are the whole point of the page.
-        self.assertIn("pip install", page)
+        self.assertIn("curl -fsSL https://maniml.tayweid.io/install | bash", page)
+        self.assertIn("app/ManimLive.app.zip", page)
         self.assertIn("maniml app", page)
 
     def test_a_long_command_scrolls_inside_its_box(self):

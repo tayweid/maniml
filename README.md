@@ -18,10 +18,18 @@ supported range. The current developer preview supports macOS. Windows and
 Linux support is intentionally deferred until the WebGPU renderer transition
 and cross-platform desktop packaging are complete.
 
-ManimLive is used through its app (below): the app installs a Python of its
-own with [uv](https://docs.astral.sh/uv/) on first launch and never touches a
-Python already on the machine. Everything here goes through uv; there is no
-pip step and nothing from Homebrew.
+ManimLive is used through its app (below): on a Mac with Apple silicon, one
+line in Terminal installs ManimLive.app into Applications, and running it
+again updates it (the app also updates itself from the site):
+
+```bash
+curl -fsSL https://maniml.tayweid.io/install | bash
+```
+
+or the download at [maniml.tayweid.io](https://maniml.tayweid.io). The app
+installs a Python of its own with [uv](https://docs.astral.sh/uv/) on first
+launch and never touches a Python already on the machine. Everything here
+goes through uv; there is no pip step and nothing from Homebrew.
 
 Installing from source builds a small Rust helper for vector-fill meshes.
 Install the Rust toolchain through [rustup](https://rustup.rs/) and Apple's

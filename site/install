@@ -1,0 +1,116 @@
+#!/bin/bash
+# Install or update ManimLive.app:
+#
+#   curl -fsSL https://maniml.tayweid.io/install | bash
+#
+# Say what is installed and what the site has, installing nothing:
+#
+#   curl -fsSL https://maniml.tayweid.io/install | bash -s -- --check
+#
+# Generated from the Claerbout shell's install.template by package.mjs
+# (--install-script); edit the template, not this file. Every deploy
+# builds the app on a Mac and publishes it beside the site as
+# app/ManimLive-<arch>.zip, so this always installs the site's current
+# version, and running it again updates. Needs nothing but macOS 13.
+#
+# The zip is the app without Electron's framework (Chromium, 286 MB). The
+# app's own complete.sh puts it in: cloned from an installed Claerbout app
+# on the same Electron version — ManimLive itself when updating, another
+# Claerbout app otherwise — which on APFS costs no disk space; with none,
+# Electron's release is downloaded from GitHub and checked against its
+# published SHA-256 sums. The same zip from a page's download button
+# completes itself on first launch.
+#
+# Overrides, for testing: MANIML_SITE (a URL or a local folder holding
+# app/ManimLive-<arch>.zip), MANIML_APP (the .app to write), MANIML_SIBLINGS
+# (folders to look in for a sibling, instead of the Applications folders;
+# empty means none), ELECTRON_MIRROR (where Electron's releases are).
+set -euo pipefail
+
+site="${MANIML_SITE:-https://maniml.tayweid.io}"
+
+die() { printf 'ManimLive install: %s\n' "$*" >&2; exit 1; }
+[ "$(uname -s)" = "Darwin" ] || die "ManimLive.app is for macOS. Elsewhere, see https://github.com/tayweid/maniml#readme."
+case "$(uname -m)" in
+    arm64) arch=arm64 ;;
+    x86_64) arch=x64 ;;
+    *) die "no ManimLive.app for this processor ($(uname -m))." ;;
+esac
+
+if [ -n "${MANIML_APP:-}" ]; then
+    app="$MANIML_APP"
+elif [ -w /Applications ]; then
+    app="/Applications/ManimLive.app"
+else
+    mkdir -p "$HOME/Applications"
+    app="$HOME/Applications/ManimLive.app"
+fi
+mkdir -p "$(dirname "$app")"
+
+# The new app is put together beside the old one, so a sibling is judged on
+# the right volume, and replaces it only once complete.
+incoming="$app.incoming"
+work="$(mktemp -d)"
+trap 'status=$?; rm -rf "$work" "$incoming"; exit $status' EXIT
+
+fetch() { # fetch <url-or-path> <file>
+    case "$1" in
+        http*) curl -fsSL -o "$2" "$1" ;;
+        *) cp "$1" "$2" ;;
+    esac
+}
+
+# --check: the installed build against the site's (app/latest.json, which
+# every deploy writes beside the zips), the way the app's own Check for
+# Updates… does. The build is the deploy's commit; the date is for people.
+field() { # field <json-file> <key>
+    sed -n "s/^[[:space:]]*\"$2\":[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" | head -1
+}
+if [ "${1:-}" = "--check" ]; then
+    fetch "$site/app/latest.json" "$work/latest.json" \
+        || die "could not read $site/app/latest.json — check the connection."
+    latest="$(field "$work/latest.json" build)"
+    when="$(field "$work/latest.json" built | cut -c1-10)"
+    [ -n "$latest" ] || die "the site's latest.json names no build."
+    stamp="$app/Contents/Resources/app/package.json"
+    if [ ! -f "$stamp" ]; then
+        echo "ManimLive: not installed at $app; the site has build $latest ($when). Run the install line to install it."
+    elif [ "$(field "$stamp" build)" = "$latest" ]; then
+        echo "ManimLive: up to date at $app (build $latest, $when)."
+    else
+        echo "ManimLive: installed build $(field "$stamp" build) ($(field "$stamp" built | cut -c1-10)) at $app; the site has build $latest ($when). Run the install line again to update."
+    fi
+    exit 0
+fi
+
+# Replacing the bundle of a running app pulls it out from under the windows
+# it opens next. (macOS may report a path under /private without that
+# prefix.)
+if pgrep -f "^(/private)?${app#/private}/Contents/MacOS/" >/dev/null 2>&1; then
+    die "ManimLive is open. Quit it (ManimLive menu → Quit ManimLive), then run this again."
+fi
+
+echo "ManimLive: downloading…"
+fetch "$site/app/ManimLive-$arch.zip" "$work/ManimLive.zip" \
+    || die "could not download ManimLive — check the connection and run this again."
+ditto -x -k "$work/ManimLive.zip" "$work"
+rm -rf "$incoming"
+mv "$work/ManimLive.app" "$incoming"
+new="$incoming"
+[ -x "$new/Contents/Resources/complete.sh" ] || die "the download was incomplete — run this again."
+# Apple silicon runs only signed code; Electron's x64 release, and so this
+# app on an Intel Mac, is unsigned. The seal is the app as it ships.
+if [ "$arch" = arm64 ]; then
+    codesign --verify --strict "$new" 2>/dev/null || die "the download does not verify — run this again."
+fi
+
+# The app completes itself with the script it carries: Electron cloned from
+# the app this replaces or another Claerbout app, else downloaded once.
+if [ -n "${MANIML_SIBLINGS+set}" ]; then export CLAERBOUT_SIBLINGS="$MANIML_SIBLINGS"; fi
+echo "ManimLive: getting Electron (shared with another Claerbout app if one has it, else about 130 MB, once)…"
+"$new/Contents/Resources/complete.sh" "$new" /dev/null "$app" \
+    || die "could not get Electron — check the connection and run this again."
+
+rm -rf "$app"
+mv "$new" "$app" || die "could not move ManimLive into place — run this again."
+echo "ManimLive: installed $app — open it from $(dirname "$app")."
