@@ -70,6 +70,9 @@ function create(config) {
     const current = Math.max(0, state.current);
     get("position-now").textContent = String(current + 1);
     get("position-total").textContent = " / " + Math.max(1, total);
+    // Start (the Start chip's jump as a control, and the Home key) and
+    // Back have nowhere to go from the start.
+    get("start").disabled = current <= 0;
     get("previous").disabled = current <= 0;
     get("next").disabled = current >= total - 1;
 

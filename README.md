@@ -129,6 +129,11 @@ In the browser viewer:
 - **RIGHT arrow** — run the next animation (re-executed from source)
 - **LEFT arrow** — jump to the previous checkpoint
 - **UP / DOWN arrows** — jump between checkpoints instantly
+- **Home** (or Start, first on the bottom bar) — jump to the start, the
+  timeline kept: RIGHT then replays what was built
+- **Restart** (toolbar) — the scene as if just opened: a new scene process
+  under ManimLive.app, a fresh instance of the scene from a terminal, at
+  the start with no history
 - **Save the scene file** — the watcher replays only the edited animations
 - **Click a mobject** — prints its variable name; drag to move it, and a
   paste-ready `name.move_to([x, y, z])` prints on release. In a

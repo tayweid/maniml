@@ -54,7 +54,7 @@ class El {
 
 function makeDom() {
   const byId = {};
-  for (const id of ["previous", "next", "position-now", "position-total"]) {
+  for (const id of ["start", "previous", "next", "position-now", "position-total"]) {
     byId[id] = new El("div");
   }
   const doc = {
@@ -122,6 +122,9 @@ function railState(dom) {
       { position: "1 / 5", moving: false, current: 0, lit: ["-"],
         working: -1, stacks: [false, false] });
     const firstChip = dom.railEl.querySelectorAll(".chip")[0];
+    // Start and Back have nowhere to go from the start.
+    check("stretch: Start and Back disabled at the start",
+      [dom.byId.start.disabled, dom.byId.previous.disabled], [true, true]);
 
     rail.presenter.moveStarted(0, 1, false, 2);
     check("stretch: move opens — the dash alone lights, ring held, no pulse",
@@ -150,6 +153,8 @@ function railState(dom) {
       railState(dom),
       { position: "5 / 5", moving: false, current: 1, lit: ["-"],
         working: -1, stacks: [false, false] });
+    check("stretch: Start and Back enabled once off the start",
+      [dom.byId.start.disabled, dom.byId.previous.disabled], [false, false]);
 
     const sameChip = dom.railEl.querySelectorAll(".chip")[0] === firstChip;
     if (sameChip) {

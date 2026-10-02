@@ -5,6 +5,76 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Start is the Start chip's jump, as a control and the Home key (2026-10-02)
+
+Taylor: "i'd like a way to go back to zero. maybe that's refresh." Zero
+already existed in one form — the rail's first chip is titled "Start"
+and a click on it restores checkpoint 0 — but there was no key and no
+transport control for it: Back and LEFT reach it one pausepoint at a
+time, and Restart (above) is a different thing now. Three zeros were on
+the table: a jump to checkpoint 0 with the built rail kept; a rebuild of
+checkpoint 0 from a reloaded module with the history discarded; and a
+fresh Scene instance. The last two are Restart. Decided: Start is the
+first, promoted — the chip's word, the first control in the transport
+pod before Back, disabled at the start like Back, and the Home key.
+It keeps the frontier, so RIGHT from the start replays the retained
+history at real speed with every chip standing, and like LEFT it is a
+jump that announces no move. It goes through the engine as a key
+(`WindowKeys.HOME`, mapped from the page's "Home") rather than as the
+chip message, because a key is coalesced with stale arrows and deferred
+through a `pause(loop=True)` lap where a chip message would restore
+inside the running exec. In recorded playback the page claims it and
+seeks the recording to its first pausepoint, as the Start chip does
+there. Not changed: the position badge still reads 1 / N at checkpoint
+0; "zero" is the Start chip, not the badge's number.
+
+## Restart is a restart (2026-10-02)
+
+Taylor: "i think the refresh button doesn't quite work. i often need to
+close the window to get it to truely refresh." The button was
+`_restart_from_source`: a re-exec of the scene file inside the running
+process, a fresh checkpoint 0 and a fast-forward back to the unit you
+were on. What survived it was most of what a window close clears — the
+old Scene class and instance (`setup()` never re-ran), every imported
+helper module, the camera frame as you had left it (baked into the new
+checkpoint 0), the random state, present mode, and the page itself with
+its WebGPU slots, playback flags, rail and console — and it gave no sign
+of working, invisibly so behind a recording. So "refresh" was the one
+gesture that explicitly did not reset, and closing the window was the
+only one that did.
+
+Decided: Restart means a restart — the scene as if just opened, at
+checkpoint 0 with no history, no fast-forward back. Under the app the
+relay takes the `restart` message and `AppServer.restart_scene` replaces
+the scene process under the same id (a process is the only thing that
+gives back the modules, the class, the camera and the seed together), the
+page's reconnect loop finds the new process where it was, and the new
+boot id in its ready makes the page reload itself — the stale-JS recovery
+that was already there, now doing the page's half of the restart. From a
+terminal there is no supervisor, so the viewer takes the scene picker's
+path to the scene's own name (the same-name refusal lifted for this one
+explicit case): `_run_web_scenes` re-imports the module and builds a
+fresh instance on the same socket, and a file that no longer loads
+restarts the class that last loaded rather than ending the process, the
+traceback saying why. The button turns until the restarted scene answers
+and leaves a playing recording first so the result is on the stage.
+`_restart_from_source` stays for the watcher's out-of-construct edit,
+which it does well. Not done: reloading the scene's own helper modules
+inside a process (the app's respawn covers it; a terminal run does not
+reload helpers, as before).
+
+Review found the one edge where the app's path was worse than the
+button it replaced: a Restart while the file does not load (a syntax
+error mid-edit). `restart_scene` stopped the old process before the
+replacement had served, the replacement died at import, and the id then
+named nothing — every reconnect refused, the error nowhere (a failed
+process's output is read only when an open fails), the only way back
+the landing page and a new id. The replacement is now built and waited
+for before it takes the id, and one that does not serve leaves the old
+process in place and the restart goes through to it: the terminal
+path's restart from the code that last loaded, under the app too, the
+traceback on the console.
+
 ## The login agent and the PWA are retired (2026-10-01)
 
 Taylor, asked whether to retire `maniml agent` and the installable page

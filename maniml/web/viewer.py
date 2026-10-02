@@ -61,13 +61,16 @@ JS_KEY_TO_SYMBOL = {
     "ArrowRight": WindowKeys.RIGHT,
     "ArrowUp": WindowKeys.UP,
     "ArrowDown": WindowKeys.DOWN,
+    "Home": WindowKeys.HOME,
     "Enter": WindowKeys.ENTER,
     "Escape": WindowKeys.ESCAPE,
     "Backspace": WindowKeys.BACKSPACE,
     "Tab": WindowKeys.TAB,
     " ": WindowKeys.SPACE,
 }
-NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"})
+# The keys that move the scene: a stale press of one (made while the scene
+# was moving) is coalesced to the latest, not dropped.
+NAVIGATION_KEYS = frozenset({"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home"})
 JS_BUTTON_TO_MASK = {
     0: MouseButtons.LEFT,
     1: MouseButtons.MIDDLE,
@@ -204,6 +207,11 @@ class WebViewer:
         self.pressed_keys.clear()
         self._has_undrawn_event = True
         self._needs_refresh = True
+        # A new scene is a new state even where it reads like the last
+        # one's (a restart of a scene parked at the start): the page is
+        # told, so what it shows for the old scene — a busy Restart — ends.
+        self._last_state = None
+        self._last_move = None
 
     def destroy(self):
         # A scene switch tears down the scene, not the session: keep the
@@ -636,12 +644,20 @@ class WebViewer:
             self._advance_to_unit(int(event.get("unit", 0)))
 
         elif kind == "restart":
-            if not getattr(scene, "_processing_key", False):
-                scene._processing_key = True
-                try:
-                    scene._restart_from_source()
-                finally:
-                    scene._processing_key = False
+            # A true restart: a fresh instance of this scene, built by the
+            # run loop in __main__ exactly as the scene picker builds
+            # another class — the module re-imported, setup() run again,
+            # the camera and the random state as at launch, parked at
+            # checkpoint 0 with no history — on this same viewer and
+            # socket. (_restart_from_source, the watcher's path for an
+            # edit outside construct(), re-execs the file and keeps the
+            # rest; it is not this.) Under the app the relay takes this
+            # message and replaces the whole process; it arrives here
+            # only when the replacement could not serve (the file does
+            # not load), and is then the same restart from the code that
+            # last loaded that a terminal run gets.
+            self._pending_scene = type(scene).__name__
+            scene.quit_interaction = True
 
         elif kind == "switch_scene":
             # Only a scene actually declared in this file: the name selects a

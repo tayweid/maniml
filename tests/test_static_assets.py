@@ -212,13 +212,35 @@ class ViewerTests(unittest.TestCase):
         the rail it moves along is part of the same run of pods."""
         viewer = (STATIC / "viewer.html").read_text()
         navbar = viewer[viewer.index('<div id="navbar"'):viewer.index("<script src=")]
-        for control in ('id="previous"', 'id="next"', 'id="position"',
+        for control in ('id="start"', 'id="previous"', 'id="next"', 'id="position"',
                         'id="rail"', 'id="fullscreen"'):
             self.assertIn(control, navbar, control)
+        # Start is the transport pod's first control, before Back.
+        self.assertLess(navbar.index('id="start"'), navbar.index('id="previous"'))
         # The top bar keeps the file and the tools, and nothing else.
         toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index('<aside id="console"')]
-        for moved in ('id="previous"', 'id="next"', 'id="fullscreen"'):
+        for moved in ('id="start"', 'id="previous"', 'id="next"', 'id="fullscreen"'):
             self.assertNotIn(moved, toolbar, moved)
+
+    def test_home_reaches_the_engine_live_and_the_recording_in_playback(self):
+        """Home is the Start control's key. Live it is forwarded to the
+        engine like the arrows (the engine's own stale-key coalescing and
+        loop-hold guard then apply); in playback the page claims it and
+        seeks the recording to its first pausepoint, so no press leaks to
+        the engine behind a playing video. The student bundle's page has
+        the same control and key."""
+        viewer = (STATIC / "viewer.html").read_text()
+        keyboard = viewer[viewer.index("// -- Keyboard --"):]
+        self.assertIn('"Home"', keyboard[:keyboard.index("const claimed")],
+                      "Home is not a forwarded key")
+        playback = keyboard[keyboard.index('stageSource === "playback"'):
+                            keyboard.index('send({ type: "key"')]
+        self.assertIn('e.key === "Home") ManimlPresentation.seekCheckpoint(0)', playback)
+        rail = (STATIC / "rail.js").read_text()
+        self.assertIn('get("start").disabled = current <= 0;', rail)
+        present = (STATIC / "present.html").read_text()
+        self.assertIn('id="start"', present)
+        self.assertIn('document.getElementById("start").onclick', present)
 
     def test_chrome_is_a_run_of_pods(self):
         """The seams and stadium ends come from shell.css, so both bars and

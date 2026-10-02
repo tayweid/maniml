@@ -19,6 +19,7 @@ import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as ws_connect
 
 
@@ -171,6 +172,124 @@ class AppShellE2E(unittest.TestCase):
                     logged.extend(line["text"] for line in data.get("lines", []))
             self.assertTrue(any("animation" in line.lower() for line in logged),
                             f"no console output relayed after RIGHT: {logged}")
+
+    def test_restart_respawns_the_scene_process_under_the_same_id(self):
+        """The viewer's Restart under the app is a new scene process: the
+        relay takes the message, the app replaces the process behind the
+        id with a fresh one under the SAME id, so the page's reconnect loop
+        finds it at /scene/<id> — and the new ready carries a new boot id,
+        which is what makes the page reload itself."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            first_ready, _ = self._ready_and_first_state(ws)
+            # Move off the start, so the restart has history to drop.
+            self._advance(ws)
+            ws.send(json.dumps({"type": "restart"}))
+            self._assert_closed(ws)
+
+        # The same id answers again, from a fresh process: a new boot id,
+        # parked at checkpoint 0 with nothing run.
+        with ws_connect(relay_url, max_size=2**24, origin=origin,
+                        open_timeout=30) as ws:
+            second_ready, state = self._ready_and_first_state(ws)
+        self.assertNotEqual(second_ready["boot"], first_ready["boot"],
+                            "the restarted scene is the old process")
+        self.assertEqual((state["current"], state["count"]), (0, 1))
+        self.assertTrue(state["future"], "the restarted scene lost its units")
+
+        # Opening the file again reuses the restarted process, under the id
+        # the page is on. (Its URL says nothing: the viewer port is a
+        # rendezvous.)
+        with self._control() as control:
+            reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
+        self.assertEqual(reopened["scene_id"], opened["scene_id"],
+                         "the restart changed the id the page is on")
+
+    def test_restart_while_the_file_does_not_load_keeps_the_scene(self):
+        """A Restart while the scene file does not load (a syntax error
+        mid-edit) must not lose the scene. The replacement process dies at
+        import, so the app keeps the process it has and forwards the
+        restart to it: the scene restarts from the code that last loaded,
+        as a terminal restart does — on the same socket, from the same
+        boot, parked at the start. Once the file loads again a restart is
+        a new process, as always."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+
+        with ws_connect(relay_url, max_size=2**24, origin=origin,
+                        open_timeout=30) as ws:
+            first_ready, _ = self._ready_and_first_state(ws)
+            self._advance(ws)
+            try:
+                with open(scene_path, "w") as f:
+                    # An unfinished def: the mid-edit kind of syntax error.
+                    f.write(SCENE_SOURCE + "def mid_edit(\n")
+                ws.send(json.dumps({"type": "restart"}))
+                # Not a close, not a timeout: a state from the scene the
+                # page was on, back at the start with nothing run.
+                state = self._state_where(
+                    ws, lambda data: data.get("current") == 0)
+                self.assertEqual((state["current"], state["count"]), (0, 1))
+            finally:
+                with open(scene_path, "w") as f:
+                    f.write(SCENE_SOURCE)
+            # The file loads again: a restart is a new process, and the
+            # socket closes for the page to reconnect to it.
+            ws.send(json.dumps({"type": "restart"}))
+            self._assert_closed(ws)
+
+        with ws_connect(relay_url, max_size=2**24, origin=origin,
+                        open_timeout=30) as ws:
+            second_ready, state = self._ready_and_first_state(ws)
+        self.assertNotEqual(second_ready["boot"], first_ready["boot"],
+                            "the fixed file did not restart as a new process")
+        self.assertEqual((state["current"], state["count"]), (0, 1))
+        self.assertTrue(state["future"], "the restarted scene lost its units")
+
+    def _ready_and_first_state(self, ws):
+        """A relay socket's opening: the scene's ready, then its first
+        state."""
+        ready = json.loads(ws.recv(timeout=30))
+        self.assertEqual(ready["type"], "ready")
+        return ready, self._state_where(ws, lambda data: True)
+
+    def _state_where(self, ws, condition, timeout=30):
+        """The next state message satisfying `condition`; frames and other
+        messages in between are skipped."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            message = ws.recv(timeout=timeout)
+            if isinstance(message, bytes):
+                continue
+            data = json.loads(message)
+            if data.get("type") == "state" and condition(data):
+                return data
+        self.fail("no state satisfying the condition")
+
+    def _advance(self, ws):
+        """RIGHT, and the state that shows it moved the scene."""
+        ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+        self._state_where(ws, lambda data: data.get("current") == 1)
+
+    def _assert_closed(self, ws):
+        """The relay closes the page's socket: a close, specifically — a
+        recv that merely timed out would mean the page was left on the
+        process it had. The close comes once the replacement serves and
+        the old process is stopped, so a process start-up bounds the
+        wait."""
+        with self.assertRaises(ConnectionClosed):
+            while True:
+                ws.recv(timeout=20)
 
     def test_relay_refuses_a_scene_it_is_not_running(self):
         with ws_connect(
