@@ -797,7 +797,11 @@ as `?open=<path>` and `app.html` opens it once the engine is there; the root
 is widened because every path the shell hands over is the user's own action
 and the page has no other way to name one. `web/static/setup.html` is the
 first launch's progress screen, the one page the bundle serves itself.
-`tests/test_shell_config.py` holds `app/engine-requirements.txt`, the export
+The app updates itself (shell 0.2.0, `update.js`): the shell compares its
+build with the site's `app/latest.json` after launch and on ManimLive menu
+→ Check for Updates…, and the landing page's Update button (`app.html`,
+the shell's `update` events) has it download the new build, swap it in
+and relaunch. `tests/test_shell_config.py` holds `app/engine-requirements.txt`, the export
 of `uv.lock` the shell installs, current (the bundle carries maniml; uv
 installs the rest, all wheels, at the locked versions). Since claerbout
 0.1.6 the venv lives at `~/.local/share/uv/claerbout/maniml`, beside uv's

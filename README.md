@@ -108,7 +108,10 @@ npm install && npm run app:build
 
 puts `ManimLive.app` in Applications; `npm run app` runs the shell on the
 checkout instead, and `npm run app:smoke` launches it on a scene in a
-throwaway folder and checks it. How the port was made is in
+throwaway folder and checks it. An installed app updates itself: it
+checks its site after launch, and the landing page's Update button (or
+ManimLive menu → Check for Updates…) downloads the new build, swaps it in
+and relaunches. How the port was made is in
 `docs/claerbout_experiment.md`.
 
 The background engine below is a terminal's: the app has an engine of its own
