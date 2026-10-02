@@ -1238,6 +1238,55 @@ class SceneSwitchE2E(_ViewerHarness, unittest.TestCase):
             self.assertTrue(self.proc.poll() is None, "process died")
 
 
+class RestartE2E(_ViewerHarness, unittest.TestCase):
+    """Restart on a bare scene process (`maniml file.py Scene`, nothing
+    above it to replace the process): a fresh instance of the same scene
+    on the same socket, parked at checkpoint 0 with no history, exactly
+    as the scene picker builds another class. Its own process, since a
+    restart resets the scene the other suites share."""
+
+    FILENAME = "restart_scene.py"
+
+    def test_restart_is_a_fresh_scene_at_the_start(self):
+        def latest(states, field):
+            values = [s.get(field) for s in states if s.get("type") == "state"]
+            return values[-1] if values else None
+
+        def press(ws, key):
+            ws.send(json.dumps({"type": "key", "action": "down", "key": key}))
+            ws.send(json.dumps({"type": "key", "action": "up", "key": key}))
+
+        with self._connect() as ws:
+            self._collect(ws, 2)
+            press(ws, "ArrowRight")
+            _, states = self._collect(ws, 4)
+            press(ws, "ArrowRight")
+            _, states = self._collect(ws, 4)
+            self.assertEqual(latest(states, "current"), 2)
+            self.assertEqual(latest(states, "count"), 3)
+
+            ws.send(json.dumps({"type": "restart"}))
+            deadline = time.time() + 20
+            restarted = None
+            while time.time() < deadline and restarted is None:
+                _, states = self._collect(ws, 2)
+                restarted = next((
+                    s for s in states
+                    if s.get("type") == "state" and s.get("count") == 1
+                ), None)
+            self.assertIsNotNone(restarted, "the restart never landed")
+            self.assertEqual(restarted["current"], 0)
+            self.assertEqual(restarted["scene"], self.SCENE)
+            self.assertTrue(restarted["future"], "the units to run are gone")
+            self.assertIsNone(self.proc.poll(), "the restart killed the process")
+
+            # And it is the live scene again: RIGHT runs the first unit.
+            press(ws, "ArrowRight")
+            _, states = self._collect(ws, 4)
+            self.assertEqual(latest(states, "current"), 1)
+            self.assertEqual(latest(states, "count"), 2)
+
+
 class RendererSwitchE2E(_ViewerHarness, unittest.TestCase):
     SOURCE = """
 from manim import *

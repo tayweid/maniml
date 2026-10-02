@@ -171,6 +171,71 @@ class AppShellE2E(unittest.TestCase):
             self.assertTrue(any("animation" in line.lower() for line in logged),
                             f"no console output relayed after RIGHT: {logged}")
 
+    def test_restart_respawns_the_scene_process_under_the_same_id(self):
+        """The viewer's Restart under the app is a new scene process: the
+        relay takes the message, the app replaces the process behind the
+        id with a fresh one under the SAME id, so the page's reconnect loop
+        finds it at /scene/<id> — and the new ready carries a new boot id,
+        which is what makes the page reload itself."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+
+        def ready_and_first_state(ws):
+            ready = json.loads(ws.recv(timeout=30))
+            self.assertEqual(ready["type"], "ready")
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                message = ws.recv(timeout=20)
+                if isinstance(message, bytes):
+                    continue
+                data = json.loads(message)
+                if data.get("type") == "state":
+                    return ready, data
+            self.fail("no state after ready")
+
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            first_ready, _ = ready_and_first_state(ws)
+            # Move off the start, so the restart has history to drop.
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+            deadline = time.time() + 20
+            advanced = False
+            while time.time() < deadline and not advanced:
+                message = ws.recv(timeout=20)
+                if isinstance(message, bytes):
+                    continue
+                data = json.loads(message)
+                advanced = data.get("type") == "state" and data.get("current") == 1
+            self.assertTrue(advanced, "RIGHT did not advance the scene")
+            ws.send(json.dumps({"type": "restart"}))
+            # The relay closes the page's socket: the process it relayed
+            # to is gone.
+            with self.assertRaises(Exception):
+                while True:
+                    ws.recv(timeout=30)
+
+        # The same id answers again, from a fresh process: a new boot id,
+        # parked at checkpoint 0 with nothing run. The relay holds the
+        # reconnect until the new process serves.
+        with ws_connect(relay_url, max_size=2**24, origin=origin,
+                        open_timeout=30) as ws:
+            second_ready, state = ready_and_first_state(ws)
+        self.assertNotEqual(second_ready["boot"], first_ready["boot"],
+                            "the restarted scene is the old process")
+        self.assertEqual((state["current"], state["count"]), (0, 1))
+        self.assertTrue(state["future"], "the restarted scene lost its units")
+
+        # Opening the file again reuses the restarted process, under the id
+        # the page is on. (Its URL says nothing: the viewer port is a
+        # rendezvous, and the new process usually lands on the old one's.)
+        with self._control() as control:
+            reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
+        self.assertEqual(reopened["scene_id"], opened["scene_id"],
+                         "the restart changed the id the page is on")
+
     def test_relay_refuses_a_scene_it_is_not_running(self):
         with ws_connect(
                 f"{self._control_url()}scene/not-a-scene",

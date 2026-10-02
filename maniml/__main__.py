@@ -240,8 +240,13 @@ def _run_web_scenes(viewer, script_file, scene_name, scene_class, present):
 
     The module is re-imported per scene for the same reason `_restart_from_source`
     does it: the previous scene may have mutated module-level state.
+
+    The viewer's Restart is the same switch, to the scene's own name: a
+    fresh instance from a re-imported module, setup() run again, the
+    camera and the random state as at launch, parked at checkpoint 0.
     """
     source_path = os.path.abspath(script_file)
+    module_name = os.path.splitext(os.path.basename(script_file))[0]
     while True:
         scene = scene_class(window=viewer)
         scene._present_mode = present
@@ -251,13 +256,28 @@ def _run_web_scenes(viewer, script_file, scene_name, scene_class, present):
         pending = viewer.take_pending_scene()
         if pending is None:
             return
+        previous_module = sys.modules.get(module_name)
         try:
             module = load_scene_module(script_file)
             next_class = getattr(module, pending, None)
         except Exception:
             traceback.print_exc()
             next_class = None
+            # The failed load registered a half-run module under the
+            # file's name, and checkpoint 0 is built from whichever
+            # module claims the file: put back the one that loaded.
+            if previous_module is not None:
+                sys.modules[module_name] = previous_module
         if next_class is None or not callable(next_class):
+            if pending == scene_name:
+                # A Restart while the file does not load (a syntax error
+                # mid-edit) is still a restart — of the code that last
+                # loaded, the traceback above saying why — rather than
+                # the end of the process.
+                print(f"Error: {os.path.basename(script_file)} could not be "
+                      f"reloaded; restarting {scene_name} from the code "
+                      "that last loaded")
+                continue
             print(f"Error: Scene '{pending}' could not be loaded; keeping {scene_name}")
             return
         scene_name, scene_class = pending, next_class

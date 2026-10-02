@@ -248,6 +248,37 @@ class AppServer:
             remember_recent(path)
         return url
 
+    def restart_scene(self, scene_id: str) -> SceneProcess | None:
+        """Replace the process behind an id with a fresh one, under the same id.
+
+        The viewer's Restart. A scene process is an interpreter holding the
+        scene file and everything it imported, a Scene class built from
+        them, and a camera and random state every checkpoint since descends
+        from; nothing inside it can give all of that back (the in-process
+        `_restart_from_source` re-execs the one file and keeps the rest), so
+        a true restart is a new process. The id stays, so the page's
+        reconnect loop finds the new process at the same /scene/<id>; its
+        ready message carries a new boot id, and the page reloads itself on
+        that (viewer.html), which resets the page as thoroughly as the
+        engine. The new process is started before the old one is stopped:
+        the relay that saw the old one die finds the map already pointing
+        at its successor.
+        """
+        with self._lock:
+            if self._shutdown_complete:
+                return None
+            previous = self._scenes_by_id.get(scene_id)
+            if previous is None:
+                return None
+            process = SceneProcess(
+                previous.path, previous.scene, identifier=scene_id,
+            )
+            self.processes[(previous.path, previous.scene or "")] = process
+            self._scenes_by_id[scene_id] = process
+        # Outside the lock: stopping waits for the old process to go.
+        previous.stop()
+        return process
+
     def recents_payload(self) -> dict:
         """Files the user has opened before, newest first.
 
@@ -477,11 +508,31 @@ class AppServer:
             it as a client and copies frames both ways.
             """
             process = self._scenes_by_id.get(scene_id)
+            if process is not None and process.url is None and process.alive():
+                # Just started, or just restarted under this id: hold the
+                # page's socket until the scene serves, so a Restart's
+                # reconnect lands on the new process rather than on the
+                # "can't reach the engine" overlay.
+                await asyncio.to_thread(process.wait_for_url)
             target = process.ws_url if process is not None else None
             if target is None or not process.alive():
                 await ws.close(code=1011, reason="no such scene")
                 return
             import websockets.asyncio.client as ws_client
+
+            async def pump_page(source, sink):
+                """The page's messages to the scene — all but one. Restart
+                is the app's to act on: the scene process cannot restart
+                itself as thoroughly as the app can replace it (above),
+                so the message is taken here, the process is replaced,
+                and this socket closes for the page to reconnect."""
+                async for message in source:
+                    if isinstance(message, str) and "restart" in message:
+                        event = parse_json_object(message)
+                        if event is not None and event.get("type") == "restart":
+                            await asyncio.to_thread(self.restart_scene, scene_id)
+                            return
+                    await sink.send(message)
 
             try:
                 async with ws_client.connect(
@@ -511,7 +562,7 @@ class AppServer:
 
                     done, pending = await asyncio.wait(
                         [
-                            asyncio.create_task(pump(ws, upstream)),
+                            asyncio.create_task(pump_page(ws, upstream)),
                             asyncio.create_task(pump(upstream, ws)),
                         ],
                         return_when=asyncio.FIRST_COMPLETED,

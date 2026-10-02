@@ -5,6 +5,41 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Restart is a restart (2026-10-02)
+
+Taylor: "i think the refresh button doesn't quite work. i often need to
+close the window to get it to truely refresh." The button was
+`_restart_from_source`: a re-exec of the scene file inside the running
+process, a fresh checkpoint 0 and a fast-forward back to the unit you
+were on. What survived it was most of what a window close clears — the
+old Scene class and instance (`setup()` never re-ran), every imported
+helper module, the camera frame as you had left it (baked into the new
+checkpoint 0), the random state, present mode, and the page itself with
+its WebGPU slots, playback flags, rail and console — and it gave no sign
+of working, invisibly so behind a recording. So "refresh" was the one
+gesture that explicitly did not reset, and closing the window was the
+only one that did.
+
+Decided: Restart means a restart — the scene as if just opened, at
+checkpoint 0 with no history, no fast-forward back. Under the app the
+relay takes the `restart` message and `AppServer.restart_scene` replaces
+the scene process under the same id (a process is the only thing that
+gives back the modules, the class, the camera and the seed together), the
+page's reconnect loop finds the new process where it was, and the new
+boot id in its ready makes the page reload itself — the stale-JS recovery
+that was already there, now doing the page's half of the restart. From a
+terminal there is no supervisor, so the viewer takes the scene picker's
+path to the scene's own name (the same-name refusal lifted for this one
+explicit case): `_run_web_scenes` re-imports the module and builds a
+fresh instance on the same socket, and a file that no longer loads
+restarts the class that last loaded rather than ending the process, the
+traceback saying why. The button turns until the restarted scene answers
+and leaves a playing recording first so the result is on the stage.
+`_restart_from_source` stays for the watcher's out-of-construct edit,
+which it does well. Not done: reloading the scene's own helper modules
+inside a process (the app's respawn covers it; a terminal run does not
+reload helpers, as before).
+
 ## The login agent and the PWA are retired (2026-10-02)
 
 Taylor, asked whether to retire `maniml agent` and the installable page

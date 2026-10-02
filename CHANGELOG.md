@@ -238,6 +238,17 @@ interfaces may still change before the first public release.
 
 ### The viewer
 
+- **Restart restarts.** The toolbar's Restart button used to re-exec the
+  scene file inside the running process and fast-forward back to where
+  you were, keeping the old Scene class, the imported modules, the camera,
+  the random state and the whole page — what it could not clear was what
+  closing the window cleared. It is now the scene as if just opened, at
+  the start with no history: under ManimLive.app a new scene process,
+  which the page reconnects to at the same address and reloads itself
+  for; from a terminal a fresh instance of the scene on the same
+  connection, the file re-imported and `setup()` run again. The button
+  turns until the restarted scene answers, and a recording playing on
+  the stage is left first so the result is what you see.
 - The **Scene renderer** selector gains **Phase B**: the Phase A driver fed
   the whole Phase B stack — patch fills, net surfaces and GPU programs —
   regardless of the `MANIML_FILL` / `MANIML_SURFACE` / `MANIML_PROGRAMS`

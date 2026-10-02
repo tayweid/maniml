@@ -294,6 +294,12 @@
   #export-pod.working .export-icon.running { color: var(--warn); opacity: 1; }
   #export-pod.success .export-icon.running { color: var(--good); opacity: 1; }
   #export-pod.failed .export-icon.running { color: var(--bad); opacity: 1; }
+  /* Restart shows it is working: the arrow turns until the restarted scene
+     speaks (the next ready or state), since a restart is seconds of a new
+     process starting with nothing else on the page changing. */
+  @keyframes restart-turn { to { transform: rotate(360deg); } }
+  #restart-scene.working { color: var(--warn); opacity: 1; }
+  #restart-scene.working svg { animation: restart-turn 900ms linear infinite; }
   #renderer-select { margin: 0 5px; padding: 4px; color: var(--text);
     background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
     font: inherit; font-size: 11px; }
@@ -486,7 +492,10 @@
       <span id="glwarn"></span>
     </span>
 
-    <button id="restart-scene" class="icon-button" aria-label="Reload scene from source" hidden>
+    <!-- A true restart: the scene as if just opened — under the app a new
+         scene process, which reloads this page too; on a bare scene process
+         a fresh instance of the scene on this same socket. -->
+    <button id="restart-scene" class="icon-button" aria-label="Restart the scene from the beginning" aria-busy="false" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg>
       <span class="control-label">Restart</span>
     </button>
@@ -676,6 +685,7 @@ function connect(manualRetry = false) {
         document.body.classList.remove("disconnected");
         document.getElementById("conn").textContent = "Connected";
         hideConnectionIssue();
+        if (restartPending) setRestartPending(false);
         applyCapabilities(data.capabilities || []);
         canvas.focus();
         // The following state carries the engine's current renderer, even
@@ -897,6 +907,8 @@ function handleMessage(data) {
       void startRenderer(data.renderer, false);
     }
     lastLiveState = data;
+    // The restarted scene's first state: parked at the start.
+    if (restartPending && data.current === 0) setRestartPending(false);
     if (data.render_error) setRenderError(data.render_error);
     // During playback the recording owns the presenter; the engine's
     // states keep the badges fresh but never touch the rail.
@@ -1015,7 +1027,25 @@ function pulseKey(key) {
 }
 document.getElementById("previous").onclick = () => pulseKey("ArrowLeft");
 document.getElementById("next").onclick = () => pulseKey("ArrowRight");
-document.getElementById("restart-scene").onclick = () => {
+// Restart: the scene as if just opened, at checkpoint 0 with no history.
+// Under the app the message never reaches the scene: the relay replaces the
+// scene process under the same id, this socket closes, the reconnect finds
+// the new process, and its ready carries a new boot id — on which the page
+// reloads itself (above), so the page resets as thoroughly as the engine.
+// On a bare scene process the engine builds a fresh instance of the scene
+// on this same socket, and its first state ends the busy state here.
+const restartButton = document.getElementById("restart-scene");
+let restartPending = false;
+function setRestartPending(on) {
+  restartPending = on;
+  restartButton.classList.toggle("working", on);
+  restartButton.setAttribute("aria-busy", String(on));
+}
+restartButton.onclick = () => {
+  if (restartPending) return;
+  // The restarted scene belongs on the stage, not behind the recording.
+  if (stageSource === "playback") exitPlayback();
+  setRestartPending(true);
   send({ type: "restart" });
   canvas.focus();
 };
