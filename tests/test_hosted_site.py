@@ -19,10 +19,10 @@ class HostedSiteTests(unittest.TestCase):
     def test_the_preview_says_where_the_app_actually_runs(self):
         page = (SITE / "index.html").read_text()
         self.assertIn("preview", page.lower())
-        # The two commands are the whole point of the page.
+        # The install line and the download are the whole point of the page.
         self.assertIn("curl -fsSL https://maniml.tayweid.io/install | bash", page)
         self.assertIn("app/ManimLive.app.zip", page)
-        self.assertIn("maniml app", page)
+        self.assertIn("ManimLive.app", page)
 
     def test_a_long_command_scrolls_inside_its_box(self):
         """The install command is long enough to break a naive flex row: a flex
