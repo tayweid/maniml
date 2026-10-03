@@ -89,12 +89,31 @@ packages are added per open.
 In a terminal, the traceback is followed by the one command that does the
 same: `uv add --script scene.py --bounds exact seaborn`.
 
+## A missing import on a reload
+
+The same rule inside a running scene. An `import` added to an open file
+is an edit outside `construct()`, so the watcher's reload rebuilds from
+the module (`checkpoints._restart_from_source`); its loader call is now
+`_reload_module`, which on a `ModuleNotFoundError` adds the package from
+uv's cache, tells the watcher of the header write (`FileWatcher.sync`, so
+the add is not also an edit to reload for), and loads again, with the
+checkpoints rebuilt and the scene back on the unit it was on. When the
+package would have to be downloaded, the failure is left in
+`scene._load_error` (message, hint, module, distribution, `download`),
+which the viewer's state carries as `load_error`; the page shows it in a
+box like the render-error box, with a Download button when the engine
+declares the `install` capability. The click sends `install` over the
+scene's own socket (the app's relay passes it through); the engine runs
+the add with the network, broadcasting uv's steps as `install_progress`,
+and reloads; the state after clears the box or rewrites it with why not.
+Only the offered name is accepted (`install_missing` checks it against
+`_load_error`). In a terminal the same reload prints the `uv add
+--script` line. Not covered: a scene switch or a bare-process Restart
+that fails on the import (`__main__._run_web_scenes`) still keeps the
+code that last loaded and says so on the console only.
+
 ## Not done
 
-- An import that first fails on a reload inside the viewer (an `import`
-  added mid-session) prints its traceback on the scene's console, as
-  before; the add happens on the next open from the landing page. The
-  viewer has no error surface for it yet.
 - Packages that arrive with others (`import pandas` beside seaborn) are
   not declared in the header after a clean run, as Knuth's
   `declare_imports` does. They are held by the date stamp, not pinned.
@@ -110,6 +129,10 @@ layered on `sys.path`, an offline add of an unknown package offering a
 download, and the refusal of anything but a package name.
 `tests/test_app.py`: the download offer end to end (and the `install`
 op's refusal of a package that is nowhere), and a package uv holds
-(colorama, put in the cache by the test) added to a scene's header and
-the scene started in the same request, its process importing the package
-from the layered environment.
+(colorama, put in the cache by `tests/uv_fixtures.py`) added to a scene's
+header and the scene started in the same request, its process importing
+the package from the layered environment; then the same two through a
+running scene, the import written into the open file and the page's
+state showing the rebuilt checkpoints, or the offer and the answer to
+its `install` message. `tests/test_checkpoint_reload.py`: the reload's
+recovery and its refusal headlessly, with the scene's state untouched.

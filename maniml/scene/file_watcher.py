@@ -138,6 +138,17 @@ class SimpleFileWatcher:
             
             self._stop_event.wait(self.check_interval)
     
+    def sync(self):
+        """Take the file as it is now for the last version seen: a write
+        the engine made itself (a header line, environment.py) is not an
+        edit to reload for. A poll already under way may still report it;
+        that costs one reload of code that loads, nothing more."""
+        try:
+            self._last_mtime = self.filepath.stat().st_mtime
+        except OSError:
+            return
+        self._last_content = self._read_file()
+
     def start(self):
         """Start watching."""
         self._thread = threading.Thread(target=self._watch_loop, daemon=True)
@@ -168,6 +179,11 @@ class FileWatcher:
         self.watcher = SimpleFileWatcher(str(self.filepath), callback, self.check_interval)
         self.watcher.start()
     
+    def sync(self):
+        """The file as it is now is the version last seen (an own write)."""
+        if self.watcher:
+            self.watcher.sync()
+
     def stop(self):
         """Stop watching the file."""
         if self.watcher:

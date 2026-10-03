@@ -351,28 +351,13 @@ class AppShellE2E(unittest.TestCase):
         header, pinned, and the scene starts in the same request: the
         scene process layers the header's environment on its own."""
         from maniml.environment import find_uv, parse_header, pinned_version
-        uv = find_uv()
-        if uv is None:
+        from tests.uv_fixtures import cached, importable
+        if find_uv() is None:
             self.skipTest("uv is not installed")
-        # A pure-Python package absent from the engine, put in uv's cache
-        # by an install into a throwaway environment (one download, if
-        # it is not there already; no network means no test).
-        try:
-            __import__("colorama")
-        except ImportError:
-            pass
-        else:
+        if importable("colorama"):
             self.skipTest("colorama is installed in the engine")
-        scratch = os.path.join(self.tmpdir.name, "cache-primer")
-        primed = subprocess.run(
-            [uv, "venv", "--python", sys.executable, scratch],
-            capture_output=True, text=True)
-        if primed.returncode == 0:
-            primed = subprocess.run(
-                [uv, "pip", "install", "--python", scratch, "colorama"],
-                capture_output=True, text=True)
-        if primed.returncode != 0:
-            self.skipTest(f"could not put colorama in uv's cache: {primed.stderr[-300:]}")
+        if not cached("colorama"):
+            self.skipTest("colorama could not be put in uv's cache")
         path = os.path.join(self.tmpdir.name, "cached_scene.py")
         with open(path, "w") as f:
             f.write("import colorama\n"
@@ -395,6 +380,72 @@ class AppShellE2E(unittest.TestCase):
             "        self.play(FadeIn(Dot()))\n"), text)
         self.assertTrue(any("added colorama" in line for line in self.lines),
                         "".join(self.lines)[-800:])
+
+    def test_an_import_added_while_the_viewer_is_open_is_installed_on_reload(self):
+        """The watcher's reload, not the landing page: the scene process
+        itself adds the package uv has to the file's header and reloads,
+        and the page's next state shows the rebuilt checkpoints on the
+        new line numbers (the header above shifts them)."""
+        from maniml.environment import find_uv, pinned_version
+        from tests.uv_fixtures import cached, importable
+        if find_uv() is None:
+            self.skipTest("uv is not installed")
+        if importable("colorama"):
+            self.skipTest("colorama is installed in the engine")
+        if not cached("colorama"):
+            self.skipTest("colorama could not be put in uv's cache")
+        path = os.path.join(self.tmpdir.name, "reload_scene.py")
+        Path(path).write_text(SCENE_SOURCE)
+        with self._control() as control:
+            opened = self._request(control, "open", path=path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        edited = "import colorama\n" + SCENE_SOURCE
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            _ready, state = self._ready_and_first_state(ws)
+            self.assertIsNone(state.get("load_error"))
+            # Off the start, so the rebuild has a checkpoint with a line.
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+            before = self._state_where(ws, lambda data: data.get("current") == 1)["lines"]
+            Path(path).write_text(edited)  # the watcher polls once a second
+            self._state_where(
+                ws, lambda data: data.get("lines") != before
+                and data.get("load_error") is None, timeout=60)
+        text = Path(path).read_text()
+        self.assertRegex(pinned_version(text, "colorama") or "", r"^\d")
+        self.assertTrue(text.endswith(edited), text[-300:])
+
+    def test_an_import_uv_lacks_is_offered_in_the_viewer(self):
+        """The reload stops with the offer in the page's state; the page's
+        install message runs the add with the network, and the state after
+        says how it ended — here, that there is no such package."""
+        from maniml.environment import find_uv
+        if find_uv() is None:
+            self.skipTest("uv is not installed")
+        path = os.path.join(self.tmpdir.name, "reload_scene_lacking.py")
+        Path(path).write_text(SCENE_SOURCE)
+        with self._control() as control:
+            opened = self._request(control, "open", path=path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        broken = "import not_a_real_module_xyz\n" + SCENE_SOURCE
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            self._ready_and_first_state(ws)
+            Path(path).write_text(broken)
+            offered = self._state_where(
+                ws, lambda data: bool((data.get("load_error") or {}).get("download")),
+                timeout=60)["load_error"]
+            self.assertEqual(offered["distribution"], "not_a_real_module_xyz")
+            self.assertIn("not_a_real_module_xyz", offered["hint"])
+            self.assertEqual(Path(path).read_text(), broken)
+            ws.send(json.dumps({"type": "install", "distribution": "not_a_real_module_xyz"}))
+            answered = self._state_where(
+                ws, lambda data: (data.get("load_error") or {}).get("download") is False,
+                timeout=120)["load_error"]
+        self.assertIn("hint", answered)
+        self.assertEqual(Path(path).read_text(), broken)
 
     def test_a_foreign_origin_cannot_start_scenes(self):
         """The Origin check is the boundary: a page on any other origin —

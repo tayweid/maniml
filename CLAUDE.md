@@ -829,7 +829,13 @@ and a scene that dies on a missing import has the package added and is
 started again in the same request when uv has it on this Mac; a download
 is offered as a button (the `install` op). `MANIML_UV` (the shell's uv)
 is found first, then one beside the interpreter, then PATH. A file
-without a header is untouched until a package is added.
+without a header is untouched until a package is added. Inside a running
+scene the watcher's rebuild does the same (`checkpoints._reload_module`,
+telling the watcher of its own header write); a download is left in
+`scene._load_error`, carried by the viewer's state as `load_error`, shown
+by `viewer.html` with a Download button whose `install` message
+(capability `install`) the scene process answers with the add, its steps
+as `install_progress`, and the reload.
 
 ### The installed app is ManimLive.app
 

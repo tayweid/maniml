@@ -25,9 +25,11 @@ and the shell rebuilds it on an update, losing them); a `pyproject.toml`
 and `.venv` per folder (the folder becomes the unit, and a course is a
 folder of files that travel one at a time); writing the engine's minor
 version as the header's floor (a file from a 3.14 checkout would not
-build for the app's 3.13; maniml's own floor is the floor). Left for
-later: an import that first fails on a reload inside the viewer, and
-declaring the packages that arrive with others.
+build for the app's 3.13; maniml's own floor is the floor). The same
+day, the reload inside a running scene got the same treatment (the
+rebuild recovers from uv's cache, and the viewer shows the download
+offer), since the one place a new import is written is the open file.
+Left for later: declaring the packages that arrive with others.
 
 ## Start is the Start chip's jump, as a control and the Home key (2026-10-02)
 

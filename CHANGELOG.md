@@ -18,7 +18,10 @@ interfaces may still change before the first public release.
   one that would have to be downloaded is offered as a button on the
   landing page. In a terminal, the traceback ends with the `uv add
   --script` line that does the same. A file without a header is a file as
-  before.
+  before. The same inside a running scene: an import added to the open
+  file is installed on the watcher's reload when uv has it, and otherwise
+  the viewer shows why the file did not load, with a Download button that
+  adds the package and reloads in place, checkpoints and all.
 
 ### Shared renderer
 

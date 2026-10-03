@@ -168,11 +168,19 @@
     box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035); }
   body.playback #playback-video { display: block; }
   body.playback #view { display: none !important; }
-  #render-error { position: absolute; max-width: 520px; margin: 24px;
+  #render-error, #load-error { position: absolute; max-width: 520px; margin: 24px;
     padding: 18px 22px; border: 1px solid var(--warn); border-radius: 10px;
     background: var(--glass-solid); color: var(--text); z-index: 2; }
-  #render-error[hidden] { display: none; }
-  body.render-error #view { opacity: .25; }
+  #render-error[hidden], #load-error[hidden] { display: none; }
+  body.render-error #view, body.load-error #view { opacity: .25; }
+  #load-error .text { white-space: pre-wrap; }
+  #load-error button { display: block; margin-top: 12px; border: 1px solid var(--line-strong);
+    border-radius: 9px; background: var(--glass); color: var(--text);
+    padding: 7px 14px; cursor: pointer; font: inherit; }
+  #load-error button:hover { border-color: rgba(88,196,221,.5);
+    background: rgba(88,196,221,.08); }
+  #load-error button:disabled { opacity: .5; cursor: default; }
+  #load-error .step { color: var(--dim); font-size: 12px; margin-top: 8px; min-height: 1em; }
   /* No WebGPU: the stage says so instead of showing an empty canvas */
   #gpu-unsupported { display: none; max-width: 430px; padding: 24px 25px 22px;
     border: 1px solid var(--line-strong); border-radius: 15px;
@@ -429,6 +437,7 @@
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
   <div id="handle-chip" hidden></div>
   <div id="render-error" role="alert" hidden></div>
+  <div id="load-error" role="alert" hidden></div>
   <div id="gpu-unsupported" role="alert">
     <h2>This viewer needs WebGPU</h2>
     <p>maniml renders the scene in your browser with WebGPU, and this
@@ -718,8 +727,10 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
+let canInstall = false;   // the engine takes an install message (below)
 function applyCapabilities(values) {
   const capabilities = new Set(values);
+  canInstall = capabilities.has("install");
   document.getElementById("restart-scene").hidden = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
   document.getElementById("export-checkpoints").hidden = !capabilities.has("export");
@@ -872,6 +883,48 @@ function setRenderError(error) {
   document.body.classList.toggle("render-error", !!error);
 }
 
+// A file that did not load on a reload (the engine's checkpoints
+// ._reload_module): what went wrong, the engine's hint, and, for an import
+// whose package uv would have to download, a Download button. The click
+// sends install; the engine adds the package to the file's header,
+// downloads it and reloads, its steps arriving as install_progress
+// meanwhile, and the state that follows clears or rewrites this box. The
+// box is drawn from state, so it is redrawn only when the error changes.
+let lastLoadError = null;
+function setLoadError(error) {
+  const key = error ? JSON.stringify(error) : null;
+  if (key === lastLoadError) return;
+  lastLoadError = key;
+  const box = document.getElementById("load-error");
+  box.replaceChildren();
+  if (error) {
+    const text = document.createElement("div");
+    text.className = "text";
+    text.textContent = "The file did not load: " + (error.message || "")
+      + (error.hint ? "\n\n" + error.hint : "");
+    box.append(text);
+    if (error.download && canInstall && error.distribution) {
+      const button = document.createElement("button");
+      button.textContent = `Download ${error.distribution}`;
+      button.onclick = () => {
+        button.disabled = true;
+        loadErrorStep(`Downloading ${error.distribution}`);
+        send({ type: "install", distribution: error.distribution });
+      };
+      box.append(button);
+    }
+    const step = document.createElement("div");
+    step.className = "step";
+    box.append(step);
+  }
+  box.hidden = !error;
+  document.body.classList.toggle("load-error", !!error);
+}
+function loadErrorStep(step) {
+  const line = document.querySelector("#load-error .step");
+  if (line) line.textContent = step || "";
+}
+
 function handleGeometry(arrayBuffer) {
   // Each drawn frame is a "maniml:render" span in DevTools' Performance
   // panel: the selection's routing and the driver's render, plus any wait
@@ -893,6 +946,9 @@ function handleGeometry(arrayBuffer) {
 function handleMessage(data) {
   if (data.type === "render_error") {
     setRenderError(data.error);
+  }
+  else if (data.type === "install_progress") {
+    loadErrorStep(data.step);
   }
   else if (data.type === "renderer") {
     if (Object.hasOwn(rendererSession.drivers, data.renderer)) {
@@ -916,6 +972,7 @@ function handleMessage(data) {
     // The restarted scene's first state: parked at the start.
     if (restartPending && data.current === 0) setRestartPending(false);
     if (data.render_error) setRenderError(data.render_error);
+    setLoadError(data.load_error || null);
     // During playback the recording owns the presenter; the engine's
     // states keep the badges fresh but never touch the rail.
     if (stageSource !== "playback") {
