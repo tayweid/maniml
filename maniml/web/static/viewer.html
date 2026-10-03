@@ -413,6 +413,14 @@
   @media (max-width: 859px) {
     #glwarn { max-width: 95px; }
   }
+  /* From 1024 up, the render's status keeps its width and the name pill
+     gives way instead, folder first: the pill's content outgrows its
+     max-width, so without this the pill froze at the max and the status
+     took the whole shortfall ("Vid…" at 1100 with a long folder). */
+  @media (min-width: 1024px) {
+    #doc-pod { flex-shrink: 1000; min-width: 120px; }
+    #job-status { flex-shrink: 0; }
+  }
   @media (max-width: 759px) {
     #renderer-pod { display: none; }
   }

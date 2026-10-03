@@ -474,6 +474,12 @@ class FrameTests(unittest.TestCase):
         self.assertIn("white-space: nowrap;", warn)
         self.assertIn("#export-pod.active + #job-status { display: block; }", style)
         self.assertIn("@media (max-width: 859px) {\n    #glwarn { max-width: 95px; }", style)
+        # From 1024 up the status keeps its width and the name pill gives
+        # way, folder first; below, the two share the shortfall as before.
+        self.assertIn(
+            "@media (min-width: 1024px) {\n    #doc-pod { flex-shrink: 1000; min-width: 120px; }\n    #job-status { flex-shrink: 0; }",
+            style,
+        )
         # A sibling after the group, not inside it: a group's text could
         # not shrink without its tiles.
         self.assertIn('</span>\n  <span id="job-status" role="status" aria-live="polite"></span>', viewer)

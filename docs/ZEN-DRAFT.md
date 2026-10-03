@@ -208,11 +208,16 @@ its text where it was.
    back as a solid frame band, 44 px, not the old 60 px glass pods.
 6. **The folder is the file as the engine opened it**, links resolved
    (above). Knuth names the folder as given.
-7. **A render's status shrinks with the name pill, not after it.** Flex
-   shares a short bar between the two, so with a long folder the status
-   can be cut ("Video e…") while some of the folder still shows; the
-   tile's colour still says working, done or failed. Strictly folder
-   first, then the status, is not something the bar's CSS can say.
+7. **A render's status keeps its width from 1024 px up** (the
+   re-verifier's finding: at 1100 with a long folder it was cut to
+   "Vid…" while the folder kept 347 px). A media rule from 1024 gives the
+   name pill `flex-shrink: 1000` with a 120 px floor and the status
+   `flex-shrink: 0`, so the folder gives way first, then the name; checked
+   live at sixteen widths from 640 to 1500 with long and short names, the
+   update tile and the warning on and off, and three status texts: from
+   1024 up the status is never cut and the bar never overflows, and with
+   no render running every box is unchanged. Below 1024 the two still
+   share the shortfall, the tile's colour saying working, done or failed.
 8. **Merging**: the scene-environment work in progress on main touches
    `app.html` (other hunks), and adds to the tops of `DECISIONS.md` and
    `CHANGELOG.md` as this branch does: keep both.
