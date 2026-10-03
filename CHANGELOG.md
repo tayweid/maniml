@@ -5,6 +5,21 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### Scene environments
+
+- **A scene file carries its own packages, and the app installs them**
+  (docs/scene_environments.md). A PEP 723 header at the top of the file,
+  the one Knuth writes, names the packages the scene imports, each
+  pinned, with a date stamp holding everything underneath; uv builds the
+  environment on the engine's interpreter and the scene process puts it
+  ahead of its own packages, so maniml stays one install per machine. A
+  scene that dies on a missing import gets the package added and is
+  started again in the same request when uv already has it on this Mac;
+  one that would have to be downloaded is offered as a button on the
+  landing page. In a terminal, the traceback ends with the `uv add
+  --script` line that does the same. A file without a header is a file as
+  before.
+
 ### Shared renderer
 
 - A frame that changes nothing costs the viewer's Python less, on every

@@ -209,6 +209,13 @@ def load_scene_module(script_file):
     """
     install_ce_import_alias()
     script_file = os.path.abspath(script_file)
+    # The file's own environment (environment.py): built from its header
+    # when it has one and put ahead of the engine's packages, before any
+    # of the file's imports run. Every load comes through here, so a
+    # header edit takes effect on the next reload.
+    from maniml.environment import activate
+
+    activate(script_file)
     module_name = os.path.splitext(os.path.basename(script_file))[0]
     spec = importlib.util.spec_from_file_location(module_name, script_file)
     module = importlib.util.module_from_spec(spec)
@@ -297,7 +304,19 @@ def run_scene(
     open_browser=True,
     port=None,
 ):
-    module = load_scene_module(script_file)
+    try:
+        module = load_scene_module(script_file)
+    except ModuleNotFoundError as exc:
+        # The traceback as Python would print it, then the one line that
+        # says what to do: the app reads the first (web/app.py adds the
+        # package itself) and a terminal user the second.
+        traceback.print_exc()
+        from maniml.environment import terminal_hint
+
+        top = (exc.name or "").split(".")[0]
+        if top:
+            print(terminal_hint(script_file, top), file=sys.stderr, flush=True)
+        sys.exit(1)
 
     if scene_name is None:
         from maniml.scene.scene import Scene

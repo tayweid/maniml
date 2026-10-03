@@ -5,6 +5,30 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A scene file carries its environment; the engine lends it maniml (2026-10-02)
+
+Taylor, from ManimLive.app refusing a dogfood scene for want of seaborn:
+"id like it to create a uv environment for these with version pins like
+knuth and then to install these things with uv if not available."
+Decided (`docs/scene_environments.md`): the scene file carries a PEP 723
+header, the format and the policy Knuth's documents have (pins written
+by `uv add --script --bounds exact`, a date stamp for the rest, no lock
+file), so the two apps are one system to understand; uv builds it in its
+own store on the engine's interpreter; and the scene process layers that
+environment's site-packages ahead of its own rather than running inside
+it, because maniml's dependencies are compiled and would otherwise be
+built into every scene's environment. A missing import is added at once
+when uv has the package on this Mac and after a click when it would
+download, Knuth's rule of 2026-09-27. Rejected: installing into the
+engine's own environment (one site-packages for every scene ever opened,
+and the shell rebuilds it on an update, losing them); a `pyproject.toml`
+and `.venv` per folder (the folder becomes the unit, and a course is a
+folder of files that travel one at a time); writing the engine's minor
+version as the header's floor (a file from a 3.14 checkout would not
+build for the app's 3.13; maniml's own floor is the floor). Left for
+later: an import that first fails on a reload inside the viewer, and
+declaring the packages that arrive with others.
+
 ## Start is the Start chip's jump, as a control and the Home key (2026-10-02)
 
 Taylor: "i'd like a way to go back to zero. maybe that's refresh." Zero

@@ -32,6 +32,7 @@ from maniml.utils.processes import (
     process_group_popen_kwargs,
     terminate_process_tree,
 )
+from maniml import environment
 from maniml.desktop import choose_python_file
 from maniml.web.assets import (
     is_websocket_upgrade,
@@ -55,23 +56,9 @@ VIEWER_LAUNCH_PATTERN = re.compile(
 DEFAULT_APP_PORT = 8685
 
 
-def missing_module_hint(log: str) -> str | None:
-    """When a scene dies on a missing import, say which Python maniml
-    runs on and the exact install command — scene imports resolve in
-    maniml's interpreter, which may not be the shell's default."""
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", log)  # strip ANSI colors
-    match = re.search(r"ModuleNotFoundError: No module named '([^']+)'", plain)
-    if not match:
-        return None
-    module = match.group(1).split(".")[0]
-    pip = os.path.join(os.path.dirname(sys.executable), "pip")
-    if not os.path.exists(pip):
-        pip = f"{sys.executable} -m pip"
-    return (
-        f"Scenes run on {sys.executable} — "
-        f"'{module}' is not installed there. "
-        f"Install it with:  {pip} install {module}"
-    )
+# How many packages one open adds from uv's cache before it stops and
+# asks: a scene whose imports keep failing is not one more add away.
+MAX_QUIET_ADDS = 5
 
 
 def parse_viewer_launch_line(line: str) -> str | None:
@@ -385,8 +372,9 @@ class AppServer:
             return Response(502, "Bad Gateway", Headers(
                 [("Content-Length", "0"), ("Connection", "close")]), b"")
 
-    def open_payload(self, request: dict) -> dict:
-        raw_path = request.get("path")
+    def _authorize(self, raw_path) -> Path:
+        """The file a page may name: under the root, or granted (a native
+        dialog's pick, a path the shell handed over). ValueError says why not."""
         try:
             resolved_path = (
                 str(Path(raw_path).expanduser().resolve(strict=True))
@@ -395,15 +383,18 @@ class AppServer:
             )
         except OSError:
             resolved_path = ""
+        return resolve_authorized_file(
+            self._root_path,
+            raw_path,
+            suffix=".py",
+            allow_outside_root=(
+                self.allow_outside_root or resolved_path in self._granted_files
+            ),
+        )
+
+    def open_payload(self, request: dict, progress=None) -> dict:
         try:
-            candidate = resolve_authorized_file(
-                self._root_path,
-                raw_path,
-                suffix=".py",
-                allow_outside_root=(
-                    self.allow_outside_root or resolved_path in self._granted_files
-                ),
-            )
+            candidate = self._authorize(request.get("path"))
         except ValueError as exc:
             return {"error": str(exc)}
         path = str(candidate)
@@ -424,15 +415,92 @@ class AppServer:
             or scene not in scenes
         ):
             return {"error": "scene was not discovered in this file"}
-        url = self.open_scene(path, scene)
-        if url is None:
+        return self._start(path, scene, progress)
+
+    def install_payload(self, request: dict, progress=None) -> dict:
+        """The page's answer to a download offer (`_start`): add the package
+        to the file's header and environment, downloading now, and start
+        the scene again."""
+        try:
+            candidate = self._authorize(request.get("path"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        path = str(candidate)
+        scene = request.get("scene")
+        if not isinstance(scene, str) or scene not in find_scene_classes(path):
+            return {"error": "scene was not discovered in this file"}
+        distribution = request.get("distribution")
+        if not environment.is_package_name(distribution):
+            return {"error": "bad package name"}
+        if environment.find_uv() is None:
+            return {"error": "uv is not installed"}
+        if progress:
+            progress(f"Downloading {distribution}")
+        ok, reason, _download = environment.add_dependency(
+            path, distribution, offline=False, on_progress=progress)
+        if not ok:
+            return {"error": f"could not add {distribution}", "hint": reason}
+        print(f"maniml app: added {distribution} to {os.path.basename(path)}", flush=True)
+        return self._start(path, scene, progress, added={distribution})
+
+    def _start(self, path: str, scene: str, progress=None, added=None) -> dict:
+        """Start the scene and answer the page. A scene that dies on a
+        missing import gets the package added to its header and environment
+        and is started again (environment.py): at once when uv already has
+        the package on this Mac, after the page's click when it would have
+        to download, which the answer offers as `install`."""
+        added = set(added or ())
+        while True:
+            # The file's environment first, its steps shown: a header's
+            # first build can take minutes, and a scene's start-up wait
+            # (SceneProcess.wait_for_url) is 25 seconds. The scene process
+            # does the same on load, which is then a moment's audit.
+            if environment.has_header(path):
+                environment.ensure_environment(path, on_progress=progress)
+            url = self.open_scene(path, scene)
+            if url is not None:
+                break
             process = self.processes.get((path, scene or ""))
             tail = "".join(process.lines) if process else ""
-            return {
-                "error": "scene failed to start",
-                "log": tail[-4000:],
-                "hint": missing_module_hint(tail),
-            }
+            failure = {"error": "scene failed to start", "log": tail[-4000:]}
+            module = environment.missing_module(tail)
+            if module is None:
+                return failure
+            distribution = environment.distribution_for(module)
+            if environment.find_uv() is None:
+                failure["hint"] = (
+                    f"Scenes run on {sys.executable} — '{module}' is not "
+                    f"installed there. Install uv (https://docs.astral.sh/uv/) "
+                    f"and open the scene again, or install it beside maniml "
+                    f"with: {sys.executable} -m pip install {distribution}")
+                return failure
+            if distribution in added or len(added) >= MAX_QUIET_ADDS:
+                # Added and still not importable: the package is named
+                # differently, or the import is wrong. Say so, do not loop.
+                hint = environment.import_name_hint(module)
+                failure["hint"] = (
+                    f"'{module}' still cannot be imported after adding {distribution}"
+                    + (f": {hint}" if hint else ""))
+                return failure
+            if progress:
+                progress(f"Adding {distribution}")
+            ok, reason, download = environment.add_dependency(
+                path, distribution, offline=True, on_progress=progress)
+            if ok:
+                added.add(distribution)
+                print(f"maniml app: added {distribution} to {os.path.basename(path)}", flush=True)
+                continue
+            if download:
+                failure["hint"] = (
+                    f"'{module}' is not installed: {distribution} would have "
+                    "to be downloaded.")
+                failure["install"] = {
+                    "path": path, "scene": scene,
+                    "module": module, "distribution": distribution,
+                }
+                return failure
+            failure["hint"] = reason
+            return failure
         # The page stays on this origin: it opens the viewer here and the app
         # relays its socket to the scene process. One port is the app's whole
         # address (the page, and every window the shell opens, is on the port
@@ -626,17 +694,28 @@ class AppServer:
                 await relay(ws, path[len("/scene/"):])
                 return
             await ws.send(json.dumps({"type": "ready"}))
+            loop = asyncio.get_running_loop()
             async for message in ws:
                 request = parse_json_object(message)
                 if request is None:
                     continue
                 op = request.get("op")
+
+                def progress(step, request_id=request.get("id")):
+                    # From the worker thread: a step of uv's work on this
+                    # request, which the page shows under the request's
+                    # id until the answer comes.
+                    asyncio.run_coroutine_threadsafe(ws.send(json.dumps(
+                        {"type": "progress", "id": request_id, "step": step})), loop)
+
                 if op == "recents":
                     response = self.recents_payload()
                 elif op == "choose":
                     response = await asyncio.to_thread(self.choose_payload)
                 elif op == "open":
-                    response = await asyncio.to_thread(self.open_payload, request)
+                    response = await asyncio.to_thread(self.open_payload, request, progress)
+                elif op == "install":
+                    response = await asyncio.to_thread(self.install_payload, request, progress)
                 else:
                     response = {"error": f"unknown op {op}"}
                 response["id"] = request.get("id")

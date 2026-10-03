@@ -109,7 +109,7 @@ class AppShellE2E(unittest.TestCase):
         deadline = time.time() + timeout
         while time.time() < deadline:
             message = json.loads(ws.recv(timeout=timeout))
-            if message.get("type") == "ready":
+            if message.get("type") in ("ready", "progress"):
                 continue
             return message
         raise AssertionError(f"no response to {op}")
@@ -311,20 +311,90 @@ class AppShellE2E(unittest.TestCase):
         self.assertIn("connect-src 'self'", policy)
         self.assertIn("default-src 'self'", policy)
 
-    def test_missing_module_hint(self):
+    def test_a_missing_import_uv_lacks_is_offered_as_a_download(self):
+        """The scene dies on an import, the engine tries to add its package
+        from uv's cache, and, finding nothing, offers the download: the
+        page's button sends `install`. The file is left as it was."""
+        from maniml.environment import find_uv
+        source = ("import not_a_real_module_xyz\n"
+                  "from manim import *\n"
+                  "class Broken(Scene):\n"
+                  "    def construct(self): pass\n")
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")
         with open(broken, "w") as f:
-            f.write("import not_a_real_module_xyz\n"
-                    "from manim import *\n"
-                    "class Broken(Scene):\n"
-                    "    def construct(self): pass\n")
+            f.write(source)
         with self._control() as ws:
             data = self._request(ws, "open", path=broken, scene="Broken")
-        self.assertIn("error", data)
+        self.assertEqual(data.get("error"), "scene failed to start")
         hint = data.get("hint") or ""
         self.assertIn("not_a_real_module_xyz", hint,
                       f"hint missing; log tail: {data.get('log', '')[-500:]}")
-        self.assertIn(sys.executable, hint)
+        if find_uv() is None:
+            self.assertIn(sys.executable, hint)
+            self.assertNotIn("install", data)
+            return
+        self.assertEqual(data.get("install"), {
+            "path": str(Path(broken).resolve()), "scene": "Broken",
+            "module": "not_a_real_module_xyz",
+            "distribution": "not_a_real_module_xyz"})
+        self.assertEqual(Path(broken).read_text(), source)
+        # The download, asked for: no such package anywhere, said in a line
+        # (or, with no network, uv's own words); never the viewer.
+        with self._control() as ws:
+            data = self._request(ws, "install", timeout=90, **data["install"])
+        self.assertIn("error", data)
+        self.assertNotIn("viewer_url", data)
+        self.assertEqual(Path(broken).read_text(), source)
+
+    def test_a_missing_import_uv_has_is_added_and_the_scene_starts(self):
+        """A package uv already holds on this Mac goes into the file's
+        header, pinned, and the scene starts in the same request: the
+        scene process layers the header's environment on its own."""
+        from maniml.environment import find_uv, parse_header, pinned_version
+        uv = find_uv()
+        if uv is None:
+            self.skipTest("uv is not installed")
+        # A pure-Python package absent from the engine, put in uv's cache
+        # by an install into a throwaway environment (one download, if
+        # it is not there already; no network means no test).
+        try:
+            __import__("colorama")
+        except ImportError:
+            pass
+        else:
+            self.skipTest("colorama is installed in the engine")
+        scratch = os.path.join(self.tmpdir.name, "cache-primer")
+        primed = subprocess.run(
+            [uv, "venv", "--python", sys.executable, scratch],
+            capture_output=True, text=True)
+        if primed.returncode == 0:
+            primed = subprocess.run(
+                [uv, "pip", "install", "--python", scratch, "colorama"],
+                capture_output=True, text=True)
+        if primed.returncode != 0:
+            self.skipTest(f"could not put colorama in uv's cache: {primed.stderr[-300:]}")
+        path = os.path.join(self.tmpdir.name, "cached_scene.py")
+        with open(path, "w") as f:
+            f.write("import colorama\n"
+                    "from manim import *\n"
+                    "class Cached(Scene):\n"
+                    "    def construct(self):\n"
+                    "        self.play(FadeIn(Dot()))\n")
+        with self._control() as ws:
+            data = self._request(ws, "open", timeout=90, path=path, scene="Cached")
+        self.assertIn("viewer_url", data, data)
+        text = Path(path).read_text()
+        header = parse_header(text)
+        self.assertIsNotNone(header, text)
+        self.assertRegex(pinned_version(text, "colorama") or "", r"^\d")
+        self.assertTrue(text.endswith(
+            "import colorama\n"
+            "from manim import *\n"
+            "class Cached(Scene):\n"
+            "    def construct(self):\n"
+            "        self.play(FadeIn(Dot()))\n"), text)
+        self.assertTrue(any("added colorama" in line for line in self.lines),
+                        "".join(self.lines)[-800:])
 
     def test_a_foreign_origin_cannot_start_scenes(self):
         """The Origin check is the boundary: a page on any other origin —

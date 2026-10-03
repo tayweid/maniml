@@ -816,6 +816,21 @@ installs the rest, all wheels, at the locked versions). Since claerbout
 own Pythons, and Application Support holds only the app's state; since
 0.1.7 the shell re-installs it when the export changes.
 
+**A scene file's environment** (`maniml/environment.py`,
+`docs/scene_environments.md`, 2026-10-02): a PEP 723 header at the top of
+the file, the one Knuth writes, names the packages the scene imports
+(pinned by `uv add --script --bounds exact`, the rest held by the
+header's date stamp). `load_scene_module` calls `environment.activate`
+before the file's imports run: `uv sync --script --python <engine>` builds
+the environment in uv's store and its site-packages goes first on
+`sys.path`; maniml and its dependencies stay the engine's. The app
+(`AppServer._start`) syncs first with uv's steps on the landing page,
+and a scene that dies on a missing import has the package added and is
+started again in the same request when uv has it on this Mac; a download
+is offered as a button (the `install` op). `MANIML_UV` (the shell's uv)
+is found first, then one beside the interpreter, then PATH. A file
+without a header is untouched until a package is added.
+
 ### The installed app is ManimLive.app
 
 Until 2026-10-01 the engine served `manifest.webmanifest` and a caching

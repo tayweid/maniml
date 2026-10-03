@@ -103,6 +103,13 @@
   #root { overflow-wrap: anywhere; }
   #error { color: var(--bad); font-size: 13px; margin-top: 10px;
     white-space: pre-wrap; display: none; }
+  #error button { display: block; margin: 10px 0; border: 1px solid var(--line-strong);
+    border-radius: 9px; background: var(--glass); color: var(--text);
+    padding: 7px 14px; cursor: pointer; font: inherit; }
+  #error button:hover { border-color: rgba(88,196,221,.5);
+    background: rgba(88,196,221,.08); }
+  #error button.busy { opacity: .5; pointer-events: none; }
+  #progress { color: var(--dim); font-size: 13px; margin-top: 10px; }
   #empty { color: var(--dim); }
   @media (max-width: 520px) {
     main { padding: 74px 12px; }
@@ -162,6 +169,7 @@
       <div id="recents"></div>
     </div>
     <p id="root-note">Scenes open from <span id="root"></span></p>
+    <p id="progress" hidden></p>
     <div id="error"></div>
   </section>
 </main>
@@ -176,6 +184,13 @@
 const CONTROL_URL = `ws://${location.host}/`;
 
 const errorEl = document.getElementById("error");
+// uv's steps while the engine prepares a scene's environment (one line at
+// a time, under the request they belong to), cleared with the answer.
+const progressEl = document.getElementById("progress");
+function showProgress(step) {
+  progressEl.textContent = step || "";
+  progressEl.hidden = !step;
+}
 // Two ways in, one handler: the header slug and the hero button.
 const openButtons = [
   document.getElementById("openbtn"),
@@ -230,6 +245,10 @@ function connectControl() {
       for (const button of openButtons) button.disabled = false;
       refresh();
       openRequested();
+      return;
+    }
+    if (data.type === "progress") {
+      if (pending.has(data.id)) showProgress(data.step);
       return;
     }
     const entry = pending.get(data.id);
@@ -300,24 +319,46 @@ if (shellBridge) {
 }
 
 async function openScene(path, scene, button) {
+  await startScene("open", { path, scene }, button);
+}
+
+// The engine's answer to an open (or to an install): the viewer, or why
+// not. A missing import whose package uv already had on this Mac was added
+// to the file's header and the scene started before the answer came; one
+// that would have to be downloaded is offered as a button (environment.py:
+// using what is downloaded needs no permission, downloading does).
+async function startScene(op, extra, button) {
   errorEl.style.display = "none";
+  errorEl.replaceChildren();
+  showProgress("");
   if (button) button.classList.add("busy");
   try {
-    const data = await request("open", { path, scene });
+    const data = await request(op, extra);
     if (data.viewer_url) {
       window.location = data.viewer_url;
       return;
     }
-    errorEl.textContent = (data.error || "failed to open")
-      + (data.hint ? "\n\n" + data.hint : "")
-      + (data.log ? "\n\n" + data.log : "");
-    errorEl.style.display = "block";
+    showFailure(data);
   } catch (error) {
-    errorEl.textContent = String(error);
-    errorEl.style.display = "block";
+    showFailure({ error: String(error) });
   } finally {
+    showProgress("");
     if (button) button.classList.remove("busy");
   }
+}
+
+function showFailure(data) {
+  errorEl.replaceChildren();
+  errorEl.append((data.error || "failed to open")
+    + (data.hint ? "\n\n" + data.hint : ""));
+  if (data.install) {
+    const install = document.createElement("button");
+    install.textContent = `Download ${data.install.distribution}`;
+    install.onclick = () => startScene("install", data.install, install);
+    errorEl.append(install);
+  }
+  if (data.log) errorEl.append((data.install ? "" : "\n\n") + data.log);
+  errorEl.style.display = "block";
 }
 
 function recentRow(entry) {

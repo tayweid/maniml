@@ -11,6 +11,7 @@ source of current numbers or current direction.
 
 | Document | What it is |
 | --- | --- |
+| [scene_environments.md](scene_environments.md) | A scene file's environment (2026-10-02): the PEP 723 header Knuth writes, built by uv on the engine's interpreter and layered on the scene process; a missing import added from uv's cache at once, downloaded after a click. |
 | [unified_triangle_renderer_phase_a.md](unified_triangle_renderer_phase_a.md) | The Phase A contract: shared native and browser output, AA, stencil ownership, resource retention, limits and validation. |
 | [claerbout_experiment.md](claerbout_experiment.md) | ManimLive in the Claerbout shell (2026-09-30): the viewer run inside the Electron shell shared with Knuth and Plass, the four engine-side pieces the port needed (all shipped the same day, with `app/maniml.json`), WebGPU and the protocol checked, and the install figures behind the dependency trim. ManimLive.app has been this since 2026-10-01. |
 | [app_plan.md](app_plan.md) | ManimLive.app (2026-09-28/29): the first app, a launcher script in the shape of Edit <course>.app opening the page in the installed Chromium browser's app window (built, retired 2026-10-01); WebKit measured against Chrome; and the Claerbout direction decided 2026-09-29: Electron for Knuth, Plass and ManimLive from one shell template, separate apps and icons, one Chromium shared on disk by APFS clones (prototyped; load path and link fail under the sandbox). |
