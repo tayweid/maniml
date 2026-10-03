@@ -48,7 +48,9 @@ class AppShellE2E(unittest.TestCase):
             # terminal's 8685.
             [sys.executable, "-c",
              "import sys; from maniml.web.cli import run_app; "
-             "run_app(sys.argv[1], open_browser=False, port=0)", cls.tmpdir.name],
+             # A short grace: the suite closes windows and waits for it.
+             "run_app(sys.argv[1], open_browser=False, port=0, scene_grace=1.0)",
+             cls.tmpdir.name],
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
                  "PYTHONUNBUFFERED": "1",
                  "MANIML_RECENTS_PATH": os.path.join(
@@ -109,7 +111,7 @@ class AppShellE2E(unittest.TestCase):
         deadline = time.time() + timeout
         while time.time() < deadline:
             message = json.loads(ws.recv(timeout=timeout))
-            if message.get("type") == "ready":
+            if message.get("type") in ("ready", "progress"):
                 continue
             return message
         raise AssertionError(f"no response to {op}")
@@ -203,13 +205,61 @@ class AppShellE2E(unittest.TestCase):
         self.assertEqual((state["current"], state["count"]), (0, 1))
         self.assertTrue(state["future"], "the restarted scene lost its units")
 
-        # Opening the file again reuses the restarted process, under the id
-        # the page is on. (Its URL says nothing: the viewer port is a
-        # rendezvous.)
+        # The page is gone (the socket above closed): opening the file
+        # again is a fresh session under a new id, closing having cleared
+        # the old one, grace or no grace.
         with self._control() as control:
             reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
-        self.assertEqual(reopened["scene_id"], opened["scene_id"],
-                         "the restart changed the id the page is on")
+        self.assertNotEqual(reopened["scene_id"], opened["scene_id"],
+                            "a closed window's scene was reused")
+
+    def test_a_closed_window_ends_its_scene_after_the_grace(self):
+        """Closing clears the session: once no page has held a scene's
+        socket for the grace, its process is stopped and its id refused;
+        the next open starts fresh."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            self._ready_and_first_state(ws)
+            self._advance(ws)
+        deadline = time.time() + 10
+        while time.time() < deadline and not any(
+                "closed, scene stopped" in line for line in self.lines):
+            time.sleep(0.1)
+        self.assertTrue(any("closed, scene stopped" in line for line in self.lines),
+                        "the scene outlived its window:\n" + "".join(self.lines)[-600:])
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            with self.assertRaises(ConnectionClosed):
+                ws.recv(timeout=5)
+        with self._control() as control:
+            reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
+        self.assertNotEqual(reopened["scene_id"], opened["scene_id"])
+        with ws_connect(f"{self._control_url()}scene/{reopened['scene_id']}",
+                        max_size=2**24, origin=origin, open_timeout=30) as ws:
+            _ready, state = self._ready_and_first_state(ws)
+        self.assertEqual((state["current"], state["count"]), (0, 1))
+
+    def test_a_page_back_within_the_grace_keeps_its_scene(self):
+        """A reload of the page (its own after a Restart, or the user's)
+        reconnects to the same id within the grace: the same process, its
+        history kept."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            first_ready, _ = self._ready_and_first_state(ws)
+            self._advance(ws)
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            again_ready, state = self._ready_and_first_state(ws)
+        self.assertEqual(again_ready["boot"], first_ready["boot"])
+        self.assertEqual(state["current"], 1, "the reconnect lost the scene's position")
 
     def test_restart_while_the_file_does_not_load_keeps_the_scene(self):
         """A Restart while the scene file does not load (a syntax error
@@ -311,20 +361,141 @@ class AppShellE2E(unittest.TestCase):
         self.assertIn("connect-src 'self'", policy)
         self.assertIn("default-src 'self'", policy)
 
-    def test_missing_module_hint(self):
+    def test_a_missing_import_uv_lacks_is_offered_as_a_download(self):
+        """The scene dies on an import, the engine tries to add its package
+        from uv's cache, and, finding nothing, offers the download: the
+        page's button sends `install`. The file is left as it was."""
+        from maniml.environment import find_uv
+        source = ("import not_a_real_module_xyz\n"
+                  "from manim import *\n"
+                  "class Broken(Scene):\n"
+                  "    def construct(self): pass\n")
         broken = os.path.join(self.tmpdir.name, "broken_scene.py")
         with open(broken, "w") as f:
-            f.write("import not_a_real_module_xyz\n"
-                    "from manim import *\n"
-                    "class Broken(Scene):\n"
-                    "    def construct(self): pass\n")
+            f.write(source)
         with self._control() as ws:
             data = self._request(ws, "open", path=broken, scene="Broken")
-        self.assertIn("error", data)
+        self.assertEqual(data.get("error"), "scene failed to start")
         hint = data.get("hint") or ""
         self.assertIn("not_a_real_module_xyz", hint,
                       f"hint missing; log tail: {data.get('log', '')[-500:]}")
-        self.assertIn(sys.executable, hint)
+        if find_uv() is None:
+            self.assertIn(sys.executable, hint)
+            self.assertNotIn("install", data)
+            return
+        self.assertEqual(data.get("install"), {
+            "path": str(Path(broken).resolve()), "scene": "Broken",
+            "module": "not_a_real_module_xyz",
+            "distribution": "not_a_real_module_xyz"})
+        self.assertEqual(Path(broken).read_text(), source)
+        # The download, asked for: no such package anywhere, said in a line
+        # (or, with no network, uv's own words); never the viewer.
+        with self._control() as ws:
+            data = self._request(ws, "install", timeout=90, **data["install"])
+        self.assertIn("error", data)
+        self.assertNotIn("viewer_url", data)
+        self.assertEqual(Path(broken).read_text(), source)
+
+    def test_a_missing_import_uv_has_is_added_and_the_scene_starts(self):
+        """A package uv already holds on this Mac goes into the file's
+        header, pinned, and the scene starts in the same request: the
+        scene process layers the header's environment on its own."""
+        from maniml.environment import find_uv, parse_header, pinned_version
+        from tests.uv_fixtures import cached, importable
+        if find_uv() is None:
+            self.skipTest("uv is not installed")
+        if importable("colorama"):
+            self.skipTest("colorama is installed in the engine")
+        if not cached("colorama"):
+            self.skipTest("colorama could not be put in uv's cache")
+        path = os.path.join(self.tmpdir.name, "cached_scene.py")
+        with open(path, "w") as f:
+            f.write("import colorama\n"
+                    "from manim import *\n"
+                    "class Cached(Scene):\n"
+                    "    def construct(self):\n"
+                    "        self.play(FadeIn(Dot()))\n")
+        with self._control() as ws:
+            data = self._request(ws, "open", timeout=90, path=path, scene="Cached")
+        self.assertIn("viewer_url", data, data)
+        text = Path(path).read_text()
+        header = parse_header(text)
+        self.assertIsNotNone(header, text)
+        self.assertRegex(pinned_version(text, "colorama") or "", r"^\d")
+        self.assertTrue(text.endswith(
+            "import colorama\n"
+            "from manim import *\n"
+            "class Cached(Scene):\n"
+            "    def construct(self):\n"
+            "        self.play(FadeIn(Dot()))\n"), text)
+        self.assertTrue(any("added colorama" in line for line in self.lines),
+                        "".join(self.lines)[-800:])
+
+    def test_an_import_added_while_the_viewer_is_open_is_installed_on_reload(self):
+        """The watcher's reload, not the landing page: the scene process
+        itself adds the package uv has to the file's header and reloads,
+        and the page's next state shows the rebuilt checkpoints on the
+        new line numbers (the header above shifts them)."""
+        from maniml.environment import find_uv, pinned_version
+        from tests.uv_fixtures import cached, importable
+        if find_uv() is None:
+            self.skipTest("uv is not installed")
+        if importable("colorama"):
+            self.skipTest("colorama is installed in the engine")
+        if not cached("colorama"):
+            self.skipTest("colorama could not be put in uv's cache")
+        path = os.path.join(self.tmpdir.name, "reload_scene.py")
+        Path(path).write_text(SCENE_SOURCE)
+        with self._control() as control:
+            opened = self._request(control, "open", path=path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        edited = "import colorama\n" + SCENE_SOURCE
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            _ready, state = self._ready_and_first_state(ws)
+            self.assertIsNone(state.get("load_error"))
+            # Off the start, so the rebuild has a checkpoint with a line.
+            ws.send(json.dumps({"type": "key", "action": "down", "key": "ArrowRight"}))
+            before = self._state_where(ws, lambda data: data.get("current") == 1)["lines"]
+            Path(path).write_text(edited)  # the watcher polls once a second
+            self._state_where(
+                ws, lambda data: data.get("lines") != before
+                and data.get("load_error") is None, timeout=60)
+        text = Path(path).read_text()
+        self.assertRegex(pinned_version(text, "colorama") or "", r"^\d")
+        self.assertTrue(text.endswith(edited), text[-300:])
+
+    def test_an_import_uv_lacks_is_offered_in_the_viewer(self):
+        """The reload stops with the offer in the page's state; the page's
+        install message runs the add with the network, and the state after
+        says how it ended — here, that there is no such package."""
+        from maniml.environment import find_uv
+        if find_uv() is None:
+            self.skipTest("uv is not installed")
+        path = os.path.join(self.tmpdir.name, "reload_scene_lacking.py")
+        Path(path).write_text(SCENE_SOURCE)
+        with self._control() as control:
+            opened = self._request(control, "open", path=path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        broken = "import not_a_real_module_xyz\n" + SCENE_SOURCE
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            self._ready_and_first_state(ws)
+            Path(path).write_text(broken)
+            offered = self._state_where(
+                ws, lambda data: bool((data.get("load_error") or {}).get("download")),
+                timeout=60)["load_error"]
+            self.assertEqual(offered["distribution"], "not_a_real_module_xyz")
+            self.assertIn("not_a_real_module_xyz", offered["hint"])
+            self.assertEqual(Path(path).read_text(), broken)
+            ws.send(json.dumps({"type": "install", "distribution": "not_a_real_module_xyz"}))
+            answered = self._state_where(
+                ws, lambda data: (data.get("load_error") or {}).get("download") is False,
+                timeout=120)["load_error"]
+        self.assertIn("hint", answered)
+        self.assertEqual(Path(path).read_text(), broken)
 
     def test_a_foreign_origin_cannot_start_scenes(self):
         """The Origin check is the boundary: a page on any other origin —

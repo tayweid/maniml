@@ -5,6 +5,49 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A scene's session ends with its windows (2026-10-02)
+
+Until now the app kept a scene process for reuse after its window closed:
+the next open of the same file attached to the running process, with its
+module and its checkpoints, and only a Restart, a crash or quitting the
+app ended it. That surfaced as "a Restart that fails on an import keeps
+the old code running". Taylor: "i'd expect closing a scene to clear the
+session... make close clear the session, a few seconds grace". Decided:
+the relay counts the pages holding a scene's socket; when the last leaves,
+a grace of five seconds covers the page's own reload after a Restart and
+an accidental close, and then the process is stopped and its id refused.
+An open from the landing page of a scene whose window has closed starts
+fresh even inside the grace; a process no page has reached yet (the open
+just before the page navigates) is reused, so a double click does not
+strand a page. The cost is a process start on every reopen and the loss
+of a closed window's checkpoint history, which is what "clear the
+session" means.
+
+## A scene file carries its environment; the engine lends it maniml (2026-10-02)
+
+Taylor, from ManimLive.app refusing a dogfood scene for want of seaborn:
+"id like it to create a uv environment for these with version pins like
+knuth and then to install these things with uv if not available."
+Decided (`docs/scene_environments.md`): the scene file carries a PEP 723
+header, the format and the policy Knuth's documents have (pins written
+by `uv add --script --bounds exact`, a date stamp for the rest, no lock
+file), so the two apps are one system to understand; uv builds it in its
+own store on the engine's interpreter; and the scene process layers that
+environment's site-packages ahead of its own rather than running inside
+it, because maniml's dependencies are compiled and would otherwise be
+built into every scene's environment. A missing import is added at once
+when uv has the package on this Mac and after a click when it would
+download, Knuth's rule of 2026-09-27. Rejected: installing into the
+engine's own environment (one site-packages for every scene ever opened,
+and the shell rebuilds it on an update, losing them); a `pyproject.toml`
+and `.venv` per folder (the folder becomes the unit, and a course is a
+folder of files that travel one at a time); writing the engine's minor
+version as the header's floor (a file from a 3.14 checkout would not
+build for the app's 3.13; maniml's own floor is the floor). The same
+day, the reload inside a running scene got the same treatment (the
+rebuild recovers from uv's cache, and the viewer shows the download
+offer), since the one place a new import is written is the open file.
+Left for later: declaring the packages that arrive with others.
 ## The frame and its bar, Knuth's and Plass's, without a rail (2026-10-02)
 
 Taylor: "eventually id like maniml to have the same kind of topbar as

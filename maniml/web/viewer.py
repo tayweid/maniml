@@ -159,7 +159,7 @@ class WebViewer:
 
     def __init__(self, open_browser: bool = True, port: int | None = None):
         self.scene: Optional[Scene] = None
-        self.server = WebServer(port=port, capabilities=("export", "restart"))
+        self.server = WebServer(port=port, capabilities=("export", "restart", "install"))
         self.pressed_keys: set[int] = set()
         self._has_undrawn_event = True
         self._dirty = False  # input arrived since the last sent frame
@@ -659,6 +659,22 @@ class WebViewer:
             self._pending_scene = type(scene).__name__
             scene.quit_interaction = True
 
+        elif kind == "install":
+            # The viewer's Download button for an import the last reload
+            # could not satisfy (checkpoints.install_missing): the add,
+            # with the network, then the reload. Blocking on this thread,
+            # which the reload needs anyway; uv's steps go out as they
+            # happen, and the state after says how it ended.
+            distribution = event.get("distribution")
+
+            def step(text):
+                self.server.broadcast_json({"type": "install_progress", "step": text})
+
+            if isinstance(distribution, str):
+                step(f"Downloading {distribution}")
+                scene.install_missing(distribution, on_progress=step)
+            self._last_state = None
+
         elif kind == "switch_scene":
             # Only a scene actually declared in this file: the name selects a
             # class to instantiate, so it must never come straight from the
@@ -1013,6 +1029,9 @@ class WebViewer:
             "type": "state",
             "renderer": self._renderer_mode,
             "render_error": getattr(self, "_render_error", None),
+            # Why the last reload did not load the file, with a download
+            # to offer when that is what it takes (checkpoints._reload_module)
+            "load_error": getattr(scene, "_load_error", None),
             "scene": type(scene).__name__,
             "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",

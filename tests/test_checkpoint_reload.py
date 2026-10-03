@@ -523,6 +523,72 @@ class TestFileChange(CheckpointSceneTest):
         self.assertEqual(
             scene.animation_checkpoints[scene.current_animation_index]['unit_index'], 1)
 
+    def _unlayer_on_cleanup(self):
+        """Undo what a header's environment does to this process."""
+        import sys
+        from maniml import environment
+        path_before = list(sys.path)
+
+        def restore():
+            sys.path[:] = path_before
+            environment._activated.pop(os.path.abspath(self.scene_file), None)
+        self.addCleanup(restore)
+
+    def test_an_import_uv_has_is_added_and_the_file_reloads(self):
+        """An import added at the top is an edit outside construct(): the
+        rebuild fails on it, the package (in uv's cache) goes into the
+        file's header, and the rebuild goes on from the reloaded module,
+        back on the unit the user was on."""
+        from maniml import environment
+        from tests.uv_fixtures import cached, importable
+        if environment.find_uv() is None:
+            self.skipTest("uv is not installed")
+        if importable("colorama"):
+            self.skipTest("colorama is installed in the engine")
+        if not cached("colorama"):
+            self.skipTest("colorama could not be put in uv's cache")
+        self._unlayer_on_cleanup()
+        self.run_all()
+        edited = "import colorama\n" + BASE
+        self.save(edited, 1)
+        scene = self.scene
+        self.assertIsNone(scene._load_error)
+        with open(self.scene_file) as f:
+            text = f.read()
+        self.assertRegex(environment.pinned_version(text, "colorama") or "", r"^\d")
+        self.assertTrue(text.endswith(edited), text[-300:])
+        self.assertIn("colorama", scene.animation_checkpoints[0]["namespace"])
+        final = scene.animation_checkpoints[scene.current_animation_index]
+        self.assertEqual(final["unit_index"], 3)
+
+    def test_an_import_uv_lacks_offers_a_download_and_keeps_the_scene(self):
+        """The rebuild stops with the offer in `_load_error`, the state
+        and the file as they were; `install_missing` takes only the
+        offered name, and a name that is nowhere leaves the file alone."""
+        from maniml import environment
+        if environment.find_uv() is None:
+            self.skipTest("uv is not installed")
+        self.run_all()
+        scene = self.scene
+        n = len(scene.animation_checkpoints)
+        idx = scene.current_animation_index
+        edited = "import not_a_real_module_xyz\n" + BASE
+        self.save(edited, 1)
+        error = scene._load_error
+        self.assertTrue(error and error.get("download"), error)
+        self.assertEqual(error["distribution"], "not_a_real_module_xyz")
+        self.assertIn("not_a_real_module_xyz", error["hint"])
+        with open(self.scene_file) as f:
+            self.assertEqual(f.read(), edited)
+        self.assertEqual(len(scene.animation_checkpoints), n)
+        self.assertEqual(scene.current_animation_index, idx)
+        self.assertFalse(scene.install_missing("six"))
+        self.assertFalse(scene.install_missing("not_a_real_module_xyz"))
+        self.assertFalse(scene._load_error.get("download"))
+        self.assertIn("hint", scene._load_error)
+        with open(self.scene_file) as f:
+            self.assertEqual(f.read(), edited)
+
     def test_adding_the_first_pause_rebuilds_pause_anchored(self):
         """The first authored pause inserts a unit boundary and flips the
         anchoring mode, so the save rebuilds the scene rather than

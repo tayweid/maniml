@@ -222,6 +222,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         # File watcher for auto-reload
         self._file_watcher = None
         self._file_changed_flag = False  # Thread-safe flag for file changes
+        self._load_error = None  # why the last reload failed, for the viewer (checkpoints._reload_module)
         self._pending_change_info = None
         self.auto_reload_enabled = True  # Can be disabled if needed
 

@@ -14,6 +14,29 @@ interfaces may still change before the first public release.
   sits in a rounded room inside a dark frame. The presenter's bar at the
   bottom is unchanged, and so is every key. The landing page has the same
   bar, and the update appears in the viewer's bar too.
+- **Closing a scene's window ends its session.** The engine used to keep
+  the scene process for the next open of the same file; now, once no
+  window has held a scene's socket for five seconds, the process is
+  stopped, and an open of a scene whose window has closed starts fresh.
+  A page reload within the grace reconnects to the same scene.
+
+### Scene environments
+
+- **A scene file carries its own packages, and the app installs them**
+  (docs/scene_environments.md). A PEP 723 header at the top of the file,
+  the one Knuth writes, names the packages the scene imports, each
+  pinned, with a date stamp holding everything underneath; uv builds the
+  environment on the engine's interpreter and the scene process puts it
+  ahead of its own packages, so maniml stays one install per machine. A
+  scene that dies on a missing import gets the package added and is
+  started again in the same request when uv already has it on this Mac;
+  one that would have to be downloaded is offered as a button on the
+  landing page. In a terminal, the traceback ends with the `uv add
+  --script` line that does the same. A file without a header is a file as
+  before. The same inside a running scene: an import added to the open
+  file is installed on the watcher's reload when uv has it, and otherwise
+  the viewer shows why the file did not load, with a Download button that
+  adds the package and reloads in place, checkpoints and all.
 
 ### Shared renderer
 

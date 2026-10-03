@@ -287,12 +287,8 @@ class CheckpointMixin:
         if self.animation_checkpoints:
             previous_unit = self.animation_checkpoints[self.current_animation_index].get('unit_index')
 
-        from maniml.__main__ import load_scene_module
-        try:
-            module = load_scene_module(self._scene_filepath)
-        except Exception as e:
-            print(f"Error reloading scene file: {e}")
-            traceback.print_exc()
+        module = self._reload_module()
+        if module is None:
             return
 
         self.animation_checkpoints = []
@@ -307,6 +303,108 @@ class CheckpointMixin:
         units = self._get_source_units()
         if units and previous_unit is not None and previous_unit >= 0:
             self._replay_to_unit(min(previous_unit, units[-1].index))
+
+    # How many packages one reload adds from uv's cache before it stops
+    # and says so: a file whose imports keep failing is not one more away.
+    MAX_QUIET_ADDS = 5
+
+    def _reload_module(self):
+        """The scene module loaded afresh, or None with the failure in
+        `_load_error` for the viewer to show (its state carries it).
+
+        A missing import whose package uv already has on this Mac is
+        added to the file's header and the load tried again, with no
+        question (environment.py, Knuth's rule); one that would have to
+        be downloaded is left for the viewer's Download button
+        (`install_missing`) and, in a terminal, the hint that names the
+        command. The watcher is told of the header write, so the add
+        is not also an edit to reload for.
+        """
+        from maniml import environment
+        from maniml.__main__ import load_scene_module
+
+        path = self._scene_filepath
+        added = set()
+        while True:
+            try:
+                module = load_scene_module(path)
+            except Exception as error:
+                # (`error` is unbound once the clause ends; keep it.)
+                caught = error
+                text = traceback.format_exc()
+                print(f"Error reloading scene file: {caught}")
+                print(text, end="")
+            else:
+                self._load_error = None
+                return module
+            # The console has the traceback; the page gets the line.
+            failure = {"message": f"{type(caught).__name__}: {caught}"}
+            module_name = (
+                caught.name.split(".")[0]
+                if isinstance(caught, ModuleNotFoundError) and caught.name else None)
+            if not module_name:
+                self._load_error = failure
+                return None
+            failure["module"] = module_name
+            distribution = environment.distribution_for(module_name)
+            if environment.find_uv() is None:
+                failure["hint"] = environment.terminal_hint(path, module_name)
+                self._load_error = failure
+                return None
+            if distribution in added or len(added) >= self.MAX_QUIET_ADDS:
+                # Added and still not importable: the package is named
+                # differently, or the import is wrong. Say so, do not loop.
+                hint = environment.import_name_hint(module_name)
+                failure["hint"] = (
+                    f"'{module_name}' still cannot be imported after adding {distribution}"
+                    + (f": {hint}" if hint else ""))
+                self._load_error = failure
+                return None
+            ok, reason, download = environment.add_dependency(
+                path, distribution, offline=True)
+            if ok:
+                added.add(distribution)
+                self._note_own_write()
+                print(f"maniml: added {distribution} to {os.path.basename(path)}",
+                      flush=True)
+                continue
+            failure["distribution"] = distribution
+            if download:
+                failure["download"] = True
+                failure["hint"] = (
+                    f"'{module_name}' is not installed: {distribution} would "
+                    "have to be downloaded.")
+                print(environment.terminal_hint(path, module_name), flush=True)
+            else:
+                failure["hint"] = reason
+            self._load_error = failure
+            return None
+
+    def install_missing(self, distribution: str, on_progress=None) -> bool:
+        """The viewer's Download button: add the package the last failed
+        reload was missing, downloading now, then reload. Only what was
+        offered: the name is checked against `_load_error`, never taken
+        from the wire alone. True when the file then loads."""
+        from maniml import environment
+
+        offered = (self._load_error or {}).get("distribution")
+        if not offered or distribution != offered:
+            return False
+        path = self._scene_filepath
+        ok, reason, _download = environment.add_dependency(
+            path, distribution, offline=False, on_progress=on_progress)
+        if not ok:
+            self._load_error = {**self._load_error, "hint": reason, "download": False}
+            return False
+        self._note_own_write()
+        print(f"maniml: added {distribution} to {os.path.basename(path)}", flush=True)
+        self._restart_from_source()
+        return self._load_error is None
+
+    def _note_own_write(self) -> None:
+        watcher = getattr(self, "_file_watcher", None)
+        if watcher is not None:
+            watcher.sync()
 
     # Run modes
 

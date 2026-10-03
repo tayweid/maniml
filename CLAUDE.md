@@ -782,6 +782,12 @@ script starts: the server stops once no page has held a socket to it for that
 long (every open page holds one, the landing page its control socket and a
 viewer its relay), and shutdown takes the scene processes down. The shell's
 engine is the shell's child instead (`--parent`) and needs no idle rule.
+A scene's session ends with its windows (2026-10-02): the relay counts the
+pages holding a scene's socket, and once none has for `SCENE_GRACE_SECONDS`
+(5; the page's own reload after a Restart reconnects well within it) the
+app stops the process and drops its id (`AppServer._page_left`, `_reap`).
+An open from the landing page of a scene whose window has closed starts
+fresh even inside the grace; a process no page has reached yet is reused.
 
 **The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is
 ManimLive.app: an Electron window around the page, built from
@@ -815,6 +821,27 @@ installs the rest, all wheels, at the locked versions). Since claerbout
 0.1.6 the venv lives at `~/.local/share/uv/claerbout/maniml`, beside uv's
 own Pythons, and Application Support holds only the app's state; since
 0.1.7 the shell re-installs it when the export changes.
+
+**A scene file's environment** (`maniml/environment.py`,
+`docs/scene_environments.md`, 2026-10-02): a PEP 723 header at the top of
+the file, the one Knuth writes, names the packages the scene imports
+(pinned by `uv add --script --bounds exact`, the rest held by the
+header's date stamp). `load_scene_module` calls `environment.activate`
+before the file's imports run: `uv sync --script --python <engine>` builds
+the environment in uv's store and its site-packages goes first on
+`sys.path`; maniml and its dependencies stay the engine's. The app
+(`AppServer._start`) syncs first with uv's steps on the landing page,
+and a scene that dies on a missing import has the package added and is
+started again in the same request when uv has it on this Mac; a download
+is offered as a button (the `install` op). `MANIML_UV` (the shell's uv)
+is found first, then one beside the interpreter, then PATH. A file
+without a header is untouched until a package is added. Inside a running
+scene the watcher's rebuild does the same (`checkpoints._reload_module`,
+telling the watcher of its own header write); a download is left in
+`scene._load_error`, carried by the viewer's state as `load_error`, shown
+by `viewer.html` with a Download button whose `install` message
+(capability `install`) the scene process answers with the add, its steps
+as `install_progress`, and the reload.
 
 ### The installed app is ManimLive.app
 

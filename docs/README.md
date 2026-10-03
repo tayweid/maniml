@@ -11,6 +11,7 @@ source of current numbers or current direction.
 
 | Document | What it is |
 | --- | --- |
+| [scene_environments.md](scene_environments.md) | A scene file's environment (2026-10-02): the PEP 723 header Knuth writes, built by uv on the engine's interpreter and layered on the scene process; a missing import added from uv's cache at once, downloaded after a click. |
 | [unified_triangle_renderer_phase_a.md](unified_triangle_renderer_phase_a.md) | The Phase A contract: shared native and browser output, AA, stencil ownership, resource retention, limits and validation. |
 | [claerbout_experiment.md](claerbout_experiment.md) | ManimLive in the Claerbout shell (2026-09-30): the viewer run inside the Electron shell shared with Knuth and Plass, the four engine-side pieces the port needed (all shipped the same day, with `app/maniml.json`), WebGPU and the protocol checked, and the install figures behind the dependency trim. ManimLive.app has been this since 2026-10-01. |
 | [ZEN-DRAFT.md](ZEN-DRAFT.md) | ManimLive in Zen's shape (2026-10-02): Knuth's and Plass's frame and 44 px bar with the traffic lights in it, without a rail; what moved where, measured against Knuth's in the same shell, and what is open. |

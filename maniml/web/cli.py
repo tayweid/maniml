@@ -105,6 +105,7 @@ def run_app(
     allow_outside_root: bool = False,
     port: int | None = None,
     idle_exit: float | None = None,
+    scene_grace: float | None = None,
     parent: int | None = None,
 ) -> None:
     # Started from Finder (ManimLive.app), the engine has a bare PATH, and a
@@ -117,6 +118,7 @@ def run_app(
         port=port,
         allow_outside_root=allow_outside_root,
         idle_exit=idle_exit,
+        **({} if scene_grace is None else {"scene_grace": scene_grace}),
     )
     previous_sigterm = None
     if threading.current_thread() is threading.main_thread():
