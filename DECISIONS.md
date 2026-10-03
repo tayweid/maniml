@@ -5,6 +5,24 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A scene's session ends with its windows (2026-10-02)
+
+Until now the app kept a scene process for reuse after its window closed:
+the next open of the same file attached to the running process, with its
+module and its checkpoints, and only a Restart, a crash or quitting the
+app ended it. That surfaced as "a Restart that fails on an import keeps
+the old code running". Taylor: "i'd expect closing a scene to clear the
+session... make close clear the session, a few seconds grace". Decided:
+the relay counts the pages holding a scene's socket; when the last leaves,
+a grace of five seconds covers the page's own reload after a Restart and
+an accidental close, and then the process is stopped and its id refused.
+An open from the landing page of a scene whose window has closed starts
+fresh even inside the grace; a process no page has reached yet (the open
+just before the page navigates) is reused, so a double click does not
+strand a page. The cost is a process start on every reopen and the loss
+of a closed window's checkpoint history, which is what "clear the
+session" means.
+
 ## A scene file carries its environment; the engine lends it maniml (2026-10-02)
 
 Taylor, from ManimLive.app refusing a dogfood scene for want of seaborn:

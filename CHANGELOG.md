@@ -5,6 +5,14 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### The app
+
+- **Closing a scene's window ends its session.** The engine used to keep
+  the scene process for the next open of the same file; now, once no
+  window has held a scene's socket for five seconds, the process is
+  stopped, and an open of a scene whose window has closed starts fresh.
+  A page reload within the grace reconnects to the same scene.
+
 ### Scene environments
 
 - **A scene file carries its own packages, and the app installs them**

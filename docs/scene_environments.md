@@ -109,8 +109,10 @@ and reloads; the state after clears the box or rewrites it with why not.
 Only the offered name is accepted (`install_missing` checks it against
 `_load_error`). In a terminal the same reload prints the `uv add
 --script` line. Not covered: a scene switch or a bare-process Restart
-that fails on the import (`__main__._run_web_scenes`) still keeps the
-code that last loaded and says so on the console only.
+that fails on the import (`__main__._run_web_scenes`) keeps the code that
+last loaded and says so on the console only, until the window closes:
+closing ends the session (DECISIONS.md, "A scene's session ends with its
+windows"), and the next open starts fresh.
 
 ## Not done
 

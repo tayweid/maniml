@@ -782,6 +782,12 @@ script starts: the server stops once no page has held a socket to it for that
 long (every open page holds one, the landing page its control socket and a
 viewer its relay), and shutdown takes the scene processes down. The shell's
 engine is the shell's child instead (`--parent`) and needs no idle rule.
+A scene's session ends with its windows (2026-10-02): the relay counts the
+pages holding a scene's socket, and once none has for `SCENE_GRACE_SECONDS`
+(5; the page's own reload after a Restart reconnects well within it) the
+app stops the process and drops its id (`AppServer._page_left`, `_reap`).
+An open from the landing page of a scene whose window has closed starts
+fresh even inside the grace; a process no page has reached yet is reused.
 
 **The Claerbout shell** (2026-09-30, `docs/claerbout_experiment.md`) is
 ManimLive.app: an Electron window around the page, built from

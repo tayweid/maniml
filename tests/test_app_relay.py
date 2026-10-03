@@ -43,7 +43,11 @@ class RelayFailureTests(unittest.TestCase):
         port = sock.getsockname()[1]
         sock.close()
         self.server._scenes_by_id["vanished"] = SimpleNamespace(
-            url=f"http://localhost:{port}/", ws_url=f"ws://localhost:{port}/", alive=lambda: True)
+            url=f"http://localhost:{port}/", ws_url=f"ws://localhost:{port}/", alive=lambda: True,
+            # What the relay keeps on a scene it reaches: its pages, and
+            # when the last left (AppServer._page_left).
+            id="vanished", path="vanished.py", scene="", pages=0, closed_at=None,
+            stop=lambda: None)
         close = self.relay_close("vanished")
         self.assertEqual(close.code, 1000, "the relay closes normally when its upstream never opens")
         # The app is still serving.

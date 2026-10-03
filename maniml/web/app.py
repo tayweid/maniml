@@ -16,6 +16,7 @@ share an origin exactly, so the page derives its socket URL from
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import json
 import os
@@ -54,6 +55,12 @@ VIEWER_LAUNCH_PATTERN = re.compile(
 # alongside falls back to an OS-assigned one. ManimLive.app's engine is
 # given the shell's own port (8690, app/maniml.json) and never competes.
 DEFAULT_APP_PORT = 8685
+# Closing a scene's last window clears its session (Taylor, 2026-10-02:
+# "i'd expect closing a scene to clear the session"): the process is
+# stopped once no page has held its socket for this long. The grace is
+# for the page's own reload after a Restart and an accidental tab close,
+# which reconnect to the same id within it.
+SCENE_GRACE_SECONDS = 5.0
 
 
 # How many packages one open adds from uv's cache before it stops and
@@ -107,6 +114,11 @@ class SceneProcess:
         )
         self.lines: deque[str] = deque(maxlen=200)
         self.url: str | None = None
+        # Pages holding this scene's relay socket, and when the last one
+        # left (None while one is held, or before any arrived): the
+        # session ends with its windows (AppServer._page_left).
+        self.pages = 0
+        self.closed_at: float | None = None
         self._stop_lock = threading.Lock()
         self._stopped = False
         self._reader = threading.Thread(target=self._read, daemon=True)
@@ -165,6 +177,7 @@ class AppServer:
         port: int | None = None,
         allow_outside_root: bool = False,
         idle_exit: float | None = None,
+        scene_grace: float = SCENE_GRACE_SECONDS,
     ):
         self.root = str(Path(root).resolve())
         self._root_path = Path(self.root)
@@ -195,6 +208,8 @@ class AppServer:
         # many seconds, as Edit <course>.app's editor does. Every open page
         # holds one: the landing page its control socket, a viewer its relay.
         self.idle_exit = idle_exit
+        self.scene_grace = scene_grace
+        self._reapers: set = set()
         self._connections = 0
         self._idle_since = time.monotonic()
         atexit.register(self.shutdown)
@@ -213,15 +228,22 @@ class AppServer:
 
     def open_scene(self, path: str, scene: str | None) -> str | None:
         key = (path, scene or "")
+        displaced = None
         with self._lock:
             if self._shutdown_complete:
                 return None
             process = self.processes.get(key)
-            if process is not None and not process.alive():
-                process.stop()
-                # Its id names a process that no longer exists; drop it rather
-                # than leave the relay a dead name to refuse.
+            if process is not None and (
+                    not process.alive() or process.closed_at is not None):
+                # Dead, or its last window closed: closing clears the
+                # session, so an open starts fresh even inside the grace
+                # the reaper gives a reconnect. Its id names a process
+                # that is no more; drop it rather than leave the relay a
+                # dead name to refuse. A process no page has reached yet
+                # (the open just before the page navigates) is reused.
                 self._scenes_by_id.pop(process.id, None)
+                self.processes.pop(key, None)
+                displaced = process
                 process = None
             if process is None:
                 self._next_scene_id += 1
@@ -230,10 +252,51 @@ class AppServer:
                 )
                 self.processes[key] = process
                 self._scenes_by_id[process.id] = process
+        if displaced is not None:
+            displaced.stop()  # outside the lock: stopping waits
         url = process.wait_for_url()
         if url:
             remember_recent(path)
         return url
+
+    def _page_arrived(self, process: SceneProcess) -> None:
+        with self._lock:
+            process.pages += 1
+            process.closed_at = None
+
+    def _page_left(self, process: SceneProcess) -> None:
+        """Called on the loop as a relay ends. The last page leaving starts
+        the grace; `_reap` ends the session if none is back by then."""
+        with self._lock:
+            process.pages -= 1
+            if process.pages > 0:
+                return
+            process.closed_at = time.monotonic()
+
+        async def reap_after_grace():
+            await asyncio.sleep(self.scene_grace)
+            await asyncio.to_thread(self._reap, process)
+
+        task = asyncio.get_running_loop().create_task(reap_after_grace())
+        self._reapers.add(task)
+        task.add_done_callback(self._reapers.discard)
+
+    def _reap(self, process: SceneProcess) -> None:
+        """Stop a scene whose windows are all gone, if that is still so:
+        a page back within the grace, a restart that already replaced it,
+        or an open that already started it afresh each leave nothing to do."""
+        with self._lock:
+            if (self._shutdown_complete or process.pages > 0
+                    or process.closed_at is None
+                    or self._scenes_by_id.get(process.id) is not process):
+                return
+            self._scenes_by_id.pop(process.id, None)
+            key = (process.path, process.scene or "")
+            if self.processes.get(key) is process:
+                self.processes.pop(key)
+        process.stop()
+        print(f"maniml app: {os.path.basename(process.path)} {process.scene or ''}"
+              " closed, scene stopped", flush=True)
 
     def restart_scene(self, scene_id: str) -> SceneProcess | None:
         """Replace the process behind an id with a fresh one, under the same id.
@@ -607,6 +670,7 @@ class AppServer:
             if target is None or not process.alive():
                 await ws.close(code=1011, reason="no such scene")
                 return
+            self._page_arrived(process)
             import websockets.asyncio.client as ws_client
 
             async def pump_page(source, sink):
@@ -670,6 +734,7 @@ class AppServer:
             except Exception:
                 pass  # the scene died or the tab went away; both just close
             finally:
+                self._page_left(process)
                 await ws.close()
 
         async def handler(ws):

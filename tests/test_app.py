@@ -48,7 +48,9 @@ class AppShellE2E(unittest.TestCase):
             # terminal's 8685.
             [sys.executable, "-c",
              "import sys; from maniml.web.cli import run_app; "
-             "run_app(sys.argv[1], open_browser=False, port=0)", cls.tmpdir.name],
+             # A short grace: the suite closes windows and waits for it.
+             "run_app(sys.argv[1], open_browser=False, port=0, scene_grace=1.0)",
+             cls.tmpdir.name],
             env={**os.environ, "PYTHONPATH": REPO_ROOT,
                  "PYTHONUNBUFFERED": "1",
                  "MANIML_RECENTS_PATH": os.path.join(
@@ -203,13 +205,61 @@ class AppShellE2E(unittest.TestCase):
         self.assertEqual((state["current"], state["count"]), (0, 1))
         self.assertTrue(state["future"], "the restarted scene lost its units")
 
-        # Opening the file again reuses the restarted process, under the id
-        # the page is on. (Its URL says nothing: the viewer port is a
-        # rendezvous.)
+        # The page is gone (the socket above closed): opening the file
+        # again is a fresh session under a new id, closing having cleared
+        # the old one, grace or no grace.
         with self._control() as control:
             reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
-        self.assertEqual(reopened["scene_id"], opened["scene_id"],
-                         "the restart changed the id the page is on")
+        self.assertNotEqual(reopened["scene_id"], opened["scene_id"],
+                            "a closed window's scene was reused")
+
+    def test_a_closed_window_ends_its_scene_after_the_grace(self):
+        """Closing clears the session: once no page has held a scene's
+        socket for the grace, its process is stopped and its id refused;
+        the next open starts fresh."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            self._ready_and_first_state(ws)
+            self._advance(ws)
+        deadline = time.time() + 10
+        while time.time() < deadline and not any(
+                "closed, scene stopped" in line for line in self.lines):
+            time.sleep(0.1)
+        self.assertTrue(any("closed, scene stopped" in line for line in self.lines),
+                        "the scene outlived its window:\n" + "".join(self.lines)[-600:])
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            with self.assertRaises(ConnectionClosed):
+                ws.recv(timeout=5)
+        with self._control() as control:
+            reopened = self._request(control, "open", path=scene_path, scene="AppDemo")
+        self.assertNotEqual(reopened["scene_id"], opened["scene_id"])
+        with ws_connect(f"{self._control_url()}scene/{reopened['scene_id']}",
+                        max_size=2**24, origin=origin, open_timeout=30) as ws:
+            _ready, state = self._ready_and_first_state(ws)
+        self.assertEqual((state["current"], state["count"]), (0, 1))
+
+    def test_a_page_back_within_the_grace_keeps_its_scene(self):
+        """A reload of the page (its own after a Restart, or the user's)
+        reconnects to the same id within the grace: the same process, its
+        history kept."""
+        scene_path = os.path.join(self.tmpdir.name, "app_scene.py")
+        with self._control() as control:
+            opened = self._request(control, "open", path=scene_path, scene="AppDemo")
+            self.assertIn("url", opened, opened.get("error"))
+        relay_url = f"{self._control_url()}scene/{opened['scene_id']}"
+        origin = self.url.rstrip("/")
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            first_ready, _ = self._ready_and_first_state(ws)
+            self._advance(ws)
+        with ws_connect(relay_url, max_size=2**24, origin=origin) as ws:
+            again_ready, state = self._ready_and_first_state(ws)
+        self.assertEqual(again_ready["boot"], first_ready["boot"])
+        self.assertEqual(state["current"], 1, "the reconnect lost the scene's position")
 
     def test_restart_while_the_file_does_not_load_keeps_the_scene(self):
         """A Restart while the scene file does not load (a syntax error
