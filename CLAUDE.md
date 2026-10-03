@@ -100,6 +100,7 @@ maniml app [dir]
 npm install            # once: the shell and Electron, under node_modules/
 npm run app            # the shell on this checkout, in a window
 npm run app:build      # ManimLive.app into Applications
+npm run install:local  # the deploy's build and install line, on this Mac (-- path/To.app: elsewhere)
 npm run app:smoke      # launch on a scene in a throwaway config folder, check it
 # The engine's packages are app/engine-requirements.txt, an exact export of
 # uv.lock the shell installs (claerbout 0.1.7), so every install resolves

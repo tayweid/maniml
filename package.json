@@ -8,7 +8,8 @@
     "app": "CLAERBOUT_APP=app/maniml.json electron node_modules/claerbout",
     "app:build": "node node_modules/claerbout/package.mjs --config app/maniml.json",
     "app:smoke": "node node_modules/claerbout/smoke.mjs --config app/maniml.json uv",
-    "app:install-script": "node node_modules/claerbout/package.mjs --config app/maniml.json --install-script site/install"
+    "app:install-script": "node node_modules/claerbout/package.mjs --config app/maniml.json --install-script site/install",
+    "install:local": "node app/install-local.mjs"
   },
   "devDependencies": {
     "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.2.3.tar.gz"

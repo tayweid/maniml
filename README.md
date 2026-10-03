@@ -111,16 +111,28 @@ with Open…, opens in its own window. Scenes needing LaTeX or ffmpeg use the
 ones installed on the computer. From a checkout:
 
 ```bash
-npm install && npm run app:build
+npm install
+npm run app             # to run the checkout
+npm run install:local   # to install the checkout's build as the app
 ```
 
-puts `ManimLive.app` in Applications; `npm run app` runs the shell on the
-checkout instead, and `npm run app:smoke` launches it on a scene in a
-throwaway folder and checks it. An installed app updates itself: it
-checks its site after launch, and the landing page's Update button (or
-ManimLive menu → Check for Updates…) downloads the new build, swaps it in
-and relaunches. How the port was made is in
-`docs/claerbout_experiment.md`.
+`npm run app` runs the shell on the checkout and installs nothing, and
+`npm run app:smoke` launches it on a scene in a throwaway folder and
+checks it. `npm run install:local` (`app/install-local.mjs`) does on this
+Mac what the deploy does on GitHub's, with no push: it builds the Lyon
+helper into the package (`uv sync`), packages ManimLive.app for this
+Mac's processor into a site folder of its own under the temp folder, and
+installs it from there with the install line into Applications, Electron
+shared with another Claerbout app when one has the same version; quit
+ManimLive first, since the install line never replaces an open app, and
+`npm run install:local -- path/to/ManimLive.app` puts it anywhere else.
+Its build is the checkout's commit (`-dirty` when the tree has changes),
+so its Check for Updates… later replaces it with the site's build.
+(`npm run app:build` is the packager alone, straight into Applications.)
+An installed app updates itself: it checks its site after launch, and the
+landing page's Update button (or ManimLive menu → Check for Updates…)
+downloads the new build, swaps it in and relaunches. How the port was
+made is in `docs/claerbout_experiment.md`.
 
 ## Interactive controls
 
