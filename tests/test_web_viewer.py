@@ -188,7 +188,7 @@ class _ViewerHarness:
             self.ws_url, max_size=2**24, origin=self.origin)
         response = json.loads(ws.recv(timeout=5))
         self.assertEqual(response["type"], "ready")
-        self.assertEqual(set(response["capabilities"]), {"export", "restart"})
+        self.assertEqual(set(response["capabilities"]), {"export", "restart", "install"})
         return ws
 
 

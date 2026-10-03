@@ -55,6 +55,9 @@ function fixture(origin) {
     // The Restart control's busy state, which ready and the first state
     // at checkpoint 0 end; no restart is pending in these negotiations.
     restartPending: false, setRestartPending(on) { context.restartPending = on; },
+    // A scene's load error (a missing import, offered as a download) and its
+    // progress steps: none arrive in these negotiations.
+    setLoadError() {}, loadErrorStep() {},
     exitPlayback() { context.stageSource = "live"; },
     console,
   });

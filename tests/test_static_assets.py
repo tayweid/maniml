@@ -104,7 +104,9 @@ class LocalOnlyTests(unittest.TestCase):
         self.assertIn("const CONTROL_URL = `ws://${location.host}/`;", page)
         self.assertNotIn("127.0.0.1", page)
         self.assertIn('request("choose")', page)
-        self.assertIn('request("open"', page)
+        # An open and an install both go through startScene, one request each.
+        self.assertIn('startScene("open"', page)
+        self.assertIn('startScene("install"', page)
         self.assertIn('request("recents")', page)
         # Nothing to carry, nothing to store, nothing to lose: the engine
         # accepts the socket because of where the page came from.
