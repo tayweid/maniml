@@ -52,6 +52,9 @@ function fixture(origin) {
     presenter: { stateChanged() {} }, applyEnv() {},
     stageSource: "live", autoPlaybackSuppressed: false, geometryQueue: [],
     lastLiveState: null, location: { reload() { throw Error("unexpected reload"); } },
+    // The Restart control's busy state, which ready and the first state
+    // at checkpoint 0 end; no restart is pending in these negotiations.
+    restartPending: false, setRestartPending(on) { context.restartPending = on; },
     exitPlayback() { context.stageSource = "live"; },
     console,
   });
