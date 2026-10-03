@@ -11,7 +11,7 @@
     "app:install-script": "node node_modules/claerbout/package.mjs --config app/maniml.json --install-script site/install"
   },
   "devDependencies": {
-    "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.2.2.tar.gz"
+    "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.2.3.tar.gz"
   },
   "engines": {
     "node": ">=22"
