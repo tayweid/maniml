@@ -9,7 +9,23 @@ body {
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-main { width: min(640px, calc(100vw - 48px)); padding: 24px 0 40px; text-align: center; }
+/* From shell 0.2.1 this window has no title bar either (app/maniml.json,
+   titleBarStyle): the lights' band along the top moves it, as Knuth's
+   setup page has it. Nothing else is in the band — the content is centred
+   and padded clear of it, so a short window cannot slide it under the
+   lights. In a tab the band is nothing. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(titlebar-area-height, 0px);
+  -webkit-app-region: drag;
+}
+main {
+  width: min(640px, calc(100vw - 48px));
+  padding: calc(24px + env(titlebar-area-height, 0px)) 0 40px;
+  text-align: center;
+}
 img { border-radius: 13px; }
 h1 { margin: 14px 0 4px; font-size: 22px; font-weight: 500; }
 .lead { margin: 0 auto 22px; max-width: 520px; color: #b7b4ad; }

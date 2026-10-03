@@ -1,11 +1,13 @@
 /* The shared visual language of the app shell: the landing page and the
-   viewer are two rooms of one app, so the design tokens, the canvas
-   treatment, and the glass slug live here once. player.html deliberately
-   does NOT link this file — a baked export must stay a self-contained
-   folder with no dependency on the app it came from. */
+   viewer are two rooms of one app, so the design tokens, the frame and its
+   bar, and the glass pods of the presenter's bar live here once.
+   player.html deliberately does NOT link this file — a baked export must
+   stay a self-contained folder with no dependency on the app it came
+   from. */
 
 :root {
   color-scheme: dark;
+  /* The room: the grey a scene sits on, inside the frame. */
   --bg: #2b2a2d;
   --glass: color-mix(in srgb, #17161a 80%, transparent);
   --line: rgba(255, 255, 255, 0.085);
@@ -19,17 +21,38 @@
   --bad: #da7777;
   --shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
   --glass-light: rgba(235, 232, 225, 0.94);
+  /* Zen's shape, with Knuth's and Plass's numbers (knuth/src/styles.css,
+     plass/src/style.css), so the three apps' bars measure the same: a dark
+     grey frame — the bar across the top beside the traffic lights, one
+     edge of it round the rest — holds the room, a rounded panel a shade
+     lighter. ManimLive has no side rail (Taylor, 2026-10-02: "i don't
+     think there's any reason to add a sidebar to maniml"): the room runs
+     from the frame's left edge, and the presenter's bar floats over its
+     foot as it always has. */
+  --frame: #18181a;
+  --pill: #232326;
+  --tile: #2e2e32;
+  /* The bar's height is the traffic lights' band, which the shell
+     publishes as the Window Controls Overlay (in CSS px, so a zoom step
+     keeps the bar's row on the lights); 44 px in a tab and in full
+     screen — as tall as Knuth's and Plass's rail is wide. */
+  --topbar: env(titlebar-area-height, 44px);
+  /* The frame's one width: the window's edge round the room. */
+  --edge: 8px;
+  --frame-ink: rgba(240, 238, 233, 0.9);
+  --frame-ink-soft: rgba(240, 238, 233, 0.55);
+  /* The name pill's serif: STIX Two Text, which Knuth and Plass bundle
+     and macOS ships with the same metrics (measured), so it is not
+     bundled here; a tab elsewhere falls back to Charter or Georgia. */
+  --serif: 'STIX Two Text', 'Charter', 'Georgia', serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
 }
 * { box-sizing: border-box; }
-body::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none;
-  background:
-    radial-gradient(circle at 50% -15%, rgba(255,255,255,.035), transparent 44%),
-    linear-gradient(180deg, rgba(255,255,255,.012), transparent 25%);
-}
 button { font: inherit; }
 
-/* The floating glass slug both pages build their chrome from — Plass's
+/* ---------- the presenter's pods ---------- */
+
+/* The floating glass slug the presenter's bar is built from — Plass's
    pod, with its metrics rather than an approximation of them, so the three
    apps read as one family. Each page sets its own gap and padding; the
    identity is shared. */
@@ -56,20 +79,11 @@ button { font: inherit; }
 .pod-run .icon-button { opacity: .4; }
 .pod-run:hover .icon-button, .pod-run:focus-within .icon-button { opacity: 1; }
 
-/* ---------- the controls a pod holds ---------- */
-
-/* The document slug: the thing being worked on, named in serif, with a
-   quiet second part after the separator — a scene inside a file on the
-   viewer, the tagline under the name on the landing page. */
-.document-slug {
-  display: flex; align-items: baseline; min-width: 0;
-  font-family: Georgia, "Times New Roman", serif; letter-spacing: .055em;
-}
-.slug-separator { color: #bb6e70; margin: 0 7px; }
+/* ---------- the controls ---------- */
 
 /* Icon buttons and the word tags that name them on hover: light glass
-   chips with dark ink, below the control on a top bar and above it on a
-   bottom one (each page positions its own). */
+   chips with dark ink above a control on the presenter's bar; the frame's
+   bar restyles both as its tiles and their captions (below). */
 .icon-button {
   position: relative; display: grid; place-items: center;
   width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
@@ -103,3 +117,160 @@ button { font: inherit; }
   opacity: 1; visibility: visible; transform: translate(-50%, 0);
 }
 .icon-button:disabled .control-label { display: none; }
+
+/* ---------- the bar ---------- */
+
+/* One plain bar on the frame, a straight line across the top of the
+   window: the document's way in and out on the left beside the traffic
+   lights — the File tile, the name pill — then the scene's tools as the
+   bar's tiles, and the engine's status at the right end. In ManimLive.app
+   it is the window's title bar (the shell hides its own and leaves the
+   lights over the page; app/maniml.json): its row is padded on the left
+   by the lights' room (env(titlebar-area-x)) and by nothing else. With no
+   lights' room — a tab, full screen, a native title bar — the File tile
+   lines up with the room's left edge instead, 8 px in (the fallback undoes
+   4 px of the 12; Knuth's and Plass's undo 6, which centres theirs over
+   the rail ManimLive does not have). The bar's empty part drags the
+   window, which is the shell's to handle, so its children and the menus
+   that open from it are marked the page's; a browser ignores the
+   property. */
+#toolbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  height: var(--topbar);
+  display: flex; align-items: center; gap: 6px;
+  padding-inline: calc(12px + env(titlebar-area-x, -4px)) var(--edge);
+  font-family: var(--sans);
+  -webkit-app-region: drag;
+}
+#toolbar > *, .bar-menu { -webkit-app-region: no-drag; }
+/* Keep the hovered or focused item (and its caption or menu) above its
+   neighbours. */
+#toolbar > * { position: relative; }
+#toolbar > *:hover, #toolbar > *:focus-within { z-index: 20; }
+
+/* The bar's tiles: Knuth's, bare, 32 px with 9 px corners and an 18 px
+   glyph, always awake (sleeping until the pointer nears is the presenter's
+   pods' alone), lit while a menu they own is open. */
+#toolbar .icon-button {
+  flex: none; width: 32px; height: 32px; border-radius: 9px;
+  color: rgba(240, 238, 233, 0.62);
+  transition: background 0.12s, color 0.12s;
+}
+#toolbar .icon-button svg { width: 18px; height: 18px; }
+#toolbar .icon-button:hover,
+#toolbar .icon-button:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.08); }
+#toolbar .icon-button[aria-expanded="true"] { color: #fff; background: var(--tile); }
+#toolbar .icon-button:disabled { opacity: 0.4; cursor: default; }
+#toolbar .icon-button:disabled:hover { color: rgba(240, 238, 233, 0.62); background: transparent; }
+#toolbar button:focus-visible,
+#toolbar select:focus-visible { outline: 2px solid #9db8d6; outline-offset: 2px; }
+
+/* A tile's word, 6 px under it, in the frame's dark glass (Knuth's frame
+   captions); an open menu takes its place. */
+#toolbar .control-label {
+  top: calc(100% + 6px); transform: translateX(-50%);
+  padding: 2px 8px; border-radius: 5px;
+  background: rgba(27, 26, 30, 0.94); color: var(--frame-ink);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  font: 11px var(--sans); letter-spacing: normal; white-space: nowrap;
+  transition: opacity 0.16s ease, visibility 0.16s;
+}
+#toolbar .icon-button:hover .control-label,
+#toolbar .icon-button:focus-visible .control-label { transform: translateX(-50%); }
+#toolbar .icon-button[aria-expanded="true"] .control-label { visibility: hidden; }
+
+/* The name pill: Zen's address pill, a shade up from the frame, holding
+   what is open — the scene file's name and the scene in it on the viewer,
+   the app's name on the landing page — and the folder it lives in. When
+   the pill is short only the folder gives way, from its start, so the
+   nearest folder stays; the name gives way only if it alone overfills the
+   pill. */
+.doc-pod {
+  display: flex; align-items: center; gap: 9px;
+  flex: 0 1 auto; min-width: 0; max-width: min(560px, 50vw);
+  height: 30px; padding: 0 10px;
+  background: var(--pill);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px;
+}
+
+/* The document slug: the thing being worked on, named in Knuth's and
+   Plass's small letterspaced serif, with a quiet second part after the
+   separator — the scene inside the file, on the viewer. */
+.document-slug {
+  display: flex; align-items: baseline; flex: none; min-width: 0; max-width: 100%;
+  font: 15px/1.5 var(--serif); letter-spacing: 0.09em;
+  color: rgba(252, 252, 251, 0.8); white-space: nowrap;
+}
+/* The separator is the frame's soft ink, not a colour: a red dot beside
+   the name is Knuth's and Plass's mark for unsaved changes. */
+.slug-separator { color: rgba(240, 238, 233, 0.35); margin: 0 3px; }
+
+/* The folder: the path's, home as ~ (the whole path in its title). It
+   alone shrinks, and it ellipsizes from its start: right-to-left in the
+   pill, the path itself left-to-right inside (its span's dir), so the cut
+   and the ellipsis fall at the path's head. */
+.doc-folder {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+  font: 12px/1.5 var(--sans); color: var(--frame-ink-soft);
+}
+.doc-folder[hidden] { display: none; }
+@media (max-width: 759px) {
+  .doc-folder { display: none; }
+}
+
+/* The bar's right end: the engine's status, at the room's right edge. It
+   keeps its width: when the bar is short the name pill's folder gives way
+   first, then the name, never the status, which in class is the one place
+   that says whether the engine is still answering. */
+.tb-end {
+  margin-left: auto; flex: none;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* A pill of words, as Knuth's status pill: the name pill's height,
+   corners and hairline, in the frame's soft ink. */
+.bar-pill {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  height: 30px; padding: 0 12px;
+  font: 12px/1 var(--sans); color: var(--frame-ink-soft); white-space: nowrap;
+  background: var(--pill);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px;
+}
+/* The status's dot, in Knuth's colours: green while the engine answers,
+   red while it does not (each page says which). */
+.status-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: #6ea576; transition: background 0.3s ease;
+}
+
+/* The menus: Knuth's and Plass's (.tb-menu), in the frame's dark glass,
+   10 px under what opens them and left-aligned with it (bar.js). */
+.bar-menu {
+  position: absolute; z-index: 100; top: calc(100% + 10px); left: 0;
+  width: 258px; max-width: calc(100vw - 16px);
+  max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 13px;
+  background: rgba(27, 26, 30, 0.94); color: var(--frame-ink);
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 16px 40px rgba(0, 0, 0, 0.28);
+  font-family: var(--sans);
+}
+.bar-menu[hidden] { display: none; }
+.bar-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 32px; padding: 7px 10px;
+  border: 0; border-radius: 6px; background: transparent; color: inherit;
+  font: 13px/1.3 var(--sans); letter-spacing: normal; text-align: left;
+  white-space: nowrap; cursor: pointer;
+}
+.bar-menu-item[hidden] { display: none; }
+/* Hover and keyboard focus share one quiet highlight instead of a drawn
+   ring. */
+.bar-menu-item:hover:not(:disabled),
+.bar-menu-item:focus-visible { background: rgba(255, 255, 255, 0.09); outline: none; }
+.bar-menu-item:disabled { opacity: 0.35; cursor: default; }

@@ -5,6 +5,16 @@ interfaces may still change before the first public release.
 
 ## Unreleased
 
+### The app
+
+- **ManimLive has Knuth's and Plass's bar** (docs/ZEN-DRAFT.md): the
+  window's title bar is the page's, 44 px, with the traffic lights in it,
+  File's menu and the scene file's name, its scene and its folder beside
+  them, Restart and the renders, and the status at the right; the scene
+  sits in a rounded room inside a dark frame. The presenter's bar at the
+  bottom is unchanged, and so is every key. The landing page has the same
+  bar, and the update appears in the viewer's bar too.
+
 ### Shared renderer
 
 - A frame that changes nothing costs the viewer's Python less, on every

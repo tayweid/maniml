@@ -498,6 +498,12 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
             self.assertEqual(start_state["current"], 0)
             self.assertTrue(start_state["future"], "no units left to run")
             self.assertEqual(start_state["file"], "web_scene.py")
+            # The file itself, for the name pill's folder and the shell's
+            # `document`: absolute (this harness loads the file directly;
+            # under the app the path arrives already resolved).
+            self.assertEqual(
+                start_state["path"],
+                os.path.abspath(os.path.join(self.tmpdir.name, self.FILENAME)))
 
             # RIGHT arrow: the next unit runs and streams geometry frames
             ws.send(json.dumps(

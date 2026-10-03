@@ -68,6 +68,19 @@ class ShellConfigTests(unittest.TestCase):
         self.assertEqual(config["pythons"], ["uv"])
         self.assertEqual(config["engine"]["args"][:3], ["-m", "maniml", "app"])
 
+    def test_the_window_has_the_bar_beside_the_lights(self):
+        """Zen's shape, as Knuth's and Plass's configs have it: no title bar,
+        the traffic lights in the page's bar, their band (2·y + 14, the
+        shell's overlay) exactly the bar's 44 px, the --topbar fallback."""
+        window = self.config["window"]
+        self.assertEqual(window["titleBarStyle"], "hiddenInset")
+        self.assertEqual(window["trafficLightPosition"], {"x": 14, "y": 15})
+        band = 2 * window["trafficLightPosition"]["y"] + 14
+        shell = (PACKAGE / "web" / "static" / "shell.css").read_text()
+        self.assertIn(f"--topbar: env(titlebar-area-height, {band}px);", shell)
+        # The smoke still reads the name in the pill.
+        self.assertEqual(self.config["smoke"]["ready"], "#file-name")
+
     def test_package_json_pins_the_shell_and_the_version(self):
         """The shell comes from a claerbout release tarball (its Electron is
         pinned; every app moves together), and the app's version is the
