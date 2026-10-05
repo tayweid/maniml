@@ -58,6 +58,9 @@ function fixture(origin) {
     // A scene's load error (a missing import, offered as a download) and its
     // progress steps: none arrive in these negotiations.
     setLoadError() {}, loadErrorStep() {},
+    // The scene's error on the console's toggle (the console's code, not
+    // lifted here): none arrive in these negotiations.
+    setSceneError() {},
     exitPlayback() { context.stageSource = "live"; },
     console,
   });

@@ -171,7 +171,8 @@ class ViewerTests(unittest.TestCase):
         # arriving.
         opens = viewer.count("setConsole(true)")
         self.assertEqual(opens, 2, "an extra path opens the console")
-        error = viewer[viewer.index("function setSceneError"):viewer.index("function setRenderError")]
+        start = viewer.index("function setSceneError")
+        error = viewer[start:viewer.index("\n}\n", start)]
         self.assertIn("setConsole(true)", error)
         for guard in ("arrived", '!document.body.classList.contains("console")',
                       "!document.fullscreenElement", 'stageSource !== "playback"',

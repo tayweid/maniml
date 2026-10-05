@@ -726,12 +726,6 @@
 "use strict";
 const canvas = document.getElementById("view");
 const stage = document.getElementById("stage");
-// The engine's status: the mark beside the file's name, its words in the
-// mark's title and behind it for a reader without a screen.
-function setConnection(text) {
-  document.getElementById("connection-pod").title = text;
-  document.getElementById("conn").textContent = text;
-}
 const stageArea = document.getElementById("stage-area");
 // The room's shape is the picture's: the engine's frame as the driver sizes
 // the canvas (16:9 unless the scene's config says otherwise), or the
@@ -961,6 +955,12 @@ let pendingRendererRequest = null;
 let reconnectCount = 0;
 let connectedBoot = null;   // engine boot id first seen by this page
 let reconnectTimer = null;
+// The engine's status: the mark beside the file's name, its words in the
+// mark's title and behind it for a reader without a screen.
+function setConnection(text) {
+  document.getElementById("connection-pod").title = text;
+  document.getElementById("conn").textContent = text;
+}
 // The overlay appears after this many failed attempts, but the page keeps
 // trying at a capped interval: the engine may be alive and merely busy (a
 // long replay after a file edit), and giving up left a live scene behind
@@ -1232,29 +1232,6 @@ rendererSelect.onchange = () => {
   if (stageSource === "playback") exitPlayback({ endPresentation: true });
   void startRenderer(rendererSelect.value);
 };
-
-// The scene's error, on the console's toggle: a red dot while the last
-// unit raised or the file did not load (the engine's unit_error and
-// load_error), its message and the scene's line in the toggle's title. The
-// console opens itself the moment a new error arrives — the one time it
-// opens unasked (Taylor, 2026-10-04) — unless a presentation is on (present
-// mode, recorded playback, full screen), where nothing may appear by
-// itself; there the dot alone says.
-let sceneError = null;
-function setSceneError(error) {
-  const text = error
-    ? (error.message || "Error") + (error.line ? " (line " + error.line + ")" : "")
-    : null;
-  const arrived = !!text && text !== sceneError;
-  sceneError = text;
-  document.body.classList.toggle("scene-error", !!text);
-  consoleToggle.title = text ? "Console (C) \u2014 " + text : "Console (C)";
-  if (arrived && !document.body.classList.contains("console")
-      && !document.fullscreenElement && stageSource !== "playback"
-      && !(lastLiveState && lastLiveState.present)) {
-    setConsole(true);
-  }
-}
 
 function setRenderError(error) {
   const box = document.getElementById("render-error");
@@ -1706,6 +1683,29 @@ function setConsole(open) {
   try { sessionStorage.setItem(CONSOLE_KEY, open ? "1" : "0"); } catch (error) {}
   if (open) consoleLines.scrollTop = consoleLines.scrollHeight;
   shapeWindow();
+}
+
+// The scene's error, on the console's toggle: a red dot while the last
+// unit raised or the file did not load (the engine's unit_error and
+// load_error), its message and the scene's line in the toggle's title. The
+// console opens itself the moment a new error arrives — the one time it
+// opens unasked (Taylor, 2026-10-04) — unless a presentation is on (present
+// mode, recorded playback, full screen), where nothing may appear by
+// itself; there the dot alone says.
+let sceneError = null;
+function setSceneError(error) {
+  const text = error
+    ? (error.message || "Error") + (error.line ? " (line " + error.line + ")" : "")
+    : null;
+  const arrived = !!text && text !== sceneError;
+  sceneError = text;
+  document.body.classList.toggle("scene-error", !!text);
+  consoleToggle.title = text ? "Console (C) \u2014 " + text : "Console (C)";
+  if (arrived && !document.body.classList.contains("console")
+      && !document.fullscreenElement && stageSource !== "playback"
+      && !(lastLiveState && lastLiveState.present)) {
+    setConsole(true);
+  }
 }
 
 function appendLog(entries, replace) {
