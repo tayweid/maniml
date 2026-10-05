@@ -149,6 +149,33 @@
     folder.hidden = !where;
   }
 
+  // ---------- the window's shape ----------
+  /** The window takes the shape of what the page shows (Taylor,
+   *  2026-10-04: "if i make the app wider, it adjusts the height to match,
+   *  so that a 2 by 1 animation is always positioned correctly in the app
+   *  and shows exactly the full animation"): the shell's `shape` request,
+   *  the picture's ratio and the chrome round the opening the ratio must
+   *  not include — measured, not declared, so the bar's height, the edges,
+   *  the presenter's band and an open console are whatever the page is
+   *  laying out. Told once per change; null lifts it (the landing page).
+   *  In a tab there is no shell, and the room fits the opening by CSS. */
+  let shaped;
+  function setShape(ratio, opening) {
+    if (!shell) return;
+    const message = { type: "shape", ratio: null };
+    if (ratio > 0 && opening) {
+      message.ratio = ratio;
+      message.extra = {
+        width: window.innerWidth - opening.clientWidth,
+        height: window.innerHeight - opening.clientHeight,
+      };
+    }
+    const key = JSON.stringify(message);
+    if (key === shaped) return;
+    shaped = key;
+    shell.request(message).catch(() => {});
+  }
+
   // ---------- the update ----------
   /** ManimLive.app updating itself (the shell's update.js; also ManimLive
    *  menu → Check for Updates…). The shell looks at its site after launch
@@ -196,5 +223,6 @@
     });
   }
 
-  window.ManimlBar = { menu, tilde, dirname, setDocument, updates };
+  window.ManimlBar = {
+    setShape, menu, tilde, dirname, setDocument, updates };
 })();

@@ -282,6 +282,7 @@ ManimlBar.menu(document.getElementById("file-menu"), document.getElementById("fi
 // ?open=<path> launch is unaffected: the viewer it goes on to reports the
 // scene again on its first state.
 ManimlBar.setDocument(null);
+ManimlBar.setShape(null);
 ManimlBar.updates(document.getElementById("updatebtn"), {
   failed(text) {
     errorEl.textContent = text;

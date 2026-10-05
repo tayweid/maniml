@@ -32,6 +32,17 @@ from maniml.scene.source_map import pause_anchored
 from maniml.scene.source_map import unit_for_line
 
 
+def describe_scene_error(error: BaseException, path: str | None) -> dict:
+    """What the page shows for a unit that raised: the error's name and
+    message, and the line of the scene file it was raised from (the last
+    frame of the traceback in that file), when there is one."""
+    line = None
+    for frame in traceback.extract_tb(error.__traceback__):
+        if path and frame.filename == path:
+            line = frame.lineno
+    return {"message": f"{type(error).__name__}: {error}", "line": line}
+
+
 class _ReplayComplete(BaseException):
     """Unwind source execution at a retained checkpoint, including in loops."""
 
@@ -724,6 +735,10 @@ class CheckpointMixin:
                 exec(code, namespace)
         except Exception as e:
             print(f"Error running animation: {e}")
+            # The page's console toggle carries the error (a red dot, the
+            # message and the scene's line in its title; the console has
+            # the traceback) until a unit runs clean.
+            self._unit_error = describe_scene_error(e, self._scene_filepath)
             # Restore the last successfully saved checkpoint so the scene
             # isn't left in a half-executed state
             # Namespace and state together, so the restored updaters read
@@ -736,6 +751,7 @@ class CheckpointMixin:
                 raise
             traceback.print_exc()
             return
+        self._unit_error = None
 
         if self.current_animation_index < next_index:
             # No checkpoint was saved during this unit (a trailing tail, or

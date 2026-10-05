@@ -18,18 +18,39 @@
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow: hidden;
   }
-  /* The stage is the room: Zen's inset panel under the bar, the frame's
-     edge from the window's left, right and bottom, rounded, the grey a
-     scene has always sat on. The scene centres in it, clear of the
-     presenter's bar over its foot: 78 px is that bar's 12 px floor, its
-     42 px pods and 24 px over them. What would spill past the rounded
-     edge (the canvas's shadow) is cut at it. */
+  /* The room is the picture (docs/ROOM-DRAFT.md). Knuth's and Plass's
+     room is a rounded panel in the frame holding the document; here the
+     document is the scene's picture, so the panel IS the picture: the
+     scene fills the room to its 12 px corners, and nothing sits between
+     the frame and the scene. A picture has a shape of its own (the
+     scene's frame, 16:9 unless the scene says otherwise, --aspect), so
+     the room is the largest box of that shape in the frame's opening —
+     under the bar, the frame's edge from the window's left and right, and
+     above the presenter's bar, which now stands on the frame's foot (its
+     band: 12 px under the room, the 42 px pods, 12 px, the edge) rather
+     than floating over the scene; the band is the frame's edge under
+     the room, the 28 px pods, and the edge again to the window's bottom
+     (Taylor, 2026-10-04: the same margins as the window's sides) —
+     centred in the opening, and the frame
+     shows round it where the window's shape differs from the picture's.
+     The fit is CSS alone (container units on the opening), so a resize
+     runs no script. Before the first frame the room is black, the colour
+     a scene's picture starts from. */
+  #stage-area {
+    position: absolute; inset: var(--topbar) var(--edge) calc(var(--edge) * 2 + 28px);
+    display: grid; place-items: center;
+    container-type: size;
+  }
   #stage {
-    position: absolute; inset: var(--topbar) var(--edge) var(--edge);
+    --aspect: 16 / 9;
+    position: relative;
+    width: min(100cqw, calc(100cqh * var(--aspect)));
+    aspect-ratio: var(--aspect);
     display: flex; align-items: center; justify-content: center;
-    gap: 10px; padding: 22px 22px 78px;
-    border-radius: 12px; background: var(--bg);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+    border-radius: 12px; background: #000;
+    /* The rim, and a shadow behind the card (Taylor, 2026-10-05): the
+       canvas's old shadow, now the room's. */
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 18px 55px rgba(0, 0, 0, 0.32);
     overflow: hidden;
   }
   /* The console. Toggled by hand and never by itself: stepping through a
@@ -57,8 +78,17 @@
     width: 18px; height: 18px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
   }
+  /* The scene's error, on the toggle: a red dot at the tile's centre (the
+     glyph steps back) while the last unit raised or the file did not
+     load; the title says what and where. */
+  body.scene-error #console-toggle::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
+    background: #cd6452; box-shadow: 0 0 0 2px var(--frame);
+  }
+  body.scene-error #console-toggle svg { opacity: .35; }
   body.fullscreen #console-toggle {
-    right: 12px; background: var(--glass); border: 1px solid var(--line);
+    top: 12px; right: 12px; background: var(--glass); border: 1px solid var(--line);
     border-radius: 999px; color: var(--text); opacity: .45;
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   }
@@ -66,28 +96,36 @@
     opacity: 1; background: rgba(255,255,255,.12);
   }
   body.fullscreen #console-toggle svg { width: 16px; height: 16px; }
-  /* The panel: a column inside the room at its right, 12 px in from its
-     right edge and under its top, above the presenter's bar. */
+  /* The panel: a card of glass over the picture, 12 px inside the room's
+     top and right edges and clear of the presenter's bar, sliding in from
+     the right when it opens and out when it closes (the discrete display
+     transition and the starting style are what let a hidden panel
+     animate in). The same card in every mode (Taylor, 2026-10-05: "the
+     same hover that happens in full screen when not in fullscreen too.
+     just bring it in from the right as a hovering card"): nothing
+     reflows, the room keeps its box and the window its shape. */
   #console {
     position: fixed; z-index: 19; top: calc(var(--topbar) + 12px);
-    right: calc(var(--edge) + 12px); bottom: calc(var(--edge) + 74px);
+    right: calc(var(--edge) + 12px); bottom: calc(var(--edge) * 2 + 28px + 12px);
     width: 340px; display: none; flex-direction: column;
     border: 1px solid var(--line); border-radius: 13px;
     background: var(--glass); box-shadow: var(--shadow);
     -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
     overflow: hidden;
+    opacity: 0; transform: translateX(12px);
+    transition: opacity 180ms ease, transform 180ms ease, display 180ms allow-discrete;
   }
-  body.console #console { display: flex; }
-  body.console #stage { padding-right: 366px; }
-  /* The panel is a column above the presenter's bar, so that bar gives up
-     its width rather than running underneath it. */
-  body.console #navbar { padding-right: calc(var(--edge) + 366px); }
-  /* Presenting is where a scene's own output matters most, so the console
-     keeps its place in full screen — it rides with the rest of the chrome,
-     receding when the chrome does. It overlays there rather than reflowing:
-     the frame must not resize every time the pointer nears an edge. */
-  body.fullscreen #stage { padding-right: 0; }
-  body.fullscreen #navbar { padding-right: 14px; }
+  body.console #console { display: flex; opacity: 1; transform: none; }
+  @starting-style {
+    body.console #console { opacity: 0; transform: translateX(12px); }
+  }
+  /* In full screen there is no frame: the card sits 12 px in from the
+     display, under the toggle; opened, it stays while the display is
+     ours — a panel you asked for must not vanish under a settling
+     pointer. */
+  body.fullscreen #stage-area { right: 0; }
+  body.fullscreen #navbar { bottom: 12px; padding: 0 12px; }
+  body.fullscreen #console { top: 56px; right: 12px; bottom: 52px; }
   #console-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 12px; border-bottom: 1px solid var(--line);
@@ -108,48 +146,32 @@
   #console-lines .line { color: var(--dim); }
   #console-lines .line.err { color: #e8a0a0; }
   #console-empty { color: var(--dim); font-style: italic; }
-  @media (max-width: 860px) {
-    #console { display: none !important; }
-    body.console #stage { padding-right: 22px; }
-  }
 
-  /* Full screen: the stage padding is what reserves room for the chrome, so
-     dropping it lets the frame fill the display. The pods stay in the DOM and
-     fade, but `visibility` has to go too — an invisible pod would still eat
-     clicks meant for the canvas. */
-  body.fullscreen #stage { padding: 0; }
-  body.fullscreen #stage canvas { border-radius: 0; box-shadow: none; }
-  /* There is no frame in full screen: the room is the display, and what
-     was measured from the frame's edge is measured from the display's, as
-     before the frame. The bar slides in over the scene as the frame's
-     band it is, keeping the console toggle's place at its right. */
+  /* Full screen: the opening is the display, black beyond the picture as
+     a projector's is. Only the presenter's bar and the console's toggle
+     are there (Taylor, 2026-10-04: "only the bottom rail and the upper
+     code button"; the bar across the top never shows — F, Escape and the
+     bar's own Full screen button leave): the toggle always, the
+     presenter's bar floating over the picture's foot, receding when the
+     pointer settles and coming back when it nears an edge. The pods stay
+     in the DOM and fade, but `visibility` has to go too — an invisible pod
+     would still eat clicks meant for the canvas. There is no frame in
+     full screen: what was measured from the frame's edge is measured from
+     the display's. */
   body.fullscreen { --edge: 0px; }
-  body.fullscreen #stage { inset: 0; border-radius: 0; box-shadow: none; }
-  body.fullscreen #toolbar { background: var(--frame); padding-right: calc(12px + 32px + 6px); }
-  body.fullscreen #toolbar,
-  body.fullscreen #navbar,
-  body.fullscreen #console {
-    opacity: 0; visibility: hidden;
+  body.fullscreen #stage-area { inset: 0; background: #000; }
+  body.fullscreen #stage { border-radius: 0; box-shadow: none; }
+  body.fullscreen #toolbar { display: none; }
+  body.fullscreen #navbar {
+    opacity: 0; visibility: hidden; transform: translateY(14px);
     transition: opacity 180ms ease, transform 180ms ease, visibility 180ms;
   }
-  body.fullscreen #toolbar { transform: translateY(-12px); }
-  body.fullscreen #navbar { transform: translateY(14px); }
-  body.fullscreen #console { transform: translateX(12px); }
-  body.fullscreen.chrome #toolbar,
-  body.fullscreen.chrome #navbar,
-  body.fullscreen.chrome #console {
-    opacity: 1; visibility: visible; transform: none;
-  }
+  body.fullscreen.chrome #navbar { opacity: 1; visibility: visible; transform: none; }
   body.fullscreen.idle, body.fullscreen.idle #view { cursor: none; }
   #fullscreen .fs-exit { display: none; }
   body.fullscreen #fullscreen .fs-enter { display: none; }
   body.fullscreen #fullscreen .fs-exit { display: block; }
 
-  #stage canvas {
-    border-radius: 5px;
-    box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035);
-    background: #000;
-  }
   #connection-overlay {
     position: absolute; z-index: 10; left: 50%; top: 50%;
     width: min(430px, calc(100% - 42px)); transform: translate(-50%, -50%);
@@ -175,8 +197,11 @@
     border-color: var(--line-strong); background: rgba(255,255,255,.07); outline: none; }
   .connection-actions button[hidden] { display: none; }
   #open-from-error { color: var(--dim); background: transparent; }
+  /* The picture fills the room: the canvas's own size is the engine's
+     resolution (webgpu.js), drawn to the room's box; the room's shape is
+     the picture's, so nothing is stretched. */
   #view {
-    max-width: 100%; max-height: 100%;
+    display: block; width: 100%; height: 100%;
     outline: none; cursor: crosshair;
   }
   /* A handle under the pointer (a mobject the scene marked set_draggable):
@@ -197,9 +222,7 @@
   }
   #handle-chip[hidden] { display: none; }
   /* Present-from-video: the recording replaces the live stage wholesale */
-  #playback-video { display: none; max-width: 100%; max-height: 100%;
-    border-radius: 5px; background: #000;
-    box-shadow: 0 18px 55px rgba(0,0,0,.32), 0 0 0 1px rgba(255,255,255,.035); }
+  #playback-video { display: none; width: 100%; height: 100%; background: #000; }
   body.playback #playback-video { display: block; }
   body.playback #view { display: none !important; }
   #render-error, #load-error { position: absolute; max-width: 520px; margin: 24px;
@@ -274,7 +297,7 @@
     transform: translate(-50%, 3px); }
 
   #position {
-    min-width: 54px; padding: 0 8px; text-align: center; color: var(--dim);
+    min-width: 48px; padding: 0 6px; text-align: center; color: var(--dim);
     font-size: 11px; letter-spacing: .045em; text-transform: uppercase;
   }
   #position strong { color: var(--text); font-weight: 550; }
@@ -301,7 +324,12 @@
   @keyframes restart-turn { to { transform: rotate(360deg); } }
   #restart-scene.working { color: var(--warn); opacity: 1; }
   #restart-scene.working svg { animation: restart-turn 900ms linear infinite; }
-  /* The renderer: a pill of the bar's height, corners and hairline. */
+  /* The renderer: a pill of the bar's height, corners and hairline — a
+     comparison control still being tested, so unseen until the pointer
+     finds it or it has a warning to show (Taylor, 2026-10-04). */
+  #renderer-pod { opacity: 0; transition: opacity .16s ease; }
+  #renderer-pod:hover, #renderer-pod:focus-within,
+  #renderer-pod:has(#glwarn.on) { opacity: 1; }
   #renderer-select {
     height: 30px; padding: 0 8px; color: var(--frame-ink-soft);
     background: var(--pill); border: 1px solid rgba(255,255,255,.08); border-radius: 9px;
@@ -312,108 +340,207 @@
   #glwarn { display: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; color: var(--warn); font-size: 11px; padding: 0 6px 0 0; }
   #glwarn.on { display: block; }
-  /* The engine's status: the right end's pill (shell.css), as Knuth's
-     kernel status. */
-  #conn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-  body.disconnected #conn-dot { background: #cd6452; }
-  body.disconnected #conn { color: #cf9494; }
+  /* The engine's status: the mark beside the file's name (shell.css
+     .doc-mark), green while the engine answers, red while it does not;
+     its words (Connected, Reconnecting, Engine unavailable) in its title
+     and behind it for a reader without a screen. */
+  #connection-pod { background: rgba(110, 165, 118, 0.9); }
+  body.disconnected #connection-pod { background: rgba(205, 100, 82, 0.95); }
   body.disconnected #export-menu { opacity: .16; pointer-events: none; }
 
   /* ---------- the presenter's bar ---------- */
-  /* It floats over the room's foot, 12 px above the room's bottom edge as
-     it was 12 px above the window's before the frame. */
+  /* It stands on the frame's foot, the frame's edge above the window's
+     bottom as the room is the edge in from its sides, centred: the
+     transport, the rail and the view as one run, the rail sized to its
+     ticks (Taylor, 2026-10-04: "we just shrink the rail to fit. no need
+     to have all that extra space") and giving way, folding, when the
+     window is narrower than its ticks want. */
   #navbar {
-    position: fixed; z-index: 18; left: 0; right: 0; bottom: calc(var(--edge) + 12px);
+    position: fixed; z-index: 18; left: 0; right: 0; bottom: var(--edge);
     display: flex; justify-content: center; align-items: center;
-    gap: 5px; padding: 0 14px; pointer-events: none;
+    gap: 5px; padding: 0 var(--edge); pointer-events: none;
   }
-  .transport-pod { padding: 0 5px; }
-  .rail-pod { flex: 1 1 auto; max-width: 620px; min-width: 0;
-    gap: 12px; padding: 0 12px 0 13px; }
-  .view-pod { padding: 0 5px; }
+  .transport-pod { padding: 0 3px; }
+  .rail-pod { flex: 0 1 auto; min-width: 0; gap: 8px; padding: 0 6px; }
+  .view-pod { padding: 0 3px; }
   #present.active { color: var(--good); opacity: 1; }
   #present { position: relative; }
-  #present.stale::after { content: ""; position: absolute; top: 6px; right: 6px;
-    width: 5px; height: 5px; border-radius: 50%; background: var(--warn); opacity: .7; }
+  #present.stale::after { content: ""; position: absolute; top: 3px; right: 3px;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--warn); opacity: .7; }
 
   /* The rail is chips and the links between them, in one row: a link is the
      stretch of scene an animation crosses, so it is a real element that can
      light up while that animation plays — rather than one line drawn behind
-     everything, which could only ever be lit end to end. */
+     everything, which could only ever be lit end to end.
+
+     The chips are bars, as the marks on Plass's and Knuth's scroll rails
+     (Taylor, 2026-10-04): a 2 px tick, white where the scene is loaded (a
+     checkpoint stands there), grey where it is not yet run, the accent
+     where the position is. The links are 1 px lines between every pair,
+     white where the stretch is loaded and grey where it is not, with a
+     3 px gap to the ticks at both ends (as the dots had: a line that
+     touches its marks reads as one bar). The space, not the brightness,
+     is what the position changes (Taylor, 2026-10-04): the rail grows
+     with its ticks at the regular link, 32 px, until they no longer fit
+     the bar; then every link but the two into and out of the current
+     chip packs, as far as 2 px (packLinks); and past that the middle
+     folds (foldRail). A short scene is a short rail (safe center: a row that
+     still overflows starts at the left, where it can be reached) rather
+     than four marks spread across the room. Ordinary
+     ticks are 9 px; the start,
+     the end and the current one stand taller (12, 12 and 16). Every
+     tick grows as the pointer nears it (--near,
+     written by the page from the pointer's distance along the rail: a
+     scale, so nothing moves) over a hit zone wider than the tick
+     (::before), so a 2 px mark is easy to find and to click. The first
+     and last ticks are brackets — [ and ] — so the scene's start and end
+     have shapes of their own (Taylor, 2026-10-04), and they are always
+     there: past the packed pitch (12 px) the rail does not scroll them
+     away but folds the middle (foldRail, below): a window of ticks round
+     the current one stays, and each run of ticks outside it collapses
+     into one dotted gap (.elided, the count in its title). Only if even
+     that does not fit
+     and a scene with more pausepoints than fit at that scrolls, the
+     current kept in view (rail.js) and the cut edges faded (.cut-left,
+     .cut-right, set by the page) so it is plain there are more. The rail
+     is the pod's inner height, with 8 px of padding either side so the
+     end chips' glow is drawn whole, not cut at the scroller's edge. */
   #rail {
-    flex: 1; min-width: 0; height: 30px;
-    display: flex; align-items: center; overflow-x: auto;
-    padding: 5px 2px; scrollbar-width: none;
+    flex: 1; min-width: 0; height: 26px;
+    display: flex; align-items: center; justify-content: safe center; overflow-x: auto;
+    padding: 0 8px; scrollbar-width: none;
   }
   #rail::-webkit-scrollbar { display: none; }
-  .link {
-    position: relative; flex: 1 1 26px; min-width: 13px; height: 1px;
-    margin: 0 5px; background: var(--line-strong);
+  #rail.cut-left { mask-image: linear-gradient(to right, transparent, #000 28px); }
+  #rail.cut-right { mask-image: linear-gradient(to left, transparent, #000 28px); }
+  #rail.cut-left.cut-right {
+    mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
   }
-  .link.past { background: #77727a; }
-  .link.future { background: none; border-top: 1px dashed #5e5a62; }
+  .link {
+    /* Every link's width is the page's (packLinks): 32 px while the row
+       fits, and when it does not each gives way in proportion to its
+       distance from the current chip (the two beside it never), down to
+       2 px, so the lengths taper from the position outward. Written as a
+       width rather than left to flex: the rail pod takes its width from
+       its content, and a shrinkable flex item with no content counts for
+       nothing in that measure (Chromium's intrinsic sizing); and a width
+       transitions on its own, where a flex factor in transition moved
+       every other link with it (the bounce Taylor saw, 2026-10-05). */
+    position: relative; flex: none; width: 32px; height: 1px;
+    margin: 0 3px; background: rgba(235, 231, 225, 0.22);
+    /* Nearing a fold the row fades out (--edge, the page's count of
+       ticks to the gap on that side; none, 99): the eight before a gap
+       go from full to nothing, the last of them gone, so the fold needs
+       no mark of its own (Taylor, 2026-10-05: "if the nodes go to fully
+       invisible by the time they get to where the ... is i think we
+       don't need the ..."). */
+    opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);
+    /* A move re-lays the row out — the taper and the fold's window go
+       with the position — and each link moves straight to its new width
+       (Taylor, 2026-10-04: "have all the elements shift to their new
+       spot"; 2026-10-05: "just a nice move to their new spot"). */
+    transition: width 280ms ease, margin 280ms ease, opacity 200ms ease;
+  }
+  .link.past { background: rgba(235, 231, 225, 0.3); }
+  .link.future { background: rgba(150, 145, 153, 0.22); }
   /* The lit fill grows out of the chip the move started from — its own
      easing, on its own clock. It says WHICH stretch is being crossed, and
      deliberately not how far along it is: the animation itself is on screen
      at full size, and a claim about progress would have to be honest through
-     reverse morphs and fast-forwards too. */
+     reverse morphs and fast-forwards too. When the move lands it draws
+     into the chip it reached (its resting origin is the far end, so the
+     exit collapses forward), not back into the one it left — which read
+     as the move undoing itself (Taylor, 2026-10-04). The origin switches
+     only while the fill is at one end or the other, so nothing jumps. */
   .link .fill {
     position: absolute; left: 0; right: 0; top: -1px; height: 3px;
     border-radius: 2px; background: var(--accent);
     box-shadow: 0 0 9px rgba(88,196,221,.45);
-    transform: scaleX(0); transform-origin: left center;
+    transform: scaleX(0); transform-origin: right center;
     transition: transform 200ms ease, opacity 200ms ease; opacity: 0;
   }
-  .link.lit .fill { transform: scaleX(1); opacity: 1; }
+  .link.lit .fill { transform: scaleX(1); opacity: 1; transform-origin: left center; }
   .link.lit.back .fill { transform-origin: right center; }
   /* Parked between pausepoints (UP/DOWN): the same fill stands lit — the
      position is a place ON the stretch, so the dash is highlighted and no
      dot claims the ring. */
   .link.mid .fill { transform: scaleX(1); opacity: 1; }
   .chip {
-    position: relative; z-index: 1; width: 11px; height: 11px; padding: 0;
-    border-radius: 50%; flex: none; background: var(--glass-solid);
-    border: 1px solid #5e5a62; cursor: pointer;
-    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease,
-      box-shadow 200ms ease;
+    --ink: rgba(235, 231, 225, 0.55); --tall: 9px;
+    position: relative; z-index: 1; width: 2px; height: var(--tall); padding: 0;
+    border: 0; border-radius: 1px; flex: none; margin: 0 1px;
+    background: var(--ink); cursor: pointer;
+    opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);
+    /* Near the pointer (--near, 0 to 1): up to 2.5 times as wide and
+       half again as tall, about its centre. */
+    transform: scale(calc(1 + var(--near, 0) * 1.5), calc(1 + var(--near, 0) * 0.5));
+    transition: transform 90ms ease, background 120ms ease, box-shadow 200ms ease,
+      height 120ms ease, opacity 200ms ease, width 280ms ease, margin 280ms ease;
   }
-  /* Hover grows the chip but never paints the accent ring: the accent
-     outline is reserved for nothing — a dot is lit or it isn't. */
-  .chip:hover, .chip:focus-visible { transform: scale(1.35); outline: none; }
-  .chip.past { background: #77727a; border-color: #77727a; }
-  .chip.current { background: var(--accent); border-color: var(--accent);
-    transform: scale(1.35); box-shadow: 0 0 0 4px rgba(88,196,221,.12); }
-  .chip.future { background: var(--glass-solid); border-style: dashed; border-color: #5e5a62; }
+  /* The hit zone: 10 px wide and taller than the tick, so a click lands
+     without aiming at 2 px (it scales with the tick). */
+  .chip::before { content: ""; position: absolute; top: -7px; bottom: -7px; left: -4px; right: -4px; }
+  .chip:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--frame), 0 0 0 3.5px #9db8d6; }
+  .chip.past { --ink: rgba(235, 231, 225, 0.55); }
+  .chip.future { --ink: rgba(150, 145, 153, 0.32); }
+  /* The start and the end: taller, and brackets — their arms 4 px into
+     the gap before the first link and after the last, in the tick's own
+     colour. The current one taller still, in the accent (after the
+     brackets' rule, so a current start or end is 16). */
+  /* The brackets grow under the pointer by height alone — a scaled
+     bracket swelled its arms sideways, "grotesque" (Taylor, 2026-10-04);
+     the arms keep their 2 px and the bracket stands taller. */
+  #rail .chip:first-child, #rail .chip:last-child {
+    --tall: 12px; --ink: rgba(235, 231, 225, 0.7); opacity: 1; transform: none;
+    height: calc(var(--tall) * (1 + var(--near, 0) * 0.5));
+  }
+  #rail .chip.current { --ink: var(--accent); --tall: 16px;
+    box-shadow: 0 0 6px rgba(88,196,221,.55); }
+  #rail .chip:first-child::after, #rail .chip:last-child::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 4px;
+    border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
+  }
+  #rail .chip:first-child::after { left: 0; }
+  #rail .chip:last-child::after { right: 0; }
+  /* Folded away (foldRail): a run of ticks the rail has no room for, and
+     the links inside it, collapsed to nothing — width and margins to 0,
+     so they go and come by the same move as everything else rather than
+     vanishing — and the link before the run stands for it as an empty
+     10 px gap the row has faded out into (its title still says how many
+     are folded there). */
+  .chip.hidden { width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }
+  .link.hidden { margin: 0; }
+  .link.elided { opacity: 0; }
   /* A unit whose pausepoint count is not knowable until it runs — a loop of
-     plays, or a branch — is drawn as a stack rather than as one dot, so the
-     rail stops implying a count it does not have. */
-  /* Stacked with box-shadow, which paints behind the chip's own background,
-     so the copies recede to the right. It keeps the dashed future border:
-     these are the same kind of thing as its neighbours, and there are simply
-     more of them than the rail can count. */
+     plays, or a branch — is drawn as a stack of ticks rather than one, so
+     the rail stops implying a count it does not have: two copies recede to
+     the right (box-shadow, behind the tick's own colour) and the row makes
+     room for them. */
   .chip.many {
-    box-shadow: 4px 0 0 -1px var(--glass-solid), 4px 0 0 0 rgba(94,90,98,.6),
-                8px 0 0 -2px var(--glass-solid), 8px 0 0 -1px rgba(94,90,98,.38);
-    margin-right: 9px;
+    box-shadow: 5px 0 0 0 rgba(150, 145, 153, 0.28), 10px 0 0 0 rgba(150, 145, 153, 0.17);
+    margin-right: 11px;
   }
+  .chip.many.past, .chip.many:not(.future) {
+    box-shadow: 5px 0 0 0 rgba(235, 231, 225, 0.32), 10px 0 0 0 rgba(235, 231, 225, 0.18);
+  }
+  /* A folded stack takes no room either (its margin rule is the later one). */
+  .chip.many.hidden { margin-right: 0; box-shadow: none; }
   /* While a move is in flight the rail shows the STRETCH, not a point: the
-     ring lifts off the chip being left — it renders as an ordinary passed
-     chip — and the lit dash is the ONLY thing that reads as active. The
-     destination chip stays plain; its dot lights on arrival. */
-  body.moving .chip.current {
-    box-shadow: none; transform: scale(1);
-    background: #77727a; border-color: #77727a;
+     accent leaves the chip being left — it renders as an ordinary loaded
+     tick — and the lit dash is the ONLY thing that reads as active. The
+     destination chip stays plain; it lights on arrival. */
+  body.moving #rail .chip.current {
+    --ink: rgba(235, 231, 225, 0.55); --tall: 9px; box-shadow: none;
   }
   /* A within-stack move has no dash between two chips to light, so the
-     stack breathes instead — size only, no accent outline. */
-  @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.45); } }
+     stack breathes instead — size only, no accent. */
+  @keyframes chip-working { 0%, 100% { transform: scaleY(1.1); } 50% { transform: scaleY(1.5); } }
   body.moving .chip.working {
     animation: chip-working 900ms ease-in-out infinite;
   }
 
   @media (max-width: 860px) {
     #file-name { max-width: 125px; }
-    #stage { padding-inline: 12px; }
   }
   /* Short of room in the bar: the renderer's warning keeps to 95 px (the
      right end does not shrink, shell.css), and under 760 px the folder
@@ -435,18 +562,15 @@
   @media (max-width: 620px) {
     #toolbar { gap: 4px; }
     #navbar { gap: 4px; padding-inline: 7px; }
-    .pod { height: 38px; padding-inline: 4px; }
-    .icon-button { width: 31px; height: 31px; }
-    #scene-name, .slug-separator, #connection-pod #conn { display: none; }
+    #scene-name { display: none; }
     #file-name { max-width: 104px; }
-    #position { min-width: 54px; padding-inline: 3px; }
+    #position { min-width: 48px; padding-inline: 3px; }
     #job-status { max-width: 95px; }
-    #navbar { bottom: calc(var(--edge) + 8px); }
-    #stage { padding: 12px 8px 72px; }
   }
 </style>
 </head>
 <body class="disconnected">
+<div id="stage-area">
 <div id="stage">
   <canvas id="view" width="1920" height="1080" tabindex="0"></canvas>
   <div id="handle-chip" hidden></div>
@@ -472,6 +596,7 @@
     </div>
   </section>
 </div>
+</div>
 
 <!-- The bar: the frame's top edge and, in ManimLive.app, the window's
      title bar, with the traffic lights in its left end (shell.css). File
@@ -495,7 +620,7 @@
 
   <div id="doc-pod" class="doc-pod">
     <div class="document-slug" title="Current scene file">
-      <span id="file-name">scene.py</span><span class="slug-separator">&middot;</span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
+      <span id="file-name">scene.py</span><span id="connection-pod" class="doc-mark" role="status" aria-live="polite" title="Connecting"><span id="conn" class="sr-only">Connecting</span></span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
     </div>
     <span id="doc-folder" class="doc-folder" hidden><span dir="ltr"></span></span>
   </div>
@@ -535,9 +660,6 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0 0 14.9 3M20 10A8 8 0 0 0 5.1 7"/><path d="M4 4v4h4M20 20v-4h-4"/></svg>
       <span class="control-label">Update</span>
     </button>
-    <span id="connection-pod" class="bar-pill" title="Connection to the local ManimLive engine">
-      <span id="conn-dot" class="status-dot"></span><span id="conn">Connecting</span>
-    </span>
   </div>
 </header>
 
@@ -562,9 +684,11 @@
 <div id="navbar" class="pod-run" aria-label="Presentation controls">
   <div class="pod transport-pod">
     <!-- Start: the Start chip's jump as a control — checkpoint 0 with the
-         built rail kept, so Next then replays the history. Home does the
-         same; disabled at the start like Back. -->
-    <button id="start" class="icon-button" aria-label="Jump to the start" disabled>
+         built rail kept, so Next then replays the history. Hidden since
+         the rail's start bracket is always there to click (Taylor,
+         2026-10-04); Home still does it, and rail.js still keeps the
+         button's state, so it stays in the markup. -->
+    <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
     </button>
     <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
@@ -601,7 +725,213 @@
 <script>
 "use strict";
 const canvas = document.getElementById("view");
+const stage = document.getElementById("stage");
+// The engine's status: the mark beside the file's name, its words in the
+// mark's title and behind it for a reader without a screen.
+function setConnection(text) {
+  document.getElementById("connection-pod").title = text;
+  document.getElementById("conn").textContent = text;
+}
+const stageArea = document.getElementById("stage-area");
+// The room's shape is the picture's: the engine's frame as the driver sizes
+// the canvas (16:9 unless the scene's config says otherwise), or the
+// recording's while one plays. Written only when it changes — and told to
+// the shell, whose window then keeps the shape (bar.js setShape), so the
+// room fills the opening exactly; told again when the opening's chrome
+// changes (the console).
+let stageAspect = "";
+let stageRatio = 0;
+function fitStage(width, height) {
+  if (!(width > 0 && height > 0)) return;
+  const aspect = width + " / " + height;
+  if (aspect === stageAspect) return;
+  stageAspect = aspect;
+  stageRatio = width / height;
+  stage.style.setProperty("--aspect", aspect);
+  shapeWindow();
+}
+function shapeWindow() {
+  if (document.fullscreenElement) return;   // the display's shape, not ours
+  ManimlBar.setShape(stageRatio, stageArea);
+}
 const railEl = document.getElementById("rail");
+// Folding: when more ticks stand on the rail than fit at their closest
+// pitch, the start and the end stay where they are and the middle gives
+// way (Taylor, 2026-10-04: "they always stay visible, with only some
+// intermediate nodes being hidden somehow"). A window of ticks round the
+// current one is kept, as wide as the room allows, and each run of ticks
+// outside it folds into the link before the run, drawn as a dotted gap
+// with the run's count in its title. The rail's DOM stays rail.js's: the
+// page only adds classes (hidden, elided), re-applied after every redraw,
+// since rail.js writes each chip's className whole. A run of one is not
+// folded (the gap would cost more than the tick). What still does not
+// fit scrolls, and a fade at each cut edge says so (markRailEdges).
+//
+// Whether to fold is computed, not measured by unfolding first: every
+// tick is 4 px with its margins, every packed link 8, and the two round
+// the current one 32 each, so the unfolded row is 12 n + 52 px. The room
+// is what the bar leaves the rail (the rail is sized to its ticks, so its
+// own width says nothing): the bar's width less its other pods, the gaps
+// and the paddings. After a fold the row is measured once and the window
+// narrowed if it still overflows (the arithmetic ignores stacks' extra
+// margin).
+const LINK = 32, LINK_MIN = 2, LINK_MARGINS = 6, GAP = 10;
+const navbarEl = document.getElementById("navbar");
+function railRoom() {
+  // The other pods' widths rounded up, and two pixels of slack: a row that
+  // overran the room by a fraction scrolled, and the rail's scroll-into-
+  // view of the current chip then nudged it on every state.
+  const others = [...navbarEl.querySelectorAll(".pod:not(.rail-pod)")]
+    .reduce((sum, pod) => sum + Math.ceil(pod.getBoundingClientRect().width), 0);
+  const gaps = 5 * (navbarEl.children.length - 1);
+  const padding = 2 * 8 + 2 * 6 + 2 * 8;   // the bar's, the rail pod's, the rail's
+  return navbarEl.clientWidth - others - gaps - padding - 2;
+}
+// A tick with its margins; a stack's two copies take 9 more.
+const tickWidth = (chip) => chip.classList.contains("many") ? 13 : 4;
+// Every link's width, written by the page (the CSS transitions it):
+// 32 px while the row fits the room; otherwise each gives way in
+// proportion to its distance from the current chip — the two beside it
+// never — down to 2 px, the links that reach 2 held there and the rest
+// sharing what is left (flex's own arithmetic, done here so that each
+// width is its own number and moves straight to the next).
+function packLinks(chips, links, current, room) {
+  let taken = 0;
+  chips.forEach((c) => { if (!c.classList.contains("hidden")) taken += tickWidth(c); });
+  const put = (el, width) => {
+    const text = width + "px";
+    if (el.style.width !== text) el.style.width = text;
+  };
+  const shown = [];
+  links.forEach((l, a) => {
+    if (l.classList.contains("hidden")) { put(l, 0); return; }
+    if (l.classList.contains("elided")) { put(l, GAP); taken += GAP + LINK_MARGINS; return; }
+    shown.push({ el: l, away: Math.min(Math.abs(a - current), Math.abs(a + 1 - current)) });
+  });
+  const avail = room - taken - shown.length * LINK_MARGINS;
+  const widths = shown.map(() => LINK);
+  const fixed = new Set();
+  for (let pass = 0; pass < 12; pass++) {
+    let deficit = -avail, weight = 0;
+    shown.forEach((s, i) => { deficit += fixed.has(i) ? LINK_MIN : LINK; if (!fixed.has(i)) weight += s.away; });
+    if (deficit <= 0 || weight === 0) break;
+    const per = deficit / weight;
+    let clamped = false;
+    shown.forEach((s, i) => {
+      if (fixed.has(i)) return;
+      const w = LINK - per * s.away;
+      if (w < LINK_MIN) { fixed.add(i); widths[i] = LINK_MIN; clamped = true; }
+      else widths[i] = w;
+    });
+    if (!clamped) break;
+  }
+  shown.forEach((s, i) => put(s.el, Math.round(widths[i] * 10) / 10));
+}
+function foldRail() {
+  const chips = [...railEl.querySelectorAll(".chip")];
+  const links = [...railEl.querySelectorAll(".link")];
+  const n = chips.length;
+  const hide = (el, on) => el.classList.toggle("hidden", on);
+  const unfold = () => {
+    chips.forEach((c) => hide(c, false));
+    links.forEach((l) => { hide(l, false); l.classList.toggle("elided", false); if (l.title) l.removeAttribute("title"); });
+  };
+  const room = railRoom();
+  const current = Math.max(0, chips.findIndex((c) => c.classList.contains("current")));
+  // Each tick's and link's distance to a fold on its side (the fade), as
+  // a CSS variable.
+  const put = (el, name, value) => {
+    const text = String(value);
+    if (el.style.getPropertyValue(name) !== text) el.style.setProperty(name, text);
+  };
+  const distances = (first, last, foldLeft, foldRight) => {
+    const edge = (i) => Math.min(foldLeft ? i - first + 1 : 99, foldRight ? last - i + 1 : 99);
+    chips.forEach((c, i) => put(c, "--edge", edge(i)));
+    links.forEach((l, a) => put(l, "--edge", Math.min(edge(a), edge(a + 1))));
+  };
+  // What a window costs at the packed pitch: its ticks, its links at the
+  // minimum but the two beside the current chip at full, and a gap for
+  // each run folded away.
+  const packed = (first, last, runs) => {
+    let width = 0;
+    chips.forEach((c, i) => { if (i === 0 || i === n - 1 || (i >= first && i <= last)) width += tickWidth(c); });
+    width += (n - 1 - runs.reduce((sum, [a, b]) => sum + (b - a + 2), 0)) * (LINK_MIN + LINK_MARGINS);
+    width += runs.length * (GAP + LINK_MARGINS) + 2 * (LINK - LINK_MIN);
+    return width;
+  };
+  if (n < 5 || packed(1, n - 2, []) <= room) {
+    unfold(); distances(0, n - 1, false, false); packLinks(chips, links, current, room); return;
+  }
+  let half = Math.max(1, Math.floor((room - 2 * 13 - 2 * (GAP + LINK_MARGINS) - 2 * LINK) / (4 + LINK_MIN + LINK_MARGINS) / 2));
+  for (let attempt = 0; attempt < 6; attempt++) {
+    let first = Math.max(1, current - half), last = Math.min(n - 2, current + half);
+    // A window that touches an end hands its spare to the other side.
+    if (first === 1) last = Math.min(n - 2, first + 2 * half);
+    if (last === n - 2) first = Math.max(1, last - 2 * half);
+    const runs = [[1, first - 1], [last + 1, n - 2]].filter(([a, b]) => b - a >= 1);
+    if (packed(first, last, runs) <= room || half === 1) {
+      unfold();
+      for (const [a, b] of runs) {
+        for (let i = a; i <= b; i++) { hide(chips[i], true); hide(links[i], true); }
+        const gap = links[a - 1];
+        gap.classList.toggle("elided", true);
+        const title = (b - a + 1) + " pausepoints folded";
+        if (gap.title !== title) gap.title = title;
+      }
+      distances(first, last, runs.some(([a]) => a === 1), runs.some(([, b]) => b === n - 2));
+      packLinks(chips, links, current, room);
+      return;
+    }
+    half = Math.max(1, Math.floor(half * 0.8));
+  }
+}
+// The rail's cut edges: what still overflows scrolls, and a fade at each
+// cut edge says so (the CSS masks .cut-left / .cut-right).
+function markRailEdges() {
+  const cutLeft = railEl.scrollLeft > 1;
+  const cutRight = railEl.scrollLeft + railEl.clientWidth < railEl.scrollWidth - 1;
+  railEl.classList.toggle("cut-left", cutLeft);
+  railEl.classList.toggle("cut-right", cutRight);
+}
+// Laid out again after a resize of the bar (the window's width; the rail
+// itself changes size with its ticks, which must not re-lay it out) and
+// every redraw of the rail (rail.js replaces or reclasses its children).
+// The page's own writes must not
+// come back to it as mutations — a fold undone and redone on each of
+// its own records never settled — so the observer is off while they are
+// made (a disconnected observer records nothing).
+const railObserved = { childList: true, attributes: true, attributeFilter: ["class"], subtree: true };
+const railObserver = new MutationObserver(layoutRail);
+function layoutRail() {
+  railObserver.disconnect();
+  try { foldRail(); markRailEdges(); }
+  finally { railObserver.observe(railEl, railObserved); }
+}
+railEl.addEventListener("scroll", markRailEdges, { passive: true });
+new ResizeObserver(layoutRail).observe(navbarEl);
+railObserver.observe(railEl, railObserved);
+
+// Nearness: a tick grows as the pointer comes near it along the rail (the
+// dock's magnification, in a small way; Taylor, 2026-10-04: "larger when the
+// mouse is near them"), so a 2 px mark is easy to find and its hit zone easy
+// to hit. The page writes each chip's --near from the pointer's distance,
+// within 36 px, and clears them when the pointer leaves; the growth is a
+// transform (viewer CSS), so no tick moves.
+const NEAR_RADIUS = 36;
+function magnifyRail(x) {
+  for (const chip of railEl.querySelectorAll(".chip")) {
+    let near = "0";
+    if (x !== null) {
+      const box = chip.getBoundingClientRect();
+      const d = Math.abs(box.left + box.width / 2 - x);
+      near = Math.max(0, 1 - d / NEAR_RADIUS).toFixed(2);
+    }
+    if (chip.style.getPropertyValue("--near") !== near) chip.style.setProperty("--near", near);
+  }
+}
+railEl.addEventListener("pointermove", (e) => magnifyRail(e.clientX));
+railEl.addEventListener("pointerleave", () => magnifyRail(null));
+
 // Transport. Today the engine is a local process reached over a WebSocket on
 // the very port that served this page, so the address is simply where we are.
 // Everything below this line speaks only in protocol messages, so an in-page
@@ -661,7 +991,7 @@ function hideConnectionIssue() {
 function scheduleReconnect() {
   reconnectCount += 1;
   if (reconnectCount >= OVERLAY_AFTER_RECONNECTS) {
-    document.getElementById("conn").textContent = "Engine unavailable";
+    setConnection("Engine unavailable");
     showConnectionIssue(
       "Can’t reach the local engine",
       "The scene process is not responding; still retrying. Retry now, or "
@@ -669,7 +999,7 @@ function scheduleReconnect() {
       true
     );
   } else {
-    document.getElementById("conn").textContent = "Reconnecting";
+    setConnection("Reconnecting");
   }
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(
@@ -687,7 +1017,7 @@ function connect(manualRetry = false) {
     hideConnectionIssue();
   }
   document.body.classList.add("disconnected");
-  document.getElementById("conn").textContent = "Connecting";
+  setConnection("Connecting");
   try {
     ws = new WebSocket(wsUrl);
   } catch (error) {
@@ -729,7 +1059,7 @@ function connect(manualRetry = false) {
         }
         reconnectCount = 0;
         document.body.classList.remove("disconnected");
-        document.getElementById("conn").textContent = "Connected";
+        setConnection("Connected");
         hideConnectionIssue();
         if (restartPending) setRestartPending(false);
         applyCapabilities(data.capabilities || []);
@@ -903,6 +1233,29 @@ rendererSelect.onchange = () => {
   void startRenderer(rendererSelect.value);
 };
 
+// The scene's error, on the console's toggle: a red dot while the last
+// unit raised or the file did not load (the engine's unit_error and
+// load_error), its message and the scene's line in the toggle's title. The
+// console opens itself the moment a new error arrives — the one time it
+// opens unasked (Taylor, 2026-10-04) — unless a presentation is on (present
+// mode, recorded playback, full screen), where nothing may appear by
+// itself; there the dot alone says.
+let sceneError = null;
+function setSceneError(error) {
+  const text = error
+    ? (error.message || "Error") + (error.line ? " (line " + error.line + ")" : "")
+    : null;
+  const arrived = !!text && text !== sceneError;
+  sceneError = text;
+  document.body.classList.toggle("scene-error", !!text);
+  consoleToggle.title = text ? "Console (C) \u2014 " + text : "Console (C)";
+  if (arrived && !document.body.classList.contains("console")
+      && !document.fullscreenElement && stageSource !== "playback"
+      && !(lastLiveState && lastLiveState.present)) {
+    setConsole(true);
+  }
+}
+
 function setRenderError(error) {
   const box = document.getElementById("render-error");
   if (error) {
@@ -966,6 +1319,7 @@ function handleGeometry(arrayBuffer) {
     if (!header) return;
     performance.measure("maniml:render", { start: started, end: performance.now(),
       detail: { batches: header.batches.length, bytes: arrayBuffer.byteLength } });
+    fitStage(canvas.width, canvas.height);
     setRenderError(null);
     glWarn.textContent = header.unsupported.length
       ? "not rendered: " + header.unsupported.join(", ") : "";
@@ -1004,6 +1358,7 @@ function handleMessage(data) {
     if (restartPending && data.current === 0) setRestartPending(false);
     if (data.render_error) setRenderError(data.render_error);
     setLoadError(data.load_error || null);
+    setSceneError(data.unit_error || data.load_error || null);
     // During playback the recording owns the presenter; the engine's
     // states keep the badges fresh but never touch the rail.
     if (stageSource !== "playback") {
@@ -1220,7 +1575,10 @@ async function enterPlayback({ freshExport = false } = {}) {
       },
       onRest: (index) => presenter.moveEnded(synthPlaybackState(index)),
     });
-    const seekStart = () => ManimlPresentation.seekCheckpoint(startIndex);
+    const seekStart = () => {
+      fitStage(playbackVideo.videoWidth, playbackVideo.videoHeight);
+      ManimlPresentation.seekCheckpoint(startIndex);
+    };
     if (playbackVideo.readyState >= 1) seekStart();
     else playbackVideo.addEventListener("loadedmetadata", seekStart, { once: true });
     presenter.stateChanged(synthPlaybackState(startIndex));
@@ -1248,6 +1606,7 @@ function exitPlayback({ endPresentation = false } = {}) {
   document.body.classList.remove("playback");
   playbackVideo.removeAttribute("src");
   playbackVideo.load();
+  fitStage(canvas.width, canvas.height);  // the room back to the picture's shape
   sendRendererMode();                     // the live stream resumes
   send({ type: "chip", index: parkAt }); // park the engine where we stopped
   if (endPresentation && lastLiveState && lastLiveState.present) {
@@ -1346,6 +1705,7 @@ function setConsole(open) {
   consoleToggle.setAttribute("aria-pressed", String(open));
   try { sessionStorage.setItem(CONSOLE_KEY, open ? "1" : "0"); } catch (error) {}
   if (open) consoleLines.scrollTop = consoleLines.scrollHeight;
+  shapeWindow();
 }
 
 function appendLog(entries, replace) {
@@ -1438,6 +1798,7 @@ document.addEventListener("fullscreenchange", () => {
   const on = inFullscreen();
   document.body.classList.toggle("fullscreen", on);
   fullscreenButton.setAttribute("aria-pressed", String(on));
+  shapeWindow();   // the console may have moved while the display was ours
   clearTimeout(chromeTimer);
   if (on) showChrome();  // announce the chrome once, then let it recede
   else document.body.classList.remove("chrome", "idle");

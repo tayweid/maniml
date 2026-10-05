@@ -206,18 +206,18 @@ function create(config) {
   }
 
   // True when the rail's existing DOM has exactly the shape the new
-  // groups need: same chip/link count, and each chip already known vs.
-  // future the way the corresponding new group is. When it holds, drawRail
+  // groups need: the same chip/link count. When it holds, drawRail
   // updates classes/labels in place instead of tearing the DOM down —
-  // that's what lets CSS transitions run instead of teleporting.
+  // that's what lets CSS transitions run instead of teleporting. A chip
+  // that was future and is known now (the frontier moved) is updated in
+  // place too: updateChip rewrites everything about a chip, and a rebuild
+  // there made every move at the frontier a jump while a move through
+  // run history glided (Taylor, 2026-10-05).
   function canUpdateInPlace(prevGroups, newGroups) {
     if (prevGroups.length !== newGroups.length) return false;
     if (railEl.children.length !== 2 * newGroups.length - 1) return false;
     for (let g = 0; g < newGroups.length; g++) {
-      const chip = railEl.children[2 * g];
-      if (!chip) return false;
-      const isFuture = chip.classList.contains("future");
-      if (newGroups[g].known === isFuture) return false;
+      if (!railEl.children[2 * g]) return false;
     }
     return true;
   }

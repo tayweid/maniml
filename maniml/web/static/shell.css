@@ -52,13 +52,15 @@ button { font: inherit; }
 
 /* ---------- the presenter's pods ---------- */
 
-/* The floating glass slug the presenter's bar is built from — Plass's
-   pod, with its metrics rather than an approximation of them, so the three
-   apps read as one family. Each page sets its own gap and padding; the
-   identity is shared. */
+/* The floating glass slug the presenter's bar is built from — Plass's old
+   pod at two thirds its height (Taylor, 2026-10-04: "much shorter, maybe
+   even half", then "the glyphs look a little too small"): 28 px, its
+   buttons 24 with 16 px glyphs, so the bar is a thin run under the picture
+   rather than a toolbar over it. Each page sets its own gap and padding;
+   the identity is shared. */
 .pod {
-  height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 6px;
-  border: 1px solid var(--line); border-radius: 12px;
+  height: 28px; display: flex; align-items: center; gap: 2px; padding: 0 4px;
+  border: 1px solid var(--line); border-radius: 8px;
   background: var(--glass); box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   pointer-events: auto; white-space: nowrap;
@@ -66,12 +68,12 @@ button { font: inherit; }
 
 /* A run of pods reads as one object: facing sides keep a flat contact patch
    and turn away through small circular corners, and the run rounds back out
-   to stadium ends. (Explicit 21px rather than 999px — an overflowing radius
-   makes CSS scale every corner down by one global factor, which would round
-   the flat seams too.) */
-.pod-run > .pod:first-child { border-radius: 21px 12px 12px 21px; }
-.pod-run > .pod:last-child { border-radius: 12px 21px 21px 12px; }
-.pod-run > .pod:only-child { border-radius: 21px; }
+   to stadium ends. (Explicit 14px, half the height, rather than 999px — an
+   overflowing radius makes CSS scale every corner down by one global
+   factor, which would round the flat seams too.) */
+.pod-run > .pod:first-child { border-radius: 14px 8px 8px 14px; }
+.pod-run > .pod:last-child { border-radius: 8px 14px 14px 8px; }
+.pod-run > .pod:only-child { border-radius: 14px; }
 
 /* Sleep/wake, the tier Plass sets: a pod's contents are soft at rest and
    wake together when the pointer comes near the bar they sit on — one
@@ -86,7 +88,7 @@ button { font: inherit; }
    bar restyles both as its tiles and their captions (below). */
 .icon-button {
   position: relative; display: grid; place-items: center;
-  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
   background: transparent; color: var(--text); cursor: pointer;
   transition: opacity 250ms ease, color 140ms ease, background 140ms ease,
     transform 140ms ease;
@@ -100,8 +102,8 @@ button { font: inherit; }
 .pod-run:hover .icon-button:disabled { opacity: .16; cursor: default; }
 .icon-button:disabled:hover { background: transparent; }
 .icon-button svg {
-  width: 19px; height: 19px; fill: none; stroke: currentColor;
-  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  width: 16px; height: 16px; fill: none; stroke: currentColor;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
 }
 .control-label {
   position: absolute; top: calc(100% + 10px); left: 50%;
@@ -203,9 +205,22 @@ button { font: inherit; }
   font: 15px/1.5 var(--serif); letter-spacing: 0.09em;
   color: rgba(252, 252, 251, 0.8); white-space: nowrap;
 }
-/* The separator is the frame's soft ink, not a colour: a red dot beside
-   the name is Knuth's and Plass's mark for unsaved changes. */
-.slug-separator { color: rgba(240, 238, 233, 0.35); margin: 0 3px; }
+/* The mark beside the name: Knuth's and Plass's save dot (6 px, green
+   when the file on disk holds the document, red when it does not), which
+   on the viewer is the engine's status — green while it answers, red
+   while it does not (Taylor, 2026-10-04: "the connected dot with the file
+   name itself, like how knuth has a dot for whether it's saved or not").
+   The page sets its colour by class. */
+.doc-mark {
+  flex: none; align-self: center; width: 6px; height: 6px; margin: 0 7px;
+  border-radius: 50%; background: rgba(205, 100, 82, 0.95);
+  transition: background 0.3s ease;
+}
+/* The words behind the mark, for a reader without a screen. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* The folder: the path's, home as ~ (the whole path in its title). It
    alone shrinks, and it ellipsizes from its start: right-to-left in the

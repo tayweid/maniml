@@ -14,6 +14,40 @@ interfaces may still change before the first public release.
   sits in a rounded room inside a dark frame. The presenter's bar at the
   bottom is unchanged, and so is every key. The landing page has the same
   bar, and the update appears in the viewer's bar too.
+- **The room is the picture** (docs/ROOM-DRAFT.md): the scene fills the
+  rounded room to its 12 px corners, the room takes the picture's shape
+  (16:9 unless the scene says otherwise) and sits centred in the frame's
+  opening, and the presenter's bar stands on the frame's foot under it
+  instead of floating over the scene. The console is a column beside the
+  room. Full screen is black beyond the picture. In the app the window
+  keeps the picture's shape (the shell's `shape` request, claerbout
+  0.2.7): drag it wider and it grows taller to match, so the room is
+  always exactly the picture.
+- **Present mode parks on the right frame.** A recording's pausepoint
+  landed one frame into the next animation: the table's time is the
+  scene's clock at the checkpoint, which is the time after its last
+  frame. The player now seeks half a frame before it, the rule the
+  bundle's own test already used for ffmpeg (`tests/presentation_seek.cjs`).
+- **The viewer's chrome, thinned** (Taylor, 2026-10-04): the presenter's
+  bar is 28 px, down from 42, sized to its rail and standing the frame's
+  edge above the window's bottom; the rail marks
+  pausepoints with 2 px ticks — white where a checkpoint stands, grey
+  where the scene has not run, the accent at the position with the
+  links between every pair stopping short of the ticks — the links
+  tapering from the position outward as the rail packs, down to a 12 px
+  pitch from 42, and the ticks growing under the pointer — the start and
+  end as brackets that never leave, the middle folding into dotted gaps
+  when there are more than fit, the row fading toward a gap; the engine's
+  status is the small dot
+  beside the file's name, as Knuth's save dot, and the status pill at the
+  right end is gone; the renderer's pill is unseen until the pointer finds
+  it; the console's toggle shows a red dot while the scene's last unit
+  raised or the file did not load, with the error in its title, and the
+  console opens itself for a new error (not mid-presentation) — the
+  console a card of glass sliding in over the picture from the right, in
+  every mode, so opening it reflows nothing; full screen
+  shows only the presenter's bar and the console's toggle, never the bar
+  across the top.
 - **Closing a scene's window ends its session.** The engine used to keep
   the scene process for the next open of the same file; now, once no
   window has held a scene's socket for five seconds, the process is

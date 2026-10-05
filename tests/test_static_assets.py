@@ -142,29 +142,43 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("function send(obj)", viewer)
         self.assertIn("Pyodide", viewer)
 
-    def test_the_console_only_ever_opens_because_you_asked(self):
+    def test_the_console_opens_because_you_asked_or_the_scene_raised(self):
         """Stepping a scene prints on every arrow key, so a panel that opened
-        on output would open constantly — and never at a worse moment than
-        mid-presentation. Nothing may open it but the toggle."""
+        on output would open constantly. Nothing opens it but the toggle
+        and an error: the engine's state says the last unit raised (or the
+        file did not load), the toggle shows a red dot with the error in
+        its title, and the console opens once for it (Taylor, 2026-10-04)
+        — never mid-presentation: not in present mode, recorded playback
+        or full screen, where the dot alone says."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('id="console-toggle"', viewer)
         # The toggle is the bar's last tile, fixed over the corner its panel
         # opens under — the way in and the way out are the same spot — and
-        # it sits outside the bar so it cannot recede with the chrome in
-        # full screen.
+        # it sits outside the bar so it stays in full screen, where the bar
+        # never shows.
         self.assertIn("#console-toggle {\n    position: fixed; top: calc((var(--topbar) - 32px) / 2); "
                       "right: var(--edge);", viewer)
         toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index("</header>")]
         self.assertNotIn('id="console-toggle"', toolbar)
-        self.assertIn("body.console #console { display: flex; }", viewer)
-        # In full screen it rides with the rest of the chrome rather than
-        # being suppressed: presenting is when a scene's own output matters
-        # most, and it recedes with the toolbar when the pointer settles.
-        self.assertIn("body.fullscreen.chrome #console", viewer)
-        # setConsole(true) is reachable only from the toggle, the shortcut, and
-        # the remembered per-tab preference — never from a log arriving.
+        self.assertIn("body.console #console { display: flex; opacity: 1; transform: none; }", viewer)
+        self.assertIn("@starting-style {", viewer)
+        # Opened, the panel stays in full screen rather than receding with
+        # the presenter's bar: a panel you asked for must not vanish.
+        self.assertIn("body.fullscreen #console { top: 56px; right: 12px; bottom: 52px; }", viewer)
+        self.assertNotIn("body.fullscreen.chrome #console", viewer)
+        # setConsole(true) is reachable from the toggle, the shortcut, the
+        # remembered per-tab preference and a new error — never from a log
+        # arriving.
         opens = viewer.count("setConsole(true)")
-        self.assertEqual(opens, 1, "an extra path opens the console")
+        self.assertEqual(opens, 2, "an extra path opens the console")
+        error = viewer[viewer.index("function setSceneError"):viewer.index("function setRenderError")]
+        self.assertIn("setConsole(true)", error)
+        for guard in ("arrived", '!document.body.classList.contains("console")',
+                      "!document.fullscreenElement", 'stageSource !== "playback"',
+                      "lastLiveState.present"):
+            self.assertIn(guard, error, guard)
+        self.assertIn("body.scene-error #console-toggle::after {", viewer)
+        self.assertIn("setSceneError(data.unit_error || data.load_error || null);", viewer)
         appended = viewer.index("function appendLog")
         block = viewer[appended:viewer.index("consoleToggle.onclick", appended)]
         self.assertNotIn("setConsole", block, "appendLog must not open the panel")
@@ -187,13 +201,19 @@ class ViewerTests(unittest.TestCase):
         # A claimed keydown must not leave a dangling keyup for the engine.
         self.assertIn("claimed.delete(e.key)", viewer)
 
-    def test_full_screen_hides_the_chrome_without_leaving_it_clickable(self):
+    def test_full_screen_shows_the_rail_and_the_toggle_and_never_the_bar(self):
+        """In full screen only the presenter's bar (receding, back when the
+        pointer nears an edge) and the console's toggle are there; the bar
+        across the top never shows (Taylor, 2026-10-04)."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("body.fullscreen #stage { padding: 0; }", viewer)
+        self.assertIn("body.fullscreen #stage-area { inset: 0; background: #000; }", viewer)
+        self.assertIn("body.fullscreen #toolbar { display: none; }", viewer)
+        self.assertNotIn("body.fullscreen.chrome #toolbar", viewer)
         # opacity alone would leave invisible pods eating canvas clicks.
-        self.assertIn("opacity: 0; visibility: hidden;", viewer)
-        self.assertIn("body.fullscreen.chrome #toolbar", viewer)
-        self.assertIn("body.fullscreen.chrome #navbar", viewer)
+        self.assertIn("opacity: 0; visibility: hidden; transform: translateY(14px);", viewer)
+        self.assertIn("body.fullscreen.chrome #navbar { opacity: 1; visibility: visible; transform: none; }",
+                      viewer)
+        self.assertIn("top: 12px; right: 12px; background: var(--glass);", viewer)
 
     def test_the_position_slug_and_stale_dot_are_styled(self):
         """The word tag ("Pausepoint") is gone from the transport pod, so the
@@ -270,7 +290,7 @@ class ViewerTests(unittest.TestCase):
         # The ring must leave the chip being departed, or the rail keeps
         # claiming a position it is on its way out of — the lag that made
         # stepping feel like a jump.
-        self.assertIn("body.moving .chip.current", viewer)
+        self.assertIn("body.moving #rail .chip.current", viewer)
 
     def test_a_move_says_which_stretch_and_not_how_far(self):
         """Progress through an animation is on screen at full size already,
@@ -309,7 +329,7 @@ class ViewerTests(unittest.TestCase):
         pill, the slug, the tiles and the menus are defined once (shell.css)
         and behave once (bar.js) rather than resembling each other."""
         shell = (STATIC / "shell.css").read_text()
-        for shared in ("#toolbar {", ".doc-pod {", ".document-slug {", ".slug-separator",
+        for shared in ("#toolbar {", ".doc-pod {", ".document-slug {", ".doc-mark",
                        ".icon-button", ".control-label", ".tb-end {", ".bar-pill {",
                        ".bar-menu {", ".bar-menu-item {"):
             self.assertIn(shared, shell, shared)
@@ -496,20 +516,153 @@ class FrameTests(unittest.TestCase):
         bar = (STATIC / "bar.js").read_text()
         self.assertIn("if (!folder) return;", bar)
 
-    def test_the_stage_is_the_room(self):
-        """The rendered scene sits in Zen's rounded panel, under the bar and
-        the frame's edge in from the window's other three sides; full
-        screen has no frame."""
+    def test_the_room_is_the_picture(self):
+        """The scene fills Zen's rounded panel to its corners: the room is
+        the largest box of the picture's shape in the frame's opening (under
+        the bar, the edge in from the window's sides, above the presenter's
+        bar's band on the frame's foot), fitted by CSS alone; the canvas and
+        the recording fill it; full screen has no frame and is black beyond
+        the picture (docs/ROOM-DRAFT.md)."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("#stage {\n    position: absolute; inset: var(--topbar) var(--edge) var(--edge);",
+        self.assertIn('<div id="stage-area">\n<div id="stage">', viewer)
+        self.assertIn("#stage-area {\n    position: absolute; inset: var(--topbar) var(--edge) calc(var(--edge) * 2 + 28px);",
                       viewer)
-        self.assertIn("border-radius: 12px; background: var(--bg);", viewer)
+        self.assertIn("container-type: size;", viewer)
+        self.assertIn("width: min(100cqw, calc(100cqh * var(--aspect)));", viewer)
+        self.assertIn("aspect-ratio: var(--aspect);", viewer)
+        self.assertIn("border-radius: 12px; background: #000;", viewer)
+        self.assertIn("box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 18px 55px rgba(0, 0, 0, 0.32);", viewer)
+        self.assertIn("display: block; width: 100%; height: 100%;", viewer)
+        self.assertIn("#playback-video { display: none; width: 100%; height: 100%; background: #000; }", viewer)
+        self.assertNotIn("#stage canvas {", viewer)
         self.assertIn("background: var(--frame); color: var(--text);", viewer)
         self.assertIn("body.fullscreen { --edge: 0px; }", viewer)
-        self.assertIn("body.fullscreen #stage { inset: 0; border-radius: 0; box-shadow: none; }", viewer)
-        # The presenter's bar keeps its place over the room's foot: 12 px
-        # above the room's floor, as it was above the window's.
-        self.assertIn("left: 0; right: 0; bottom: calc(var(--edge) + 12px);", viewer)
+        self.assertIn("body.fullscreen #stage { border-radius: 0; box-shadow: none; }", viewer)
+        # The picture's shape follows what is drawn: the engine's frame as
+        # the driver sizes the canvas, the recording's while one plays.
+        self.assertIn('stage.style.setProperty("--aspect", aspect);', viewer)
+        self.assertIn("fitStage(canvas.width, canvas.height);\n    setRenderError(null);", viewer)
+        self.assertIn("fitStage(playbackVideo.videoWidth, playbackVideo.videoHeight);", viewer)
+        # The presenter's bar stands on the frame's foot: 12 px above the
+        # frame's edge, in the band the room stops above.
+        self.assertIn("left: 0; right: 0; bottom: var(--edge);", viewer)
+        # The console is a column of the opening beside the room, which
+        # gives up its width and the 12 px between them.
+        self.assertIn("body.console #console { display: flex; opacity: 1; transform: none; }", viewer)
+        self.assertNotIn("body.console #stage-area", viewer)
+        self.assertNotIn("body.console #navbar", viewer)
+
+    def test_the_presenters_bar_is_thin_and_the_rail_is_bars(self):
+        """The pods are 28 px (Plass's old 42, cut down; Taylor, 2026-10-04),
+        their buttons 24 with 16 px glyphs, the run's ends 14 px stadiums;
+        the bar runs the room's width and the rail takes what the pods
+        leave; the nodes are 2 px ticks (white loaded, grey not yet run,
+        the accent at the position) joined by 1 px links that stop 3 px
+        short of the ticks, 32 px at most and packing to 2 px except the
+        links round the current tick, which keep their room; a rail with
+        more than fits scrolls
+        and fades its cut edges; the rail pads 8 px either side so the end
+        ticks' glow is whole; the opening and the console stop 52 px above
+        the frame's edge above the window's bottom (the edge, the pods,
+        the edge)."""
+        viewer_ = (STATIC / "viewer.html").read_text()
+        self.assertIn("gap: 5px; padding: 0 var(--edge); pointer-events: none;", viewer_)
+        self.assertIn("body.fullscreen #navbar { bottom: 12px; padding: 0 12px; }", viewer_)
+        self.assertIn(".rail-pod { flex: 0 1 auto; min-width: 0; gap: 8px; padding: 0 6px; }", viewer_)
+        self.assertIn("position: relative; flex: none; width: 32px; height: 1px;\n    margin: 0 3px;", viewer_)
+        self.assertIn("position: relative; z-index: 1; width: 2px; height: var(--tall); padding: 0;", viewer_)
+        self.assertIn("justify-content: safe center;", viewer_)
+        self.assertIn('aria-label="Jump to the start" disabled hidden>', viewer_)
+        self.assertIn("railObserver.disconnect();", viewer_)
+        self.assertIn(".chip.future { --ink: rgba(150, 145, 153, 0.32); }", viewer_)
+        self.assertIn("#rail .chip.current { --ink: var(--accent); --tall: 16px;", viewer_)
+        self.assertIn("#rail .chip:first-child, #rail .chip:last-child {\n    --tall: 12px; --ink: rgba(235, 231, 225, 0.7); opacity: 1; transform: none;", viewer_)
+        self.assertIn("height: calc(var(--tall) * (1 + var(--near, 0) * 0.5));", viewer_)
+        self.assertIn("--ink: rgba(235, 231, 225, 0.55); --tall: 9px;", viewer_)
+        self.assertIn("#rail.cut-left.cut-right {", viewer_)
+        self.assertIn("function markRailEdges()", viewer_)
+        # The links are seen between every pair; the ticks grow near the
+        # pointer over a wider hit zone, and beside the current one.
+        self.assertIn(".link.past { background: rgba(235, 231, 225, 0.3); }", viewer_)
+        self.assertIn("transform: scale(calc(1 + var(--near, 0) * 1.5), calc(1 + var(--near, 0) * 0.5));", viewer_)
+        self.assertIn('.chip::before { content: ""; position: absolute; top: -7px; bottom: -7px;', viewer_)
+        self.assertIn("function magnifyRail(x)", viewer_)
+        # The start and the end are brackets and always there: the middle
+        # folds into dotted gaps round a window on the current tick.
+        self.assertIn("#rail .chip:first-child::after, #rail .chip:last-child::after {", viewer_)
+        self.assertIn(".chip.hidden { width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }", viewer_)
+        self.assertIn("function packLinks(chips, links, current, room)", viewer_)
+        self.assertIn("function foldRail()", viewer_)
+        self.assertIn('gap.classList.toggle("elided", true);', viewer_)
+        self.assertIn("function layoutRail() {\n  railObserver.disconnect();", viewer_)
+        self.assertIn("function railRoom()", viewer_)
+        self.assertIn("new ResizeObserver(layoutRail).observe(navbarEl);", viewer_)
+        # A landed move draws its lit fill into the chip it reached, not
+        # back into the one it left.
+        self.assertIn("transform: scaleX(0); transform-origin: right center;", viewer_)
+        self.assertIn(".link.lit .fill { transform: scaleX(1); opacity: 1; transform-origin: left center; }", viewer_)
+        self.assertIn('attributeFilter: ["class"]', viewer_)
+        self.assertEqual(viewer_.count('const railEl = document.getElementById("rail");'), 1)
+        shell = (STATIC / "shell.css").read_text()
+        self.assertIn(".pod {\n  height: 28px;", shell)
+        self.assertIn(".pod-run > .pod:first-child { border-radius: 14px 8px 8px 14px; }", shell)
+        self.assertIn("width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;", shell)
+        self.assertIn("width: 16px; height: 16px; fill: none;", shell)
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("height: 26px;\n    display: flex; align-items: center; justify-content: safe center; overflow-x: auto;\n    padding: 0 8px;",
+                      viewer)
+        self.assertNotIn("flex-shrink: 0.5", viewer_)
+        # The links taper and the row fades toward a fold, from distances
+        # the page writes.
+        self.assertNotIn("flex-shrink: var(", viewer_)
+        self.assertIn("transition: width 280ms ease, margin 280ms ease, opacity 200ms ease;", viewer_)
+        self.assertIn("opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);", viewer_)
+        self.assertIn(".link.elided { opacity: 0; }", viewer_)
+        self.assertIn('chips.forEach((c, i) => put(c, "--edge", edge(i)));', viewer_)
+        self.assertIn("right: calc(var(--edge) + 12px); bottom: calc(var(--edge) * 2 + 28px + 12px);", viewer)
+        # The bar's tiles keep their 32 px: the pods' size is the pods'.
+        self.assertIn("#toolbar .icon-button {\n  flex: none; width: 32px; height: 32px;", shell)
+
+    def test_the_engines_status_is_the_mark_beside_the_name(self):
+        """Knuth's and Plass's save dot, 6 px after the name, is on the
+        viewer the engine's status: green while it answers, red while it
+        does not, its words in the mark's title and behind it for a reader
+        without a screen; no status pill at the right end (Taylor,
+        2026-10-04)."""
+        shell = (STATIC / "shell.css").read_text()
+        self.assertIn(".doc-mark {\n  flex: none; align-self: center; width: 6px; height: 6px;", shell)
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('<span id="file-name">scene.py</span><span id="connection-pod" class="doc-mark"', viewer)
+        self.assertIn('<span id="conn" class="sr-only">Connecting</span>', viewer)
+        self.assertIn("body.disconnected #connection-pod { background: rgba(205, 100, 82, 0.95); }", viewer)
+        end = viewer[viewer.index('<div class="tb-end">'):viewer.index("</header>")]
+        self.assertNotIn("bar-pill", end)
+        self.assertNotIn("slug-separator", viewer)
+        self.assertIn("function setConnection(text)", viewer)
+        self.assertNotIn('document.getElementById("conn").textContent = "', viewer)
+        # The renderer's pill is there for the pointer and for a warning,
+        # unseen otherwise: a comparison control still being tested.
+        self.assertIn("#renderer-pod { opacity: 0; transition: opacity .16s ease; }", viewer)
+        self.assertIn("#renderer-pod:has(#glwarn.on) { opacity: 1; }", viewer)
+
+    def test_the_window_takes_the_pictures_shape(self):
+        """In the app the window keeps the picture's shape (the shell's
+        `shape` request, claerbout 0.2.7): the viewer tells the shell the
+        ratio and the chrome round the opening, measured, once per change
+        and again when the console or full screen changes it; the landing
+        page lifts it. A tab has no shell and fits the room by CSS."""
+        bar = (STATIC / "bar.js").read_text()
+        self.assertIn('const message = { type: "shape", ratio: null };', bar)
+        self.assertIn("width: window.innerWidth - opening.clientWidth,", bar)
+        self.assertIn("height: window.innerHeight - opening.clientHeight,", bar)
+        self.assertIn("if (!shell) return;", bar[bar.index("function setShape"):])
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn("ManimlBar.setShape(stageRatio, stageArea);", viewer)
+        self.assertIn("if (document.fullscreenElement) return;", viewer)
+        console = viewer[viewer.index("function setConsole(open) {"):]
+        self.assertIn("shapeWindow();", console[:console.index("\n}\n")])
+        page = (STATIC / "app.html").read_text()
+        self.assertIn("ManimlBar.setShape(null);", page)
 
     def test_the_name_is_exactly_the_files_name(self):
         """The shell's smoke waits for #file-name to read the document's

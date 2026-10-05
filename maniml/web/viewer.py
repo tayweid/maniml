@@ -1032,6 +1032,9 @@ class WebViewer:
             # Why the last reload did not load the file, with a download
             # to offer when that is what it takes (checkpoints._reload_module)
             "load_error": getattr(scene, "_load_error", None),
+            # The last unit that raised (checkpoints.run_next_animation),
+            # until one runs clean: the page's console toggle shows it.
+            "unit_error": getattr(scene, "_unit_error", None),
             "scene": type(scene).__name__,
             "scenes": self.scene_names(),
             "file": Path(raw_source).name if raw_source else "scene.py",

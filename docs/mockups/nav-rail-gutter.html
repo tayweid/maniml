@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The presenter's rail: the right gutter</title>
+<style>
+  /* A mockup for docs/ROOM-DRAFT.md: the presenter's bar in the shape of
+     Knuth's and Plass's scroll rail (their src/scroll-rail.ts and its
+     CSS), exactly where theirs is: a 20 px gutter of the frame at the window's right, outside the room, the scene's time running top to bottom. Self-contained on purpose, as plass/docs/mockups
+     are; the tokens are shell.css's and the rail's values Plass's. The
+     picture is a drawing, the pausepoints invented (six, at the
+     run_times a scene of plays might have). Open it in a browser: hover
+     the rail, click a mark, use the arrow keys. */
+  :root {
+    color-scheme: dark;
+    --frame: #18181a; --pill: #232326; --tile: #2e2e32;
+    --topbar: 44px; --edge: 8px; --gutter: 20px;
+    --frame-ink: rgba(240, 238, 233, 0.9); --frame-ink-soft: rgba(240, 238, 233, 0.55);
+    --accent: #58c4dd;
+    --serif: 'STIX Two Text', 'Charter', 'Georgia', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+    --edge-right: var(--gutter); --edge-bottom: var(--edge);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--frame); color: var(--frame-ink);
+    font: 13px/1.4 var(--sans); overflow: hidden; }
+  button { font: inherit; }
+
+  /* The bar, as shell.css: File, the name pill, the scene's tiles; and,
+     new here, the transport as tiles of the bar (Knuth keeps its run
+     tools by the document), the position as the bar's quiet text; at the
+     right end Present and Full screen before the renderer and the status. */
+  #toolbar { position: fixed; top: 0; left: 0; right: 0; z-index: 20; height: var(--topbar);
+    display: flex; align-items: center; gap: 6px;
+    padding-inline: calc(12px + 88px) calc(var(--edge) + 32px + 6px); }
+  .tile { flex: none; display: grid; place-items: center; width: 32px; height: 32px;
+    padding: 0; border: 0; border-radius: 9px; background: transparent;
+    color: rgba(240, 238, 233, 0.62); cursor: pointer; }
+  .tile:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .tile:disabled { opacity: .4; cursor: default; }
+  .tile svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .group { display: inline-flex; align-items: center; gap: 3px; }
+  .doc-pod { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px;
+    background: var(--pill); border: 1px solid rgba(255,255,255,.08); border-radius: 9px; }
+  .slug { font: 15px/1.5 var(--serif); letter-spacing: .09em; color: rgba(252,252,251,.8);
+    white-space: nowrap; }
+  .slug .sep { color: rgba(240,238,233,.35); margin: 0 3px; }
+  .slug .scene { color: var(--frame-ink-soft); }
+  .folder { font: 12px/1.5 var(--sans); color: var(--frame-ink-soft); }
+  #position { min-width: 54px; padding: 0 6px; text-align: center; color: var(--frame-ink-soft);
+    font-size: 11px; letter-spacing: .045em; text-transform: uppercase; }
+  #position strong { color: var(--frame-ink); font-weight: 550; }
+  .tb-end { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .bar-pill { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px;
+    font: 12px/1 var(--sans); color: var(--frame-ink-soft); white-space: nowrap;
+    background: var(--pill); border: 1px solid rgba(255,255,255,.08); border-radius: 9px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #6ea576; }
+  #console-toggle { position: fixed; top: 6px; right: var(--edge); }
+
+  /* The room is the picture (the ux/room branch): the largest 16:9 box in
+     the frame's opening, 12 px corners. The opening's right side is
+     the gutter now, 20 px, where the frame's edge was 8. */
+  #stage-area { position: absolute; inset: var(--topbar) var(--edge-right) var(--edge-bottom) var(--edge);
+    display: grid; place-items: center; container-type: size; }
+  #stage { position: relative; width: min(100cqw, calc(100cqh * 16 / 9)); aspect-ratio: 16 / 9;
+    border-radius: 12px; background: #000; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.05); }
+  #stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* The rail: Plass's gutter rail, with the scene's marks. Its track is
+     exactly the room's height, so the scene's start is level with
+     the room's top edge and its end with the bottom.
+     Everything on it is placed by a fraction of the scene's length in
+     seconds (--f; the engine knows each checkpoint's run_time). */
+  #scrollrail { position: fixed; z-index: 12; right: 0; width: var(--gutter); user-select: none; touch-action: none; }
+  .sr-track { position: absolute; inset: 0; }
+  /* The band: not the visible span (a scene has none) but the stretch you
+     are on — from the pausepoint you are at to the next, what RIGHT plays.
+     Faint at rest, as Plass's; lit while a move crosses it, and the
+     accent while it does, as the rail's link lights today. */
+  .sr-band { position: absolute; left: 3px; right: 3px; top: 0; height: 10%; border-radius: 4px;
+    background: rgba(255,255,255,.035); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+    transition: background .3s, box-shadow .3s, top .2s ease, height .2s ease; pointer-events: none; }
+  #scrollrail.awake .sr-band { background: rgba(255,255,255,.075);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.17); }
+  #scrollrail.moving .sr-band { background: rgba(88,196,221,.16);
+    box-shadow: inset 0 0 0 1px rgba(88,196,221,.45), 0 0 9px rgba(88,196,221,.25); }
+  /* The marks: pausepoints as Plass's section dots (5 px), the start as
+     its title dot (7 px), an interior play of a pause-anchored file as a
+     subsection dot (3 px), a unit whose count is not yet known (a loop)
+     as a stack of three. Past ones brighter, future ones hollow — the
+     rail's past/future today. The current one is the accent ring, the
+     one coloured mark, as Plass's caret is. */
+  .sr-mark { position: absolute; left: 50%; top: calc(var(--f) * 100%); padding: 0; border: 0; border-radius: 50%;
+    transform: translate(-50%, -50%); width: 5px; height: 5px;
+    background: rgba(240,238,233,.72); cursor: pointer;
+    transition: transform .12s, background .12s, box-shadow .12s; }
+  .sr-mark.start { width: 7px; height: 7px; background: rgba(240,238,233,.86); }
+  .sr-mark.play { width: 3px; height: 3px; background: rgba(240,238,233,.56); }
+  .sr-mark.future { background: transparent; box-shadow: inset 0 0 0 1px rgba(240,238,233,.45); }
+  .sr-mark.many { box-shadow: 0 4px 0 -1px var(--frame), 0 4px 0 0 rgba(240,238,233,.45), 0 8px 0 -2px var(--frame), 0 8px 0 -1px rgba(240,238,233,.3); }
+  .sr-mark.current { width: 7px; height: 7px; background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(88,196,221,.18); }
+  .sr-mark.hot { transform: translate(-50%, -50%) scale(1.45); background: #fff; box-shadow: none; }
+  .sr-mark:focus-visible { outline: none; box-shadow: 0 0 0 1.5px var(--frame), 0 0 0 3px #9db8d6; }
+  /* The label: the pausepoint's number and its source line, the stretch's
+     seconds, in the menus' dark glass, to the rail's left over the picture's right edge, level with the mark, as Plass's hangs over the paper's margin. */
+  #sr-label { position: fixed; z-index: 60; display: flex; align-items: baseline; gap: 7px;
+    padding: 3px 9px 4px; border-radius: 6px; background: rgba(27,26,30,.94);
+    border: 1px solid rgba(255,255,255,.1); box-shadow: 0 6px 18px rgba(0,0,0,.3);
+    color: rgba(240,238,233,.92); font: 13px/1.35 var(--serif); white-space: nowrap;
+    opacity: 0; transition: opacity .12s; pointer-events: none; right: calc(var(--gutter) + 7px); top: 0; transform: translateY(-50%); }
+  #sr-label.show { opacity: 1; }
+  #sr-label .k { font: 500 10px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase;
+    color: var(--frame-ink-soft); }
+  #sr-label .s { font: 11px/1 var(--sans); color: var(--frame-ink-soft); }
+</style>
+</head>
+<body>
+<header id="toolbar">
+  <button class="tile" aria-label="File"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+  <div class="doc-pod"><span class="slug">squares.py<span class="sep">&middot;</span><span class="scene">Squares</span></span><span class="folder">~/Projects/week-3</span></div>
+  <button class="tile" aria-label="Restart"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg></button>
+  <span class="group">
+    <button class="tile" aria-label="Download"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg></button>
+    <button class="tile" aria-label="Stills"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg></button>
+  </span>
+  <!-- The transport, moved up from the pods: the bar's tiles, 3 px apart
+       as a group, the position their quiet text. -->
+  <span class="group" id="transport" style="margin-left: 6px">
+    <button class="tile" id="start" aria-label="Start"><svg viewBox="0 0 24 24"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg></button>
+    <button class="tile" id="previous" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></svg></button>
+    <div id="position"><strong id="position-now">3</strong><span> / 6</span></div>
+    <button class="tile" id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></svg></button>
+  </span>
+  <div class="tb-end">
+    <span class="group">
+      <button class="tile" aria-label="Present"><svg viewBox="0 0 24 24"><path d="M4 5h16v10H4zM12 15v4M8 21l4-2 4 2"/></svg></button>
+      <button class="tile" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button>
+    </span>
+    <span class="bar-pill">Default &#x2335;</span>
+    <span class="bar-pill"><span class="dot"></span>Connected</span>
+  </div>
+</header>
+<button class="tile" id="console-toggle" aria-label="Console"><svg viewBox="0 0 24 24"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg></button>
+
+<div id="stage-area"><div id="stage">
+  <svg viewBox="0 0 1920 1080"><circle cx="960" cy="540" r="180" fill="none" stroke="#ffff00" stroke-width="4"/><rect x="1260" y="360" width="360" height="360" fill="none" stroke="#fc6255" stroke-width="4"/></svg>
+</div></div>
+
+<div id="scrollrail" aria-label="Scene pausepoints"><div class="sr-track"><div class="sr-band"></div></div></div>
+<div id="sr-label"><span class="k"></span><span class="t"></span><span class="s"></span></div>
+
+<script>
+  // Six pausepoints at the seconds a scene of plays reaches them (the
+  // engine has each checkpoint's run_time), the fourth a loop whose count
+  // the rail cannot know until it runs. One is current; the band is the
+  // stretch to the next.
+  const marks = [
+    { t: 0,    kind: "start", line: 5,  label: "Start" },
+    { t: 1.5,  kind: "pause", line: 8,  label: "Pausepoint 2" },
+    { t: 4.0,  kind: "pause", line: 12, label: "Pausepoint 3" },
+    { t: 6.5,  kind: "pause", line: 15, label: "Pausepoint 4", many: true },
+    { t: 10.0, kind: "pause", line: 21, label: "Pausepoint 5" },
+    { t: 12.5, kind: "pause", line: 24, label: "Pausepoint 6" },
+  ];
+  const length = 12.5;
+  let current = 2;
+  const rail = document.getElementById("scrollrail");
+  const track = rail.querySelector(".sr-track");
+  const band = rail.querySelector(".sr-band");
+  const label = document.getElementById("sr-label");
+  const els = marks.map((m, i) => {
+    const b = document.createElement("button");
+    b.className = "sr-mark " + m.kind + (m.many ? " many" : "");
+    b.style.setProperty("--f", m.t / length);
+    b.setAttribute("aria-label", m.label);
+    if (i === 3) b.dataset.hover = "1";
+    b.onclick = () => { go(i); };
+    track.appendChild(b);
+    return b;
+  });
+  function paint() {
+    els.forEach((b, i) => {
+      b.classList.toggle("past", i < current);
+      b.classList.toggle("future", i > current);
+      b.classList.toggle("current", i === current);
+    });
+    const f0 = marks[current].t / length;
+    const f1 = (marks[Math.min(current + 1, marks.length - 1)].t) / length;
+    band.style.top = (f0 * 100) + "%"; band.style.height = Math.max(1, (f1 - f0) * 100) + "%";
+    document.getElementById("position-now").textContent = current + 1;
+    document.getElementById("start").disabled = document.getElementById("previous").disabled = current === 0;
+    document.getElementById("next").disabled = current === marks.length - 1;
+  }
+  let moveTimer = null;
+  function go(i) {
+    const forward = i > current;
+    current = Math.max(0, Math.min(marks.length - 1, i));
+    if (forward) {
+      rail.classList.add("moving"); clearTimeout(moveTimer);
+      moveTimer = setTimeout(() => rail.classList.remove("moving"), 900);
+    }
+    paint();
+  }
+  document.getElementById("next").onclick = () => go(current + 1);
+  document.getElementById("previous").onclick = () => go(current - 1);
+  document.getElementById("start").onclick = () => go(0);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") go(current + 1);
+    if (e.key === "ArrowLeft") go(current - 1);
+    if (e.key === "Home") go(0);
+  });
+  // The hover: the nearest mark within 7 px along the track takes the
+  // gutter's whole width (Plass's hit test), and the label names it.
+  rail.addEventListener("pointermove", (e) => {
+    rail.classList.add("awake");
+    const r = track.getBoundingClientRect();
+    const at = e.clientY - r.top;
+    let best = null, bestD = 8;
+    marks.forEach((m, i) => { const d = Math.abs(m.t / length * r.height - at); if (d < bestD) { bestD = d; best = i; } });
+    els.forEach((b, i) => b.classList.toggle("hot", i === best));
+    if (best === null) { label.classList.remove("show"); return; }
+    showLabel(best);
+  });
+  rail.addEventListener("pointerleave", () => { rail.classList.remove("awake"); els.forEach((b) => b.classList.remove("hot")); label.classList.remove("show"); });
+  els.forEach((b, i) => { b.addEventListener("mouseenter", () => showLabel(i)); });
+  function showLabel(i) {
+    const m = marks[i], next = marks[i + 1];
+    label.querySelector(".k").textContent = m.many ? "loop" : (i === 0 ? "start" : "pause");
+    label.querySelector(".t").textContent = m.label + " · line " + m.line;
+    label.querySelector(".s").textContent = next ? ((next.t - m.t).toFixed(1) + " s to the next") : "the end";
+    const r = els[i].getBoundingClientRect();
+    label.style.top = (r.top + r.height / 2) + "px";
+    label.classList.add("show");
+  }
+  // The track is exactly the room's own edges (the room is the picture,
+  // centred in the opening, so it does not always fill it): read once per
+  // layout, as the real build would from a ResizeObserver on the room.
+  function fitTrack() {
+    const r = document.getElementById("stage").getBoundingClientRect();
+    rail.style.top = r.top + 'px'; rail.style.bottom = (innerHeight - r.bottom) + 'px';
+  }
+  addEventListener("resize", fitTrack);
+  fitTrack();
+  paint();
+</script>
+</body>
+</html>
