@@ -12,7 +12,7 @@
     "install:local": "node app/install-local.mjs"
   },
   "devDependencies": {
-    "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.2.6.tar.gz"
+    "claerbout": "https://github.com/tayweid/claerbout/archive/refs/tags/v0.2.7.tar.gz"
   },
   "engines": {
     "node": ">=22"
