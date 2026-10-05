@@ -27,6 +27,18 @@ const ManimlPresentation = (() => {
 
   function checkpoints() { return meta ? meta.checkpoints : []; }
 
+  // The frame that shows a checkpoint's state. The table's time is the
+  // scene's clock at the checkpoint, which every frame advances by one
+  // step as it is written — so it is the time AFTER the checkpoint's last
+  // frame, and a seek to it lands on the next animation's first frame,
+  // one frame ahead (Taylor, 2026-10-04). Half a frame back picks the
+  // frame before that boundary whatever the rounding; the first
+  // checkpoint stays at the movie's start.
+  function frameTime(time) {
+    const fps = (meta && meta.fps) || 30;
+    return Math.max(0, time - 0.5 / fps);
+  }
+
   function nextStop() {
     return checkpoints().find((cp) => cp.stop && cp.index > index) || null;
   }
@@ -63,7 +75,7 @@ const ManimlPresentation = (() => {
     if (callbacks.onRest) callbacks.onRest(index);
     if (cp && cp.loop) {
       const from = prevStop();
-      loopRange = [from ? from.time : 0, cp.time];
+      loopRange = [from ? frameTime(from.time) : 0, frameTime(cp.time)];
     }
   }
 
@@ -71,7 +83,7 @@ const ManimlPresentation = (() => {
     if (!cp || !video) return;
     loopRange = null;
     targetIndex = cp.index;
-    target = cp.time;
+    target = frameTime(cp.time);
     if (callbacks.onMove) {
       callbacks.onMove(index, cp.index, back, cp.chip_unit);
     }
@@ -82,7 +94,7 @@ const ManimlPresentation = (() => {
     if (!list.length || !video) return;
     loopRange = null;
     index = targetIndex = Math.max(0, Math.min(list.length - 1, newIndex));
-    target = list[index].time;
+    target = frameTime(list[index].time);
     video.currentTime = target;
     if (callbacks.onUpdate) callbacks.onUpdate(index);
   }
@@ -113,7 +125,7 @@ const ManimlPresentation = (() => {
       if (loopRange) { loopRange = null; return; }
       if (index !== targetIndex) {
         targetIndex = index;
-        target = checkpoints()[index] ? checkpoints()[index].time : 0;
+        target = checkpoints()[index] ? frameTime(checkpoints()[index].time) : 0;
         if (callbacks.onRest) callbacks.onRest(index);
       }
     },

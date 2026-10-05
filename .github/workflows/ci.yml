@@ -116,6 +116,7 @@ jobs:
           tests.test_coordinate_systems
           tests.test_vectorized_mobject
           tests.test_present_bundle
+          tests.test_presentation_seek
           tests.test_rail_sim
 
       # The step above runs the serializer's pin and the retained frame's
