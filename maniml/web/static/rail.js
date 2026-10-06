@@ -31,6 +31,8 @@ function create(config) {
   let groups = [];
   let groupOf = [];   // checkpoint index -> chip index
   let midGroup = null; // chip whose entering dash is lit: parked mid-stretch
+  let names = [];      // checkpoint index -> pause('Title') name, or null
+  let serials = [];    // checkpoint index -> the engine's checkpoint serial
 
   // -- The presenter --
   // hold the position while a stretch is being crossed (mid-move states
@@ -166,8 +168,15 @@ function create(config) {
   function updateChip(chip, group, current) {
     const flags = chipFlags(group, current);
     chip.className = chipClassName(group, current);
-    chip.title = chipTitle(group, flags);
-    chip.setAttribute("aria-label", chip.title);
+    // The words go to the preview card (attachPreview), not a title
+    // attribute: the browser's own tooltip would stand over the card.
+    const label = chipTitle(group, flags);
+    chip.dataset.detail = label;
+    const rest = group.known ? group.indices[group.indices.length - 1] : null;
+    if (rest === null) delete chip.dataset.index;
+    else chip.dataset.index = String(rest);
+    const name = rest === null ? null : names[rest];
+    chip.setAttribute("aria-label", name ? name + " \u2014 " + label : label);
     if (flags.isCurrent) chip.setAttribute("aria-current", "step");
     else chip.removeAttribute("aria-current");
     // A click parks browser focus on the button, and since the rail stopped
@@ -233,6 +242,8 @@ function create(config) {
 
   function drawRail(state, future, current) {
     const prevGroups = groups;
+    names = state.names || [];
+    serials = state.serials || [];
     groups = buildGroups(state, future);
     // Parked between pausepoints (UP/DOWN): the position is a place ON a
     // stretch, not a pausepoint, so the dash entering the chip lights and
@@ -310,15 +321,176 @@ function create(config) {
     applyMove();
   }
 
+  // What the preview card says about a chip: the checkpoint it rests on
+  // (null for a unit not yet run), its pause('Title') name, the serial
+  // that identifies this run of it, and the rail's own words for it.
+  function describe(chip) {
+    const index = chip.dataset.index === undefined ? null : Number(chip.dataset.index);
+    return {
+      index,
+      name: index === null ? null : (names[index] || null),
+      serial: index === null ? null : (serials[index] === undefined ? null : serials[index]),
+      detail: chip.dataset.detail || "",
+    };
+  }
+
   return {
     presenter,
     handleState,
     handleMove,
+    describe,
     groupOfCheckpoint: (i) => groupOf[i],
   };
 }
 
-return { create };
+// -- The preview card --
+// Hovering (or focusing) a chip raises a small card above it: the still
+// of that pausepoint, its pause('Title') name when it has one, and the
+// rail's line for it (Taylor, 2026-10-06). Where the picture comes from
+// is the page's business — `still(info)` returns an image URL or a
+// canvas, a promise of one, or null — so the live viewer (canvas snapshots of pausepoints
+// it has stood on) and a recording (frames read from the video) share it.
+function attachPreview(rail, config) {
+  const doc = config.document;
+  const railEl = config.railEl;
+  const card = doc.createElement("div");
+  card.className = "rail-preview";
+  card.setAttribute("aria-hidden", "true");
+  const frame = card.appendChild(doc.createElement("div"));
+  frame.className = "rail-preview-frame";
+  const img = doc.createElement("img");
+  img.alt = "";
+  const title = card.appendChild(doc.createElement("div"));
+  title.className = "rail-preview-title";
+  const detail = card.appendChild(doc.createElement("div"));
+  detail.className = "rail-preview-detail";
+  doc.body.appendChild(card);
+
+  let shown = null;   // the chip the card stands over
+  let ask = 0;        // the latest still request; older answers are dropped
+
+  function place(chip) {
+    const box = chip.getBoundingClientRect();
+    const rail = railEl.getBoundingClientRect();
+    const width = card.offsetWidth;
+    const view = doc.documentElement.clientWidth;
+    const centre = box.left + box.width / 2;
+    const left = Math.max(8, Math.min(view - width - 8, centre - width / 2));
+    card.style.left = left + "px";
+    card.style.bottom = (doc.documentElement.clientHeight - rail.top + 10) + "px";
+  }
+
+  function setStill(still) {
+    if (typeof still === "string") { img.src = still; still = img; }
+    if (still) frame.replaceChildren(still);
+    else frame.replaceChildren();
+    frame.classList.toggle("has-still", !!still);
+  }
+
+  function show(chip) {
+    if (chip.classList.contains("hidden")) return hide();
+    const info = rail.describe(chip);
+    shown = chip;
+    title.textContent = info.name || "";
+    title.hidden = !info.name;
+    detail.textContent = info.detail;
+    const mine = ++ask;
+    const answer = info.index === null ? null : config.still(info);
+    if (answer && typeof answer.then === "function") {
+      setStill(null);
+      answer.then((url) => { if (mine === ask && shown === chip) setStill(url); },
+                  () => {});
+    } else {
+      setStill(answer);
+    }
+    card.classList.add("shown");
+    place(chip);
+  }
+
+  function hide() {
+    shown = null;
+    ask++;
+    card.classList.remove("shown");
+  }
+
+  const chipAt = (target) => (target && target.closest ? target.closest(".chip") : null);
+  railEl.addEventListener("pointerover", (e) => {
+    const chip = chipAt(e.target);
+    if (chip && chip !== shown) show(chip);
+  });
+  railEl.addEventListener("pointerout", (e) => {
+    const to = chipAt(e.relatedTarget);
+    if (to) show(to);
+    else if (chipAt(e.target)) hide();
+  });
+  railEl.addEventListener("focusin", (e) => {
+    const chip = chipAt(e.target);
+    if (chip && chip.matches(":focus-visible")) show(chip);
+  });
+  railEl.addEventListener("focusout", hide);
+  railEl.addEventListener("pointerdown", hide);
+  railEl.addEventListener("scroll", hide, { passive: true });
+  return {
+    // The rail redraws under a resting pointer (a move lands, a stack
+    // grows): refresh the card's words and still in place.
+    refresh() { if (shown) { if (shown.isConnected) show(shown); else hide(); } },
+    hide,
+  };
+}
+
+// Stills read from a recording: a second, hidden video seeks to each
+// pausepoint's frame on request and the frame is kept on a small canvas
+// (a canvas, not a data URL: a bundle opened from file:// taints it, and
+// a tainted canvas still shows).
+// One seek at a time; a request superseded while it waits is dropped.
+function videoStills(doc, src, meta, width) {
+  const video = doc.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  video.playsInline = true;
+  video.src = src;
+  const cache = new Map();   // checkpoint index -> still canvas
+  let chain = Promise.resolve();
+  let latest = null;        // the most recent request, the one worth a seek
+  const fps = (meta && meta.fps) || 30;
+  function grab(index) {
+    return new Promise((resolve) => {
+      const cp = meta.checkpoints[index];
+      if (!cp) return resolve(null);
+      const go = () => {
+        video.addEventListener("seeked", () => {
+          const w = width, h = Math.round(width * video.videoHeight / video.videoWidth);
+          const canvas = doc.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const context = canvas.getContext("2d");
+          context.imageSmoothingQuality = "high";   // thin strokes survive
+          context.drawImage(video, 0, 0, w, h);
+          resolve(canvas);
+        }, { once: true });
+        video.currentTime = Math.max(0, cp.time - 0.5 / fps);
+      };
+      if (video.readyState >= 1) go();
+      else video.addEventListener("loadedmetadata", go, { once: true });
+    });
+  }
+  return {
+    get(index) {
+      if (cache.has(index)) return cache.get(index);
+      if (video.error) return null;
+      latest = index;
+      const pending = chain.then(() => {
+        if (cache.has(index)) return cache.get(index);
+        if (latest !== index) return null;
+        return grab(index).then((url) => { if (url) cache.set(index, url); return url; });
+      });
+      chain = pending.catch(() => null);
+      return pending;
+    },
+    dispose() { video.removeAttribute("src"); video.load(); cache.clear(); },
+  };
+}
+
+return { create, attachPreview, videoStills };
 })();
 
 // Node (the simulation harness) imports this file as CommonJS.

@@ -1073,6 +1073,11 @@ class WebViewer:
                 or c.get("index") == 0
                 for c in checkpoints
             ],
+            # pause('Title') names, for the rail's preview card (None
+            # where the pause had none), and each checkpoint's serial so
+            # the page drops a still once its checkpoint is rebuilt.
+            "names": [c.get("name") for c in checkpoints],
+            "serials": [c.get("serial") for c in checkpoints],
             "future": self._future_units(),
         }
 

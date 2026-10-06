@@ -2638,8 +2638,14 @@ const ManimlWGPU = (() => {
       if (!slot.missing) encodeSlot(pass, bound, slot);
     }
     pass.end();
+    encodePresent(encoder, header.supersample ?? 2);
+  }
 
-    // Present: blit the (resolved) scene target onto the canvas
+  // Present: blit the (resolved) scene target onto the canvas. The target
+  // outlives the frame, so snapshot() presents it again on its own.
+  let presentedSupersample = null;
+  function encodePresent(encoder, supersample) {
+    presentedSupersample = supersample;
     const blitPass = encoder.beginRenderPass({ colorAttachments: [{
       view: context.getCurrentTexture().createView(),
       loadOp: "clear", storeOp: "store",
@@ -2647,7 +2653,6 @@ const ManimlWGPU = (() => {
     }] });
     // The exact box resolve is also the presentation pass. Native rendering
     // uses this same shader with an rgba8 output texture for file readback.
-    const supersample = header.supersample ?? 2;
     const presentPipeline = supersample === 2 ? resolve2Pipeline : blitPipeline;
     let presentBinding = presentBindings.get(presentPipeline);
     if (!presentBinding) {
@@ -2662,6 +2667,31 @@ const ManimlWGPU = (() => {
     blitPass.setBindGroup(0, presentBinding);
     blitPass.draw(3);
     blitPass.end();
+  }
+
+  // The last frame drawn, copied onto a new width x height 2D canvas (the
+  // rail's pausepoint stills), or null before any frame. A WebGPU canvas
+  // can be read only in the task that drew it — afterwards it reads as
+  // black — so the scene target is presented again and copied in one go,
+  // behind any frame still drawing. The high-quality filter keeps a thin
+  // stroke whole across a fivefold reduction; the default drops stretches
+  // of it and the picture reads as dashed.
+  function snapshot(width, height) {
+    const taken = renderQueue.then(() => {
+      if (closing || !device || presentedSupersample === null) return null;
+      const encoder = device.createCommandEncoder();
+      encodePresent(encoder, presentedSupersample);
+      device.queue.submit([encoder.finish()]);
+      const still = document.createElement("canvas");
+      still.width = width;
+      still.height = height;
+      const target = still.getContext("2d");
+      target.imageSmoothingQuality = "high";
+      target.drawImage(context.canvas, 0, 0, width, height);
+      return still;
+    });
+    renderQueue = taken.catch(() => {});
+    return taken;
   }
 
   // Draw one geometry message. The buffer is handed over: the driver keeps
@@ -2830,6 +2860,7 @@ const ManimlWGPU = (() => {
         device = canvas = context = null;
         outTexture = resolveTexture = depthTexture = null;
         outView = resolveView = depthView = targetKey = null;
+        presentedSupersample = null;
         modules = {}; pipelines.clear();
         blitPipeline = resolve2Pipeline = sampler = null;
         renderQueue = Promise.resolve();
@@ -2838,5 +2869,5 @@ const ManimlWGPU = (() => {
     return teardown;
   }
 
-  return { init, render, destroy, onCacheMiss: null };
+  return { init, render, snapshot, destroy, onCacheMiss: null };
 })();

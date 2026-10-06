@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import itertools
 import os
 import random
 import traceback
@@ -30,6 +31,11 @@ from maniml.scene.source_map import build_units
 from maniml.scene.source_map import next_stop_unit
 from maniml.scene.source_map import pause_anchored
 from maniml.scene.source_map import unit_for_line
+
+# Every checkpoint saved gets a fresh serial, so the page can tell a
+# checkpoint it has a picture of from one rebuilt at the same index after
+# an edit (the rail's preview card keys its stills by this).
+_checkpoint_serial = itertools.count(1)
 
 
 def describe_scene_error(error: BaseException, path: str | None) -> dict:
@@ -133,6 +139,7 @@ class CheckpointMixin:
         # Create checkpoint 0
         checkpoint_zero = {
             'index': 0,
+            'serial': next(_checkpoint_serial),
             'line_number': 0,  # No specific line for initial state
             'unit_index': -1,  # Before the first animation unit
             'state': checkpoint_state,  # Empty scene state
@@ -551,6 +558,7 @@ class CheckpointMixin:
         self.current_animation_index += 1
         checkpoint = {
             'index': self.current_animation_index,
+            'serial': next(_checkpoint_serial),
             'line_number': line_no,
             'unit_index': unit_index,
             'run_time': run_time,

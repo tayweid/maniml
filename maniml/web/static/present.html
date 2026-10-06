@@ -178,6 +178,30 @@
     animation: chip-working 900ms ease-in-out infinite;
   }
 
+  /* ---- the preview card (copied from the viewer) ---- */
+  .rail-preview {
+    position: fixed; z-index: 40; width: 200px; padding: 5px 5px 6px;
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    background: var(--glass-solid); box-shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
+    pointer-events: none; opacity: 0; visibility: hidden; transform: translateY(3px);
+    transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+  }
+  .rail-preview.shown { opacity: 1; visibility: visible; transform: none; }
+  .rail-preview-frame {
+    aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden;
+    border: 1px dashed var(--line-strong); background: #000;
+  }
+  .rail-preview-frame.has-still { border-style: solid; }
+  .rail-preview-frame > * { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .rail-preview-title {
+    margin: 6px 2px 0; color: var(--text); font-size: 12px; font-weight: 550;
+    line-height: 1.3; white-space: normal; overflow-wrap: anywhere;
+  }
+  .rail-preview-detail {
+    margin: 3px 2px 0; color: var(--dim); font-size: 10.5px; line-height: 1.35;
+    white-space: normal;
+  }
+
   @media (max-width: 620px) {
     #navbar { gap: 4px; padding-inline: 7px; }
     #position { min-width: 54px; padding-inline: 3px; }
@@ -235,6 +259,7 @@
       lines: cps.map((c) => c.line),
       units: cps.map((c) => c.chip_unit),
       stops: cps.map((c) => !!c.stop),
+      names: cps.map((c) => c.name || null),
       future: [],
     };
   }
@@ -249,6 +274,13 @@
     onFutureChipClick: () => {},   // a baked table has no future units
   });
   const presenter = rail.presenter;
+  // Hovering a pausepoint: its frame from the recording, its name, its line.
+  const stills = ManimlRail.videoStills(document, "scene.mp4", meta, 384);
+  ManimlRail.attachPreview(rail, {
+    document,
+    railEl: document.getElementById("rail"),
+    still: (info) => stills.get(info.index),
+  });
 
   ManimlPresentation.load(video, meta, {
     onUpdate: (index) => presenter.stateChanged(synthState(index)),

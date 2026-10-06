@@ -50,6 +50,8 @@ function fixture(origin) {
     clearTimeout() {}, scheduleReconnect() {}, hideConnectionIssue() {},
     applyCapabilities() {}, appendLog() {}, setRenderError() {},
     presenter: { stateChanged() {} }, applyEnv() {},
+    // The rail's preview card and its stills: none taken in negotiation.
+    preview: { refresh() {} }, scheduleStill() {},
     stageSource: "live", autoPlaybackSuppressed: false, geometryQueue: [],
     lastLiveState: null, location: { reload() { throw Error("unexpected reload"); } },
     // The Restart control's busy state, which ready and the first state

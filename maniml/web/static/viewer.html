@@ -465,17 +465,21 @@
      position is a place ON the stretch, so the dash is highlighted and no
      dot claims the ring. */
   .link.mid .fill { transform: scaleX(1); opacity: 1; }
+  /* A pausepoint is a small empty frame — the outline of a slide — and
+     the current one is filled in the accent (Taylor, 2026-10-06: "little
+     squares not shaded in, like the outline of a frame"). */
   .chip {
     --ink: rgba(235, 231, 225, 0.55); --tall: 9px;
-    position: relative; z-index: 1; width: 2px; height: var(--tall); padding: 0;
-    border: 0; border-radius: 1px; flex: none; margin: 0 1px;
-    background: var(--ink); cursor: pointer;
+    position: relative; z-index: 1; width: 7px; height: 7px; padding: 0;
+    box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 1.5px;
+    flex: none; margin: 0 1px; background: transparent; cursor: pointer;
     opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);
-    /* Near the pointer (--near, 0 to 1): up to 2.5 times as wide and
-       half again as tall, about its centre. */
-    transform: scale(calc(1 + var(--near, 0) * 1.5), calc(1 + var(--near, 0) * 0.5));
-    transition: transform 90ms ease, background 120ms ease, box-shadow 200ms ease,
-      height 120ms ease, opacity 200ms ease, width 280ms ease, margin 280ms ease;
+    /* Near the pointer (--near, 0 to 1): up to 1.6 times its size, about
+       its centre. */
+    transform: scale(calc(1 + var(--near, 0) * 0.6));
+    transition: transform 90ms ease, background 120ms ease, border-color 120ms ease,
+      box-shadow 200ms ease, height 120ms ease, opacity 200ms ease, width 280ms ease,
+      margin 280ms ease;
   }
   /* The hit zone: 10 px wide and taller than the tick, so a click lands
      without aiming at 2 px (it scales with the tick). */
@@ -492,10 +496,11 @@
      the arms keep their 2 px and the bracket stands taller. */
   #rail .chip:first-child, #rail .chip:last-child {
     --tall: 12px; --ink: rgba(235, 231, 225, 0.7); opacity: 1; transform: none;
+    width: 2px; border: 0; border-radius: 1px; background: var(--ink);
     height: calc(var(--tall) * (1 + var(--near, 0) * 0.5));
   }
   #rail .chip.current { --ink: var(--accent); --tall: 16px;
-    box-shadow: 0 0 6px rgba(88,196,221,.55); }
+    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
   #rail .chip:first-child::after, #rail .chip:last-child::after {
     content: ""; position: absolute; top: 0; bottom: 0; width: 4px;
     border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
@@ -508,7 +513,7 @@
      vanishing — and the link before the run stands for it as an empty
      10 px gap the row has faded out into (its title still says how many
      are folded there). */
-  .chip.hidden { width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }
+  .chip.hidden { width: 0; border-width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }
   .link.hidden { margin: 0; }
   .link.elided { opacity: 0; }
   /* A unit whose pausepoint count is not knowable until it runs — a loop of
@@ -516,12 +521,16 @@
      the rail stops implying a count it does not have: two copies recede to
      the right (box-shadow, behind the tick's own colour) and the row makes
      room for them. */
+  /* Frames stacked up and to the right, each hollowed by a shadow in the
+     bar's own colour laid over it. */
   .chip.many {
-    box-shadow: 5px 0 0 0 rgba(150, 145, 153, 0.28), 10px 0 0 0 rgba(150, 145, 153, 0.17);
-    margin-right: 11px;
+    box-shadow: 3px -3px 0 -1.5px var(--frame), 3px -3px 0 0 rgba(150, 145, 153, 0.28),
+      6px -6px 0 -1.5px var(--frame), 6px -6px 0 0 rgba(150, 145, 153, 0.17);
+    margin-right: 7px;
   }
   .chip.many.past, .chip.many:not(.future) {
-    box-shadow: 5px 0 0 0 rgba(235, 231, 225, 0.32), 10px 0 0 0 rgba(235, 231, 225, 0.18);
+    box-shadow: 3px -3px 0 -1.5px var(--frame), 3px -3px 0 0 rgba(235, 231, 225, 0.32),
+      6px -6px 0 -1.5px var(--frame), 6px -6px 0 0 rgba(235, 231, 225, 0.18);
   }
   /* A folded stack takes no room either (its margin rule is the later one). */
   .chip.many.hidden { margin-right: 0; box-shadow: none; }
@@ -531,12 +540,41 @@
      destination chip stays plain; it lights on arrival. */
   body.moving #rail .chip.current {
     --ink: rgba(235, 231, 225, 0.55); --tall: 9px; box-shadow: none;
+    background: transparent;
+  }
+  body.moving #rail .chip.current:first-child, body.moving #rail .chip.current:last-child {
+    background: var(--ink);
   }
   /* A within-stack move has no dash between two chips to light, so the
      stack breathes instead — size only, no accent. */
-  @keyframes chip-working { 0%, 100% { transform: scaleY(1.1); } 50% { transform: scaleY(1.5); } }
+  @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.4); } }
   body.moving .chip.working {
     animation: chip-working 900ms ease-in-out infinite;
+  }
+  /* The preview card over a hovered pausepoint (rail.js attachPreview):
+     its still in a 16:9 frame — an empty outline where there is no
+     picture yet — then its pause('Title') name, then the rail's line. */
+  .rail-preview {
+    position: fixed; z-index: 40; width: 200px; padding: 5px 5px 6px;
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    background: var(--glass-solid); box-shadow: var(--shadow);
+    pointer-events: none; opacity: 0; visibility: hidden; transform: translateY(3px);
+    transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+  }
+  .rail-preview.shown { opacity: 1; visibility: visible; transform: none; }
+  .rail-preview-frame {
+    aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden;
+    border: 1px dashed var(--line-strong); background: var(--bg);
+  }
+  .rail-preview-frame.has-still { border-style: solid; border-color: var(--line); }
+  .rail-preview-frame > * { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .rail-preview-title {
+    margin: 6px 2px 0; color: var(--text); font-size: 12px; font-weight: 550;
+    line-height: 1.3; white-space: normal; overflow-wrap: anywhere;
+  }
+  .rail-preview-detail {
+    margin: 3px 2px 0; color: var(--dim); font-size: 10.5px; line-height: 1.35;
+    white-space: normal;
   }
 
   @media (max-width: 860px) {
@@ -781,8 +819,10 @@ function railRoom() {
   const padding = 2 * 8 + 2 * 6 + 2 * 8;   // the bar's, the rail pod's, the rail's
   return navbarEl.clientWidth - others - gaps - padding - 2;
 }
-// A tick with its margins; a stack's two copies take 9 more.
-const tickWidth = (chip) => chip.classList.contains("many") ? 13 : 4;
+// A frame with its margins (9), a stack's two copies 6 more; the end
+// brackets are 2 px ticks (4).
+const tickWidth = (chip) => (chip.classList.contains("many") ? 15
+  : !chip.previousElementSibling || !chip.nextElementSibling ? 4 : 9);
 // Every link's width, written by the page (the CSS transitions it):
 // 32 px while the row fits the room; otherwise each gives way in
 // proportion to its distance from the current chip — the two beside it
@@ -856,7 +896,7 @@ function foldRail() {
   if (n < 5 || packed(1, n - 2, []) <= room) {
     unfold(); distances(0, n - 1, false, false); packLinks(chips, links, current, room); return;
   }
-  let half = Math.max(1, Math.floor((room - 2 * 13 - 2 * (GAP + LINK_MARGINS) - 2 * LINK) / (4 + LINK_MIN + LINK_MARGINS) / 2));
+  let half = Math.max(1, Math.floor((room - 2 * 15 - 2 * (GAP + LINK_MARGINS) - 2 * LINK) / (9 + LINK_MIN + LINK_MARGINS) / 2));
   for (let attempt = 0; attempt < 6; attempt++) {
     let first = Math.max(1, current - half), last = Math.min(n - 2, current + half);
     // A window that touches an end hands its spare to the other side.
@@ -1340,6 +1380,8 @@ function handleMessage(data) {
     // states keep the badges fresh but never touch the rail.
     if (stageSource !== "playback") {
       presenter.stateChanged(data);
+      preview.refresh();
+      scheduleStill();
       // --present and the Present button both establish the complete live
       // endpoint set first. Only then may recorded motion take over.
       if (data.present && data.presentation_ready
@@ -1352,6 +1394,7 @@ function handleMessage(data) {
     if (stageSource === "playback") return;   // the video source drives
     if (data.from === null || data.from === undefined) presenter.moveEnded(null);
     else presenter.moveStarted(data.from, data.to, data.back, data.unit);
+    scheduleStill();
   }
   else if (data.type === "export_status") handleExportStatus(data);
   else if (data.type === "hover") setHandle(data.label);
@@ -1439,6 +1482,55 @@ const rail = ManimlRail.create({
 });
 const presenter = rail.presenter;
 
+// The rail's preview card (rail.js attachPreview): hovering a pausepoint
+// shows its still, its pause('Title') name and its line. Live, the stills
+// are snapshots of the stage taken each time the scene comes to rest on a
+// pausepoint, keyed by the checkpoint's serial so an edit that rebuilds it
+// drops the old picture; a pausepoint not yet stood on this session shows
+// an empty frame. In playback they are read from the recording.
+// Twice the card's width, for a sharp picture on a retina screen.
+const STILL_WIDTH = 384;
+const liveStills = new Map();   // checkpoint serial -> JPEG data URL
+let playbackStills = null;      // rail.js videoStills, while playing back
+let stillTimer = null;
+const preview = ManimlRail.attachPreview(rail, {
+  document,
+  railEl,
+  still: (info) => (stageSource === "playback"
+    ? (playbackStills ? playbackStills.get(info.index) : null)
+    : liveStills.get(info.serial) || null),
+});
+// Wait for the scene to settle (the landing frame has to reach the
+// canvas) and snapshot it, if it is still resting on a pausepoint.
+function scheduleStill() {
+  clearTimeout(stillTimer);
+  stillTimer = setTimeout(captureStill, 400);
+}
+async function captureStill() {
+  const state = lastLiveState;
+  const driver = rendererSession.active;
+  if (!state || stageSource !== "live" || presenter.moving || !rendererSession.ready
+      || !state.serials || !driver || !driver.snapshot) return;
+  const index = Math.max(0, state.current);
+  const atStop = !state.stops || state.stops[index] === undefined || state.stops[index];
+  const serial = state.serials[index];
+  if (!atStop || serial === null || serial === undefined) return;
+  let still = null;
+  try {
+    still = await driver.snapshot(
+      STILL_WIDTH, Math.round(STILL_WIDTH * canvas.height / canvas.width));
+  } catch (error) { /* nothing drawn to copy */ }
+  if (!still) return;
+  // Moved on while the copy waited behind a frame: the picture may not
+  // be this pausepoint's.
+  if (lastLiveState !== state || presenter.moving) return;
+  liveStills.set(serial, still.toDataURL("image/jpeg", 0.85));
+  // Pictures of checkpoints the engine no longer holds go.
+  const held = new Set(state.serials);
+  for (const key of liveStills.keys()) if (!held.has(key)) liveStills.delete(key);
+  preview.refresh();
+}
+
 // -- Toolbar actions --
 // The app's update (bar.js): a tile at the bar's right end once the shell
 // knows of a newer ManimLive; nothing in a tab.
@@ -1503,6 +1595,7 @@ function synthPlaybackState(index) {
     current: index, count: cps.length,
     lines: cps.map((c) => c.line), units: cps.map((c) => c.chip_unit),
     stops: cps.map((c) => !!c.stop),
+    names: cps.map((c) => c.name || null),
     future: [], present: true,
     baked: !!(lastLiveState && lastLiveState.baked),
     present_bundle: true,
@@ -1536,6 +1629,8 @@ async function enterPlayback({ freshExport = false } = {}) {
       return;
     }
     playbackMeta = meta;
+    playbackStills = ManimlRail.videoStills(
+      document, scenePrefix + "/present/scene.mp4", meta, STILL_WIDTH);
     stageSource = "playback";
     document.body.classList.add("playback");
     send({ type: "mode", geometry: false, format: GEOMETRY_FORMAT });  // engine sleeps
@@ -1563,6 +1658,7 @@ async function enterPlayback({ freshExport = false } = {}) {
     console.error("recorded playback failed:", error);
     ManimlPresentation.unload();
     playbackMeta = null;
+    if (playbackStills) { playbackStills.dispose(); playbackStills = null; }
     stageSource = "live";
     document.body.classList.remove("playback");
     playbackVideo.removeAttribute("src");
@@ -1577,6 +1673,8 @@ async function enterPlayback({ freshExport = false } = {}) {
 function exitPlayback({ endPresentation = false } = {}) {
   const parkAt = ManimlPresentation.currentIndex();
   ManimlPresentation.unload();
+  if (playbackStills) { playbackStills.dispose(); playbackStills = null; }
+  preview.hide();
   presenter.moving = false;   // a mid-scrub exit must not wedge the rail
   presenter.pending = null;
   stageSource = "live";
