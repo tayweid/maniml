@@ -386,15 +386,16 @@
      chip packs, as far as 2 px (packLinks); and past that the middle
      folds (foldRail). A short scene is a short rail (safe center: a row that
      still overflows starts at the left, where it can be reached) rather
-     than four marks spread across the room. Ordinary
-     ticks are 9 px; the start,
-     the end and the current one stand taller (12, 12 and 16). Every
+     than four marks spread across the room. Pausepoints
+     are 7 px frames, the current one filled; the start and the end
+     are 9 px bookends. Every
      tick grows as the pointer nears it (--near,
      written by the page from the pointer's distance along the rail: a
      scale, so nothing moves) over a hit zone wider than the tick
-     (::before), so a 2 px mark is easy to find and to click. The first
-     and last ticks are brackets — [ and ] — so the scene's start and end
-     have shapes of their own (Taylor, 2026-10-04), and they are always
+     (::before), so a small mark is easy to find and to click. The first
+     and last are bookend frames — a larger frame whose outer edge is a
+     solid spine — so the scene's start and end have shapes of their own
+     (Taylor, 2026-10-04; frames since 2026-10-06), and they are always
      there: past the packed pitch (12 px) the rail does not scroll them
      away but folds the middle (foldRail, below): a window of ticks round
      the current one stays, and each run of ticks outside it collapses
@@ -469,7 +470,7 @@
      the current one is filled in the accent (Taylor, 2026-10-06: "little
      squares not shaded in, like the outline of a frame"). */
   .chip {
-    --ink: rgba(235, 231, 225, 0.55); --tall: 9px;
+    --ink: rgba(235, 231, 225, 0.55);
     position: relative; z-index: 1; width: 7px; height: 7px; padding: 0;
     box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 1.5px;
     flex: none; margin: 0 1px; background: transparent; cursor: pointer;
@@ -487,26 +488,20 @@
   .chip:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--frame), 0 0 0 3.5px #9db8d6; }
   .chip.past { --ink: rgba(235, 231, 225, 0.55); }
   .chip.future { --ink: rgba(150, 145, 153, 0.32); }
-  /* The start and the end: taller, and brackets — their arms 4 px into
-     the gap before the first link and after the last, in the tick's own
-     colour. The current one taller still, in the accent (after the
-     brackets' rule, so a current start or end is 16). */
-  /* The brackets grow under the pointer by height alone — a scaled
-     bracket swelled its arms sideways, "grotesque" (Taylor, 2026-10-04);
-     the arms keep their 2 px and the bracket stands taller. */
+  /* The start and the end: bookends. The same frame as every pausepoint,
+     a size up and a shade brighter, its outer edge thickened into a
+     spine — left at the start, right at the end — so the pair reads as
+     the scene's two covers and says which way the rail runs, in the
+     frames' own language rather than a second one (Taylor, 2026-10-06:
+     "a more consistent start / end node icon instead of [ and ]"). The
+     current one fills in the accent like any other. */
   #rail .chip:first-child, #rail .chip:last-child {
-    --tall: 12px; --ink: rgba(235, 231, 225, 0.7); opacity: 1; transform: none;
-    width: 2px; border: 0; border-radius: 1px; background: var(--ink);
-    height: calc(var(--tall) * (1 + var(--near, 0) * 0.5));
+    --ink: rgba(235, 231, 225, 0.7); opacity: 1; width: 9px; height: 9px;
   }
-  #rail .chip.current { --ink: var(--accent); --tall: 16px;
+  #rail .chip:first-child { border-left-width: 3.5px; }
+  #rail .chip:last-child { border-right-width: 3.5px; }
+  #rail .chip.current { --ink: var(--accent);
     background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
-  #rail .chip:first-child::after, #rail .chip:last-child::after {
-    content: ""; position: absolute; top: 0; bottom: 0; width: 4px;
-    border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
-  }
-  #rail .chip:first-child::after { left: 0; }
-  #rail .chip:last-child::after { right: 0; }
   /* Folded away (foldRail): a run of ticks the rail has no room for, and
      the links inside it, collapsed to nothing — width and margins to 0,
      so they go and come by the same move as everything else rather than
@@ -539,11 +534,8 @@
      tick — and the lit dash is the ONLY thing that reads as active. The
      destination chip stays plain; it lights on arrival. */
   body.moving #rail .chip.current {
-    --ink: rgba(235, 231, 225, 0.55); --tall: 9px; box-shadow: none;
+    --ink: rgba(235, 231, 225, 0.55); box-shadow: none;
     background: transparent;
-  }
-  body.moving #rail .chip.current:first-child, body.moving #rail .chip.current:last-child {
-    background: var(--ink);
   }
   /* A within-stack move has no dash between two chips to light, so the
      stack breathes instead — size only, no accent. */
@@ -723,7 +715,7 @@
   <div class="pod transport-pod">
     <!-- Start: the Start chip's jump as a control — checkpoint 0 with the
          built rail kept, so Next then replays the history. Hidden since
-         the rail's start bracket is always there to click (Taylor,
+         the rail's start bookend is always there to click (Taylor,
          2026-10-04); Home still does it, and rail.js still keeps the
          button's state, so it stays in the markup. -->
     <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
@@ -820,9 +812,9 @@ function railRoom() {
   return navbarEl.clientWidth - others - gaps - padding - 2;
 }
 // A frame with its margins (9), a stack's two copies 6 more; the end
-// brackets are 2 px ticks (4).
+// bookends are a size up (11).
 const tickWidth = (chip) => (chip.classList.contains("many") ? 15
-  : !chip.previousElementSibling || !chip.nextElementSibling ? 4 : 9);
+  : !chip.previousElementSibling || !chip.nextElementSibling ? 11 : 9);
 // Every link's width, written by the page (the CSS transitions it):
 // 32 px while the row fits the room; otherwise each gives way in
 // proportion to its distance from the current chip — the two beside it

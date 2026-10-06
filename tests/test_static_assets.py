@@ -578,7 +578,7 @@ class FrameTests(unittest.TestCase):
         the bar runs the room's width and the rail takes what the pods
         leave; the nodes are 7 px hollow frames (white loaded, grey not yet
         run, filled in the accent at the position; Taylor, 2026-10-06) and
-        the ends 2 px bracket ticks, joined by 1 px links that stop 3 px
+        the ends 9 px bookend frames with a spine on the outer edge, joined by 1 px links that stop 3 px
         short of the ticks, 32 px at most and packing to 2 px except the
         links round the current tick, which keep their room; a rail with
         more than fits scrolls
@@ -594,15 +594,14 @@ class FrameTests(unittest.TestCase):
         self.assertIn("position: relative; z-index: 1; width: 7px; height: 7px; padding: 0;", viewer_)
         self.assertIn("box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 1.5px;", viewer_)
         self.assertIn("background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }", viewer_)
-        self.assertIn("width: 2px; border: 0; border-radius: 1px; background: var(--ink);", viewer_)
         self.assertIn("justify-content: safe center;", viewer_)
         self.assertIn('aria-label="Jump to the start" disabled hidden>', viewer_)
         self.assertIn("railObserver.disconnect();", viewer_)
         self.assertIn(".chip.future { --ink: rgba(150, 145, 153, 0.32); }", viewer_)
-        self.assertIn("#rail .chip.current { --ink: var(--accent); --tall: 16px;", viewer_)
-        self.assertIn("#rail .chip:first-child, #rail .chip:last-child {\n    --tall: 12px; --ink: rgba(235, 231, 225, 0.7); opacity: 1; transform: none;", viewer_)
-        self.assertIn("height: calc(var(--tall) * (1 + var(--near, 0) * 0.5));", viewer_)
-        self.assertIn("--ink: rgba(235, 231, 225, 0.55); --tall: 9px;", viewer_)
+        self.assertIn("#rail .chip.current { --ink: var(--accent);", viewer_)
+        self.assertIn("#rail .chip:first-child, #rail .chip:last-child {\n    --ink: rgba(235, 231, 225, 0.7); opacity: 1; width: 9px; height: 9px;", viewer_)
+        self.assertIn("#rail .chip:first-child { border-left-width: 3.5px; }", viewer_)
+        self.assertIn("#rail .chip:last-child { border-right-width: 3.5px; }", viewer_)
         self.assertIn("#rail.cut-left.cut-right {", viewer_)
         self.assertIn("function markRailEdges()", viewer_)
         # The links are seen between every pair; the ticks grow near the
@@ -611,9 +610,9 @@ class FrameTests(unittest.TestCase):
         self.assertIn("transform: scale(calc(1 + var(--near, 0) * 0.6));", viewer_)
         self.assertIn('.chip::before { content: ""; position: absolute; top: -7px; bottom: -7px;', viewer_)
         self.assertIn("function magnifyRail(x)", viewer_)
-        # The start and the end are brackets and always there: the middle
+        # The start and the end are bookends and always there: the middle
         # folds into dotted gaps round a window on the current tick.
-        self.assertIn("#rail .chip:first-child::after, #rail .chip:last-child::after {", viewer_)
+        self.assertNotIn("#rail .chip:first-child::after", viewer_)
         self.assertIn(".chip.hidden { width: 0; border-width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }", viewer_)
         self.assertIn("function packLinks(chips, links, current, room)", viewer_)
         self.assertIn("function foldRail()", viewer_)
