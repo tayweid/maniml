@@ -5,6 +5,32 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Phase B is the default (2026-10-07)
+
+Taylor: "default should be phase B." Told that the whole stack had failed
+the gate Taylor set for it on 2026-09-30 (B5.10, "Phase B as the default:
+measured on the device, not flipped", below: the surface-heavy scenes'
+camera moves and navigations 1.5-2.7× Phase A, EpisodeB3's ticked frames
+1.38×, 9 of 23 cells at or below 1.0×), Taylor chose to flip the engine's
+default rather than only the viewer's selector. So `geometry.DEFAULT_FILL`
+is `patches` and `programs.DEFAULT_MODE` `gpu` (surfaces were nets
+already, the patch source rows): the Default renderer, native capture and
+the export recorder draw what the forced Phase B draws, byte for byte but
+the header's renderer (`tests/test_test_point.py`). The gate's numbers
+stand as the record of what the Default now costs on surface-heavy camera
+moves; this decision accepts them rather than disputing them.
+
+Two switches that used to stand alone named stacks the serializer refuses
+once the defaults are patches and programs: `MANIML_FILL=meshes` (programs
+need the patch fill) and `MANIML_BORDER_GENERATOR=cpu` (patches need the
+GPU border stage). `geometry.default_fill` takes the default fill back to
+meshes under the CPU border generator, and `programs.env_mode`'s default
+follows the fill, so each still means Phase A's fill with programs off. Phase
+A forced and Original 2D stay selectable; the golden pin states its
+switches and moved no byte. Tests that were checking the mesh path or the
+CPU interpolation through the Default now name `MANIML_FILL=meshes` or
+`MANIML_PROGRAMS=off`.
+
 ## A scene's session ends with its windows (2026-10-02)
 
 Until now the app kept a scene process for reuse after its window closed:

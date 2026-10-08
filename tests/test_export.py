@@ -245,8 +245,9 @@ class PhaseBWebExportE2E(unittest.TestCase):
         the Default, so an export made with no stack switch in the
         environment records each sphere as a net or a run of nets, by
         hash, cached and not, and the player's seek and the browser driver
-        draw every frame from what it carries (meshes, strokes and nets:
-        vs_main alone)."""
+        draw every frame from what it carries. Since 2026-10-07 the
+        Default is the whole Phase B stack, so its fills travel as patches
+        sourced from rows beside the nets."""
         import gzip
         import tempfile
         from unittest.mock import patch
@@ -268,15 +269,14 @@ class PhaseBWebExportE2E(unittest.TestCase):
                 meta = json.load(f)
             with gzip.open(os.path.join(out, "scene.bin.gz"), "rb") as f:
                 blob = f.read()
-            defined, seen, offset = set(), set(), 0
+            defined, seen, pipelines, offset = set(), set(), set(), 0
             for frame in meta["frames"]:
                 header, _ = parse_geometry_message(blob[offset:offset + frame["len"]])
                 offset += frame["len"]
                 self.assertEqual(header["renderer"], "triangles")
                 defined.update(header["net_data"])
                 for batch in header["batches"]:
-                    self.assertNotIn(batch["pipeline"], ("patch",), "the Default's fills are meshes")
-                    self.assertNotIn("program", batch, "and its programs off")
+                    pipelines.add(batch["pipeline"])
                     if "net" not in batch:
                         continue
                     members = batch["net"] if isinstance(batch["net"], list) else [batch["net"]]
@@ -285,16 +285,18 @@ class PhaseBWebExportE2E(unittest.TestCase):
                     tag = "net run" if isinstance(batch["net"], list) else "net"
                     seen.add(tag + (" cached" if batch.get("cached") else ""))
             self.assertLessEqual({"net", "net cached", "net run", "net run cached"}, seen)
-            for harness, mode, *stages in (("player_commands.cjs", "export"),
-                                           ("generated_webgpu_commands.cjs", "recordingReplay", "vs_main")):
+            self.assertIn("patch", pipelines, "the Default's fills are patches")
+            # The Phase B stages, the harness's own list (no stage named).
+            for harness, mode in (("player_commands.cjs", "export"),
+                                  ("generated_webgpu_commands.cjs", "recordingReplay")):
                 replay = subprocess.run(
-                    ["node", os.path.join(REPO_ROOT, "tests", harness), mode, out, *stages],
+                    ["node", os.path.join(REPO_ROOT, "tests", harness), mode, out],
                     input="", capture_output=True, text=True, timeout=60)
                 self.assertEqual(replay.returncode, 0, f"{mode}: {replay.stdout}{replay.stderr}")
                 report = json.loads(replay.stdout)
                 self.assertEqual(report["frames"], len(meta["frames"]))
                 if mode == "export":
-                    self.assertEqual(set(report["tags"]), {"net"})
+                    self.assertEqual(set(report["tags"]), {"objects", "net", "rows", "paint"})
 
     def test_a_row_sourced_export_records_rows_and_replays_through_the_indexer(self):
         """B5.1 (docs/phase_b4_plan.md): with MANIML_PATCH_SOURCE=rows (the

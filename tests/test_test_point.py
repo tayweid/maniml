@@ -106,27 +106,33 @@ class Serialize(unittest.TestCase):
         self.scene.camera.release()
         self.tmpdir.cleanup()
 
-    def test_the_default_stack_as_the_flips_left_it_is_phase_as_bytes(self):
+    def test_the_default_stack_as_the_flips_left_it_is_phase_bs_draws(self):
         # Whatever the environment says, the default stack takes the
-        # defaults' switches, and none has flipped: its full frames are
-        # Phase A's, with or without the retained frame, and the forced
-        # Phase B's are stamped as the page's selection reads them, its
-        # patches sent as the selection sends them (rows, B5.6) and as
-        # phase_b_records states (records).
+        # defaults' switches, and since 2026-10-07 they are the whole Phase
+        # B stack: its full frames are the forced Phase B's but for the
+        # renderer the header names, which the page's selection reads.
+        # today's and phase_a's are Phase A's, with or without the retained
+        # frame, and the forced Phase B's patches go as the selection sends
+        # them (rows, B5.6) and as phase_b_records states (records).
         from maniml.web.geometry import GeometryCache, parse_geometry_message, serialize_scene
 
         scene = self.scene
         episode_frames.show_frame(scene, episode_frames.select_frames(scene.animation_checkpoints)[0])
         messages = {}
-        with patch.dict(os.environ, MANIML_FILL="patches", MANIML_SURFACE="nets", MANIML_PROGRAMS="gpu",
+        with patch.dict(os.environ, MANIML_FILL="meshes", MANIML_SURFACE="grids", MANIML_PROGRAMS="off",
                         MANIML_PATCH_SOURCE="records"):
             for (name, fmt), (renderer, environment, _) in test_point.serializers().items():
                 if fmt == 7:
                     with flip_gates.stack_environment(environment):
                         messages[name] = serialize_scene(scene, GeometryCache(), renderer=renderer)
-            self.assertEqual(os.environ["MANIML_FILL"], "patches", "the environment is handed back")
+            self.assertEqual(os.environ["MANIML_FILL"], "meshes", "the environment is handed back")
         self.assertEqual(messages["today"], messages["phase_a"])
-        self.assertEqual(messages["default"], messages["phase_a"])
+        default, default_payload = parse_geometry_message(messages["default"])
+        phase_b, phase_b_payload = parse_geometry_message(messages["phase_b"])
+        self.assertEqual(default.pop("renderer"), "triangles")
+        self.assertEqual(phase_b.pop("renderer"), "phase_b")
+        self.assertEqual(default, phase_b)
+        self.assertEqual(default_payload, phase_b_payload)
         for name, rows in (("phase_b", True), ("phase_b_records", False)):
             header = parse_geometry_message(messages[name])[0]
             self.assertEqual(header["renderer"], "phase_b")

@@ -25,8 +25,10 @@ import numpy as np
 
 MODES = ("off", "shadow", "gpu", "strokes")
 # The mode where MANIML_PROGRAMS says nothing: what the default renderer
-# ("triangles", maniml/web/geometry.py) and the animations under it use.
-DEFAULT_MODE = "off"
+# ("triangles", maniml/web/geometry.py) and the animations under it use:
+# GPU programs since 2026-10-07, with the default fill's patches
+# (geometry.DEFAULT_FILL), the Default being the whole Phase B stack.
+DEFAULT_MODE = "gpu"
 
 # Set by the viewer while a forced renderer is selected ("off" for Phase
 # A, "gpu" for Phase B), so the plays that follow write what it draws;
@@ -38,7 +40,14 @@ _override: str | None = None
 
 
 def env_mode() -> str:
-    value = os.environ.get("MANIML_PROGRAMS", DEFAULT_MODE)
+    value = os.environ.get("MANIML_PROGRAMS")
+    if value is None:
+        # The default's programs draw from the default's patch fill, so a
+        # stack whose fill is meshes (MANIML_FILL=meshes, or the CPU border
+        # generator; geometry.default_fill) takes them off with it rather
+        # than asking for a stack the serializer refuses.
+        from maniml.web import geometry
+        value = DEFAULT_MODE if geometry.default_fill() == "patches" else "off"
     if value not in MODES:
         raise ValueError("MANIML_PROGRAMS must be 'off', 'shadow', 'gpu' or 'strokes'")
     return value

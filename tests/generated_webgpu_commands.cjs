@@ -1194,8 +1194,8 @@ const cases = {
       for (const draw of scene.draws) stages.add(draw.pipeline.descriptor.vertex.entryPoint);
     }
     // Patch fans, patch covers and the strips, strokes and nets all drew;
-    // an export of another stack names the stages it draws (the Default's
-    // meshes, strokes and nets, B5.9: vs_main alone).
+    // an export of another stack names the stages it draws (Phase A's
+    // meshes, strokes and nets: vs_main alone).
     const expected = process.argv[4] ? process.argv[4].split(",") : ["vs_cover", "vs_fan", "vs_main", "vs_patch"];
     assert.deepEqual([...stages].sort(), expected.sort());
     await d.destroy();

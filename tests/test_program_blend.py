@@ -232,7 +232,16 @@ class ProgramTransform(unittest.TestCase):
             return frames, _state(mob) + _state(text)
 
     def test_mode_switch(self):
-        self.assertEqual(programs.mode(), "off")
+        # GPU programs by default (2026-10-07), with the default's patch
+        # fill; a stack whose fill is meshes takes them off with it.
+        with patch.dict(os.environ):
+            for name in ("MANIML_PROGRAMS", "MANIML_FILL", "MANIML_BORDER_GENERATOR"):
+                os.environ.pop(name, None)
+            self.assertEqual(programs.mode(), "gpu")
+            with patch.dict(os.environ, MANIML_FILL="meshes"):
+                self.assertEqual(programs.mode(), "off")
+            with patch.dict(os.environ, MANIML_BORDER_GENERATOR="cpu"):
+                self.assertEqual(programs.mode(), "off")
         with patch.dict(os.environ, MANIML_PROGRAMS="gpu"):
             self.assertEqual(programs.mode(), "gpu")
         with patch.dict(os.environ, MANIML_PROGRAMS="fast"):

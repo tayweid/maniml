@@ -249,15 +249,16 @@ class RendererSelectionProtocol(unittest.TestCase):
 
     def test_the_default_draws_surfaces_as_nets_and_phase_a_as_grids(self):
         """B5.9 (docs/phase_b4_plan.md, "The flips"; Taylor, 2026-09-29):
-        the Default stack's surfaces are nets, its fills and programs
-        Phase A's, so native capture (and the export recorder, which
+        the Default stack's surfaces are nets, and since 2026-10-07 its
+        fills patches and its plays GPU programs (the whole Phase B
+        stack, Taylor's call over B5.10's failed gate), so native capture (and the export recorder, which
         serializes the same "triangles") sends a Surface as its net;
         Phase A forced and MANIML_SURFACE=grids send the grid."""
         from maniml import Sphere, ThreeDScene
         from maniml.utils import programs
 
         self.assertEqual((geometry.DEFAULT_FILL, geometry.DEFAULT_SURFACE, programs.DEFAULT_MODE),
-                         ("meshes", "nets", "off"))
+                         ("patches", "nets", "gpu"))
         self.assertEqual(geometry.FORCED_STACKS["phase_a"], ("meshes", "grids", "off"))
         scene = ThreeDScene(window=None, camera_config={"resolution": (64, 36)})
         scene.add(Sphere(radius=1, resolution=(12, 8)))
@@ -271,7 +272,7 @@ class RendererSelectionProtocol(unittest.TestCase):
                 self.assertEqual(nets(geometry.serialize_scene(scene, GeometryCache())), [])
             scene.update_frame(force_draw=True)
             try:
-                self.assertEqual(self.stack(scene.camera._geometry_cache), ("meshes", "nets", "off"))
+                self.assertEqual(self.stack(scene.camera._geometry_cache), ("patches", "nets", "gpu"))
                 self.assertGreater(np.count_nonzero(np.asarray(scene.get_image())[..., :3]), 50)
             finally:
                 scene.camera.release()

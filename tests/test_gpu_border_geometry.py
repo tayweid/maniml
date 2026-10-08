@@ -414,7 +414,9 @@ class GpuBorderPreparation(unittest.TestCase):
 
     def test_empty_frame_and_public_generator_switch_retire_and_resend_recipes(self):
         scene, wire = self.scene(), GeometryCache()
-        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu"):
+        # The mesh path's recipes: Phase A's fill, named since the default's
+        # is patches (2026-10-07).
+        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu", MANIML_FILL="meshes"):
             initial, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
             self.assertTrue(initial["border_data"])
             self.assertTrue(raw)
@@ -429,12 +431,12 @@ class GpuBorderPreparation(unittest.TestCase):
             returned, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
             self.assertTrue(returned["border_data"])
             self.assertTrue(raw)
-        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="cpu"):
+        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="cpu", MANIML_FILL="meshes"):
             cpu, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
             self.assertTrue(raw)
             self.assertFalse(any("border" in batch for batch in cpu["batches"]))
             self.assertFalse(wire.triangle_meshes.gpu_border_cache.nbytes)
-        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu"):
+        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu", MANIML_FILL="meshes"):
             returned, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
             self.assertTrue(returned["border_data"])
             self.assertTrue(raw)

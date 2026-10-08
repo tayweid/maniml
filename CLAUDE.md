@@ -271,7 +271,15 @@ in any situation and ... faster or much faster in most": no cell above
 the device; B5.10, the plan's "Phase B as the default") and failed: the
 surface scenes' camera moves and navigations (1.5-2.7×, the nets' device
 cost) and EpisodeB3's ticked frames (1.38×), 9 of 23 cells at or below
-1.0×. Nothing flipped; Phase B stays a selection.
+1.0×. Nothing flipped then. On 2026-10-07 Taylor made the whole Phase B
+stack the default anyway, accepting those costs (DECISIONS.md, "Phase B is
+the default"): `geometry.DEFAULT_FILL` is `patches` and
+`programs.DEFAULT_MODE` `gpu`, so the Default, native capture (`--render`,
+checkpoint stills) and `--export` draw Phase B, stamped `triangles`.
+`MANIML_FILL=meshes` or `MANIML_BORDER_GENERATOR=cpu` alone takes the fill
+back to meshes and the programs off with it (`geometry.default_fill`,
+read by `programs.env_mode`), rather than naming a stack the serializer
+refuses; Phase A forced keeps Phase A selectable.
 
 The Lyon helper is required by the default renderer. Source/editable builds
 need Cargo and a linker (tested Rust 1.97.0); prebuilt wheels contain it.
@@ -397,7 +405,7 @@ high bit, and covers once per sample. Nothing about it depends on zoom, and a
 morph uploads only control points. Both drivers draw it (the browser mirror
 in `webgpu.js`, command-tested on real frames in
 `tests/generated_webgpu_commands.cjs` and pixel-matched live against the
-native render); it is measured, not the default, which stays `meshes`:
+native render); it has been the default since 2026-10-07 (above), after
 B5.4's gate (Taylor's browser-side complete frame at or below Phase A's
 per class on both episodes; `docs/phase_b4_plan.md`, "The flips") failed on
 both episodes' plays (1.15× and 1.48× Phase A in format 8, the serialize's:
@@ -672,8 +680,8 @@ updater) that frame is the CPU path's, which composes the two, and not a
 program drawn from the animation's own sources over the other's fill or
 opacity (the review of B5.3 found that, in every mode). `Animation.finish`
 writes the final rows, so the state after a play is byte-identical in
-every mode. Pixels match the CPU path at every alpha in both drivers; the
-default stays `off`.
+every mode. Pixels match the CPU path at every alpha in both drivers;
+`gpu` is the default since 2026-10-07, with the default's patch fill.
 
 `MANIML_PROGRAMS=strokes` (B5.3, `docs/phase_b4_plan.md`) needs no patch
 fill: it is `gpu` for a path without fill only, the one program Phase A
@@ -698,8 +706,8 @@ is one, and a format 8 stream sends a kept program run's scalars as a
 driver within the gate, and to 1/255 on the tested cases but where a
 lagged write's partial path ends mid-curve: the partial kernel places
 that tip in float32, a pixel or two from the CPU's (up to 12/255 on two
-pixels in the tests; 17 under Phase B, whose kernel it is). The default
-stays `off`; it saves Python where a play is strokes and costs the GPU a
+pixels in the tests; 17 under Phase B, whose kernel it is). It is not
+the default (programs were off by default until 2026-10-07, `gpu` since); it saves Python where a play is strokes and costs the GPU a
 compute pass a program (`benchmarks/play_frames.py`,
 `benchmarks/results/b53_strokes_20260927/`). B5.4 measured it as the default
 over every play of both episodes (`docs/phase_b4_plan.md`, "The flips"):

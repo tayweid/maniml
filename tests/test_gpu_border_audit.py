@@ -157,7 +157,9 @@ class GpuBorderCacheAudit(unittest.TestCase):
 
     def test_original_renderer_retires_paint_border_memos_and_mesh_recipes(self):
         scene, cache = self.scene(gradient=True), GeometryCache()
-        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu"):
+        # The mesh path's recipes: Phase A's fill, named since the default's
+        # is patches (2026-10-07).
+        with patch.dict(os.environ, MANIML_BORDER_GENERATOR="gpu", MANIML_FILL="meshes"):
             initial, _ = parse_geometry_message(serialize_scene(scene, cache, renderer="triangles"))
             self.assertTrue(initial["paint_data"])
             self.assertTrue(initial["border_data"])

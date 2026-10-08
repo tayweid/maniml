@@ -133,9 +133,9 @@ CLASSES = ("pausepoint", "ticked", "play")
 ENVIRONMENT = {"MANIML_PROGRAMS": "off"}
 CLEARED = ("MANIML_VERIFY_LEDGER", "MANIML_RENDER_CACHE", "MANIML_GPU_TIMESTAMPS", "MANIML_RETAINED_FRAME",
            "MANIML_FILL", "MANIML_SURFACE", "MANIML_PATCH_SOURCE", "MANIML_BORDER_GENERATOR", "MANIML_NET_RUNS")
-# The instrumented run's serializers: the stacks whose costs differ (phase_a
-# is the default's stack, its bytes the same), each in the format its page
-# is sent.
+# The instrumented run's serializers: the stacks whose costs differ (the
+# default is the forced Phase B's stack since 2026-10-07, its draws the
+# same, and phase_a today's bytes), each in the format its page is sent.
 INSTRUMENTED = (("today", 7), ("default", 8), ("phase_b", 8))
 # The instrumented run's columns, reduced per stack and class in this order.
 PYTHON_COLUMNS = ("scene_ms", "serialize_ms", "prepare_ms", "encode_ms", "lyon_ms", "lyon_calls", "compare_ms",

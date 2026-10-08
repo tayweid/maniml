@@ -308,8 +308,11 @@ class GeneratedSceneGeometry(unittest.TestCase):
             self.assertEqual(set(frame.draws[0].textures), {"LightTexture", "DarkTexture"})
             self.assertEqual(set(frame.draws[2].textures), {"Texture"})
             wire_cache = GeometryCache()
-            first, payload = parse_geometry_message(serialize_scene(scene, wire_cache, renderer="triangles"))
-            second, repeated = parse_geometry_message(serialize_scene(scene, wire_cache, renderer="triangles"))
+            # The mesh path's frame above, sent: Phase A's fill, named since
+            # the default's is patches (2026-10-07).
+            with patch.dict(os.environ, MANIML_FILL="meshes"):
+                first, payload = parse_geometry_message(serialize_scene(scene, wire_cache, renderer="triangles"))
+                second, repeated = parse_geometry_message(serialize_scene(scene, wire_cache, renderer="triangles"))
             self.assertEqual([b["pipeline"] for b in first["batches"]], ["texsurface_depth", "surface", "image"])
             self.assertEqual(len(first["texture_data"]), 1)
             ref = next(iter(first["texture_data"].values()))

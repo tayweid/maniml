@@ -1,6 +1,8 @@
 """Creation interpolation invariants; no renderer or font tools required."""
 
+import os
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -17,6 +19,15 @@ def glyph():
 
 
 class CreationInterpolationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The CPU path's arithmetic, compared row for row: under GPU
+        # programs (the default since 2026-10-07) a read materializes the
+        # pending program, which also refreshes the derived base_normal
+        # column the CPU path leaves as it was, so the rows' bytes differ
+        # where the pixels do not. The programs have their own tests.
+        cls.enterClassContext(patch.dict(os.environ, MANIML_PROGRAMS="off"))
+
     def test_fill_changes_paint_without_moving_complete_point_arrays(self):
         mob = glyph()
         expected = mob.get_points().copy()

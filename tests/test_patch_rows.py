@@ -302,14 +302,17 @@ class PatchRowsPreparation(unittest.TestCase):
             header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
             self.assertTrue(all("rows" in batch for batch in header["batches"]), "rows by default")
             self.assertEqual(header["border_data"], {}, "no curve records travel")
-            # Phase A draws meshes: there is no patch to source.
-            for renderer in ("phase_a", "triangles"):
-                header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer=renderer))
-                self.assertFalse(any("rows" in batch for batch in header["batches"]), renderer)
-            # A default stack that draws patches sources them as rows too.
-            with patch.dict(os.environ, MANIML_FILL="patches", MANIML_BORDER_GENERATOR="gpu"):
+            # Phase A draws meshes: there is no patch to source, forced or
+            # as a default stack told to draw meshes.
+            header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_a"))
+            self.assertFalse(any("rows" in batch for batch in header["batches"]), "phase_a")
+            with patch.dict(os.environ, MANIML_FILL="meshes"):
                 header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
-                self.assertTrue(all("rows" in batch for batch in header["batches"]), "the default's patches")
+                self.assertFalse(any("rows" in batch for batch in header["batches"]), "meshes")
+            # The default stack draws patches (2026-10-07) and sources them
+            # as rows too.
+            header, _ = parse_geometry_message(serialize_scene(scene, wire, renderer="triangles"))
+            self.assertTrue(all("rows" in batch for batch in header["batches"]), "the default's patches")
             header, raw = parse_geometry_message(serialize_scene(scene, wire, renderer="phase_b"))
             self.assertTrue(raw, "a renderer change resends")
         with patch.dict(os.environ, MANIML_PATCH_SOURCE="records"):

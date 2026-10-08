@@ -606,7 +606,16 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 # its first snapshot must define every referenced resource.
                 self.assertFalse(batch.get("cached"), "initial snapshot reused unknown geometry")
                 fill_count = batch.get("fill_num_verts", batch["num_verts"])
-                if "border" in batch:
+                # The Default draws Phase B since 2026-10-07: a patch (and a
+                # stroke) names its path's rows and paint in program_data,
+                # a patch its object records in object_data; a mesh batch
+                # carries its fill and border strips as below.
+                for key in (*batch.get("rows", ()), *batch.get("row_paints", ())):
+                    self.assertIn(key, header["program_data"])
+                if batch["pipeline"] == "patch":
+                    self.assertIn(batch["objects"]["hash"], header["object_data"])
+                    self.assertGreater(batch["border"]["num_curves"], 0)
+                elif "border" in batch:
                     border = batch["border"]
                     self.assertGreater(border["num_curves"], 0)
                     self.assertEqual(batch["stride"], 40)
@@ -637,7 +646,8 @@ class WebViewerE2E(_ViewerHarness, unittest.TestCase):
                 for key in batch.get("textures", {}).values():
                     self.assertIn(key, header["texture_data"])
 
-            for table in ("paint_data", "border_data", "texture_data"):
+            for table in ("paint_data", "border_data", "object_data", "net_data", "program_data",
+                          "texture_data"):
                 for info in header.get(table, {}).values():
                     span(info["offset"], info["nbytes"], table)
                     if table != "texture_data":

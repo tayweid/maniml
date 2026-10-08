@@ -249,7 +249,27 @@ FORCED_STACKS = {"phase_a": ("meshes", "grids", "off"), "phase_b": ("patches", "
 # it than grids on every scene of the gate's timed set and every Surface
 # fixture, and their cost on surface-heavy still frames and camera moves
 # was accepted. MANIML_SURFACE=grids draws the grids, as Phase A forced does.
-DEFAULT_FILL = "meshes"
+# Fills are patches and plays GPU programs (programs.DEFAULT_MODE) since
+# 2026-10-07: Taylor made the whole Phase B stack the default, over B5.10's
+# failed gate (benchmarks/results/phase_b_default_20260929/: surface-heavy
+# camera moves and navigations 1.5-2.7x Phase A), accepting that cost.
+# MANIML_FILL=meshes (and MANIML_PROGRAMS=off) draw Phase A's, as Phase A
+# forced does.
+DEFAULT_FILL = "patches"
+
+
+def default_fill() -> str:
+    """The fill an unforced stack draws: MANIML_FILL, else DEFAULT_FILL,
+    except that the patch fill draws from the GPU border stage's records,
+    so MANIML_BORDER_GENERATOR=cpu (the comparison emitter) takes the
+    default fill back to meshes rather than asking for a stack the
+    serializer refuses. programs.env_mode reads it for the same reason."""
+    fill = os.environ.get("MANIML_FILL")
+    if fill is not None:
+        return fill
+    if DEFAULT_FILL == "patches" and os.environ.get("MANIML_BORDER_GENERATOR", "gpu") == "cpu":
+        return "meshes"
+    return DEFAULT_FILL
 DEFAULT_SURFACE = "nets"
 # What a patch fill is sent as wherever patches are drawn, forced or not,
 # unless MANIML_PATCH_SOURCE says otherwise (B5.6, docs/phase_b4_plan.md):
@@ -274,7 +294,7 @@ def _serialize_triangle_scene(scene, cache, *, renderer: str = "triangles"):
     # which draws from the GPU border stage's curve records, so it needs the
     # GPU border generator.
     forced = FORCED_STACKS.get(renderer)
-    fill_generator = forced[0] if forced else os.environ.get("MANIML_FILL", DEFAULT_FILL)
+    fill_generator = forced[0] if forced else default_fill()
     if fill_generator not in ("meshes", "patches"):
         raise ValueError("MANIML_FILL must be 'meshes' or 'patches'")
     if fill_generator == "patches" and border_generator != "gpu":
