@@ -9,13 +9,15 @@
 //
 // The rail is Plass's and Knuth's scroll rail laid on its side (Taylor,
 // 2026-10-07: "basically look exactly like the scrollbar in knuth and
-// plass, but horizontal"): a hairline track, a band, and marks placed by
+// plass, but horizontal"): marks placed by
 // one fraction each, `left: calc(var(--f) * 100%)`. The fraction is
 // time: a pausepoint is a dot at the scene's clock when it was saved,
 // the start and the end are upright dashes, and the plays between
 // pausepoints (UP/DOWN's steps) are faint ticks. What has not run yet
 // has no time, and none is guessed: those units stand at a small fixed
-// interval after the last one that ran.
+// interval after the last one that ran. Over the timeline rides a lens
+// centred on the head, the position, which magnifies the marks round it
+// so a long scene stays navigable (below, "The DOM").
 //
 // The engine (or source) says which stretch is being crossed, and nothing
 // about how far along it is: an animation's own progress is already on
@@ -38,8 +40,21 @@ const FUTURE_SHARE = 0.5;
 const HIT = 8;
 // px a press moves along the rail before it is a scrub and not a click.
 const DRAG = 3;
+// The lens: at most this many px wide (and never more than half the
+// track), opening pausepoints that stand close to about LENS_GAP px
+// apart; one magnification for the whole scene, so nothing in it
+// changes scale as the head moves.
+const LENS_PX = 176;
+const LENS_GAP = 14;
+const LENS_MIN = 1.6;
+const LENS_MAX = 16;
+// The head's glide to a new rest: ms per px travelled, within bounds.
+const GLIDE_MS_PER_PX = 6;
+const GLIDE_MIN_MS = 180;
+const GLIDE_MAX_MS = 500;
 
 const fmt = (f) => String(Math.round(Math.max(0, Math.min(1, f)) * 1e6) / 1e6);
+const px = (x) => Math.round(x * 100) / 100 + "px";
 // The scene's clock as the preview card says it: 0:03.5, 1:12.0.
 function clock(t) {
   const m = Math.floor(t / 60), s = t - 60 * m;
@@ -52,9 +67,9 @@ function create(config) {
   const body = config.body;
   const get = (id) => doc.getElementById(id);
   const env = config.env || (() => {});
-  // The track's length in px: what the not-yet-run marks' fixed interval
-  // is a share of. Read on every draw (a resize calls relayout).
   const width = config.width || (() => railEl.clientWidth || 400);
+  const scrub = config.scrub || null;
+  const animate = typeof requestAnimationFrame === "function";
 
   const MIN_LIT_MS = 250;
   let move = null;
@@ -62,6 +77,8 @@ function create(config) {
   let moveClear = null;
   let playhead = null;   // a recording's clock while it crosses a stretch
   let scrubbed = null;   // the time under the pointer while it scrubs
+  let headT = 0;         // where the head stands, on the scene's clock
+  let glide = 0;         // the head's glide in flight (a frame request)
   let shown = null;      // the drawn state, as the rail reads it (read())
   let names = [];        // checkpoint index -> pause('Title') name, or null
   let serials = [];      // checkpoint index -> the engine's checkpoint serial
@@ -94,10 +111,13 @@ function create(config) {
       this.pending = null;
       if (landing) handleState(landing);
     },
-    // A recording's clock, while it moves: the head follows it.
+    // A recording's clock, while it moves: the head rides it.
     time(t) {
-      playhead = this.moving ? t : null;
-      drawHead();
+      if (!this.moving || scrubbed !== null) return;
+      playhead = t;
+      stopGlide();
+      headT = t;
+      drawLens();
     },
     reset() { this.moving = false; this.pending = null; playhead = null; },
   };
@@ -118,8 +138,13 @@ function create(config) {
 
     names = state.names || [];
     serials = state.serials || [];
+    const first = shown === null;
     shown = read(state, future, current);
-    draw();
+    drawMarks();
+    // The head goes to the position it lands on, gliding there, unless
+    // the pointer is scrubbing: then it is the pointer's.
+    if (scrubbed === null) setHead(shown.times[shown.current], !first);
+    else drawLens();
   }
 
   // -- Reading a state --
@@ -152,12 +177,13 @@ function create(config) {
   // follow at FUTURE_PX apiece, and the run part gives them that room
   // (all of it while nothing has taken any time).
   function scale() {
-    const W = Math.max(1, width());
+    const W = trackWidth();
     const n = shown.future.length;
     let room = 0;
     if (n) room = shown.T > 0 ? Math.min(n * FUTURE_PX, W * FUTURE_SHARE) : W;
     const ran = (W - room) / W;
     return {
+      W,
       at: (t) => (shown.T > 0 ? Math.min(1, t / shown.T) * ran : 0),
       // The inverse, for a scrub: the time a fraction of the track stands
       // for (past the run part, the last checkpoint's).
@@ -169,157 +195,262 @@ function create(config) {
   }
 
   // -- The DOM --
-  // A span inset from the rail's ends holds the track (a hairline end to
-  // end), the band, the head and the marks. The marks are pooled by their
-  // order and rewritten in place, so a redraw moves each straight to its
-  // new place (a CSS transition on left) instead of rebuilding the rail;
-  // a unit that runs is the same element before and after, gliding from
-  // its fixed slot to its time.
-  let span = null, band = null, head = null;
-  const marks = [];   // the ends, the pausepoints and the units not yet run
-  const ticks = [];   // the plays between pausepoints
-  let hot = null;     // the mark under the pointer
+  // A span inset from the rail's ends holds the timeline (every mark at
+  // its place, never moving as the head does), the lens over it and the
+  // head. The lens is Plass's band made a magnifier (Taylor, 2026-10-08):
+  // it sits over the timeline, hides what is under it, and shows the
+  // marks round the head opened up, every play step's dash included, so
+  // the head — the precise point, a tall dash in the accent — stands at
+  // its true place on the whole timeline and at the lens's centre at
+  // once (only at the very ends does the lens stop short and the head
+  // move off its centre). Marks are pooled by their order and rewritten
+  // in place, a timeline copy and a lens copy each.
+  let span = null, timeline = null, lens = null, bubble = null, head = null;
+  let specs = [];
+  const backMarks = [];   // the timeline's copies
+  const lensMarks = [];   // the lens's copies: buttons for the pausepoints
+  let lensK = LENS_MIN;   // the lens's magnification, one per scene
+  let hot = null;         // the mark under the pointer
   const hotListeners = [];
 
+  const trackWidth = () => Math.max(1, (span && span.clientWidth) || width());
   function setVar(el, name, value) {
     if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
   }
-  function drop(el) {
+  function drop(el, parent) {
     if (el.remove) el.remove();
-    else span.removeChild(el);
+    else parent.removeChild(el);
   }
   function build() {
     span = doc.createElement("div");
     span.className = "rail-span";
     span.setAttribute("role", "presentation");
-    span.appendChild(doc.createElement("div")).className = "rail-track";
-    band = span.appendChild(doc.createElement("div"));
-    band.className = "rail-band";
+    timeline = span.appendChild(doc.createElement("div"));
+    timeline.className = "rail-timeline";
+    timeline.setAttribute("aria-hidden", "true");
+    lens = span.appendChild(doc.createElement("div"));
+    lens.className = "rail-lens";
+    bubble = lens.appendChild(doc.createElement("div"));
+    bubble.className = "rail-bubble";
     head = span.appendChild(doc.createElement("div"));
-    head.className = "rail-head off";
+    head.className = "rail-head";
     railEl.replaceChildren(span);
   }
 
-  function draw() {
+  const isDot = (spec) => spec.kind !== "tick";
+
+  function drawMarks() {
     if (!span) build();
     const s = scale();
     const { count, times, stops, future } = shown;
-    const specs = [];
-    const tickAt = [];
+    specs = [];
     let plays = 0;
     for (let i = 0; i < count; i++) {
       if (stops[i]) {
-        specs.push({ index: i, f: s.at(times[i]), plays });
+        specs.push({ kind: "stop", index: i, f: s.at(times[i]), plays });
         plays = 0;
       } else {
-        tickAt.push(s.at(times[i]));
+        specs.push({ kind: "tick", index: i, f: s.at(times[i]) });
         plays += 1;
       }
     }
     future.forEach((u, j) => specs.push(
-      { unit: u.unit, line: u.line, many: !!u.many, f: s.future(j) }));
+      { kind: "future", unit: u.unit, line: u.line, many: !!u.many, f: s.future(j) }));
+    const dots = specs.filter(isDot);
+    if (dots.length) dots[0].end = "start";
+    if (dots.length > 1) dots[dots.length - 1].end = "end";
 
-    while (marks.length < specs.length) {
-      const mark = doc.createElement("button");
-      mark.type = "button";
-      mark.setAttribute("role", "listitem");
-      span.appendChild(mark);
-      marks.push(mark);
+    // The magnification: what opens the closer pausepoints (the first
+    // quarter of the gaps between them) to LENS_GAP.
+    const gaps = [];
+    for (let k = 1; k < dots.length; k++) {
+      const gap = (dots[k].f - dots[k - 1].f) * s.W;
+      if (gap > 0.25) gaps.push(gap);
     }
-    while (marks.length > specs.length) drop(marks.pop());
-    if (hot && !marks.includes(hot)) setHot(null);
-    specs.forEach((spec, k) => updateMark(marks[k], spec,
-      k === 0 ? "start" : k === specs.length - 1 ? "end" : null));
+    gaps.sort((x, y) => x - y);
+    const q = gaps.length ? gaps[Math.floor(gaps.length / 4)] : s.W;
+    lensK = Math.min(LENS_MAX, Math.max(LENS_MIN, LENS_GAP / q));
+    // A crowded timeline draws its pausepoints small and its play steps
+    // not at all; the lens always has room for both.
+    const small = (dots.length - 1) * 8 > s.W;
+    const bare = (specs.length - 1) * 6 > s.W;
 
-    while (ticks.length < tickAt.length) {
-      const tick = span.appendChild(doc.createElement("i"));
-      tick.className = "tick";
-      ticks.push(tick);
-    }
-    while (ticks.length > tickAt.length) drop(ticks.pop());
-    tickAt.forEach((f, k) => setVar(ticks[k], "--f", fmt(f)));
-
-    // The rail's length follows what it holds (the page's CSS reads it).
-    setVar(railEl, "--marks", String(specs.length));
-    drawBand();
-    drawHead();
+    pool(backMarks, specs.length, timeline, "i");
+    pool(lensMarks, specs.length, lens, "button");
+    if (hot && !backMarks.includes(hot) && !lensMarks.includes(hot)) setHot(null);
+    specs.forEach((spec, k) => {
+      const back = backMarks[k];
+      back.className = markClass(spec) + (small && spec.kind === "stop" && !spec.end ? " small" : "")
+        + (back === hot ? " hot" : "");
+      back.hidden = bare && spec.kind === "tick";
+      setVar(back, "--f", fmt(spec.f));
+      label(back, spec);
+      updateLensMark(lensMarks[k], spec);
+    });
+    // The rail's length follows what it holds, where the page lets it.
+    setVar(railEl, "--marks", String(dots.length));
   }
 
-  function updateMark(mark, spec, end) {
-    const known = spec.index !== undefined;
-    const current = known && spec.index === shown.current;
-    mark.className = "mark" + (end ? " " + end : "") + (known ? "" : " future")
-      + (current ? " current" : "") + (spec.many ? " many" : "")
-      + (mark === hot ? " hot" : "");
-    setVar(mark, "--f", fmt(spec.f));
-    // The words go to the preview card (attachPreview), not a title
-    // attribute: the browser's own tooltip would stand over the card.
-    const label = describeSpec(spec);
-    mark.dataset.detail = label;
-    if (known) {
-      mark.dataset.index = String(spec.index);
-      delete mark.dataset.unit;
-    } else {
-      delete mark.dataset.index;
-      mark.dataset.unit = String(spec.unit);
+  function pool(list, n, parent, tag) {
+    while (list.length < n) {
+      const el = parent.appendChild(doc.createElement(tag));
+      if (tag === "button") { el.type = "button"; el.setAttribute("role", "listitem"); }
+      list.push(el);
     }
-    const name = known ? names[spec.index] : null;
-    mark.setAttribute("aria-label", name ? name + " \u2014 " + label : label);
-    if (current) mark.setAttribute("aria-current", "step");
-    else mark.removeAttribute("aria-current");
+    while (list.length > n) drop(list.pop(), parent);
+  }
+
+  function markClass(spec) {
+    return "mark " + (spec.kind === "tick" ? "tick" : "dot")
+      + (spec.end ? " " + spec.end : "") + (spec.kind === "future" ? " future" : "")
+      + (spec.many ? " many" : "");
+  }
+
+  // What the preview card reads off a mark (describe()).
+  function label(el, spec) {
+    const detail = describeSpec(spec);
+    el.dataset.detail = detail;
+    if (spec.index !== undefined && spec.kind !== "tick") {
+      el.dataset.index = String(spec.index);
+    } else delete el.dataset.index;
+    return detail;
+  }
+
+  function updateLensMark(mark, spec) {
+    mark.className = markClass(spec) + (mark === hot ? " hot" : "");
+    const detail = label(mark, spec);
+    if (spec.kind === "tick") {
+      // A play step is seen in the lens, and reached with UP/DOWN.
+      mark.tabIndex = -1;
+      mark.setAttribute("aria-hidden", "true");
+      mark.onclick = () => config.onChipClick(spec.index);
+      return;
+    }
+    mark.removeAttribute("aria-hidden");
+    mark.removeAttribute("tabindex");
+    const name = spec.index !== undefined ? names[spec.index] : null;
+    mark.setAttribute("aria-label", name ? name + " — " + detail : detail);
     // A click parks browser focus on the button, and the mark survives
     // every redraw, so drop it: position feedback is the presenter's job.
     mark.onclick = () => {
       if (mark.blur) mark.blur();
-      if (known) config.onChipClick(spec.index);
-      else config.onFutureChipClick(spec.unit);
+      if (spec.kind === "future") config.onFutureChipClick(spec.unit);
+      else config.onChipClick(spec.index);
     };
   }
 
   function describeSpec(spec) {
-    if (spec.index === undefined) {
+    if (spec.kind === "future") {
       return spec.many
-        ? "Runs to line " + spec.line + " \u00b7 a loop or branch, so how many "
+        ? "Runs to line " + spec.line + " · a loop or branch, so how many "
           + "pausepoints it holds is not known until it runs"
         : "Runs to line " + spec.line;
     }
     if (spec.index === 0) return "Start";
-    return "Pausepoint \u00b7 line " + shown.lines[spec.index]
-      + " \u00b7 " + clock(shown.times[spec.index])
-      + (spec.plays ? " \u00b7 " + spec.plays + " play step"
-         + (spec.plays > 1 ? "s" : "") + " before it (\u2191\u2193)" : "");
+    const where = "line " + shown.lines[spec.index] + " · " + clock(shown.times[spec.index]);
+    if (spec.kind === "tick") return "Play step · " + where;
+    return "Pausepoint · " + where
+      + (spec.plays ? " · " + spec.plays + " play step"
+         + (spec.plays > 1 ? "s" : "") + " before it (↑↓)" : "");
   }
 
-  // -- The band --
-  // The stretch in question. At rest, the one the next RIGHT plays, faint,
-  // as Plass's band is at rest; while a move crosses a stretch, that one,
-  // lit, whichever way it runs.
-  function drawBand() {
-    if (!band || !shown) return;
+  // -- The head and the lens --
+  // The head's time, the pausepoint it stands for and the stretch round
+  // it decide everything the lens shows. The lens is centred on the head
+  // and magnifies about it, so the head keeps its true place.
+  function lensWidth(W) { return Math.min(LENS_PX, W / 2); }
+
+  // The pausepoint lit in the accent: the one the position rests on;
+  // while scrubbing, the one nearest the head (where a release lands);
+  // nothing while a move crosses a stretch.
+  function litIndex() {
+    if (scrubbed !== null) return nearestStop(scrubbed);
+    if (move || glide) return -1;
+    return shown.stops[shown.current] ? shown.current : -1;
+  }
+
+  // The stretch the bubble lights: a live move's whole stretch (the
+  // engine says which, not how far along); otherwise the stretch round
+  // the head, between the pausepoints either side of it.
+  function bubbleRange(s) {
+    if (move && playhead === null && scrubbed === null) {
+      return [s.at(shown.times[Math.min(move.from, shown.count - 1)]), destination(s)];
+    }
+    const { count, stops, times, future } = shown;
+    let a = 0;
+    for (let i = 0; i < count; i++) if (stops[i] && times[i] <= headT + 1e-9) a = i;
+    let b = null;
+    for (let i = a + 1; i < count; i++) if (stops[i] && times[i] > headT + 1e-9) { b = s.at(times[i]); break; }
+    if (b === null) b = future.length ? s.future(0) : s.at(times[a]);
+    return [s.at(times[a]), b];
+  }
+
+  function drawLens() {
+    if (!span || !shown) return;
     const s = scale();
-    const { times, current } = shown;
-    let a, b;
-    if (move) {
-      a = s.at(times[Math.min(move.from, shown.count - 1)]);
-      b = destination(s);
-    } else {
-      a = s.at(times[current]);
-      b = nextStop(s);
-      if (b === null) b = a;
+    const W = s.W;
+    const LW = lensWidth(W);
+    const h = s.at(headT) * W;
+    const left = Math.max(-2, Math.min(W - LW + 2, h - LW / 2));
+    lens.style.left = px(left);
+    lens.style.width = px(LW);
+    const place = (f) => h + (f * W - h) * lensK - left;
+    const lit = litIndex();
+    specs.forEach((spec, k) => {
+      const mark = lensMarks[k];
+      const x = place(spec.f);
+      const inside = x > -8 && x < LW + 8;
+      if (mark.hidden !== !inside) mark.hidden = !inside;
+      if (inside) mark.style.left = px(x);
+      const on = spec.kind === "stop" && spec.index === lit;
+      if (mark.classList.contains("current") !== on) {
+        mark.classList.toggle("current", on);
+        if (on) mark.setAttribute("aria-current", "step");
+        else mark.removeAttribute("aria-current");
+      }
+    });
+    head.style.left = px(h);
+    const crossing = !!move || scrubbed !== null || !!glide;
+    if (crossing) {
+      const [a, b] = bubbleRange(s);
+      const xa = place(Math.min(a, b)), xb = place(Math.max(a, b));
+      bubble.style.left = px(xa - 4);
+      bubble.style.width = px(Math.max(0, xb - xa) + 8);
     }
-    setVar(band, "--a", fmt(Math.min(a, b)));
-    setVar(band, "--b", fmt(Math.max(a, b)));
-    band.className = "rail-band" + (move ? " lit" : "")
-      + (move && move.back ? " back" : "") + (a === b ? " empty" : "");
+    bubble.className = "rail-bubble" + (crossing ? " lit" : "");
   }
 
-  // Where the stretch after the position ends: the next pausepoint that
-  // ran, else the first unit not yet run.
-  function nextStop(s) {
-    for (let i = shown.current + 1; i < shown.count; i++) {
-      if (shown.stops[i]) return s.at(shown.times[i]);
+  function stopGlide() {
+    if (glide && typeof cancelAnimationFrame === "function") cancelAnimationFrame(glide);
+    glide = 0;
+  }
+  // The head to a time: at once, or gliding there (one clean move,
+  // longer for a longer way, eased at both ends).
+  function setHead(t, glideThere) {
+    stopGlide();
+    const from = headT;
+    const way = shown ? Math.abs(scale().at(t) - scale().at(from)) * trackWidth() : 0;
+    if (!glideThere || !animate || way < 0.5) { headT = t; drawLens(); return; }
+    const ms = Math.min(GLIDE_MAX_MS, GLIDE_MIN_MS + way * GLIDE_MS_PER_PX);
+    const start = performance.now();
+    const step = (now) => {
+      const e = Math.min(1, (now - start) / ms);
+      const k = e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2;
+      headT = from + (t - from) * k;
+      glide = e < 1 ? requestAnimationFrame(step) : 0;
+      drawLens();
+    };
+    glide = requestAnimationFrame(step);
+  }
+
+  // The pausepoint that ran nearest a time (of several at one time, the
+  // last: the pause after its play).
+  function nearestStop(t) {
+    let best = 0;
+    for (let i = 0; i < shown.count; i++) {
+      if (shown.stops[i] && Math.abs(shown.times[i] - t) <= Math.abs(shown.times[best] - t)) best = i;
     }
-    return shown.future.length ? s.future(0) : null;
+    return best;
   }
 
   // Where a move lands. Forward through history, the pausepoint at or
@@ -340,33 +471,16 @@ function create(config) {
     return Math.min(1, s.at(times[count - 1]) + s.step);
   }
 
-  // -- The head --
-  // The position where no pausepoint stands for it: parked between
-  // pausepoints (UP/DOWN), a recording crossing a stretch, whose clock is
-  // the video's, or the pointer scrubbing one.
-  function drawHead() {
-    if (!head || !shown) return;
-    let f = null;
-    if (scrubbed !== null) f = scale().at(scrubbed);
-    else if (move && playhead !== null) f = scale().at(playhead);
-    else if (!move && !shown.stops[shown.current]) {
-      f = scale().at(shown.times[shown.current]);
-    }
-    head.className = "rail-head" + (f === null ? " off" : "");
-    if (f !== null) setVar(head, "--f", fmt(f));
-  }
-
   function applyMove() {
     body.classList.toggle("moving", !!move);
-    drawBand();
-    drawHead();
+    drawLens();
   }
 
   function handleMove(data) {
     clearTimeout(moveClear);
     if (data.from === null || data.from === undefined) {
       // Hold a short move lit long enough to be seen: a 0.3s play would
-      // otherwise flicker the band on and off in one blink.
+      // otherwise flicker the bubble on and off in one blink.
       const held = Math.max(0, MIN_LIT_MS - (performance.now() - moveSince));
       moveClear = setTimeout(() => { move = null; applyMove(); }, held);
       return;
@@ -377,18 +491,27 @@ function create(config) {
   }
 
   // -- The pointer --
-  // The rail hit-tests by the nearest mark, as Plass's does: a 5 px dot
-  // takes HIT px either side and the rail's whole height, and the marks
-  // themselves take no pointer events. A key on a focused mark is the
-  // mark's own click.
-  function nearest(x) {
-    let best = null, bestD = HIT;
-    for (const mark of marks) {
+  // Inside the lens the nearest of its marks takes the pointer; outside
+  // it, the nearest timeline mark within HIT px. The marks take no
+  // pointer events themselves; a key on a focused mark is its own click.
+  function markNear(x, within) {
+    let best = null, bestD = within;
+    const consider = (mark) => {
+      if (mark.hidden) return;
       const box = mark.getBoundingClientRect();
       const d = Math.abs(box.left + box.width / 2 - x);
       if (d <= bestD) { best = mark; bestD = d; }   // a tie goes to the later
+    };
+    if (inLens(x)) {
+      specs.forEach((spec, k) => { if (isDot(spec)) consider(lensMarks[k]); });
+    } else {
+      specs.forEach((spec, k) => { if (isDot(spec)) consider(backMarks[k]); });
     }
     return best;
+  }
+  function inLens(x) {
+    const box = lens.getBoundingClientRect();
+    return x >= box.left && x <= box.right;
   }
   function setHot(mark) {
     if (mark === hot) return;
@@ -397,63 +520,75 @@ function create(config) {
     if (hot) hot.classList.add("hot");
     for (const listener of hotListeners) listener(hot);
   }
+
   // -- Scrubbing --
-  // Where the page can seek to any time (a recording; config.scrub), a
-  // press dragged along the rail scrubs it (Taylor, 2026-10-07: "the
-  // ability to scrub through with the mouse in present mode"): the head
-  // follows the pointer and the picture follows the head, and the
-  // release lands on the checkpoint nearest in time, so the position is
-  // a checkpoint again, as every other way of moving leaves it. A press
-  // that moves less than DRAG px is a click.
-  const scrub = config.scrub || null;
-  let press = null;   // { x, id, dragging } from pointerdown to pointerup
+  // A press dragged along the rail scrubs (Taylor, 2026-10-07/08): the
+  // head is the pointer's time, the lens rides centred on it, the
+  // pausepoint nearest it is lit and the bubble lights the stretch it is
+  // in; the release glides the head to that pausepoint, the position the
+  // page then parks on. Dragged from the lens, the head moves with the
+  // pointer one for one along the whole timeline (a scrollbar's thumb);
+  // pressed elsewhere, it jumps under the pointer first. The page says
+  // what a scrub shows (config.scrub.to and end: a recording seeks to the
+  // time, the live engine jumps to each pausepoint as it is crossed).
+  let press = null;   // { x, id, fromLens, t0, dragging }
   let swallowClick = false;
-  function timeAt(x) {
-    const box = span.getBoundingClientRect();
-    return scale().time(box.width > 0 ? (x - box.left) / box.width : 0);
-  }
   function scrubTo(x) {
-    scrubbed = timeAt(x);
-    scrub.to(scrubbed);
-    drawHead();
+    const s = scale();
+    const box = span.getBoundingClientRect();
+    const f = press.fromLens
+      ? s.at(press.t0) + (x - press.x) / s.W
+      : (x - box.left) / s.W;
+    scrubbed = s.time(f);
+    headT = scrubbed;
+    scrub.to(scrubbed, nearestStop(scrubbed));
+    drawLens();
   }
   if (railEl.addEventListener) {
     railEl.addEventListener("pointerdown", (e) => {
-      if (!scrub || !scrub.enabled() || !shown || e.button !== 0) return;
-      press = { x: e.clientX, id: e.pointerId, dragging: false };
+      if (!shown || e.button !== 0) return;
+      press = { x: e.clientX, id: e.pointerId, fromLens: inLens(e.clientX),
+                t0: headT, dragging: false };
     });
     railEl.addEventListener("pointermove", (e) => {
       if (press && e.pointerId === press.id) {
-        if (!press.dragging && Math.abs(e.clientX - press.x) >= DRAG) {
+        if (!press.dragging && Math.abs(e.clientX - press.x) >= DRAG
+            && scrub && scrub.enabled() && shown.count > 1) {
           press.dragging = true;
           railEl.setPointerCapture(press.id);
           railEl.classList.add("scrubbing");
           setHot(null);
+          stopGlide();
         }
         if (press.dragging) { scrubTo(e.clientX); return; }
       }
-      setHot(nearest(e.clientX));
+      setHot(markNear(e.clientX, inLens(e.clientX) ? Infinity : HIT));
     });
-    const release = (e, cancelled) => {
+    const release = (e) => {
       if (!press || e.pointerId !== press.id) return;
       const dragged = press.dragging;
       press = null;
       if (!dragged) return;
       railEl.classList.remove("scrubbing");
       swallowClick = true;   // the click that follows a drag is not one
-      const t = cancelled ? scrubbed : timeAt(e.clientX);
+      const index = nearestStop(scrubbed);
+      const t = scrubbed;
       scrubbed = null;
-      scrub.end(t);
-      drawHead();
+      scrub.end(t, index);
+      setHead(shown.times[index], true);
     };
-    railEl.addEventListener("pointerup", (e) => release(e, false));
-    railEl.addEventListener("pointercancel", (e) => release(e, true));
+    railEl.addEventListener("pointerup", release);
+    railEl.addEventListener("pointercancel", release);
     railEl.addEventListener("pointerleave", () => { if (!press) setHot(null); });
     railEl.addEventListener("click", (e) => {
       if (swallowClick) { swallowClick = false; return; }
       if (e.target && e.target.closest && e.target.closest(".mark")) return;
-      const mark = nearest(e.clientX);
-      if (mark) mark.onclick();
+      // In the lens, its nearest mark; on the timeline, the nearest mark
+      // within reach, else the pausepoint nearest that time.
+      const mark = markNear(e.clientX, inLens(e.clientX) ? Infinity : HIT);
+      if (mark) { mark.onclick(); return; }
+      const box = span.getBoundingClientRect();
+      config.onChipClick(nearestStop(scale().time((e.clientX - box.left) / trackWidth())));
     });
   }
 
@@ -475,8 +610,8 @@ function create(config) {
     handleState,
     handleMove,
     describe,
-    // The track changed length (a resize): every fraction is read again.
-    relayout() { if (shown) draw(); },
+    // The track changed length (a resize): every place is read again.
+    relayout() { if (shown) { drawMarks(); drawLens(); } },
     onHot(listener) { hotListeners.push(listener); },
   };
 }

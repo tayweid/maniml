@@ -147,9 +147,8 @@ const ManimlPresentation = (() => {
     playToPreviousStop() { if (!interrupt(false)) moveTo(prevStop(), true); },
     stepCheckpoint(direction) { park(index + direction); },
     // The mouse scrubbing the rail: the picture at any time, a move in
-    // flight ended where it stood; the release parks on the checkpoint
-    // nearest that time (of several at one time, the last: the pause
-    // after its play).
+    // flight ended where it stood (the release parks with
+    // seekCheckpoint, on the pausepoint the rail chose).
     scrubTo(time) {
       if (!video || !meta) return;
       loopRange = null;
@@ -158,15 +157,6 @@ const ManimlPresentation = (() => {
         if (callbacks.onRest) callbacks.onRest(index);
       }
       video.currentTime = Math.max(0, time);
-    },
-    scrubEnd(time) {
-      const list = checkpoints();
-      if (!list.length) return;
-      let best = 0;
-      list.forEach((cp, i) => {
-        if (Math.abs(cp.time - time) <= Math.abs(list[best].time - time)) best = i;
-      });
-      park(best);
     },
     seekCheckpoint(checkpointIndex) { park(checkpointIndex); },
     togglePause() {

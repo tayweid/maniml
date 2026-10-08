@@ -156,7 +156,7 @@ class ViewerTests(unittest.TestCase):
         # opens under — the way in and the way out are the same spot — and
         # it sits outside the bar so it stays in full screen, where the bar
         # never shows.
-        self.assertIn("#console-toggle {\n    position: fixed; top: calc((var(--topbar) - 32px) / 2); "
+        self.assertIn("#corner {\n    position: fixed; top: calc((var(--topbar) - 32px) / 2); "
                       "right: var(--edge);", viewer)
         toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index("</header>")]
         self.assertNotIn('id="console-toggle"', toolbar)
@@ -164,7 +164,7 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("@starting-style {", viewer)
         # Opened, the panel stays in full screen rather than receding with
         # the presenter's bar: a panel you asked for must not vanish.
-        self.assertIn("body.fullscreen #console { top: 56px; right: 12px; bottom: 52px; }", viewer)
+        self.assertIn("body.fullscreen #console { top: 56px; right: 12px; bottom: 32px; }", viewer)
         self.assertNotIn("body.fullscreen.chrome #console", viewer)
         # setConsole(true) is reachable from the toggle, the shortcut, the
         # remembered per-tab preference and a new error — never from a log
@@ -203,18 +203,22 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("claimed.delete(e.key)", viewer)
 
     def test_full_screen_shows_the_rail_and_the_toggle_and_never_the_bar(self):
-        """In full screen only the presenter's bar (receding, back when the
-        pointer nears an edge) and the console's toggle are there; the bar
-        across the top never shows (Taylor, 2026-10-04)."""
+        """In full screen only the rail (across the display's foot over the
+        picture, receding, back when the pointer nears an edge) and the
+        corner pill are there; the bar across the top never shows (Taylor,
+        2026-10-04, 2026-10-08)."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn("body.fullscreen #stage-area { inset: 0; background: #000; }", viewer)
         self.assertIn("body.fullscreen #toolbar { display: none; }", viewer)
         self.assertNotIn("body.fullscreen.chrome #toolbar", viewer)
-        # opacity alone would leave invisible pods eating canvas clicks.
-        self.assertIn("opacity: 0; visibility: hidden; transform: translateY(14px);", viewer)
-        self.assertIn("body.fullscreen.chrome #navbar { opacity: 1; visibility: visible; transform: none; }",
+        # opacity alone would leave an invisible rail eating canvas clicks.
+        self.assertIn("opacity: 0; visibility: hidden;\n    transition: opacity 180ms ease", viewer)
+        self.assertIn("body.fullscreen.chrome #railbar { opacity: 1; visibility: visible; transform: none; }",
                       viewer)
-        self.assertIn("top: 12px; right: 12px; background: var(--glass);", viewer)
+        self.assertIn("top: 12px; right: 12px; gap: 0; padding: 0 4px; background: var(--glass);", viewer)
+        # The chrome is held while the pointer is on the rail or the corner.
+        self.assertIn('|| railbar.matches(":hover")', viewer)
+        self.assertIn('|| corner.matches(":hover")', viewer)
 
     def test_the_position_slug_and_stale_dot_are_styled(self):
         """The word tag ("Pausepoint") is gone from the transport pod, so the
@@ -235,19 +239,23 @@ class ViewerTests(unittest.TestCase):
             self.assertIn(element, viewer, element)
 
     def test_presenter_controls_share_one_bar_with_the_rail(self):
-        """Everything touched while showing a scene is on the bottom bar, and
-        the rail it moves along is part of the same run of pods."""
+        """Since 2026-10-08 the foot of the window is the rail's alone: Back,
+        the position and Next are the top bar's tiles at its right end
+        (Start among them, hidden: the rail's start is always there), and
+        Present and Full screen are in the corner group with the console's
+        handle."""
         viewer = (STATIC / "viewer.html").read_text()
-        navbar = viewer[viewer.index('<div id="navbar"'):viewer.index("<script src=")]
-        for control in ('id="start"', 'id="previous"', 'id="next"', 'id="position"',
-                        'id="rail"', 'id="fullscreen"'):
-            self.assertIn(control, navbar, control)
-        # Start is the transport pod's first control, before Back.
-        self.assertLess(navbar.index('id="start"'), navbar.index('id="previous"'))
-        # The top bar keeps the file and the tools, and nothing else.
-        toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index('<aside id="console"')]
-        for moved in ('id="start"', 'id="previous"', 'id="next"', 'id="fullscreen"'):
-            self.assertNotIn(moved, toolbar, moved)
+        toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index("</header>")]
+        transport = toolbar[toolbar.index('<span class="transport"'):]
+        for control in ('id="start"', 'id="previous"', 'id="position"', 'id="next"'):
+            self.assertIn(control, transport, control)
+        self.assertLess(transport.index('id="start"'), transport.index('id="previous"'))
+        corner = viewer[viewer.index('<div id="corner">'):viewer.index('<aside id="console"')]
+        for control in ('id="present"', 'id="fullscreen"', 'id="console-toggle"'):
+            self.assertIn(control, corner, control)
+        railbar = viewer[viewer.index('<div id="railbar">'):]
+        self.assertIn('<div id="rail" role="list" aria-label="Scene pausepoints"></div>', railbar[:200])
+        self.assertNotIn('id="navbar"', viewer)
 
     def test_home_reaches_the_engine_live_and_the_recording_in_playback(self):
         """Home is the Start control's key. Live it is forwarded to the
@@ -270,29 +278,28 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('document.getElementById("start").onclick', present)
 
     def test_the_presenters_bar_is_a_run_of_pods(self):
-        """The seams and stadium ends come from shell.css. Since the frame
-        (2026-10-02) the presenter's bar is the one run of pods: the bar at
-        the top is the frame's, as Knuth's and Plass's are."""
+        """The seams and stadium ends come from shell.css, where the student
+        bundle's floating bar (present.html, which copies them) still reads
+        them; the viewer's bar at the top is the frame's, as Knuth's and
+        Plass's are, and its foot is the rail's gutter."""
         shell = (STATIC / "shell.css").read_text()
         self.assertIn(".pod-run > .pod:first-child", shell)
         self.assertIn(".pod-run > .pod:last-child", shell)
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn('<div id="navbar" class="pod-run"', viewer)
         self.assertNotIn('<header id="toolbar" class="pod-run"', viewer)
+        self.assertIn('<div id="navbar" class="pod-run"', (STATIC / "present.html").read_text())
 
     def test_the_rail_can_light_a_single_stretch(self):
-        """The band is the stretch in question: faint over the one the next
-        arrow plays, lit over the one a move crosses, so one stretch can
-        light while its animation plays."""
+        """The bubble is the stretch being crossed, lit in the accent: a
+        move's, or the one round the head while it scrubs or glides; no
+        pausepoint is lit while a move crosses a stretch, so the rail never
+        claims a position it is on its way out of."""
         viewer = (STATIC / "viewer.html").read_text()
         rail = (STATIC / "rail.js").read_text()
-        self.assertIn("function drawBand(", rail)
+        self.assertIn("function bubbleRange(", rail)
         self.assertIn("function destination(", rail)
-        self.assertIn(".rail-band.lit {", viewer)
-        # The position must leave the mark being departed, or the rail keeps
-        # claiming a position it is on its way out of — the lag that made
-        # stepping feel like a jump.
-        self.assertIn("body.moving #rail .mark.current", viewer)
+        self.assertIn("if (move || glide) return -1;", rail)
+        self.assertIn(".rail-bubble.lit { opacity: 1; }", viewer)
 
     def test_a_move_says_which_stretch_and_not_how_far(self):
         """Live, progress through an animation is on screen at full size
@@ -310,20 +317,22 @@ class ViewerTests(unittest.TestCase):
         self.assertIn("onTime: (time) => presenter.time(time),", viewer)
 
     def test_a_recording_can_be_scrubbed_with_the_mouse(self):
-        """In playback a press dragged along the rail scrubs the recording
-        and the release parks on the nearest checkpoint (Taylor,
-        2026-10-07); the live engine cannot seek to a time, so it is the
-        recording's alone, and the bundle page has it too."""
+        """A press dragged along the rail scrubs (Taylor, 2026-10-07/08): the
+        head is the pointer's time with the lens centred on it, and the
+        release glides to the nearest pausepoint. A recording seeks to the
+        time; the live engine jumps to each pausepoint crossed, throttled;
+        the bundle page scrubs its recording too."""
         rail = (STATIC / "rail.js").read_text()
         self.assertIn("const DRAG = 3;", rail)
-        self.assertIn("scrub.end(t);", rail)
+        self.assertIn("scrub.end(t, index);", rail)
+        self.assertIn("setHead(shown.times[index], true);", rail)
         presentation = (STATIC / "presentation.js").read_text()
         self.assertIn("scrubTo(time) {", presentation)
-        self.assertIn("scrubEnd(time) {", presentation)
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn('enabled: () => stageSource === "playback",', viewer)
+        self.assertIn("ManimlPresentation.scrubTo(time) : scrubLive(index)),", viewer)
+        self.assertIn("function scrubLive(index) {", viewer)
         self.assertIn("#rail.scrubbing { cursor: ew-resize; }", viewer)
-        self.assertIn("end: (time) => ManimlPresentation.scrubEnd(time),",
+        self.assertIn("end: (time, index) => ManimlPresentation.seekCheckpoint(index),",
                       (STATIC / "present.html").read_text())
 
     def test_an_unknowable_pausepoint_count_is_drawn_as_one(self):
@@ -567,7 +576,7 @@ class FrameTests(unittest.TestCase):
         the picture (docs/ROOM-DRAFT.md)."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('<div id="stage-area">\n<div id="stage">', viewer)
-        self.assertIn("#stage-area {\n    position: absolute; inset: var(--topbar) var(--edge) calc(var(--edge) * 2 + 28px);",
+        self.assertIn("#stage-area {\n    --aspect: 16 / 9;\n    position: absolute; inset: var(--topbar) var(--edge) var(--gutter);",
                       viewer)
         self.assertIn("container-type: size;", viewer)
         self.assertIn("width: min(100cqw, calc(100cqh * var(--aspect)));", viewer)
@@ -585,53 +594,43 @@ class FrameTests(unittest.TestCase):
         self.assertIn('stage.style.setProperty("--aspect", aspect);', viewer)
         self.assertIn("fitStage(canvas.width, canvas.height);\n    setRenderError(null);", viewer)
         self.assertIn("fitStage(playbackVideo.videoWidth, playbackVideo.videoHeight);", viewer)
-        # The presenter's bar stands on the frame's foot: 12 px above the
-        # frame's edge, in the band the room stops above.
-        self.assertIn("left: 0; right: 0; bottom: var(--edge);", viewer)
+        # The rail stands in the 20 px gutter the room stops above, as wide
+        # as the picture (the room's own fit, from the opening it hangs under).
+        self.assertIn("--gutter: 20px;", viewer)
+        railbar = viewer[viewer.index("  #railbar {"):]
+        self.assertIn("top: 100%; left: 50%;\n    width: min(100cqw, calc(100cqh * var(--aspect))); height: var(--gutter);",
+                      railbar[:200])
         # The console is a column of the opening beside the room, which
         # gives up its width and the 12 px between them.
         self.assertIn("body.console #console { display: flex; opacity: 1; transform: none; }", viewer)
         self.assertNotIn("body.console #stage-area", viewer)
-        self.assertNotIn("body.console #navbar", viewer)
 
     def test_the_presenters_bar_is_thin_and_the_rail_is_bars(self):
-        """The pods are 28 px (Plass's old 42, cut down; Taylor, 2026-10-04),
-        their buttons 24 with 16 px glyphs, the run's ends 14 px stadiums;
-        the rail is a scroll rail on its side, as long as its marks ask
-        (26 px a mark, 240 to 640 px), its pausepoints 5 px dots at their
-        times and its ends upright dashes (Taylor, 2026-10-07); the opening and the console stop 52 px above
-        the frame's edge above the window's bottom (the edge, the pods,
-        the edge)."""
+        """The rail is a scroll rail on its side in the gutter under the room
+        (Taylor, 2026-10-07/08): every mark on its timeline placed by its
+        fraction and never moving, the pausepoints 5 px dots (2.5 px where
+        crowded), the ends upright dashes, the plays faint ticks; over it a
+        lens, Plass's band squared and opaque, magnifying the marks round
+        the head, a tall dash in the accent; the console stops 12 px above
+        the gutter."""
         viewer_ = (STATIC / "viewer.html").read_text()
-        self.assertIn("gap: 5px; padding: 0 var(--edge); pointer-events: none;", viewer_)
-        self.assertIn("body.fullscreen #navbar { bottom: 12px; padding: 0 12px; }", viewer_)
-        self.assertIn(".rail-pod { flex: 0 1 auto; min-width: 0; padding: 0 4px; }", viewer_)
-        self.assertIn('aria-label="Jump to the start" disabled hidden>', viewer_)
-        # The rail is a horizontal scroll rail: its length follows its
-        # marks, every mark placed by its fraction, the pausepoints 5 px
-        # dots, the ends upright dashes, the plays faint ticks, the hot
-        # mark grown and whitened as on Plass's rail.
-        self.assertIn("width: clamp(240px, calc(var(--marks, 2) * 26px), 640px);", viewer_)
-        self.assertIn("position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);\n"
-                      "    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;", viewer_)
+        self.assertIn(".rail-timeline .mark { left: calc(var(--f, 0) * 100%); }", viewer_)
+        self.assertIn(".mark.dot { width: 5px; height: 5px; }", viewer_)
+        self.assertIn(".mark.dot.small { width: 2.5px; height: 2.5px; }", viewer_)
         self.assertIn("width: 1.5px; height: 11px; border-radius: 1px;", viewer_)
         self.assertIn(".mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }", viewer_)
-        self.assertIn(".mark.current { background: var(--accent);", viewer_)
-        self.assertIn(".rail-head.off { opacity: 0; }", viewer_)
+        self.assertIn(".rail-lens .mark.current { background: var(--accent);", viewer_)
+        self.assertIn("border-radius: 4px; background: #242327;", viewer_)
+        self.assertIn("position: absolute; top: 1px; bottom: 1px; width: 2px; margin-left: -1px;", viewer_)
         self.assertIn("new ResizeObserver(() => rail.relayout()).observe(railEl);", viewer_)
         # Nothing folds or scrolls any more.
         for gone in ("function foldRail()", "function packLinks(", "function magnifyRail(",
-                     "#rail.cut-left", ".chip {", ".link {"):
+                     "#rail.cut-left", ".chip {", ".link {", ".rail-band"):
             self.assertNotIn(gone, viewer_, gone)
         self.assertEqual(viewer_.count('const railEl = document.getElementById("rail");'), 1)
+        self.assertIn("right: calc(var(--edge) + 12px); bottom: calc(var(--gutter) + 12px);", viewer_)
         shell = (STATIC / "shell.css").read_text()
         self.assertIn(".pod {\n  height: 28px;", shell)
-        self.assertIn(".pod-run > .pod:first-child { border-radius: 14px 8px 8px 14px; }", shell)
-        self.assertIn("width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;", shell)
-        self.assertIn("width: 16px; height: 16px; fill: none;", shell)
-        viewer = (STATIC / "viewer.html").read_text()
-        self.assertNotIn("flex-shrink: 0.5", viewer_)
-        self.assertIn("right: calc(var(--edge) + 12px); bottom: calc(var(--edge) * 2 + 28px + 12px);", viewer)
         # The bar's tiles keep their 32 px: the pods' size is the pods'.
         self.assertIn("#toolbar .icon-button {\n  flex: none; width: 32px; height: 32px;", shell)
 

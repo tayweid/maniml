@@ -94,23 +94,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const f = (el) => Number(el.style.getPropertyValue("--f"));
 const round = (x) => Math.round(x * 1000) / 1000;
+const pxOf = (el) => round(parseFloat(el.style.left));
+const timeline = (dom) => dom.railEl.querySelector(".rail-timeline").children;
+const lensMarks = (dom) => dom.railEl.querySelector(".rail-lens").children.filter((c) => c.cls.has("mark"));
 function railState(dom) {
-  const marks = dom.railEl.querySelectorAll(".mark");
-  const band = dom.railEl.querySelector(".rail-band");
-  const head = dom.railEl.querySelector(".rail-head");
+  const lit = lensMarks(dom).findIndex((m) => m.cls.has("current"));
   return {
     position: dom.byId["position-now"].textContent + dom.byId["position-total"].textContent,
     moving: dom.body.classList.contains("moving"),
-    current: marks.findIndex((m) => m.cls.has("current")),
-    band: [round(Number(band.style.getPropertyValue("--a"))),
-           round(Number(band.style.getPropertyValue("--b"))),
-           band.cls.has("lit") ? (band.cls.has("back") ? "back" : "lit") : "-"],
-    head: head.cls.has("off") ? null : round(f(head)),
+    lit: lit < 0 ? null : Number(lensMarks(dom)[lit].dataset.index),
+    bubble: dom.railEl.querySelector(".rail-bubble").cls.has("lit"),
+    head: pxOf(dom.railEl.querySelector(".rail-head")),
   };
 }
-const places = (dom, sel) => dom.railEl.querySelectorAll(sel).map((m) => round(f(m)));
-const kinds = (dom) => dom.railEl.querySelectorAll(".mark").map((m) =>
-  (m.cls.has("start") ? "start" : m.cls.has("end") ? "end" : "dot")
+const places = (dom) => timeline(dom).map((m) => round(f(m)));
+const kinds = (dom) => timeline(dom).map((m) =>
+  (m.cls.has("start") ? "start" : m.cls.has("end") ? "end" : m.cls.has("tick") ? "tick" : "dot")
   + (m.cls.has("future") ? "?" : "") + (m.cls.has("many") ? "*" : ""));
 function makeRail(dom, clicks = [], futureClicks = []) {
   return ManimlRail.create({
@@ -122,13 +121,13 @@ function makeRail(dom, clicks = [], futureClicks = []) {
 }
 
 (async () => {
-  // ---- Scene 1: a live stretch — the band lit, position held ----
+  // ---- Scene 1: a live stretch — the bubble lit, the head held ----
   {
     const dom = makeDom();
     const chipClicks = [];
     const rail = makeRail(dom, chipClicks);
-    // cp0 Start; cp1..3 interior plays; cp4 the pause: two marks (the
-    // ends) and three ticks, each at its time.
+    // cp0 Start; cp1..3 interior plays; cp4 the pause: two dots (the
+    // ends) and three play steps' dashes, each at its time.
     const table = {
       count: 5,
       lines: [null, 10, 11, 12, 13],
@@ -138,52 +137,47 @@ function makeRail(dom, clicks = [], futureClicks = []) {
       future: [],
     };
     rail.presenter.stateChanged({ ...table, current: 0 });
-    check("stretch: the ends are dashes, the plays ticks, each at its time",
-      { kinds: kinds(dom), marks: places(dom, ".mark"), ticks: places(dom, ".tick") },
-      { kinds: ["start", "end"], marks: [0, 1], ticks: [0.333, 0.667, 1] });
-    check("stretch: at rest on Start, the band over the stretch ahead",
+    check("stretch: the timeline holds the ends and the play steps at their times",
+      { kinds: kinds(dom), places: places(dom) },
+      { kinds: ["start", "tick", "tick", "tick", "end"], places: [0, 0.333, 0.667, 1, 1] });
+    check("stretch: at rest on Start, the head there and the start lit",
       railState(dom),
-      { position: "1 / 5", moving: false, current: 0, band: [0, 1, "-"], head: null });
-    const firstMark = dom.railEl.querySelectorAll(".mark")[0];
+      { position: "1 / 5", moving: false, lit: 0, bubble: false, head: 0 });
+    const firstMark = lensMarks(dom)[0];
     // Start and Back have nowhere to go from the start.
     check("stretch: Start and Back disabled at the start",
       [dom.byId.start.disabled, dom.byId.previous.disabled], [true, true]);
 
     rail.presenter.moveStarted(0, 1, false, 2);
-    check("stretch: move opens — the band lights to the pausepoint, the position lifts",
+    check("stretch: move opens — the bubble lights, the position lifts, the head holds",
       railState(dom),
-      { position: "1 / 5", moving: true, current: 0, band: [0, 1, "lit"], head: null });
+      { position: "1 / 5", moving: true, lit: null, bubble: true, head: 0 });
 
     // interior checkpoints save mid-stretch: display must not change
     rail.presenter.stateChanged({ ...table, current: 2 });
     rail.presenter.stateChanged({ ...table, current: 3 });
     check("stretch: interior states pend — display unchanged",
       railState(dom),
-      { position: "1 / 5", moving: true, current: 0, band: [0, 1, "lit"], head: null });
+      { position: "1 / 5", moving: true, lit: null, bubble: true, head: 0 });
 
     // arrival: landing state pends, then the move closes and lands it
     rail.presenter.stateChanged({ ...table, current: 4 });
     rail.presenter.moveEnded(null);
-    await sleep(300);   // MIN_LIT_MS clears the band
-    check("stretch: landing — position advances, band at rest",
+    await sleep(300);   // MIN_LIT_MS clears the bubble
+    check("stretch: landing — the head at the pausepoint, lit, the bubble out",
       railState(dom),
-      { position: "5 / 5", moving: false, current: 1, band: [1, 1, "-"], head: null });
+      { position: "5 / 5", moving: false, lit: 4, bubble: false, head: 400 });
     check("stretch: Start and Back enabled once off the start",
       [dom.byId.start.disabled, dom.byId.previous.disabled], [false, false]);
-    check("stretch: marks are updated in place (transitions possible)",
-      dom.railEl.querySelectorAll(".mark")[0] === firstMark, true);
+    check("stretch: marks are updated in place",
+      lensMarks(dom)[0] === firstMark, true);
 
     // Parked between pausepoints (UP/DOWN lands on an interior play
-    // checkpoint): the head stands at the play's time, and no mark
-    // claims the position.
+    // checkpoint): the head stands at the play's time and no pausepoint
+    // is lit.
     rail.presenter.stateChanged({ ...table, current: 2 });
-    check("park mid-stretch: the head at the play, no mark current",
-      { current: railState(dom).current, head: railState(dom).head },
-      { current: -1, head: 0.667 });
-    rail.presenter.stateChanged({ ...table, current: 4 });
-    check("park mid-stretch: back at the pausepoint the head goes",
-      { current: railState(dom).current, head: railState(dom).head },
-      { current: 1, head: null });
+    check("park mid-stretch: the head at the play, no pausepoint lit",
+      [railState(dom).lit, railState(dom).head], [null, 266.67]);
 
     // A click parks browser focus on the mark, which survives every
     // redraw, so the handler drops focus itself.
@@ -191,9 +185,10 @@ function makeRail(dom, clicks = [], futureClicks = []) {
     firstMark.blur = () => { blurred = true; };
     firstMark.onclick();
     check("stretch: a click drops focus (no stuck ring)", blurred, true);
-    dom.railEl.querySelectorAll(".mark")[1].onclick();
-    check("stretch: a mark's click lands on its pausepoint",
-      chipClicks, [0, 4]);
+    lensMarks(dom)[4].onclick();
+    lensMarks(dom)[2].onclick();
+    check("stretch: a pausepoint's click lands on it, a play step's on the play",
+      chipClicks, [0, 4, 2]);
   }
 
   // ---- Scene 2: what has not run stands at a fixed interval ----
@@ -209,16 +204,13 @@ function makeRail(dom, clicks = [], futureClicks = []) {
     rail.presenter.stateChanged({ ...table, current: 1 });
     // 400 px of track, 14 px a unit not yet run: the run part is 372 px.
     check("future: the run part by time, the rest 14 px apart",
-      { kinds: kinds(dom), marks: places(dom, ".mark") },
-      { kinds: ["start", "dot", "dot?", "end?*"], marks: [0, 0.93, 0.965, 1] });
-    check("future: the band at rest reaches the next unit",
-      railState(dom).band, [0.93, 0.965, "-"]);
+      { kinds: kinds(dom), places: places(dom) },
+      { kinds: ["start", "dot", "dot?", "end?*"], places: [0, 0.93, 0.965, 1] });
     rail.presenter.moveStarted(1, 2, false, 5);
-    check("future: a move at the frontier lights to the unit being run",
-      railState(dom).band, [0.93, 0.965, "lit"]);
+    check("future: a move at the frontier lights the bubble", railState(dom).bubble, true);
     rail.presenter.moveEnded(null);
-    const runMark = dom.railEl.querySelectorAll(".mark")[2];
-    runMark.onclick();
+    const runMark = timeline(dom)[2];
+    lensMarks(dom)[2].onclick();
     check("future: a not-yet-run mark's click names its unit", futureClicks, [5]);
     await sleep(300);
     rail.presenter.stateChanged({
@@ -226,9 +218,8 @@ function makeRail(dom, clicks = [], futureClicks = []) {
       stops: [true, true, true], future: [{ unit: 6, line: 40, many: true }],
       current: 2 });
     check("future: the unit that ran is the same mark, now at its time",
-      { same: dom.railEl.querySelectorAll(".mark")[2] === runMark,
-        kinds: kinds(dom), marks: places(dom, ".mark") },
-      { same: true, kinds: ["start", "dot", "dot", "end?*"], marks: [0, 0.643, 0.965, 1] });
+      { same: timeline(dom)[2] === runMark, kinds: kinds(dom), places: places(dom) },
+      { same: true, kinds: ["start", "dot", "dot", "end?*"], places: [0, 0.643, 0.965, 1] });
   }
 
   // ---- Scene 3: nothing has run yet — the track is the units' ----
@@ -239,7 +230,33 @@ function makeRail(dom, clicks = [], futureClicks = []) {
       count: 1, lines: [null], units: [-1], times: [0], stops: [true], current: 0,
       future: [{ unit: 1, line: 5 }, { unit: 2, line: 6 }, { unit: 3, line: 7 }] });
     check("unrun: the units spread over the whole track",
-      places(dom, ".mark"), [0, 0.333, 0.667, 1]);
+      places(dom), [0, 0.333, 0.667, 1]);
+  }
+
+  // ---- Scene 3b: the lens opens the marks round the head ----
+  {
+    const dom = makeDom();
+    const rail = makeRail(dom);
+    const n = 41;   // pausepoints a second apart: 10 px on 400
+    const table = {
+      count: n, lines: Array(n).fill(1), units: [...Array(n).keys()],
+      times: [...Array(n).keys()], stops: Array(n).fill(true), future: [],
+    };
+    rail.presenter.stateChanged({ ...table, current: 20 });
+    const lens = dom.railEl.querySelector(".rail-lens");
+    // 176 px wide, centred on the head at 200: from 112. Magnified 1.6
+    // times about the head, so its neighbour, 10 px on, stands 16 on.
+    check("lens: centred on the head, the head at its true place",
+      [pxOf(lens), pxOf(lens) + parseFloat(lens.style.width) / 2, railState(dom).head],
+      [112, 200, 200]);
+    check("lens: the marks round the head opened 1.6 times about it",
+      [pxOf(lensMarks(dom)[20]), pxOf(lensMarks(dom)[21]), pxOf(lensMarks(dom)[19])],
+      [88, 104, 72]);
+    check("lens: what falls outside it is not drawn in it",
+      [lensMarks(dom)[0].hidden, lensMarks(dom)[40].hidden, lensMarks(dom)[25].hidden],
+      [true, true, false]);
+    check("lens: the timeline under it does not move",
+      round(f(timeline(dom)[21])), 0.525);
   }
 
   // ---- Scene 4: playback tracks its index; duplicate timestamps ----
@@ -338,8 +355,8 @@ function makeRail(dom, clicks = [], futureClicks = []) {
       [3, ["rest", 3], 1.3]);
     await sleep(100);
     check("scrub: the ticker leaves a scrubbed picture alone", video.currentTime, 1.3);
-    ManimlPresentation.scrubEnd(1.3);
-    check("scrub: the release parks on the nearest checkpoint",
+    ManimlPresentation.seekCheckpoint(1);
+    check("scrub: the release parks where the rail says",
       [ManimlPresentation.currentIndex(), events[events.length - 1]], [1, ["update", 1]]);
     ManimlPresentation.unload();
   }

@@ -11,6 +11,9 @@
 <style>
   :root {
     --glass-solid: #1b1a1e;
+    /* The rail's gutter under the room: Knuth's and Plass's 20 px scroll
+       rail gutter, turned on its side. */
+    --gutter: 20px;
   }
   html, body {
     margin: 0; height: 100%;
@@ -26,23 +29,21 @@
      scene's frame, 16:9 unless the scene says otherwise, --aspect), so
      the room is the largest box of that shape in the frame's opening —
      under the bar, the frame's edge from the window's left and right, and
-     above the presenter's bar, which now stands on the frame's foot (its
-     band: 12 px under the room, the 42 px pods, 12 px, the edge) rather
-     than floating over the scene; the band is the frame's edge under
-     the room, the 28 px pods, and the edge again to the window's bottom
-     (Taylor, 2026-10-04: the same margins as the window's sides) —
-     centred in the opening, and the frame
+     above the rail's gutter at the window's foot (Taylor, 2026-10-08:
+     Knuth's and Plass's scroll rail on its side, the whole length of the
+     room, rather than a floating bar) — centred in the opening, and the
+     frame
      shows round it where the window's shape differs from the picture's.
      The fit is CSS alone (container units on the opening), so a resize
      runs no script. Before the first frame the room is black, the colour
      a scene's picture starts from. */
   #stage-area {
-    position: absolute; inset: var(--topbar) var(--edge) calc(var(--edge) * 2 + 28px);
+    --aspect: 16 / 9;
+    position: absolute; inset: var(--topbar) var(--edge) var(--gutter);
     display: grid; place-items: center;
     container-type: size;
   }
   #stage {
-    --aspect: 16 / 9;
     position: relative;
     width: min(100cqw, calc(100cqh * var(--aspect)));
     aspect-ratio: var(--aspect);
@@ -56,25 +57,35 @@
   /* The console. Toggled by hand and never by itself: stepping through a
      scene prints on every arrow key, so a panel that opened on output would
      be opening constantly — and it must never appear mid-presentation.
-     Its toggle is the bar's last tile, at the bar's right end over the
-     room's edge (the bar's right padding keeps its place), lit while the
-     panel shows. It is fixed outside the bar so that it stays when the bar
-     recedes in full screen, where it is the floating glass pill it was. */
-  #console-toggle {
+     Its toggle is the bar's last tile, lit while the panel shows, in the
+     corner group with Present and Full screen (Taylor, 2026-10-08): the
+     three are fixed outside the bar at its right end (the bar's right
+     padding keeps their place), so they stay when the bar is gone in full
+     screen, where the group is one faded glass pill in the display's
+     corner. */
+  #corner {
     position: fixed; top: calc((var(--topbar) - 32px) / 2); right: var(--edge); z-index: 60;
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px; padding: 0;
-    background: transparent; border: 0; border-radius: 9px;
-    color: rgba(240, 238, 233, 0.62); cursor: pointer;
-    transition: opacity .25s ease, background .12s, color .12s;
+    display: flex; align-items: center; gap: 6px;
+    transition: opacity .25s ease, background .12s;
     -webkit-app-region: no-drag;
   }
+  #corner .icon-button, #console-toggle {
+    flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 9px;
+    background: transparent; color: rgba(240, 238, 233, 0.62); cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  #console-toggle {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+  }
+  #corner .icon-button:hover, #corner .icon-button:focus-visible,
   #console-toggle:hover, #console-toggle:focus-visible {
     color: #fff; background: rgba(255,255,255,.08);
   }
-  #console-toggle:focus-visible { outline: 2px solid #9db8d6; outline-offset: 2px; }
+  #corner .icon-button:focus-visible, #console-toggle:focus-visible {
+    outline: 2px solid #9db8d6; outline-offset: 2px;
+  }
   body.console #console-toggle { color: #fff; background: var(--tile); }
-  #console-toggle svg {
+  #corner .icon-button svg, #console-toggle svg {
     width: 18px; height: 18px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
   }
@@ -87,15 +98,21 @@
     background: #cd6452; box-shadow: 0 0 0 2px var(--frame);
   }
   body.scene-error #console-toggle svg { opacity: .35; }
-  body.fullscreen #console-toggle {
-    top: 12px; right: 12px; background: var(--glass); border: 1px solid var(--line);
-    border-radius: 999px; color: var(--text); opacity: .45;
+  body.fullscreen #corner {
+    top: 12px; right: 12px; gap: 0; padding: 0 4px; background: var(--glass);
+    border: 1px solid var(--line); border-radius: 999px; opacity: .45;
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   }
-  body.fullscreen #console-toggle:hover, body.fullscreen.console #console-toggle {
-    opacity: 1; background: rgba(255,255,255,.12);
+  body.fullscreen #corner:hover, body.fullscreen #corner:focus-within,
+  body.fullscreen.console #corner { opacity: 1; }
+  body.fullscreen #corner .icon-button, body.fullscreen #console-toggle {
+    width: 30px; height: 30px; border-radius: 999px; color: var(--text);
   }
-  body.fullscreen #console-toggle svg { width: 16px; height: 16px; }
+  body.fullscreen #corner .icon-button:hover, body.fullscreen #console-toggle:hover,
+  body.fullscreen.console #console-toggle { background: rgba(255,255,255,.12); }
+  body.fullscreen #corner .icon-button svg, body.fullscreen #console-toggle svg {
+    width: 16px; height: 16px;
+  }
   /* The panel: a card of glass over the picture, 12 px inside the room's
      top and right edges and clear of the presenter's bar, sliding in from
      the right when it opens and out when it closes (the discrete display
@@ -106,7 +123,7 @@
      reflows, the room keeps its box and the window its shape. */
   #console {
     position: fixed; z-index: 19; top: calc(var(--topbar) + 12px);
-    right: calc(var(--edge) + 12px); bottom: calc(var(--edge) * 2 + 28px + 12px);
+    right: calc(var(--edge) + 12px); bottom: calc(var(--gutter) + 12px);
     width: 340px; display: none; flex-direction: column;
     border: 1px solid var(--line); border-radius: 13px;
     background: var(--glass); box-shadow: var(--shadow);
@@ -123,9 +140,7 @@
      display, under the toggle; opened, it stays while the display is
      ours — a panel you asked for must not vanish under a settling
      pointer. */
-  body.fullscreen #stage-area { right: 0; }
-  body.fullscreen #navbar { bottom: 12px; padding: 0 12px; }
-  body.fullscreen #console { top: 56px; right: 12px; bottom: 52px; }
+  body.fullscreen #console { top: 56px; right: 12px; bottom: 32px; }
   #console-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 12px; border-bottom: 1px solid var(--line);
@@ -148,25 +163,27 @@
   #console-empty { color: var(--dim); font-style: italic; }
 
   /* Full screen: the opening is the display, black beyond the picture as
-     a projector's is. Only the presenter's bar and the console's toggle
-     are there (Taylor, 2026-10-04: "only the bottom rail and the upper
-     code button"; the bar across the top never shows — F, Escape and the
-     bar's own Full screen button leave): the toggle always, the
-     presenter's bar floating over the picture's foot, receding when the
-     pointer settles and coming back when it nears an edge. The pods stay
-     in the DOM and fade, but `visibility` has to go too — an invisible pod
-     would still eat clicks meant for the canvas. There is no frame in
-     full screen: what was measured from the frame's edge is measured from
-     the display's. */
+     a projector's is. Only the rail and the corner pill are there (Taylor,
+     2026-10-04: "only the bottom rail and the upper code button";
+     2026-10-08: Present and Full screen persist in the code button's
+     faded bubble; the bar across the top never shows — F, Escape and the
+     pill's Full screen button leave): the pill always, the rail across the
+     display's foot over the picture, receding when the pointer settles and
+     coming back when it nears an edge. It stays in the DOM and fades, but
+     `visibility` has to go too — an invisible rail would still eat clicks
+     meant for the canvas. There is no frame in full screen: what was
+     measured from the frame's edge is measured from the display's. */
   body.fullscreen { --edge: 0px; }
   body.fullscreen #stage-area { inset: 0; background: #000; }
   body.fullscreen #stage { border-radius: 0; box-shadow: none; }
   body.fullscreen #toolbar { display: none; }
-  body.fullscreen #navbar {
-    opacity: 0; visibility: hidden; transform: translateY(14px);
+  body.fullscreen #railbar {
+    top: auto; bottom: 0; left: 0; width: 100%; transform: translateY(6px);
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.45));
+    opacity: 0; visibility: hidden;
     transition: opacity 180ms ease, transform 180ms ease, visibility 180ms;
   }
-  body.fullscreen.chrome #navbar { opacity: 1; visibility: visible; transform: none; }
+  body.fullscreen.chrome #railbar { opacity: 1; visibility: visible; transform: none; }
   body.fullscreen.idle, body.fullscreen.idle #view { cursor: none; }
   #fullscreen .fs-exit { display: none; }
   body.fullscreen #fullscreen .fs-enter { display: none; }
@@ -255,13 +272,11 @@
      renderer, the update when there is one and the engine's status — then
      the console's toggle (fixed, above), whose place the bar's right
      padding keeps. */
-  #toolbar { padding-right: calc(var(--edge) + 32px + 6px); }
+  #toolbar { padding-right: calc(var(--edge) + 3 * 32px + 3 * 6px); }
   /* A pod carries backdrop-filter, which is a stacking context — so a
      word tag's z-index is trapped inside its own pod and a LATER sibling
      paints over it. Lift whichever pod the cursor is in. (Plass learned
      this one the hard way; it is not decoration.) */
-  #navbar > * { position: relative; }
-  #navbar > *:hover, #navbar > *:focus-within { z-index: 20; }
 
   /* A group in the bar: related tiles, 3 px apart as on Knuth's rail, and
      the quiet text they own. */
@@ -293,8 +308,6 @@
   #scene-menu { left: -1px; }
   .scene-option[aria-current="true"]::after { content: "\2713"; color: var(--frame-ink-soft); }
 
-  #navbar .control-label { top: auto; bottom: calc(100% + 10px);
-    transform: translate(-50%, 3px); }
 
   #position {
     min-width: 48px; padding: 0 6px; text-align: center; color: var(--dim);
@@ -348,116 +361,95 @@
   body.disconnected #connection-pod { background: rgba(205, 100, 82, 0.95); }
   body.disconnected #export-menu { opacity: .16; pointer-events: none; }
 
-  /* ---------- the presenter's bar ---------- */
-  /* It stands on the frame's foot, the frame's edge above the window's
-     bottom as the room is the edge in from its sides, centred: the
-     transport, the rail and the view as one run, the rail sized to its
-     ticks (Taylor, 2026-10-04: "we just shrink the rail to fit. no need
-     to have all that extra space") and giving way, folding, when the
-     window is narrower than its ticks want. */
-  #navbar {
-    position: fixed; z-index: 18; left: 0; right: 0; bottom: var(--edge);
-    display: flex; justify-content: center; align-items: center;
-    gap: 5px; padding: 0 var(--edge); pointer-events: none;
-  }
-  .transport-pod { padding: 0 3px; }
-  .rail-pod { flex: 0 1 auto; min-width: 0; padding: 0 4px; }
-  .view-pod { padding: 0 3px; }
-  #present.active { color: var(--good); opacity: 1; }
-  #present { position: relative; }
-  #present.stale::after { content: ""; position: absolute; top: 3px; right: 3px;
+  /* ---------- the transport and the rail ---------- */
+  /* Back, the position and Next are the bar's tiles now, at its right end
+     before the corner group (Taylor, 2026-10-08), and Present and Full
+     screen are in that group (#corner, above); the foot of the window is
+     the rail's alone. */
+  .transport { display: inline-flex; align-items: center; gap: 0; }
+  #present.active { color: var(--good); }
+  #present.stale::after { content: ""; position: absolute; top: 5px; right: 5px;
     width: 4px; height: 4px; border-radius: 50%; background: var(--warn); opacity: .7; }
 
   /* The rail is Plass's and Knuth's scroll rail on its side (rail.js;
-     Taylor, 2026-10-07): a hairline track, a band, and marks placed by
-     their fraction along it — a pausepoint a dot at its time, the start
-     and the end upright dashes, the plays between pausepoints (UP/DOWN's
-     steps) faint ticks, and what has not run yet grey, at a small fixed
-     interval after what has. Its length follows what it holds (--marks,
-     written by rail.js), 26 px a mark between 240 and 640 px, and it
-     gives way when the bar is narrower; nothing folds or scrolls, since
-     a fraction always fits. */
-  #rail {
-    position: relative; flex: 0 1 auto; min-width: 80px; height: 26px;
-    width: clamp(240px, calc(var(--marks, 2) * 26px), 640px); cursor: pointer;
+     Taylor, 2026-10-07): marks placed by their fraction along it — a
+     pausepoint a dot at its time, the start and the end upright dashes,
+     the plays between pausepoints (UP/DOWN's steps) faint ticks, and
+     what has not run yet grey, at a small fixed interval after what has —
+     and a lens riding over them, centred on the position, that opens up
+     the marks round it (2026-10-08). Since 2026-10-08 it is their rail in its
+     place too, not a pod on a floating bar: a 20 px gutter between the
+     room's foot and the window's, on the frame, its track exactly the
+     room's width (the same container fit as the room, from the opening
+     it hangs under), so the rail is as long as the picture whatever it
+     holds; nothing folds or scrolls, since a fraction always fits. */
+  #railbar {
+    position: absolute; z-index: 18; top: 100%; left: 50%;
+    width: min(100cqw, calc(100cqh * var(--aspect))); height: var(--gutter);
+    transform: translateX(-50%);
+    user-select: none; -webkit-user-select: none; touch-action: none;
   }
-  .rail-span { position: absolute; inset: 0 9px; }
-  /* A press dragged along a recording's rail scrubs it (rail.js). */
+  #rail { position: absolute; inset: 0; cursor: pointer; }
+  .rail-span { position: absolute; inset: 0 4px; }
+  /* A press dragged along the rail scrubs (rail.js). */
   #rail.scrubbing { cursor: ew-resize; }
-  .rail-track {
-    position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px;
-    background: rgba(255, 255, 255, 0.14);
-  }
-  /* The band: the stretch in question. At rest it is Plass's band at rest
-     (white 3.5 % over an 8 % edge) over the stretch the next arrow plays;
-     while a move crosses a stretch, that one, lit in the accent. It says
-     which stretch and, live, not how far along: the animation is on
-     screen at full size (a recording's head rides it; below). */
-  .rail-band {
-    position: absolute; top: 50%; height: 12px; margin-top: -6px;
-    left: calc(var(--a, 0) * 100% - 4px);
-    width: calc((var(--b, 0) - var(--a, 0)) * 100% + 8px);
-    border-radius: 4px; pointer-events: none;
-    background: rgba(255, 255, 255, 0.035);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    transition: left 280ms ease, width 280ms ease, background 200ms ease,
-      box-shadow 200ms ease, opacity 200ms ease;
-  }
-  .rail-band.empty { opacity: 0; }
-  .rail-band.lit {
-    background: rgba(88, 196, 221, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5), 0 0 9px rgba(88, 196, 221, 0.25);
-  }
-  /* The marks: buttons (a tab stop each, Return jumps) placed by --f. They
-     take no pointer events: the rail takes the nearest within 8 px
-     (rail.js), and that one grows and whitens, as on Plass's rail. */
+  /* The timeline: every mark at its place by --f, never moving as the
+     head does. A pausepoint is a 5 px dot (2.5 px where the scene is
+     crowded), the start and the end upright dashes, a play step a faint
+     tick (none where crowded), what has not run grey. */
   .mark {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;
-    background: rgba(240, 238, 233, 0.72);
+    position: absolute; top: 50%; padding: 0; border: 0; border-radius: 50%;
     transform: translate(-50%, -50%); pointer-events: none;
-    transition: left 280ms ease, transform 120ms ease, background 120ms ease,
-      box-shadow 200ms ease;
+    background: rgba(240, 238, 233, 0.42);
+  }
+  .rail-timeline .mark { left: calc(var(--f, 0) * 100%); }
+  .mark.dot { width: 5px; height: 5px; }
+  .mark.dot.small { width: 2.5px; height: 2.5px; }
+  .mark.tick { width: 1px; height: 5px; border-radius: 1px; background: rgba(240, 238, 233, 0.16); }
+  .mark.start, .mark.end {
+    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
   }
   .mark.future { background: rgba(150, 145, 153, 0.5); }
   /* A unit that may hold several pausepoints until it runs (a loop, a
      branch): a fainter dot behind it, so the rail does not claim a count
      it does not have. */
   .mark.many { box-shadow: 4px 0 0 -0.5px rgba(150, 145, 153, 0.32); }
-  .mark.start, .mark.end {
-    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
+  /* The lens: Plass's band, squared as his is, made a magnifier — opaque,
+     so the timeline under it is hidden, and holding the marks round the
+     head opened up (rail.js places them), every play step's dash
+     included. */
+  .rail-lens {
+    position: absolute; top: 3px; bottom: 3px; overflow: hidden;
+    border-radius: 4px; background: #242327;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
+    cursor: grab; transition: box-shadow 200ms ease;
   }
-  .mark.end.future { background: rgba(150, 145, 153, 0.5); }
-  .mark.current { background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
+  #rail.scrubbing .rail-lens { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24); cursor: ew-resize; }
+  .rail-lens .mark.dot { background: rgba(240, 238, 233, 0.78); }
+  .rail-lens .mark.tick { background: rgba(240, 238, 233, 0.32); }
+  .rail-lens .mark.future { background: rgba(150, 145, 153, 0.6); }
+  .rail-lens .mark.current { background: var(--accent); box-shadow: 0 0 5px rgba(88,196,221,.6); }
   .mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }
-  .mark.current.hot { background: var(--accent); }
+  .rail-lens .mark.current.hot { background: var(--accent); }
   .mark:focus { outline: none; }
   .mark:focus-visible { box-shadow: 0 0 0 1.5px var(--frame), 0 0 0 3px #9db8d6; }
-  /* While a move crosses a stretch the position is the stretch, not the
-     pausepoint being left: the accent leaves its mark and the lit band is
-     the whole story; the destination lights on arrival. A scrub likewise:
-     the head under the pointer is the position until the release. */
-  body.moving #rail .mark.current, #rail.scrubbing .mark.current {
-    background: rgba(240, 238, 233, 0.72); box-shadow: none; }
-  body.moving #rail .mark.start.current, #rail.scrubbing .mark.start.current,
-  body.moving #rail .mark.end.current, #rail.scrubbing .mark.end.current {
-    background: rgba(240, 238, 233, 0.6); }
-  .tick {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 1px; height: 5px; margin: -2.5px 0 0 -0.5px;
-    background: rgba(240, 238, 233, 0.24); pointer-events: none;
-    transition: left 280ms ease;
+  /* The bubble: the stretch being crossed, lit in the accent — a move's
+     (live, the engine says which and not how far along), or the one round
+     the head while it scrubs or glides. */
+  .rail-bubble {
+    position: absolute; top: 2px; bottom: 2px; border-radius: 3px;
+    background: rgba(88, 196, 221, 0.16); box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5);
+    opacity: 0; transition: opacity 200ms ease; pointer-events: none;
   }
-  /* The head: the position where no pausepoint stands for it, parked on a
-     play (UP/DOWN) or a recording crossing a stretch, where it rides the
-     video's clock. Knuth's caret bar in the accent, upright. */
+  .rail-bubble.lit { opacity: 1; }
+  /* The head: the position, a precise point — a tall dash in the accent at
+     its true place on the timeline and the lens's centre, standing out of
+     the lens above and below. */
   .rail-head {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px;
-    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
+    position: absolute; top: 1px; bottom: 1px; width: 2px; margin-left: -1px;
+    border-radius: 1px; background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
     pointer-events: none;
   }
-  .rail-head.off { opacity: 0; }
   /* The preview card over a hovered pausepoint (rail.js attachPreview):
      its still in a 16:9 frame — an empty outline where there is no
      picture yet — then its pause('Title') name, then the rail's line. */
@@ -506,7 +498,6 @@
   }
   @media (max-width: 620px) {
     #toolbar { gap: 4px; }
-    #navbar { gap: 4px; padding-inline: 7px; }
     #scene-name { display: none; }
     #file-name { max-width: 104px; }
     #position { min-width: 48px; padding-inline: 3px; }
@@ -540,6 +531,11 @@
       <button id="dismiss-overlay" hidden>Dismiss</button>
     </div>
   </section>
+</div>
+<!-- The rail, in the gutter under the room and as long as the picture
+     (Knuth's and Plass's scroll rail on its side). -->
+<div id="railbar">
+  <div id="rail" role="list" aria-label="Scene pausepoints"></div>
 </div>
 </div>
 
@@ -605,16 +601,43 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0 0 14.9 3M20 10A8 8 0 0 0 5.1 7"/><path d="M4 4v4h4M20 20v-4h-4"/></svg>
       <span class="control-label">Update</span>
     </button>
+    <!-- Back, the position and Next: the bar's tiles at its right end
+         (Taylor, 2026-10-08). Start stays hidden, as on the old bar:
+         the rail's start is always there to click, and Home does it. -->
+    <span class="transport" aria-label="Presentation controls">
+      <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
+      </button>
+      <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
+      </button>
+      <div id="position"><strong id="position-now">1</strong><span id="position-total"> / &mdash;</span></div>
+      <button id="next" class="icon-button" aria-label="Play next animation" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
+      </button>
+    </span>
   </div>
 </header>
 
-<!-- The console's handle: the bar's last tile, over the corner its panel
-     opens under, so the way in and the way out are the same spot (Knuth's
-     view toggle). Fixed and outside the bar because a scene's output
-     matters most mid-presentation — it must not recede with the chrome. -->
-<button id="console-toggle" aria-label="Console" aria-pressed="false" title="Console (C)">
-  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>
-</button>
+<!-- The corner group, fixed outside the bar at its right end: Present,
+     Full screen and the console's handle (Taylor, 2026-10-08), so they
+     stay when the bar is gone in full screen, one faded pill there. The
+     console's handle is over the corner its panel opens under, so the
+     way in and the way out are the same spot (Knuth's view toggle). -->
+<div id="corner">
+  <button id="present" class="icon-button" aria-label="Present mode" aria-pressed="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM12 15v4M8 21l4-2 4 2"/></svg>
+    <span class="control-label">Present</span>
+  </button>
+  <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
+    <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
+    <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
+    <span class="control-label">Full screen&nbsp; F</span>
+  </button>
+  <button id="console-toggle" aria-label="Console" aria-pressed="false" title="Console (C)">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4"/><path d="M12 16h7"/></svg>
+  </button>
+</div>
 
 <aside id="console" aria-label="Python output">
   <div id="console-head">
@@ -624,43 +647,6 @@
   <div id="console-lines"><div id="console-empty">No output yet.</div></div>
 </aside>
 
-<!-- The presenter's bar: everything you touch while showing a scene is here,
-     and the rail it moves along is one more pod in the same run. -->
-<div id="navbar" class="pod-run" aria-label="Presentation controls">
-  <div class="pod transport-pod">
-    <!-- Start: the Start chip's jump as a control — checkpoint 0 with the
-         built rail kept, so Next then replays the history. Hidden since
-         the rail's start bookend is always there to click (Taylor,
-         2026-10-04); Home still does it, and rail.js still keeps the
-         button's state, so it stays in the markup. -->
-    <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
-    </button>
-    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
-    </button>
-    <div id="position"><strong id="position-now">1</strong><span id="position-total"> / &mdash;</span></div>
-    <button id="next" class="icon-button" aria-label="Play next animation" disabled>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
-    </button>
-  </div>
-
-  <div class="pod rail-pod">
-    <div id="rail" role="list" aria-label="Scene pausepoints"></div>
-  </div>
-
-  <div class="pod view-pod">
-    <button id="present" class="icon-button" aria-label="Present mode" aria-pressed="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM12 15v4M8 21l4-2 4 2"/></svg>
-      <span class="control-label">Present</span>
-    </button>
-    <button id="fullscreen" class="icon-button" aria-label="Full screen" aria-pressed="false" hidden>
-      <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
-      <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></svg>
-      <span class="control-label">Full screen&nbsp; F</span>
-    </button>
-  </div>
-</div>
 <script src="webgpu.js"></script>
 <script src="winding_webgpu.js"></script>
 <script src="renderer_selection.js"></script>
@@ -1197,6 +1183,19 @@ const docFolder = document.getElementById("doc-folder");
 // replay message sequences against them (tests/rail_sim.mjs): the
 // discipline is a test, not a claim. One author for both modes; the
 // chip-click behavior branches on the active source here.
+const liveScrub = { sent: null, at: 0, timer: null };
+function scrubLive(index) {
+  if (index === liveScrub.sent) return;
+  clearTimeout(liveScrub.timer);
+  const go = () => {
+    liveScrub.sent = index;
+    liveScrub.at = performance.now();
+    send({ type: "chip", index });
+  };
+  const wait = 90 - (performance.now() - liveScrub.at);
+  if (wait <= 0) go();
+  else liveScrub.timer = setTimeout(go, wait);
+}
 const rail = ManimlRail.create({
   document,
   railEl,
@@ -1207,12 +1206,21 @@ const rail = ManimlRail.create({
       ? ManimlPresentation.seekCheckpoint(index)
       : send({ type: "chip", index })),
   onFutureChipClick: (unit) => send({ type: "chip_future", unit }),
-  // A recording can be scrubbed with the mouse (rail.js, Scrubbing); the
-  // live engine cannot seek to a time, so the rail scrubs only in playback.
+  // A press dragged along the rail scrubs (rail.js, Scrubbing): a
+  // recording seeks to the pointer's time and parks on the pausepoint the
+  // release lands on; the live engine, which cannot show a time between
+  // checkpoints, jumps to each pausepoint as the head crosses it (no more
+  // often than every 90 ms, the latest kept) and lands on the release's.
   scrub: {
-    enabled: () => stageSource === "playback",
-    to: (time) => ManimlPresentation.scrubTo(time),
-    end: (time) => ManimlPresentation.scrubEnd(time),
+    enabled: () => true,
+    to: (time, index) => (stageSource === "playback"
+      ? ManimlPresentation.scrubTo(time) : scrubLive(index)),
+    end: (time, index) => {
+      clearTimeout(liveScrub.timer);
+      liveScrub.sent = null;
+      if (stageSource === "playback") ManimlPresentation.seekCheckpoint(index);
+      else send({ type: "chip", index });
+    },
   },
 });
 const presenter = rail.presenter;
@@ -1590,7 +1598,8 @@ const REVEAL_EDGE = 88;
 const HIDE_DELAY = 2200;
 const fullscreenButton = document.getElementById("fullscreen");
 const toolbar = document.getElementById("toolbar");
-const navbar = document.getElementById("navbar");
+const railbar = document.getElementById("railbar");
+const corner = document.getElementById("corner");
 let chromeTimer = null;
 
 const inFullscreen = () => !!document.fullscreenElement;
@@ -1599,10 +1608,12 @@ function chromeHeld() {
   // Never yank the chrome out from under a pointer that is using it — the
   // console panel included, since reading it is exactly a still pointer.
   return toolbar.matches(":hover")
-    || navbar.matches(":hover")
+    || railbar.matches(":hover")
+    || corner.matches(":hover")
     || consolePanel.matches(":hover")
     || toolbar.contains(document.activeElement)
-    || navbar.contains(document.activeElement)
+    || railbar.contains(document.activeElement)
+    || corner.contains(document.activeElement)
     || !!document.querySelector("#toolbar .bar-menu:not([hidden])");
 }
 

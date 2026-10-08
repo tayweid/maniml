@@ -129,88 +129,74 @@
   body.fullscreen .fs-enter { display: none; }
   body.fullscreen .fs-exit { display: block; }
 
-  /* ---- the rail (copied from the viewer, verbatim) ---- */
+  /* ---- the rail (copied from the viewer, verbatim, but its box: the
+     bundle keeps the floating bar, so the rail is a pod's, as long as
+     its marks ask) ---- */
   #rail {
-    position: relative; flex: 0 1 auto; min-width: 80px; height: 26px;
+    position: relative; flex: 0 1 auto; min-width: 80px; height: 20px;
     width: clamp(240px, calc(var(--marks, 2) * 26px), 640px); cursor: pointer;
+    touch-action: none; user-select: none; -webkit-user-select: none;
   }
-  .rail-span { position: absolute; inset: 0 9px; }
-  /* A press dragged along a recording's rail scrubs it (rail.js). */
+  .rail-span { position: absolute; inset: 0 4px; }
+  /* A press dragged along the rail scrubs (rail.js). */
   #rail.scrubbing { cursor: ew-resize; }
-  .rail-track {
-    position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px;
-    background: rgba(255, 255, 255, 0.14);
-  }
-  /* The band: the stretch in question. At rest it is Plass's band at rest
-     (white 3.5 % over an 8 % edge) over the stretch the next arrow plays;
-     while a move crosses a stretch, that one, lit in the accent. It says
-     which stretch and, live, not how far along: the animation is on
-     screen at full size (a recording's head rides it; below). */
-  .rail-band {
-    position: absolute; top: 50%; height: 12px; margin-top: -6px;
-    left: calc(var(--a, 0) * 100% - 4px);
-    width: calc((var(--b, 0) - var(--a, 0)) * 100% + 8px);
-    border-radius: 4px; pointer-events: none;
-    background: rgba(255, 255, 255, 0.035);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    transition: left 280ms ease, width 280ms ease, background 200ms ease,
-      box-shadow 200ms ease, opacity 200ms ease;
-  }
-  .rail-band.empty { opacity: 0; }
-  .rail-band.lit {
-    background: rgba(88, 196, 221, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5), 0 0 9px rgba(88, 196, 221, 0.25);
-  }
-  /* The marks: buttons (a tab stop each, Return jumps) placed by --f. They
-     take no pointer events: the rail takes the nearest within 8 px
-     (rail.js), and that one grows and whitens, as on Plass's rail. */
+  /* The timeline: every mark at its place by --f, never moving as the
+     head does. A pausepoint is a 5 px dot (2.5 px where the scene is
+     crowded), the start and the end upright dashes, a play step a faint
+     tick (none where crowded), what has not run grey. */
   .mark {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;
-    background: rgba(240, 238, 233, 0.72);
+    position: absolute; top: 50%; padding: 0; border: 0; border-radius: 50%;
     transform: translate(-50%, -50%); pointer-events: none;
-    transition: left 280ms ease, transform 120ms ease, background 120ms ease,
-      box-shadow 200ms ease;
+    background: rgba(240, 238, 233, 0.42);
+  }
+  .rail-timeline .mark { left: calc(var(--f, 0) * 100%); }
+  .mark.dot { width: 5px; height: 5px; }
+  .mark.dot.small { width: 2.5px; height: 2.5px; }
+  .mark.tick { width: 1px; height: 5px; border-radius: 1px; background: rgba(240, 238, 233, 0.16); }
+  .mark.start, .mark.end {
+    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
   }
   .mark.future { background: rgba(150, 145, 153, 0.5); }
   /* A unit that may hold several pausepoints until it runs (a loop, a
      branch): a fainter dot behind it, so the rail does not claim a count
      it does not have. */
   .mark.many { box-shadow: 4px 0 0 -0.5px rgba(150, 145, 153, 0.32); }
-  .mark.start, .mark.end {
-    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
+  /* The lens: Plass's band, squared as his is, made a magnifier — opaque,
+     so the timeline under it is hidden, and holding the marks round the
+     head opened up (rail.js places them), every play step's dash
+     included. */
+  .rail-lens {
+    position: absolute; top: 3px; bottom: 3px; overflow: hidden;
+    border-radius: 4px; background: #242327;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
+    cursor: grab; transition: box-shadow 200ms ease;
   }
-  .mark.end.future { background: rgba(150, 145, 153, 0.5); }
-  .mark.current { background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
+  #rail.scrubbing .rail-lens { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24); cursor: ew-resize; }
+  .rail-lens .mark.dot { background: rgba(240, 238, 233, 0.78); }
+  .rail-lens .mark.tick { background: rgba(240, 238, 233, 0.32); }
+  .rail-lens .mark.future { background: rgba(150, 145, 153, 0.6); }
+  .rail-lens .mark.current { background: var(--accent); box-shadow: 0 0 5px rgba(88,196,221,.6); }
   .mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }
-  .mark.current.hot { background: var(--accent); }
+  .rail-lens .mark.current.hot { background: var(--accent); }
   .mark:focus { outline: none; }
   .mark:focus-visible { box-shadow: 0 0 0 1.5px var(--frame), 0 0 0 3px #9db8d6; }
-  /* While a move crosses a stretch the position is the stretch, not the
-     pausepoint being left: the accent leaves its mark and the lit band is
-     the whole story; the destination lights on arrival. A scrub likewise:
-     the head under the pointer is the position until the release. */
-  body.moving #rail .mark.current, #rail.scrubbing .mark.current {
-    background: rgba(240, 238, 233, 0.72); box-shadow: none; }
-  body.moving #rail .mark.start.current, #rail.scrubbing .mark.start.current,
-  body.moving #rail .mark.end.current, #rail.scrubbing .mark.end.current {
-    background: rgba(240, 238, 233, 0.6); }
-  .tick {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 1px; height: 5px; margin: -2.5px 0 0 -0.5px;
-    background: rgba(240, 238, 233, 0.24); pointer-events: none;
-    transition: left 280ms ease;
+  /* The bubble: the stretch being crossed, lit in the accent — a move's
+     (live, the engine says which and not how far along), or the one round
+     the head while it scrubs or glides. */
+  .rail-bubble {
+    position: absolute; top: 2px; bottom: 2px; border-radius: 3px;
+    background: rgba(88, 196, 221, 0.16); box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5);
+    opacity: 0; transition: opacity 200ms ease; pointer-events: none;
   }
-  /* The head: the position where no pausepoint stands for it, parked on a
-     play (UP/DOWN) or a recording crossing a stretch, where it rides the
-     video's clock. Knuth's caret bar in the accent, upright. */
+  .rail-bubble.lit { opacity: 1; }
+  /* The head: the position, a precise point — a tall dash in the accent at
+     its true place on the timeline and the lens's centre, standing out of
+     the lens above and below. */
   .rail-head {
-    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
-    width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px;
-    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
+    position: absolute; top: 1px; bottom: 1px; width: 2px; margin-left: -1px;
+    border-radius: 1px; background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
     pointer-events: none;
   }
-  .rail-head.off { opacity: 0; }
 
   /* ---- the preview card (copied from the viewer) ---- */
   .rail-preview {
@@ -311,7 +297,7 @@
     scrub: {
       enabled: () => true,
       to: (time) => ManimlPresentation.scrubTo(time),
-      end: (time) => ManimlPresentation.scrubEnd(time),
+      end: (time, index) => ManimlPresentation.seekCheckpoint(index),
     },
   });
   const presenter = rail.presenter;
