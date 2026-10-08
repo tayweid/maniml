@@ -125,16 +125,29 @@ class Sphere(Surface):
 
 
 class Torus(Surface):
+    # CE spells the radii major_radius/minor_radius and takes them first,
+    # positionally; GL's r1/r2 still work as keywords. Both default to
+    # None so neither spelling's default can override the other's value.
+    # CE's resolution=None means the renderer's default, here Surface's.
     def __init__(
         self,
+        major_radius: float | None = None,
+        minor_radius: float | None = None,
         u_range: Tuple[float, float] = (0, TAU),
         v_range: Tuple[float, float] = (0, TAU),
-        r1: float = 3.0,
-        r2: float = 1.0,
+        resolution: Tuple[int, int] | int | None = None,
+        r1: float | None = None,
+        r2: float | None = None,
         **kwargs,
     ):
-        self.r1 = r1
-        self.r2 = r2
+        if major_radius is not None and r1 is not None:
+            raise TypeError("Torus takes major_radius or r1, not both")
+        if minor_radius is not None and r2 is not None:
+            raise TypeError("Torus takes minor_radius or r2, not both")
+        self.r1 = next((r for r in (major_radius, r1) if r is not None), 3.0)
+        self.r2 = next((r for r in (minor_radius, r2) if r is not None), 1.0)
+        if resolution is not None:
+            kwargs["resolution"] = resolution
         super().__init__(
             u_range=u_range,
             v_range=v_range,
