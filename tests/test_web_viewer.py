@@ -239,6 +239,7 @@ class StaleKeyTests(unittest.TestCase):
             pressed_keys=set(), _keys_settled_at=0.0,
             _dirty=False, _has_undrawn_event=False,
             _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
+            _settle_interrupt=lambda: None,
         )
         return viewer, (lambda e: WebViewer._handle_event(viewer, e)), pressed
 
@@ -266,6 +267,7 @@ class StaleKeyTests(unittest.TestCase):
             _map_key=WebViewer._map_key, _map_mods=WebViewer._map_mods,
             _is_stale_navigation_press=lambda event:
                 WebViewer._is_stale_navigation_press(viewer, event),
+            _settle_interrupt=lambda: None,
             _handle_event=lambda event: WebViewer._handle_event(viewer, event),
         )
         holder["viewer"] = viewer

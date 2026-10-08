@@ -87,6 +87,24 @@ JS_BUTTON_TO_MASK = {
 # transition shows its intermediate shapes instead of moving. A margin means
 # every rendered frame passes and the render rate is the only limit.
 MIN_SEND_INTERVAL = 1 / 45
+# While a move crosses retained history the scene's clock goes to the page
+# this often, for the rail's head to ride (rail.js presenter.time).
+CLOCK_INTERVAL = 1 / 15
+# What interrupts a forward move in flight: an arrow or Home pressed, or a
+# chip clicked (scene._interruptibly says what each does).
+INTERRUPT_KEYS = frozenset({"ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home"})
+
+
+def _interrupts(event: dict) -> bool:
+    if event.get("type") in ("chip", "chip_future"):
+        return True
+    return (event.get("type") == "key" and event.get("action") == "down"
+            and event.get("key") in INTERRUPT_KEYS)
+
+
+def _navigation_press(event: dict) -> bool:
+    return (event.get("type") == "key" and event.get("action") == "down"
+            and event.get("key") in NAVIGATION_KEYS)
 
 
 class OutputTap:
@@ -179,6 +197,12 @@ class WebViewer:
         self._needs_refresh = True  # a client wants a full payload + state
         self._dispatching = False
         self._last_send_time = 0.0
+        self._last_clock_time = 0.0
+        # Set by an interrupt (_check_interrupt) until the interrupted move
+        # has landed: then queued arrows are dropped and a jump that
+        # interrupted it (held here) is applied (_settle_interrupt).
+        self._interrupted = False
+        self._interrupt_event: dict | None = None
         self._last_state = None
         self._last_move = None
         # Set when a client picks another scene from the same file. The run
@@ -342,12 +366,17 @@ class WebViewer:
 
     def on_frame_rendered(self):
         """Pump input and stream the frame's geometry to the clients."""
+        if self._dispatching:
+            # Inside a handler: a move may be playing that a press can
+            # interrupt (the drain below is held off until it returns).
+            self._check_interrupt()
         self.dispatch_events()
 
         if not self.server.has_clients():
             return
         self._broadcast_logs()
         now = time.monotonic()
+        self._broadcast_clock(now)
         # A checkpoint-state change means the picture changed without any
         # input event (present-mode prep, watcher replays, programmatic
         # jumps) — those must trigger a send on their own
@@ -394,6 +423,59 @@ class WebViewer:
         # chip being left for a frame, and then visibly hops to the new
         # pausepoint — instead of the dash handing off to its dot.
         self._close_move_if_settled()
+
+    def _check_interrupt(self) -> None:
+        """A forward move is playing (scene._interruptibly): take the first
+        interrupting press waiting in the queue, if any. RIGHT finishes the
+        move now (the scene fast-forwards the rest); anything else unwinds
+        it to where it started, the jump held to be applied there."""
+        scene = self.scene
+        if (scene is None or not getattr(scene, "_interruptible", False)
+                or getattr(scene, "_fast_forwarding", False)
+                or not self._scene_moving()):
+            return
+        taken = self.server.take_events(_interrupts)
+        if not taken:
+            return
+        # Of several presses in one frame, the latest says what is meant.
+        event = taken[-1]
+        self._interrupted = True
+        if event.get("type") == "key" and event.get("key") == "ArrowRight":
+            scene._fast_forwarding = True
+            return
+        if not (event.get("type") == "key" and event.get("key") == "ArrowLeft"):
+            self._interrupt_event = event
+        from maniml.scene.checkpoints import NavigationInterrupt
+        raise NavigationInterrupt()
+
+    def _settle_interrupt(self) -> None:
+        """After an interrupted move has landed: arrows pressed while it
+        finished are dropped (one press, one move: none may carry past the
+        pausepoint it landed on), and a jump that interrupted it is put
+        back at the head of the queue, fresh, for the next drain."""
+        if not self._interrupted:
+            return
+        self._interrupted = False
+        self.server.take_events(_navigation_press)
+        event, self._interrupt_event = self._interrupt_event, None
+        if event is not None:
+            event = dict(event)
+            event["_received"] = time.monotonic()
+            self.server.requeue_front(event)
+
+    def _broadcast_clock(self, now: float) -> None:
+        """While a move crosses retained history, the scene's clock, for
+        the rail's head (rail.js presenter.time). Its frames are on screen
+        as it runs, so the clock is the animation's own; the page ignores
+        it where the move's destination has not run yet."""
+        scene = self.scene
+        if (not self._move_open or not getattr(scene, "_is_playing", False)
+                or getattr(scene, "_replay_hidden", False)
+                or getattr(scene, "skip_animations", False)
+                or now - self._last_clock_time < CLOCK_INTERVAL):
+            return
+        self._last_clock_time = now
+        self.server.broadcast_json({"type": "clock", "t": float(scene.time)})
 
     def _send_geometry(self) -> None:
         """Serialize the scene and send it to every client.
@@ -607,6 +689,7 @@ class WebViewer:
                 try:
                     scene.on_key_press(symbol, mods)
                 finally:
+                    self._settle_interrupt()
                     if is_navigation and navigation_received is not None:
                         performance.observe_ms(
                             "input.to_endpoint",
@@ -784,9 +867,10 @@ class WebViewer:
             return
         scene._processing_key = True
         try:
-            scene._replay_to_unit(unit_index)
+            scene._interruptibly(lambda: scene._replay_to_unit(unit_index))
         finally:
             scene._processing_key = False
+            self._settle_interrupt()
 
     def _start_export(self, export_format: str) -> None:
         """Render a copy of the current scene in a separate process.

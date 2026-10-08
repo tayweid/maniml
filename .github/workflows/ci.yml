@@ -191,6 +191,7 @@ jobs:
           tests.test_source_map
           tests.test_ce_conformance
           tests.test_checkpoint_reload
+          tests.test_live_interrupt
           tests.test_checkpoint_ledger
           tests.test_modes
           tests.test_ce_surface_spelling

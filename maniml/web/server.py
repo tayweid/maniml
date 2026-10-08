@@ -278,6 +278,24 @@ class WebServer:
             self._events.clear()
         return events
 
+    def take_events(self, wanted) -> list[dict]:
+        """Remove and return the queued events `wanted(event)` accepts, in
+        order, leaving the rest queued: how a move in flight finds the
+        arrow that interrupts it without draining anything else."""
+        with self._events_lock:
+            taken = [event for event in self._events if wanted(event)]
+            if taken:
+                kept = [event for event in self._events if not wanted(event)]
+                self._events.clear()
+                self._events.extend(kept)
+        return taken
+
+    def requeue_front(self, event: dict) -> None:
+        """Put an event back at the head of the queue (an interrupting
+        jump, applied once the interrupted move has landed)."""
+        with self._events_lock:
+            self._events.appendleft(event)
+
     def stop(self) -> None:
         if self._loop is not None and self._closing is not None:
             try:

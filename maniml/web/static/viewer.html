@@ -1110,6 +1110,11 @@ function handleMessage(data) {
     else presenter.moveStarted(data.from, data.to, data.back, data.unit);
     scheduleStill();
   }
+  else if (data.type === "clock") {
+    // The scene's clock while a move crosses retained history: the head
+    // rides it, as it rides a recording's (the video drives in playback).
+    if (stageSource !== "playback") presenter.time(data.t);
+  }
   else if (data.type === "export_status") handleExportStatus(data);
   else if (data.type === "hover") setHandle(data.label);
 }

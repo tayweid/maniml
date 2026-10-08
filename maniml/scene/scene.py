@@ -469,6 +469,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             self.update_mobjects(dt)
         if getattr(self, '_replay_hidden', False):
             return  # reconstruct a replay prefix without capture or pacing
+        if getattr(self, '_fast_forwarding', False) and not force_draw:
+            return  # an interrupted move finishing: every step, nothing drawn
         if self.skip_animations and not force_draw:
             return
 
@@ -503,7 +505,8 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             time.sleep(max(vt - rt, 0))
 
     def emit_frame(self) -> None:
-        if not self.skip_animations and not getattr(self, '_replay_hidden', False):
+        if (not self.skip_animations and not getattr(self, '_replay_hidden', False)
+                and not getattr(self, '_fast_forwarding', False)):
             self.file_writer.write_frame(self.camera)
 
     # Related to updating

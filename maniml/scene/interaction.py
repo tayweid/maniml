@@ -395,7 +395,7 @@ class InteractionMixin:
             # Set flag to prevent re-entry
             self._processing_key = True
             try:
-                self.advance_to_next_pausepoint()
+                self._interruptibly(self.advance_to_next_pausepoint)
             finally:
                 self._processing_key = False
         

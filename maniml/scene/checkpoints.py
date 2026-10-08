@@ -53,6 +53,16 @@ class _ReplayComplete(BaseException):
     """Unwind source execution at a retained checkpoint, including in loops."""
 
 
+class NavigationInterrupt(BaseException):
+    """Raised from the viewer's frame hook when a jump arrives while a
+    forward move is playing: it unwinds the play, and the unit exec'ing
+    it, back to `_interruptibly`, which lands the scene where the move
+    started. A BaseException, as _ReplayComplete is, so neither the
+    rollback in run_next_animation nor a scene's own `except Exception`
+    can swallow it."""
+
+
+
 class CheckpointMixin:
     @property
     def checkpoint_ledger(self) -> "CheckpointLedger":
@@ -774,6 +784,55 @@ class CheckpointMixin:
         self._live_matches_checkpoint = self.current_animation_index
 
         print(f"Animation {self.current_animation_index}/{len(self.animation_checkpoints) - 1} complete")
+
+    def _interruptibly(self, run) -> None:
+        """Run a forward move (RIGHT, a not-yet-run chip) so that the live
+        viewer can interrupt it (Taylor, 2026-10-08), as a recording's
+        arrows already can:
+
+        - RIGHT while it plays finishes the move now: the rest of the
+          stretch runs with every frame's time and updaters but no drawing
+          and no pacing (`_fast_forwarding`), so the pausepoint it lands on
+          is exactly the one a played run would have saved — through
+          retained history and at the frontier alike.
+        - Any other jump (LEFT, Home, UP/DOWN, a chip) unwinds the play
+          (NavigationInterrupt) and lands on the pausepoint the move left;
+          checkpoints the interrupted run had added past the old frontier
+          go with it, so the frontier is never left inside a stretch. A
+          jump other than LEFT (whose meaning is that landing) is then
+          applied from there, by the viewer.
+        """
+        origin = self.current_animation_index
+        history = len(self.animation_checkpoints)
+        self._interruptible = True
+        self._fast_forwarding = False
+        interrupted = False
+        try:
+            run()
+        except NavigationInterrupt:
+            interrupted = True
+        finally:
+            self._interruptible = False
+            fast_forwarded = self._fast_forwarding
+            self._fast_forwarding = False
+        if not interrupted:
+            if fast_forwarded:
+                print(f"⏭ Finished to animation {self.current_animation_index}"
+                      f"/{len(self.animation_checkpoints) - 1}")
+                self.update_frame(dt=0, force_draw=True)
+            return
+        self._is_playing = False
+        self._advancing = False
+        if self._web_viewer is not None:
+            self._web_viewer.end_animation()
+        if len(self.animation_checkpoints) > history:
+            del self.animation_checkpoints[history:]
+            self.frontier_index = min(getattr(self, 'frontier_index', history - 1), history - 1)
+        self._live_matches_checkpoint = None
+        self._restore_checkpoint_for_display(origin)
+        self._restore_checkpoint_random_state(self.animation_checkpoints[origin])
+        print(f"↩ Interrupted: back to animation {origin}/{len(self.animation_checkpoints) - 1}")
+        self.update_frame(dt=0, force_draw=True)
 
     def advance_to_next_pausepoint(self) -> None:
         """RIGHT: play to the next stop, including previously visited history.

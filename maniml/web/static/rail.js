@@ -114,9 +114,13 @@ function create(config) {
       this.pending = null;
       if (landing) handleState(landing);
     },
-    // A recording's clock, while it moves: the head rides it.
+    // The clock while it moves — a recording's, or the live engine's
+    // through retained history: the head rides it. Not toward a
+    // destination that has not run yet: the timeline has no place for
+    // its time, so the head holds at the start of the stretch.
     time(t) {
       if (!this.moving || scrubbed !== null) return;
+      if (move && shown && move.to >= shown.count) return;
       playhead = t;
       stopGlide();
       headT = t;
