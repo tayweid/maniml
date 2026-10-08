@@ -154,6 +154,14 @@ class LogBuffer:
             return list(self._history)
 
 
+def _checkpoint_time(checkpoint: dict) -> float:
+    """The scene's clock when a checkpoint was saved (0 where unknown)."""
+    try:
+        return float(getattr(checkpoint.get("state"), "time", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class WebViewer:
     is_web_viewer = True
 
@@ -1058,6 +1066,10 @@ class WebViewer:
             "present_bundle": bool(present_meta),
             "present_fresh": self._present_fresh(present_meta),
             "lines": [c.get("line_number") for c in checkpoints],
+            # The scene's clock at each checkpoint (the clock the recording
+            # keeps too, present_bundle's `time`): the rail stands each
+            # mark at its time.
+            "times": [_checkpoint_time(c) for c in checkpoints],
             # Which chip each checkpoint belongs to, so the rail can keep
             # a chip's checkpoints collapsed into it: the source statement
             # in a plain file, the enclosing pausepoint segment in a

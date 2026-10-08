@@ -361,188 +361,103 @@
     gap: 5px; padding: 0 var(--edge); pointer-events: none;
   }
   .transport-pod { padding: 0 3px; }
-  .rail-pod { flex: 0 1 auto; min-width: 0; gap: 8px; padding: 0 6px; }
+  .rail-pod { flex: 0 1 auto; min-width: 0; padding: 0 4px; }
   .view-pod { padding: 0 3px; }
   #present.active { color: var(--good); opacity: 1; }
   #present { position: relative; }
   #present.stale::after { content: ""; position: absolute; top: 3px; right: 3px;
     width: 4px; height: 4px; border-radius: 50%; background: var(--warn); opacity: .7; }
 
-  /* The rail is chips and the links between them, in one row: a link is the
-     stretch of scene an animation crosses, so it is a real element that can
-     light up while that animation plays — rather than one line drawn behind
-     everything, which could only ever be lit end to end.
-
-     The chips are bars, as the marks on Plass's and Knuth's scroll rails
-     (Taylor, 2026-10-04): a 2 px tick, white where the scene is loaded (a
-     checkpoint stands there), grey where it is not yet run, the accent
-     where the position is. The links are 1 px lines between every pair,
-     white where the stretch is loaded and grey where it is not, with a
-     3 px gap to the ticks at both ends (as the dots had: a line that
-     touches its marks reads as one bar). The space, not the brightness,
-     is what the position changes (Taylor, 2026-10-04): the rail grows
-     with its ticks at the regular link, 32 px, until they no longer fit
-     the bar; then every link but the two into and out of the current
-     chip packs, as far as 2 px (packLinks); and past that the middle
-     folds (foldRail). A short scene is a short rail (safe center: a row that
-     still overflows starts at the left, where it can be reached) rather
-     than four marks spread across the room. Pausepoints
-     are 7 px frames, the current one filled; the start and the end
-     are 9 px bookends. Every
-     tick grows as the pointer nears it (--near,
-     written by the page from the pointer's distance along the rail: a
-     scale, so nothing moves) over a hit zone wider than the tick
-     (::before), so a small mark is easy to find and to click. The first
-     and last are bookend frames — a larger frame whose outer edge is a
-     solid spine — so the scene's start and end have shapes of their own
-     (Taylor, 2026-10-04; frames since 2026-10-06), and they are always
-     there: past the packed pitch (12 px) the rail does not scroll them
-     away but folds the middle (foldRail, below): a window of ticks round
-     the current one stays, and each run of ticks outside it collapses
-     into one dotted gap (.elided, the count in its title). Only if even
-     that does not fit
-     and a scene with more pausepoints than fit at that scrolls, the
-     current kept in view (rail.js) and the cut edges faded (.cut-left,
-     .cut-right, set by the page) so it is plain there are more. The rail
-     is the pod's inner height, with 8 px of padding either side so the
-     end chips' glow is drawn whole, not cut at the scroller's edge. */
+  /* The rail is Plass's and Knuth's scroll rail on its side (rail.js;
+     Taylor, 2026-10-07): a hairline track, a band, and marks placed by
+     their fraction along it — a pausepoint a dot at its time, the start
+     and the end upright dashes, the plays between pausepoints (UP/DOWN's
+     steps) faint ticks, and what has not run yet grey, at a small fixed
+     interval after what has. Its length follows what it holds (--marks,
+     written by rail.js), 26 px a mark between 240 and 640 px, and it
+     gives way when the bar is narrower; nothing folds or scrolls, since
+     a fraction always fits. */
   #rail {
-    flex: 1; min-width: 0; height: 26px;
-    display: flex; align-items: center; justify-content: safe center; overflow-x: auto;
-    padding: 0 8px; scrollbar-width: none;
+    position: relative; flex: 0 1 auto; min-width: 80px; height: 26px;
+    width: clamp(240px, calc(var(--marks, 2) * 26px), 640px); cursor: pointer;
   }
-  #rail::-webkit-scrollbar { display: none; }
-  #rail.cut-left { mask-image: linear-gradient(to right, transparent, #000 28px); }
-  #rail.cut-right { mask-image: linear-gradient(to left, transparent, #000 28px); }
-  #rail.cut-left.cut-right {
-    mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  .rail-span { position: absolute; inset: 0 9px; }
+  /* A press dragged along a recording's rail scrubs it (rail.js). */
+  #rail.scrubbing { cursor: ew-resize; }
+  .rail-track {
+    position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px;
+    background: rgba(255, 255, 255, 0.14);
   }
-  .link {
-    /* Every link's width is the page's (packLinks): 32 px while the row
-       fits, and when it does not each gives way in proportion to its
-       distance from the current chip (the two beside it never), down to
-       2 px, so the lengths taper from the position outward. Written as a
-       width rather than left to flex: the rail pod takes its width from
-       its content, and a shrinkable flex item with no content counts for
-       nothing in that measure (Chromium's intrinsic sizing); and a width
-       transitions on its own, where a flex factor in transition moved
-       every other link with it (the bounce Taylor saw, 2026-10-05). */
-    position: relative; flex: none; width: 32px; height: 1px;
-    margin: 0 3px; background: rgba(235, 231, 225, 0.22);
-    /* Nearing a fold the row fades out (--edge, the page's count of
-       ticks to the gap on that side; none, 99): the eight before a gap
-       go from full to nothing, the last of them gone, so the fold needs
-       no mark of its own (Taylor, 2026-10-05: "if the nodes go to fully
-       invisible by the time they get to where the ... is i think we
-       don't need the ..."). */
-    opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);
-    /* A move re-lays the row out — the taper and the fold's window go
-       with the position — and each link moves straight to its new width
-       (Taylor, 2026-10-04: "have all the elements shift to their new
-       spot"; 2026-10-05: "just a nice move to their new spot"). */
-    transition: width 280ms ease, margin 280ms ease, opacity 200ms ease;
+  /* The band: the stretch in question. At rest it is Plass's band at rest
+     (white 3.5 % over an 8 % edge) over the stretch the next arrow plays;
+     while a move crosses a stretch, that one, lit in the accent. It says
+     which stretch and, live, not how far along: the animation is on
+     screen at full size (a recording's head rides it; below). */
+  .rail-band {
+    position: absolute; top: 50%; height: 12px; margin-top: -6px;
+    left: calc(var(--a, 0) * 100% - 4px);
+    width: calc((var(--b, 0) - var(--a, 0)) * 100% + 8px);
+    border-radius: 4px; pointer-events: none;
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: left 280ms ease, width 280ms ease, background 200ms ease,
+      box-shadow 200ms ease, opacity 200ms ease;
   }
-  .link.past { background: rgba(235, 231, 225, 0.3); }
-  .link.future { background: rgba(150, 145, 153, 0.22); }
-  /* The lit fill grows out of the chip the move started from — its own
-     easing, on its own clock. It says WHICH stretch is being crossed, and
-     deliberately not how far along it is: the animation itself is on screen
-     at full size, and a claim about progress would have to be honest through
-     reverse morphs and fast-forwards too. When the move lands it draws
-     into the chip it reached (its resting origin is the far end, so the
-     exit collapses forward), not back into the one it left — which read
-     as the move undoing itself (Taylor, 2026-10-04). The origin switches
-     only while the fill is at one end or the other, so nothing jumps. */
-  .link .fill {
-    position: absolute; left: 0; right: 0; top: -1px; height: 3px;
-    border-radius: 2px; background: var(--accent);
-    box-shadow: 0 0 9px rgba(88,196,221,.45);
-    transform: scaleX(0); transform-origin: right center;
-    transition: transform 200ms ease, opacity 200ms ease; opacity: 0;
+  .rail-band.empty { opacity: 0; }
+  .rail-band.lit {
+    background: rgba(88, 196, 221, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5), 0 0 9px rgba(88, 196, 221, 0.25);
   }
-  .link.lit .fill { transform: scaleX(1); opacity: 1; transform-origin: left center; }
-  .link.lit.back .fill { transform-origin: right center; }
-  /* Parked between pausepoints (UP/DOWN): the same fill stands lit — the
-     position is a place ON the stretch, so the dash is highlighted and no
-     dot claims the ring. */
-  .link.mid .fill { transform: scaleX(1); opacity: 1; }
-  /* A pausepoint is a small empty frame — the outline of a slide — and
-     the current one is filled in the accent (Taylor, 2026-10-06: "little
-     squares not shaded in, like the outline of a frame"). */
-  .chip {
-    --ink: rgba(235, 231, 225, 0.55);
-    position: relative; z-index: 1; width: 7px; height: 7px; padding: 0;
-    box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 1.5px;
-    flex: none; margin: 0 1px; background: transparent; cursor: pointer;
-    opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);
-    /* Near the pointer (--near, 0 to 1): up to 1.6 times its size, about
-       its centre. */
-    transform: scale(calc(1 + var(--near, 0) * 0.6));
-    transition: transform 90ms ease, background 120ms ease, border-color 120ms ease,
-      box-shadow 200ms ease, height 120ms ease, opacity 200ms ease, width 280ms ease,
-      margin 280ms ease;
+  /* The marks: buttons (a tab stop each, Return jumps) placed by --f. They
+     take no pointer events: the rail takes the nearest within 8 px
+     (rail.js), and that one grows and whitens, as on Plass's rail. */
+  .mark {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(240, 238, 233, 0.72);
+    transform: translate(-50%, -50%); pointer-events: none;
+    transition: left 280ms ease, transform 120ms ease, background 120ms ease,
+      box-shadow 200ms ease;
   }
-  /* The hit zone: 10 px wide and taller than the tick, so a click lands
-     without aiming at 2 px (it scales with the tick). */
-  .chip::before { content: ""; position: absolute; top: -7px; bottom: -7px; left: -4px; right: -4px; }
-  .chip:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--frame), 0 0 0 3.5px #9db8d6; }
-  .chip.past { --ink: rgba(235, 231, 225, 0.55); }
-  .chip.future { --ink: rgba(150, 145, 153, 0.32); }
-  /* The start and the end: bookends. The same frame as every pausepoint,
-     a size up and a shade brighter, its outer edge thickened into a
-     spine — left at the start, right at the end — so the pair reads as
-     the scene's two covers and says which way the rail runs, in the
-     frames' own language rather than a second one (Taylor, 2026-10-06:
-     "a more consistent start / end node icon instead of [ and ]"). The
-     current one fills in the accent like any other. */
-  #rail .chip:first-child, #rail .chip:last-child {
-    --ink: rgba(235, 231, 225, 0.7); opacity: 1; width: 9px; height: 9px;
+  .mark.future { background: rgba(150, 145, 153, 0.5); }
+  /* A unit that may hold several pausepoints until it runs (a loop, a
+     branch): a fainter dot behind it, so the rail does not claim a count
+     it does not have. */
+  .mark.many { box-shadow: 4px 0 0 -0.5px rgba(150, 145, 153, 0.32); }
+  .mark.start, .mark.end {
+    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
   }
-  #rail .chip:first-child { border-left-width: 3.5px; }
-  #rail .chip:last-child { border-right-width: 3.5px; }
-  #rail .chip.current { --ink: var(--accent);
-    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
-  /* Folded away (foldRail): a run of ticks the rail has no room for, and
-     the links inside it, collapsed to nothing — width and margins to 0,
-     so they go and come by the same move as everything else rather than
-     vanishing — and the link before the run stands for it as an empty
-     10 px gap the row has faded out into (its title still says how many
-     are folded there). */
-  .chip.hidden { width: 0; border-width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }
-  .link.hidden { margin: 0; }
-  .link.elided { opacity: 0; }
-  /* A unit whose pausepoint count is not knowable until it runs — a loop of
-     plays, or a branch — is drawn as a stack of ticks rather than one, so
-     the rail stops implying a count it does not have: two copies recede to
-     the right (box-shadow, behind the tick's own colour) and the row makes
-     room for them. */
-  /* Frames stacked up and to the right, each hollowed by a shadow in the
-     bar's own colour laid over it. */
-  .chip.many {
-    box-shadow: 3px -3px 0 -1.5px var(--frame), 3px -3px 0 0 rgba(150, 145, 153, 0.28),
-      6px -6px 0 -1.5px var(--frame), 6px -6px 0 0 rgba(150, 145, 153, 0.17);
-    margin-right: 7px;
+  .mark.end.future { background: rgba(150, 145, 153, 0.5); }
+  .mark.current { background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
+  .mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }
+  .mark.current.hot { background: var(--accent); }
+  .mark:focus { outline: none; }
+  .mark:focus-visible { box-shadow: 0 0 0 1.5px var(--frame), 0 0 0 3px #9db8d6; }
+  /* While a move crosses a stretch the position is the stretch, not the
+     pausepoint being left: the accent leaves its mark and the lit band is
+     the whole story; the destination lights on arrival. A scrub likewise:
+     the head under the pointer is the position until the release. */
+  body.moving #rail .mark.current, #rail.scrubbing .mark.current {
+    background: rgba(240, 238, 233, 0.72); box-shadow: none; }
+  body.moving #rail .mark.start.current, #rail.scrubbing .mark.start.current,
+  body.moving #rail .mark.end.current, #rail.scrubbing .mark.end.current {
+    background: rgba(240, 238, 233, 0.6); }
+  .tick {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 1px; height: 5px; margin: -2.5px 0 0 -0.5px;
+    background: rgba(240, 238, 233, 0.24); pointer-events: none;
+    transition: left 280ms ease;
   }
-  .chip.many.past, .chip.many:not(.future) {
-    box-shadow: 3px -3px 0 -1.5px var(--frame), 3px -3px 0 0 rgba(235, 231, 225, 0.32),
-      6px -6px 0 -1.5px var(--frame), 6px -6px 0 0 rgba(235, 231, 225, 0.18);
+  /* The head: the position where no pausepoint stands for it, parked on a
+     play (UP/DOWN) or a recording crossing a stretch, where it rides the
+     video's clock. Knuth's caret bar in the accent, upright. */
+  .rail-head {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px;
+    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
+    pointer-events: none;
   }
-  /* A folded stack takes no room either (its margin rule is the later one). */
-  .chip.many.hidden { margin-right: 0; box-shadow: none; }
-  /* While a move is in flight the rail shows the STRETCH, not a point: the
-     accent leaves the chip being left — it renders as an ordinary loaded
-     tick — and the lit dash is the ONLY thing that reads as active. The
-     destination chip stays plain; it lights on arrival. */
-  body.moving #rail .chip.current {
-    --ink: rgba(235, 231, 225, 0.55); box-shadow: none;
-    background: transparent;
-  }
-  /* A within-stack move has no dash between two chips to light, so the
-     stack breathes instead — size only, no accent. */
-  @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.4); } }
-  body.moving .chip.working {
-    animation: chip-working 900ms ease-in-out infinite;
-  }
+  .rail-head.off { opacity: 0; }
   /* The preview card over a hovered pausepoint (rail.js attachPreview):
      its still in a 16:9 frame — an empty outline where there is no
      picture yet — then its pause('Title') name, then the rail's line. */
@@ -779,185 +694,6 @@ function shapeWindow() {
   ManimlBar.setShape(stageRatio, stageArea);
 }
 const railEl = document.getElementById("rail");
-// Folding: when more ticks stand on the rail than fit at their closest
-// pitch, the start and the end stay where they are and the middle gives
-// way (Taylor, 2026-10-04: "they always stay visible, with only some
-// intermediate nodes being hidden somehow"). A window of ticks round the
-// current one is kept, as wide as the room allows, and each run of ticks
-// outside it folds into the link before the run, drawn as a dotted gap
-// with the run's count in its title. The rail's DOM stays rail.js's: the
-// page only adds classes (hidden, elided), re-applied after every redraw,
-// since rail.js writes each chip's className whole. A run of one is not
-// folded (the gap would cost more than the tick). What still does not
-// fit scrolls, and a fade at each cut edge says so (markRailEdges).
-//
-// Whether to fold is computed, not measured by unfolding first: every
-// tick is 4 px with its margins, every packed link 8, and the two round
-// the current one 32 each, so the unfolded row is 12 n + 52 px. The room
-// is what the bar leaves the rail (the rail is sized to its ticks, so its
-// own width says nothing): the bar's width less its other pods, the gaps
-// and the paddings. After a fold the row is measured once and the window
-// narrowed if it still overflows (the arithmetic ignores stacks' extra
-// margin).
-const LINK = 32, LINK_MIN = 2, LINK_MARGINS = 6, GAP = 10;
-const navbarEl = document.getElementById("navbar");
-function railRoom() {
-  // The other pods' widths rounded up, and two pixels of slack: a row that
-  // overran the room by a fraction scrolled, and the rail's scroll-into-
-  // view of the current chip then nudged it on every state.
-  const others = [...navbarEl.querySelectorAll(".pod:not(.rail-pod)")]
-    .reduce((sum, pod) => sum + Math.ceil(pod.getBoundingClientRect().width), 0);
-  const gaps = 5 * (navbarEl.children.length - 1);
-  const padding = 2 * 8 + 2 * 6 + 2 * 8;   // the bar's, the rail pod's, the rail's
-  return navbarEl.clientWidth - others - gaps - padding - 2;
-}
-// A frame with its margins (9), a stack's two copies 6 more; the end
-// bookends are a size up (11).
-const tickWidth = (chip) => (chip.classList.contains("many") ? 15
-  : !chip.previousElementSibling || !chip.nextElementSibling ? 11 : 9);
-// Every link's width, written by the page (the CSS transitions it):
-// 32 px while the row fits the room; otherwise each gives way in
-// proportion to its distance from the current chip — the two beside it
-// never — down to 2 px, the links that reach 2 held there and the rest
-// sharing what is left (flex's own arithmetic, done here so that each
-// width is its own number and moves straight to the next).
-function packLinks(chips, links, current, room) {
-  let taken = 0;
-  chips.forEach((c) => { if (!c.classList.contains("hidden")) taken += tickWidth(c); });
-  const put = (el, width) => {
-    const text = width + "px";
-    if (el.style.width !== text) el.style.width = text;
-  };
-  const shown = [];
-  links.forEach((l, a) => {
-    if (l.classList.contains("hidden")) { put(l, 0); return; }
-    if (l.classList.contains("elided")) { put(l, GAP); taken += GAP + LINK_MARGINS; return; }
-    shown.push({ el: l, away: Math.min(Math.abs(a - current), Math.abs(a + 1 - current)) });
-  });
-  const avail = room - taken - shown.length * LINK_MARGINS;
-  const widths = shown.map(() => LINK);
-  const fixed = new Set();
-  for (let pass = 0; pass < 12; pass++) {
-    let deficit = -avail, weight = 0;
-    shown.forEach((s, i) => { deficit += fixed.has(i) ? LINK_MIN : LINK; if (!fixed.has(i)) weight += s.away; });
-    if (deficit <= 0 || weight === 0) break;
-    const per = deficit / weight;
-    let clamped = false;
-    shown.forEach((s, i) => {
-      if (fixed.has(i)) return;
-      const w = LINK - per * s.away;
-      if (w < LINK_MIN) { fixed.add(i); widths[i] = LINK_MIN; clamped = true; }
-      else widths[i] = w;
-    });
-    if (!clamped) break;
-  }
-  shown.forEach((s, i) => put(s.el, Math.round(widths[i] * 10) / 10));
-}
-function foldRail() {
-  const chips = [...railEl.querySelectorAll(".chip")];
-  const links = [...railEl.querySelectorAll(".link")];
-  const n = chips.length;
-  const hide = (el, on) => el.classList.toggle("hidden", on);
-  const unfold = () => {
-    chips.forEach((c) => hide(c, false));
-    links.forEach((l) => { hide(l, false); l.classList.toggle("elided", false); if (l.title) l.removeAttribute("title"); });
-  };
-  const room = railRoom();
-  const current = Math.max(0, chips.findIndex((c) => c.classList.contains("current")));
-  // Each tick's and link's distance to a fold on its side (the fade), as
-  // a CSS variable.
-  const put = (el, name, value) => {
-    const text = String(value);
-    if (el.style.getPropertyValue(name) !== text) el.style.setProperty(name, text);
-  };
-  const distances = (first, last, foldLeft, foldRight) => {
-    const edge = (i) => Math.min(foldLeft ? i - first + 1 : 99, foldRight ? last - i + 1 : 99);
-    chips.forEach((c, i) => put(c, "--edge", edge(i)));
-    links.forEach((l, a) => put(l, "--edge", Math.min(edge(a), edge(a + 1))));
-  };
-  // What a window costs at the packed pitch: its ticks, its links at the
-  // minimum but the two beside the current chip at full, and a gap for
-  // each run folded away.
-  const packed = (first, last, runs) => {
-    let width = 0;
-    chips.forEach((c, i) => { if (i === 0 || i === n - 1 || (i >= first && i <= last)) width += tickWidth(c); });
-    width += (n - 1 - runs.reduce((sum, [a, b]) => sum + (b - a + 2), 0)) * (LINK_MIN + LINK_MARGINS);
-    width += runs.length * (GAP + LINK_MARGINS) + 2 * (LINK - LINK_MIN);
-    return width;
-  };
-  if (n < 5 || packed(1, n - 2, []) <= room) {
-    unfold(); distances(0, n - 1, false, false); packLinks(chips, links, current, room); return;
-  }
-  let half = Math.max(1, Math.floor((room - 2 * 15 - 2 * (GAP + LINK_MARGINS) - 2 * LINK) / (9 + LINK_MIN + LINK_MARGINS) / 2));
-  for (let attempt = 0; attempt < 6; attempt++) {
-    let first = Math.max(1, current - half), last = Math.min(n - 2, current + half);
-    // A window that touches an end hands its spare to the other side.
-    if (first === 1) last = Math.min(n - 2, first + 2 * half);
-    if (last === n - 2) first = Math.max(1, last - 2 * half);
-    const runs = [[1, first - 1], [last + 1, n - 2]].filter(([a, b]) => b - a >= 1);
-    if (packed(first, last, runs) <= room || half === 1) {
-      unfold();
-      for (const [a, b] of runs) {
-        for (let i = a; i <= b; i++) { hide(chips[i], true); hide(links[i], true); }
-        const gap = links[a - 1];
-        gap.classList.toggle("elided", true);
-        const title = (b - a + 1) + " pausepoints folded";
-        if (gap.title !== title) gap.title = title;
-      }
-      distances(first, last, runs.some(([a]) => a === 1), runs.some(([, b]) => b === n - 2));
-      packLinks(chips, links, current, room);
-      return;
-    }
-    half = Math.max(1, Math.floor(half * 0.8));
-  }
-}
-// The rail's cut edges: what still overflows scrolls, and a fade at each
-// cut edge says so (the CSS masks .cut-left / .cut-right).
-function markRailEdges() {
-  const cutLeft = railEl.scrollLeft > 1;
-  const cutRight = railEl.scrollLeft + railEl.clientWidth < railEl.scrollWidth - 1;
-  railEl.classList.toggle("cut-left", cutLeft);
-  railEl.classList.toggle("cut-right", cutRight);
-}
-// Laid out again after a resize of the bar (the window's width; the rail
-// itself changes size with its ticks, which must not re-lay it out) and
-// every redraw of the rail (rail.js replaces or reclasses its children).
-// The page's own writes must not
-// come back to it as mutations — a fold undone and redone on each of
-// its own records never settled — so the observer is off while they are
-// made (a disconnected observer records nothing).
-const railObserved = { childList: true, attributes: true, attributeFilter: ["class"], subtree: true };
-const railObserver = new MutationObserver(layoutRail);
-function layoutRail() {
-  railObserver.disconnect();
-  try { foldRail(); markRailEdges(); }
-  finally { railObserver.observe(railEl, railObserved); }
-}
-railEl.addEventListener("scroll", markRailEdges, { passive: true });
-new ResizeObserver(layoutRail).observe(navbarEl);
-railObserver.observe(railEl, railObserved);
-
-// Nearness: a tick grows as the pointer comes near it along the rail (the
-// dock's magnification, in a small way; Taylor, 2026-10-04: "larger when the
-// mouse is near them"), so a 2 px mark is easy to find and its hit zone easy
-// to hit. The page writes each chip's --near from the pointer's distance,
-// within 36 px, and clears them when the pointer leaves; the growth is a
-// transform (viewer CSS), so no tick moves.
-const NEAR_RADIUS = 36;
-function magnifyRail(x) {
-  for (const chip of railEl.querySelectorAll(".chip")) {
-    let near = "0";
-    if (x !== null) {
-      const box = chip.getBoundingClientRect();
-      const d = Math.abs(box.left + box.width / 2 - x);
-      near = Math.max(0, 1 - d / NEAR_RADIUS).toFixed(2);
-    }
-    if (chip.style.getPropertyValue("--near") !== near) chip.style.setProperty("--near", near);
-  }
-}
-railEl.addEventListener("pointermove", (e) => magnifyRail(e.clientX));
-railEl.addEventListener("pointerleave", () => magnifyRail(null));
-
 // Transport. Today the engine is a local process reached over a WebSocket on
 // the very port that served this page, so the address is simply where we are.
 // Everything below this line speaks only in protocol messages, so an in-page
@@ -1471,8 +1207,18 @@ const rail = ManimlRail.create({
       ? ManimlPresentation.seekCheckpoint(index)
       : send({ type: "chip", index })),
   onFutureChipClick: (unit) => send({ type: "chip_future", unit }),
+  // A recording can be scrubbed with the mouse (rail.js, Scrubbing); the
+  // live engine cannot seek to a time, so the rail scrubs only in playback.
+  scrub: {
+    enabled: () => stageSource === "playback",
+    to: (time) => ManimlPresentation.scrubTo(time),
+    end: (time) => ManimlPresentation.scrubEnd(time),
+  },
 });
 const presenter = rail.presenter;
+// The track's length changes with the window (and with what the rail
+// holds): every mark's fraction is read again.
+new ResizeObserver(() => rail.relayout()).observe(railEl);
 
 // The rail's preview card (rail.js attachPreview): hovering a pausepoint
 // shows its still, its pause('Title') name and its line. Live, the stills
@@ -1586,6 +1332,7 @@ function synthPlaybackState(index) {
     file: (playbackMeta.source || {}).file || "",
     current: index, count: cps.length,
     lines: cps.map((c) => c.line), units: cps.map((c) => c.chip_unit),
+    times: cps.map((c) => c.time),
     stops: cps.map((c) => !!c.stop),
     names: cps.map((c) => c.name || null),
     future: [], present: true,
@@ -1638,6 +1385,7 @@ async function enterPlayback({ freshExport = false } = {}) {
         }
       },
       onRest: (index) => presenter.moveEnded(synthPlaybackState(index)),
+      onTime: (time) => presenter.time(time),
     });
     const seekStart = () => {
       fitStage(playbackVideo.videoWidth, playbackVideo.videoHeight);

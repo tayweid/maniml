@@ -1,43 +1,75 @@
 // The rail, and the presenter that authors it.
 //
 // Extracted from viewer.html so the discipline is testable: a Node
-// simulation (tests/rail_sim.mjs) replays message sequences against a
+// simulation (tests/rail_sim.cjs) replays message sequences against a
 // DOM stub and asserts the classes. The rail has exactly one author —
 // the presenter — and whichever frame source is active (the live engine
-// or the recorded video) feeds it through three methods, so live and
+// or the recorded video) feeds it through the same methods, so live and
 // playback modes cannot drift.
+//
+// The rail is Plass's and Knuth's scroll rail laid on its side (Taylor,
+// 2026-10-07: "basically look exactly like the scrollbar in knuth and
+// plass, but horizontal"): a hairline track, a band, and marks placed by
+// one fraction each, `left: calc(var(--f) * 100%)`. The fraction is
+// time: a pausepoint is a dot at the scene's clock when it was saved,
+// the start and the end are upright dashes, and the plays between
+// pausepoints (UP/DOWN's steps) are faint ticks. What has not run yet
+// has no time, and none is guessed: those units stand at a small fixed
+// interval after the last one that ran.
 //
 // The engine (or source) says which stretch is being crossed, and nothing
 // about how far along it is: an animation's own progress is already on
 // screen at full size. What the rail must do is stop claiming the
-// position it is leaving, hold the one lit link for the whole stretch,
-// and land only on arrival.
+// position it is leaving, light the stretch for the whole move, and land
+// only on arrival. A recording is the exception that proves it: its clock
+// is the video's, so there the head rides the stretch (presenter.time).
 "use strict";
 
 const ManimlRail = (() => {
+
+// px between the marks of units not yet run: nothing says how long they
+// take, so they stand at a small fixed interval after the last one that
+// ran (Taylor, 2026-10-07: "just place them at some small fixed
+// interval"), and may take at most this share of the track.
+const FUTURE_PX = 14;
+const FUTURE_SHARE = 0.5;
+// px either side of a mark, along the rail, within which the pointer
+// takes it (Plass's rail hit-tests by the nearest mark the same way).
+const HIT = 8;
+// px a press moves along the rail before it is a scrub and not a click.
+const DRAG = 3;
+
+const fmt = (f) => String(Math.round(Math.max(0, Math.min(1, f)) * 1e6) / 1e6);
+// The scene's clock as the preview card says it: 0:03.5, 1:12.0.
+function clock(t) {
+  const m = Math.floor(t / 60), s = t - 60 * m;
+  return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1);
+}
 
 function create(config) {
   const doc = config.document;
   const railEl = config.railEl;
   const body = config.body;
   const get = (id) => doc.getElementById(id);
-  const raf = config.raf || ((fn) => fn());
   const env = config.env || (() => {});
+  // The track's length in px: what the not-yet-run marks' fixed interval
+  // is a share of. Read on every draw (a resize calls relayout).
+  const width = config.width || (() => railEl.clientWidth || 400);
 
   const MIN_LIT_MS = 250;
   let move = null;
   let moveSince = 0;
   let moveClear = null;
-  let groups = [];
-  let groupOf = [];   // checkpoint index -> chip index
-  let midGroup = null; // chip whose entering dash is lit: parked mid-stretch
-  let names = [];      // checkpoint index -> pause('Title') name, or null
-  let serials = [];    // checkpoint index -> the engine's checkpoint serial
+  let playhead = null;   // a recording's clock while it crosses a stretch
+  let scrubbed = null;   // the time under the pointer while it scrubs
+  let shown = null;      // the drawn state, as the rail reads it (read())
+  let names = [];        // checkpoint index -> pause('Title') name, or null
+  let serials = [];      // checkpoint index -> the engine's checkpoint serial
 
   // -- The presenter --
   // hold the position while a stretch is being crossed (mid-move states
-  // are pended, applied on arrival), light the crossing link or pulse a
-  // true stack, lift the ring, land only when the move ends.
+  // are pended, applied on arrival), light the stretch, lift the
+  // position, land only when the move ends.
   const presenter = {
     moving: false,
     pending: null,
@@ -56,12 +88,18 @@ function create(config) {
     },
     moveEnded(landingState) {
       this.moving = false;
+      playhead = null;
       handleMove({ from: null });
       const landing = landingState || this.pending;
       this.pending = null;
       if (landing) handleState(landing);
     },
-    reset() { this.moving = false; this.pending = null; },
+    // A recording's clock, while it moves: the head follows it.
+    time(t) {
+      playhead = this.moving ? t : null;
+      drawHead();
+    },
+    reset() { this.moving = false; this.pending = null; playhead = null; },
   };
 
   function handleState(state) {
@@ -78,240 +116,257 @@ function create(config) {
     get("previous").disabled = current <= 0;
     get("next").disabled = current >= total - 1;
 
-    drawRail(state, future, current);
-    applyMove();
-    raf(() => {
-      const active = railEl.querySelector(".current")
-        || railEl.querySelector(".mid");
-      if (active && active.scrollIntoView) {
-        active.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-      }
-    });
+    names = state.names || [];
+    serials = state.serials || [];
+    shown = read(state, future, current);
+    draw();
   }
 
-  // -- The rail --
-  // A chip is one source statement's worth of scene, not one checkpoint.
-  function buildGroups(state, future) {
-    const units = state.units || [];
-    const stops = state.stops || [];
-    const built = [];
-    groupOf = [];
-    for (let i = 0; i < state.count; i++) {
-      const unit = units[i] === undefined ? null : units[i];
-      const isStop = stops[i] === undefined ? true : !!stops[i];
-      const last = built[built.length - 1];
-      // A checkpoint with no unit (checkpoint 0, or a play with no anchor)
-      // never merges: nothing says it belongs with its neighbour.
-      if (last && last.known && unit !== null && last.unit === unit) {
-        last.indices.push(i);
-        if (isStop) last.stopCount += 1;
-      } else {
-        built.push({ known: true, unit, indices: [i],
-                     stopCount: isStop ? 1 : 0, line: state.lines[i] });
-      }
-      groupOf[i] = built.length - 1;
+  // -- Reading a state --
+  // Each checkpoint's time on the scene's clock, never decreasing; a
+  // state without times (or a scene whose plays all took none) is spaced
+  // by index instead, so the marks still stand apart.
+  function read(state, future, current) {
+    const count = Math.max(1, state.count);
+    const given = state.times || [];
+    let times = [];
+    let last = 0;
+    for (let i = 0; i < count; i++) {
+      const t = Number(given[i]);
+      last = Math.max(last, Number.isFinite(t) ? t : (given.length ? last : i));
+      times.push(last);
     }
-    for (const unit of future) {
-      built.push({ known: false, unit: unit.unit, indices: [],
-                   line: unit.line, many: unit.many });
+    if (count > 1 && times[count - 1] <= 0) times = times.map((_, i) => i);
+    const stops = [];
+    for (let i = 0; i < count; i++) {
+      stops.push(i === 0 || !state.stops || state.stops[i] === undefined
+        || !!state.stops[i]);
     }
-    return built;
+    return { count, current: Math.min(current, count - 1), times, stops,
+             lines: state.lines || [], future, T: times[count - 1] };
   }
 
-  // A stack means several PAUSEPOINTS share this chip (a pause in a
-  // loop) — interior play steps between pauses never make one.
-  function chipFlags(group, current) {
-    const holds = group.known ? group.indices.length : 0;
-    const many = (group.known ? group.stopCount > 1 : group.many);
-    const isCurrent = group.known && group.indices.includes(current)
-      && midGroup === null;
-    const past = group.known && group.indices[holds - 1] < current;
-    return { holds, many, isCurrent, past };
-  }
-
-  function chipClassName(group, current) {
-    const { many, isCurrent, past } = chipFlags(group, current);
-    return "chip" + (group.known ? (past ? " past" : "") : " future")
-      + (isCurrent ? " current" : "") + (many ? " many" : "");
-  }
-
-  function chipTitle(group, flags) {
-    const { holds, many } = flags;
-    if (group.known) {
-      const first = group.indices[0], last = group.indices[holds - 1];
-      return many
-        ? "Pausepoints " + first + "–" + last + " · line " + group.line
-          + " · one statement, stepped through with the arrow keys"
-        : (first === 0 ? "Start"
-           : "Pausepoint · line " + group.line
-             + (holds > 1
-                ? " · " + (holds - 1) + " play steps inside (↑↓)"
-                : ""));
-    }
-    return group.many
-      ? "Runs to line " + group.line + " · a loop or branch, so how many "
-        + "pausepoints it holds is not known until it runs"
-      : "Runs to line " + group.line;
-  }
-
-  function linkClassName(from, to, current) {
-    const before = groups[from], after = groups[to];
-    const past = before.known && after.known
-      && after.indices[after.indices.length - 1] <= current;
-    return "link" + (past ? " past" : !before.known ? " future" : "")
-      + (to === midGroup ? " mid" : "");
-  }
-
-  // Refresh everything about a chip that can change from one draw to the
-  // next: class, title, aria state, and the click closure (cheap, and
-  // keeps it bound to the current group/current values).
-  function updateChip(chip, group, current) {
-    const flags = chipFlags(group, current);
-    chip.className = chipClassName(group, current);
-    // The words go to the preview card (attachPreview), not a title
-    // attribute: the browser's own tooltip would stand over the card.
-    const label = chipTitle(group, flags);
-    chip.dataset.detail = label;
-    const rest = group.known ? group.indices[group.indices.length - 1] : null;
-    if (rest === null) delete chip.dataset.index;
-    else chip.dataset.index = String(rest);
-    const name = rest === null ? null : names[rest];
-    chip.setAttribute("aria-label", name ? name + " \u2014 " + label : label);
-    if (flags.isCurrent) chip.setAttribute("aria-current", "step");
-    else chip.removeAttribute("aria-current");
-    // A click parks browser focus on the button, and since the rail stopped
-    // rebuilding on every paint the node — and its focus ring — now survives
-    // navigation. Position feedback is the presenter's job, so drop it.
-    chip.onclick = () => {
-      if (chip.blur) chip.blur();
-      // A chip is the resting state at the END of its stretch: interior
-      // plays (and loop iterations) collapse into it and are reached with
-      // UP/DOWN. Clicking must land on that rest — the group's last
-      // checkpoint — not the first interior play, or the scene parks one
-      // or more plays short of the pausepoint the chip stands for.
-      if (group.known) {
-        config.onChipClick(group.indices[group.indices.length - 1]);
-      } else {
-        config.onFutureChipClick(group.unit);
-      }
+  // -- One fraction maps everything --
+  // A checkpoint that ran stands at its time over the last one's, within
+  // the part of the track the run scene takes; the units not yet run
+  // follow at FUTURE_PX apiece, and the run part gives them that room
+  // (all of it while nothing has taken any time).
+  function scale() {
+    const W = Math.max(1, width());
+    const n = shown.future.length;
+    let room = 0;
+    if (n) room = shown.T > 0 ? Math.min(n * FUTURE_PX, W * FUTURE_SHARE) : W;
+    const ran = (W - room) / W;
+    return {
+      at: (t) => (shown.T > 0 ? Math.min(1, t / shown.T) * ran : 0),
+      // The inverse, for a scrub: the time a fraction of the track stands
+      // for (past the run part, the last checkpoint's).
+      time: (f) => (shown.T > 0 && ran > 0
+        ? Math.max(0, Math.min(1, f / ran)) * shown.T : 0),
+      future: (j) => ran + (j + 1) * (room / W) / n,
+      step: FUTURE_PX / W,
     };
   }
 
-  function makeChip(group, g, current) {
-    const chip = doc.createElement("button");
-    chip.type = "button";
-    chip.dataset.group = String(g);
-    chip.setAttribute("role", "listitem");
-    updateChip(chip, group, current);
-    return chip;
+  // -- The DOM --
+  // A span inset from the rail's ends holds the track (a hairline end to
+  // end), the band, the head and the marks. The marks are pooled by their
+  // order and rewritten in place, so a redraw moves each straight to its
+  // new place (a CSS transition on left) instead of rebuilding the rail;
+  // a unit that runs is the same element before and after, gliding from
+  // its fixed slot to its time.
+  let span = null, band = null, head = null;
+  const marks = [];   // the ends, the pausepoints and the units not yet run
+  const ticks = [];   // the plays between pausepoints
+  let hot = null;     // the mark under the pointer
+  const hotListeners = [];
+
+  function setVar(el, name, value) {
+    if (el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
+  }
+  function drop(el) {
+    if (el.remove) el.remove();
+    else span.removeChild(el);
+  }
+  function build() {
+    span = doc.createElement("div");
+    span.className = "rail-span";
+    span.setAttribute("role", "presentation");
+    span.appendChild(doc.createElement("div")).className = "rail-track";
+    band = span.appendChild(doc.createElement("div"));
+    band.className = "rail-band";
+    head = span.appendChild(doc.createElement("div"));
+    head.className = "rail-head off";
+    railEl.replaceChildren(span);
   }
 
-  function makeLink(from, to, current) {
-    const link = doc.createElement("span");
-    link.className = linkClassName(from, to, current);
-    link.dataset.from = String(from);
-    link.appendChild(doc.createElement("i")).className = "fill";
-    return link;
-  }
-
-  // True when the rail's existing DOM has exactly the shape the new
-  // groups need: the same chip/link count. When it holds, drawRail
-  // updates classes/labels in place instead of tearing the DOM down —
-  // that's what lets CSS transitions run instead of teleporting. A chip
-  // that was future and is known now (the frontier moved) is updated in
-  // place too: updateChip rewrites everything about a chip, and a rebuild
-  // there made every move at the frontier a jump while a move through
-  // run history glided (Taylor, 2026-10-05).
-  function canUpdateInPlace(prevGroups, newGroups) {
-    if (prevGroups.length !== newGroups.length) return false;
-    if (railEl.children.length !== 2 * newGroups.length - 1) return false;
-    for (let g = 0; g < newGroups.length; g++) {
-      if (!railEl.children[2 * g]) return false;
-    }
-    return true;
-  }
-
-  function updateRailInPlace(current) {
-    groups.forEach((group, g) => {
-      updateChip(railEl.children[2 * g], group, current);
-      if (g > 0) {
-        railEl.children[2 * g - 1].className = linkClassName(g - 1, g, current);
+  function draw() {
+    if (!span) build();
+    const s = scale();
+    const { count, times, stops, future } = shown;
+    const specs = [];
+    const tickAt = [];
+    let plays = 0;
+    for (let i = 0; i < count; i++) {
+      if (stops[i]) {
+        specs.push({ index: i, f: s.at(times[i]), plays });
+        plays = 0;
+      } else {
+        tickAt.push(s.at(times[i]));
+        plays += 1;
       }
-    });
+    }
+    future.forEach((u, j) => specs.push(
+      { unit: u.unit, line: u.line, many: !!u.many, f: s.future(j) }));
+
+    while (marks.length < specs.length) {
+      const mark = doc.createElement("button");
+      mark.type = "button";
+      mark.setAttribute("role", "listitem");
+      span.appendChild(mark);
+      marks.push(mark);
+    }
+    while (marks.length > specs.length) drop(marks.pop());
+    if (hot && !marks.includes(hot)) setHot(null);
+    specs.forEach((spec, k) => updateMark(marks[k], spec,
+      k === 0 ? "start" : k === specs.length - 1 ? "end" : null));
+
+    while (ticks.length < tickAt.length) {
+      const tick = span.appendChild(doc.createElement("i"));
+      tick.className = "tick";
+      ticks.push(tick);
+    }
+    while (ticks.length > tickAt.length) drop(ticks.pop());
+    tickAt.forEach((f, k) => setVar(ticks[k], "--f", fmt(f)));
+
+    // The rail's length follows what it holds (the page's CSS reads it).
+    setVar(railEl, "--marks", String(specs.length));
+    drawBand();
+    drawHead();
   }
 
-  function drawRail(state, future, current) {
-    const prevGroups = groups;
-    names = state.names || [];
-    serials = state.serials || [];
-    groups = buildGroups(state, future);
-    // Parked between pausepoints (UP/DOWN): the position is a place ON a
-    // stretch, not a pausepoint, so the dash entering the chip lights and
-    // no dot claims the ring. In a plain file every checkpoint is a stop
-    // and this never engages.
-    const stops = state.stops || [];
-    const atStop = stops[current] === undefined ? true : !!stops[current];
-    midGroup = (atStop || groupOf[current] === undefined)
-      ? null : groupOf[current];
-    if (canUpdateInPlace(prevGroups, groups)) {
-      updateRailInPlace(current);
-      return;
+  function updateMark(mark, spec, end) {
+    const known = spec.index !== undefined;
+    const current = known && spec.index === shown.current;
+    mark.className = "mark" + (end ? " " + end : "") + (known ? "" : " future")
+      + (current ? " current" : "") + (spec.many ? " many" : "")
+      + (mark === hot ? " hot" : "");
+    setVar(mark, "--f", fmt(spec.f));
+    // The words go to the preview card (attachPreview), not a title
+    // attribute: the browser's own tooltip would stand over the card.
+    const label = describeSpec(spec);
+    mark.dataset.detail = label;
+    if (known) {
+      mark.dataset.index = String(spec.index);
+      delete mark.dataset.unit;
+    } else {
+      delete mark.dataset.index;
+      mark.dataset.unit = String(spec.unit);
     }
-    railEl.replaceChildren();
-    groups.forEach((group, g) => {
-      if (g > 0) railEl.appendChild(makeLink(g - 1, g, current));
-      railEl.appendChild(makeChip(group, g, current));
-    });
+    const name = known ? names[spec.index] : null;
+    mark.setAttribute("aria-label", name ? name + " \u2014 " + label : label);
+    if (current) mark.setAttribute("aria-current", "step");
+    else mark.removeAttribute("aria-current");
+    // A click parks browser focus on the button, and the mark survives
+    // every redraw, so drop it: position feedback is the presenter's job.
+    mark.onclick = () => {
+      if (mark.blur) mark.blur();
+      if (known) config.onChipClick(spec.index);
+      else config.onFutureChipClick(spec.unit);
+    };
   }
 
-  // Where a move lands, in chips. The destination checkpoint may not exist
-  // yet, which is exactly the case the unit index answers: a play from the
-  // same statement stays inside its stack, anything else crosses to the
-  // chip standing for that statement.
-  function destinationGroup(from) {
-    if (groupOf[move.to] !== undefined) return groupOf[move.to];
-    if (groups[from] && groups[from].unit === move.unit) return from;
-    for (let g = from + 1; g < groups.length; g++) {
-      if (groups[g].unit === move.unit) return g;
+  function describeSpec(spec) {
+    if (spec.index === undefined) {
+      return spec.many
+        ? "Runs to line " + spec.line + " \u00b7 a loop or branch, so how many "
+          + "pausepoints it holds is not known until it runs"
+        : "Runs to line " + spec.line;
     }
-    return from + 1;
+    if (spec.index === 0) return "Start";
+    return "Pausepoint \u00b7 line " + shown.lines[spec.index]
+      + " \u00b7 " + clock(shown.times[spec.index])
+      + (spec.plays ? " \u00b7 " + spec.plays + " play step"
+         + (spec.plays > 1 ? "s" : "") + " before it (\u2191\u2193)" : "");
+  }
+
+  // -- The band --
+  // The stretch in question. At rest, the one the next RIGHT plays, faint,
+  // as Plass's band is at rest; while a move crosses a stretch, that one,
+  // lit, whichever way it runs.
+  function drawBand() {
+    if (!band || !shown) return;
+    const s = scale();
+    const { times, current } = shown;
+    let a, b;
+    if (move) {
+      a = s.at(times[Math.min(move.from, shown.count - 1)]);
+      b = destination(s);
+    } else {
+      a = s.at(times[current]);
+      b = nextStop(s);
+      if (b === null) b = a;
+    }
+    setVar(band, "--a", fmt(Math.min(a, b)));
+    setVar(band, "--b", fmt(Math.max(a, b)));
+    band.className = "rail-band" + (move ? " lit" : "")
+      + (move && move.back ? " back" : "") + (a === b ? " empty" : "");
+  }
+
+  // Where the stretch after the position ends: the next pausepoint that
+  // ran, else the first unit not yet run.
+  function nextStop(s) {
+    for (let i = shown.current + 1; i < shown.count; i++) {
+      if (shown.stops[i]) return s.at(shown.times[i]);
+    }
+    return shown.future.length ? s.future(0) : null;
+  }
+
+  // Where a move lands. Forward through history, the pausepoint at or
+  // after the play it names; at the frontier the destination does not
+  // exist yet, which is what the unit answers: the mark of the unit
+  // being run (or, a loop's next lap, one interval past the last).
+  function destination(s) {
+    const { count, stops, times, future } = shown;
+    if (move.to < count) {
+      let i = Math.max(0, move.to);
+      if (move.back) { while (i > 0 && !stops[i]) i--; }
+      else { while (i < count - 1 && !stops[i]) i++; }
+      return s.at(times[i]);
+    }
+    const j = future.findIndex((u) => u.unit === move.unit);
+    if (j >= 0) return s.future(j);
+    if (future.length) return s.future(0);
+    return Math.min(1, s.at(times[count - 1]) + s.step);
+  }
+
+  // -- The head --
+  // The position where no pausepoint stands for it: parked between
+  // pausepoints (UP/DOWN), a recording crossing a stretch, whose clock is
+  // the video's, or the pointer scrubbing one.
+  function drawHead() {
+    if (!head || !shown) return;
+    let f = null;
+    if (scrubbed !== null) f = scale().at(scrubbed);
+    else if (move && playhead !== null) f = scale().at(playhead);
+    else if (!move && !shown.stops[shown.current]) {
+      f = scale().at(shown.times[shown.current]);
+    }
+    head.className = "rail-head" + (f === null ? " off" : "");
+    if (f !== null) setVar(head, "--f", fmt(f));
   }
 
   function applyMove() {
-    for (const link of railEl.querySelectorAll(".link")) {
-      link.classList.remove("lit", "back");
-    }
-    for (const chip of railEl.querySelectorAll(".chip")) {
-      chip.classList.remove("working");
-    }
     body.classList.toggle("moving", !!move);
-    if (!move) return;
-    const from = groupOf[move.from];
-    if (from === undefined) return;
-    const to = destinationGroup(from);
-    const chip = (g) => railEl.querySelector('.chip[data-group="' + g + '"]');
-    if (to === from) {
-      // Moving inside a collapsed stack: there is no stretch between two
-      // chips to light, so the stack itself shows that it is working.
-      const stack = chip(from);
-      if (stack) stack.classList.add("working");
-      return;
-    }
-    // The lit dash is the whole story of a crossing: no outline on the
-    // destination chip — its dot lights only on arrival.
-    const link = railEl.querySelector(
-      '.link[data-from="' + Math.min(from, to) + '"]');
-    if (link) {
-      link.classList.add("lit");
-      if (move.back) link.classList.add("back");
-    }
+    drawBand();
+    drawHead();
   }
 
   function handleMove(data) {
     clearTimeout(moveClear);
     if (data.from === null || data.from === undefined) {
       // Hold a short move lit long enough to be seen: a 0.3s play would
-      // otherwise flicker the link on and off in one blink.
+      // otherwise flicker the band on and off in one blink.
       const held = Math.max(0, MIN_LIT_MS - (performance.now() - moveSince));
       moveClear = setTimeout(() => { move = null; applyMove(); }, held);
       return;
@@ -321,16 +376,97 @@ function create(config) {
     applyMove();
   }
 
-  // What the preview card says about a chip: the checkpoint it rests on
+  // -- The pointer --
+  // The rail hit-tests by the nearest mark, as Plass's does: a 5 px dot
+  // takes HIT px either side and the rail's whole height, and the marks
+  // themselves take no pointer events. A key on a focused mark is the
+  // mark's own click.
+  function nearest(x) {
+    let best = null, bestD = HIT;
+    for (const mark of marks) {
+      const box = mark.getBoundingClientRect();
+      const d = Math.abs(box.left + box.width / 2 - x);
+      if (d <= bestD) { best = mark; bestD = d; }   // a tie goes to the later
+    }
+    return best;
+  }
+  function setHot(mark) {
+    if (mark === hot) return;
+    if (hot) hot.classList.remove("hot");
+    hot = mark;
+    if (hot) hot.classList.add("hot");
+    for (const listener of hotListeners) listener(hot);
+  }
+  // -- Scrubbing --
+  // Where the page can seek to any time (a recording; config.scrub), a
+  // press dragged along the rail scrubs it (Taylor, 2026-10-07: "the
+  // ability to scrub through with the mouse in present mode"): the head
+  // follows the pointer and the picture follows the head, and the
+  // release lands on the checkpoint nearest in time, so the position is
+  // a checkpoint again, as every other way of moving leaves it. A press
+  // that moves less than DRAG px is a click.
+  const scrub = config.scrub || null;
+  let press = null;   // { x, id, dragging } from pointerdown to pointerup
+  let swallowClick = false;
+  function timeAt(x) {
+    const box = span.getBoundingClientRect();
+    return scale().time(box.width > 0 ? (x - box.left) / box.width : 0);
+  }
+  function scrubTo(x) {
+    scrubbed = timeAt(x);
+    scrub.to(scrubbed);
+    drawHead();
+  }
+  if (railEl.addEventListener) {
+    railEl.addEventListener("pointerdown", (e) => {
+      if (!scrub || !scrub.enabled() || !shown || e.button !== 0) return;
+      press = { x: e.clientX, id: e.pointerId, dragging: false };
+    });
+    railEl.addEventListener("pointermove", (e) => {
+      if (press && e.pointerId === press.id) {
+        if (!press.dragging && Math.abs(e.clientX - press.x) >= DRAG) {
+          press.dragging = true;
+          railEl.setPointerCapture(press.id);
+          railEl.classList.add("scrubbing");
+          setHot(null);
+        }
+        if (press.dragging) { scrubTo(e.clientX); return; }
+      }
+      setHot(nearest(e.clientX));
+    });
+    const release = (e, cancelled) => {
+      if (!press || e.pointerId !== press.id) return;
+      const dragged = press.dragging;
+      press = null;
+      if (!dragged) return;
+      railEl.classList.remove("scrubbing");
+      swallowClick = true;   // the click that follows a drag is not one
+      const t = cancelled ? scrubbed : timeAt(e.clientX);
+      scrubbed = null;
+      scrub.end(t);
+      drawHead();
+    };
+    railEl.addEventListener("pointerup", (e) => release(e, false));
+    railEl.addEventListener("pointercancel", (e) => release(e, true));
+    railEl.addEventListener("pointerleave", () => { if (!press) setHot(null); });
+    railEl.addEventListener("click", (e) => {
+      if (swallowClick) { swallowClick = false; return; }
+      if (e.target && e.target.closest && e.target.closest(".mark")) return;
+      const mark = nearest(e.clientX);
+      if (mark) mark.onclick();
+    });
+  }
+
+  // What the preview card says about a mark: the checkpoint it rests on
   // (null for a unit not yet run), its pause('Title') name, the serial
   // that identifies this run of it, and the rail's own words for it.
-  function describe(chip) {
-    const index = chip.dataset.index === undefined ? null : Number(chip.dataset.index);
+  function describe(mark) {
+    const index = mark.dataset.index === undefined ? null : Number(mark.dataset.index);
     return {
       index,
       name: index === null ? null : (names[index] || null),
       serial: index === null ? null : (serials[index] === undefined ? null : serials[index]),
-      detail: chip.dataset.detail || "",
+      detail: mark.dataset.detail || "",
     };
   }
 
@@ -339,12 +475,14 @@ function create(config) {
     handleState,
     handleMove,
     describe,
-    groupOfCheckpoint: (i) => groupOf[i],
+    // The track changed length (a resize): every fraction is read again.
+    relayout() { if (shown) draw(); },
+    onHot(listener) { hotListeners.push(listener); },
   };
 }
 
 // -- The preview card --
-// Hovering (or focusing) a chip raises a small card above it: the still
+// Hovering (or focusing) a mark raises a small card above it: the still
 // of that pausepoint, its pause('Title') name when it has one, and the
 // rail's line for it (Taylor, 2026-10-06). Where the picture comes from
 // is the page's business — `still(info)` returns an image URL or a
@@ -366,11 +504,11 @@ function attachPreview(rail, config) {
   detail.className = "rail-preview-detail";
   doc.body.appendChild(card);
 
-  let shown = null;   // the chip the card stands over
+  let shown = null;   // the mark the card stands over
   let ask = 0;        // the latest still request; older answers are dropped
 
-  function place(chip) {
-    const box = chip.getBoundingClientRect();
+  function place(mark) {
+    const box = mark.getBoundingClientRect();
     const rail = railEl.getBoundingClientRect();
     const width = card.offsetWidth;
     const view = doc.documentElement.clientWidth;
@@ -387,10 +525,9 @@ function attachPreview(rail, config) {
     frame.classList.toggle("has-still", !!still);
   }
 
-  function show(chip) {
-    if (chip.classList.contains("hidden")) return hide();
-    const info = rail.describe(chip);
-    shown = chip;
+  function show(mark) {
+    const info = rail.describe(mark);
+    shown = mark;
     title.textContent = info.name || "";
     title.hidden = !info.name;
     detail.textContent = info.detail;
@@ -398,13 +535,13 @@ function attachPreview(rail, config) {
     const answer = info.index === null ? null : config.still(info);
     if (answer && typeof answer.then === "function") {
       setStill(null);
-      answer.then((url) => { if (mine === ask && shown === chip) setStill(url); },
+      answer.then((url) => { if (mine === ask && shown === mark) setStill(url); },
                   () => {});
     } else {
       setStill(answer);
     }
     card.classList.add("shown");
-    place(chip);
+    place(mark);
   }
 
   function hide() {
@@ -413,26 +550,17 @@ function attachPreview(rail, config) {
     card.classList.remove("shown");
   }
 
-  const chipAt = (target) => (target && target.closest ? target.closest(".chip") : null);
-  railEl.addEventListener("pointerover", (e) => {
-    const chip = chipAt(e.target);
-    if (chip && chip !== shown) show(chip);
-  });
-  railEl.addEventListener("pointerout", (e) => {
-    const to = chipAt(e.relatedTarget);
-    if (to) show(to);
-    else if (chipAt(e.target)) hide();
-  });
+  const markAt = (target) => (target && target.closest ? target.closest(".mark") : null);
+  rail.onHot((mark) => (mark ? show(mark) : hide()));
   railEl.addEventListener("focusin", (e) => {
-    const chip = chipAt(e.target);
-    if (chip && chip.matches(":focus-visible")) show(chip);
+    const mark = markAt(e.target);
+    if (mark && mark.matches(":focus-visible")) show(mark);
   });
   railEl.addEventListener("focusout", hide);
   railEl.addEventListener("pointerdown", hide);
-  railEl.addEventListener("scroll", hide, { passive: true });
   return {
-    // The rail redraws under a resting pointer (a move lands, a stack
-    // grows): refresh the card's words and still in place.
+    // The rail redraws under a resting pointer (a move lands, a unit
+    // runs): refresh the card's words and still in place.
     refresh() { if (shown) { if (shown.isConnected) show(shown); else hide(); } },
     hide,
   };

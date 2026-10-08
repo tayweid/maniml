@@ -11,6 +11,15 @@
 // Position is a TRACKED INDEX, never derived from the clock: several
 // checkpoints can share one timestamp (two pause() calls back to back),
 // and deriving from time would land on whichever came last.
+//
+// An arrow pressed while a stretch is being crossed acts at once rather
+// than waiting for the move to land (Taylor, 2026-10-07: "pause the
+// animation, skip ahead or back interrupting the animation while it
+// runs ... i just don't want a forward arrow for example to pile up"):
+// the arrow the move is going lands it on its pausepoint now, the other
+// one returns it to the pausepoint it left. Either way the press ends the
+// move on a pausepoint the move was between, so presses never pile up
+// past the next one; a press after it lands is an ordinary move.
 "use strict";
 
 const ManimlPresentation = (() => {
@@ -23,7 +32,7 @@ const ManimlPresentation = (() => {
   let target = 0;               // its time
   let ticker = null;
   let loopRange = null;         // [from, to] while lapping a loop pause
-  let callbacks = {};           // { onUpdate(i), onMove(from,to,back,unit), onRest(i) }
+  let callbacks = {};           // { onUpdate(i), onMove(from,to,back,unit), onRest(i), onTime(t) }
 
   function checkpoints() { return meta ? meta.checkpoints : []; }
 
@@ -63,10 +72,26 @@ const ManimlPresentation = (() => {
       arrive();
     } else {
       video.currentTime = now + Math.sign(delta) * STEP;
-      // Deliberately no state report mid-move: the rail keeps the origin
-      // chip held with the link lit, exactly like the live viewer — the
-      // state lands only on arrival.
+      // No state report mid-move: the rail keeps the origin held with the
+      // stretch lit, exactly like the live viewer, and the state lands
+      // only on arrival. The clock is reported, for the rail's head.
+      if (callbacks.onTime) callbacks.onTime(video.currentTime);
     }
+  }
+
+  // A move in flight, ended now by an arrow: `forward` says which arrow.
+  // The move's own direction lands it on its destination; the other
+  // returns it to its origin. False when nothing is moving.
+  function interrupt(forward) {
+    if (!video || index === targetIndex) return false;
+    const going = targetIndex > index;
+    if (forward !== going) {
+      targetIndex = index;
+      target = checkpoints()[index] ? frameTime(checkpoints()[index].time) : 0;
+    }
+    video.currentTime = target;
+    arrive();
+    return true;
   }
 
   function arrive() {
@@ -93,10 +118,14 @@ const ManimlPresentation = (() => {
     const list = checkpoints();
     if (!list.length || !video) return;
     loopRange = null;
+    // A seek mid-move (a click on the rail, UP/DOWN) ends the move: it
+    // lands where it seeks, or the rail would hold the move open.
+    const moving = index !== targetIndex;
     index = targetIndex = Math.max(0, Math.min(list.length - 1, newIndex));
     target = frameTime(list[index].time);
     video.currentTime = target;
-    if (callbacks.onUpdate) callbacks.onUpdate(index);
+    if (moving && callbacks.onRest) callbacks.onRest(index);
+    else if (callbacks.onUpdate) callbacks.onUpdate(index);
   }
 
   return {
@@ -114,9 +143,31 @@ const ManimlPresentation = (() => {
       video = null;
       meta = null;
     },
-    playToNextStop() { moveTo(nextStop(), false); },
-    playToPreviousStop() { moveTo(prevStop(), true); },
+    playToNextStop() { if (!interrupt(true)) moveTo(nextStop(), false); },
+    playToPreviousStop() { if (!interrupt(false)) moveTo(prevStop(), true); },
     stepCheckpoint(direction) { park(index + direction); },
+    // The mouse scrubbing the rail: the picture at any time, a move in
+    // flight ended where it stood; the release parks on the checkpoint
+    // nearest that time (of several at one time, the last: the pause
+    // after its play).
+    scrubTo(time) {
+      if (!video || !meta) return;
+      loopRange = null;
+      if (index !== targetIndex) {
+        targetIndex = index;
+        if (callbacks.onRest) callbacks.onRest(index);
+      }
+      video.currentTime = Math.max(0, time);
+    },
+    scrubEnd(time) {
+      const list = checkpoints();
+      if (!list.length) return;
+      let best = 0;
+      list.forEach((cp, i) => {
+        if (Math.abs(cp.time - time) <= Math.abs(list[best].time - time)) best = i;
+      });
+      park(best);
+    },
     seekCheckpoint(checkpointIndex) { park(checkpointIndex); },
     togglePause() {
       // Space: freeze a scrub in place (the rail returns to the origin;

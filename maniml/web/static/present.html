@@ -29,6 +29,7 @@
     --ink: #252428;
     --dim: #969199;
     --accent: #58c4dd;
+    --frame: #17161a;
     --shadow: 0 11px 32px rgba(0, 0, 0, 0.28);
     --glass-light: rgba(235, 232, 225, 0.94);
   }
@@ -114,8 +115,7 @@
   #navbar > * { position: relative; }
   #navbar > *:hover, #navbar > *:focus-within { z-index: 20; }
   .transport-pod { padding: 0 5px; }
-  .rail-pod { flex: 1 1 auto; max-width: 620px; min-width: 0;
-    gap: 12px; padding: 0 12px 0 13px; }
+  .rail-pod { flex: 0 1 auto; min-width: 0; padding: 0 6px; }
   .view-pod { padding: 0 5px; }
 
   #position {
@@ -131,52 +131,86 @@
 
   /* ---- the rail (copied from the viewer, verbatim) ---- */
   #rail {
-    flex: 1; min-width: 0; height: 30px;
-    display: flex; align-items: center; overflow-x: auto;
-    padding: 5px 2px; scrollbar-width: none;
+    position: relative; flex: 0 1 auto; min-width: 80px; height: 26px;
+    width: clamp(240px, calc(var(--marks, 2) * 26px), 640px); cursor: pointer;
   }
-  #rail::-webkit-scrollbar { display: none; }
-  .link {
-    position: relative; flex: 1 1 26px; min-width: 13px; height: 1px;
-    margin: 0 5px; background: var(--line-strong);
+  .rail-span { position: absolute; inset: 0 9px; }
+  /* A press dragged along a recording's rail scrubs it (rail.js). */
+  #rail.scrubbing { cursor: ew-resize; }
+  .rail-track {
+    position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px;
+    background: rgba(255, 255, 255, 0.14);
   }
-  .link.past { background: #77727a; }
-  .link.future { background: none; border-top: 1px dashed #5e5a62; }
-  .link .fill {
-    position: absolute; left: 0; right: 0; top: -1px; height: 3px;
-    border-radius: 2px; background: var(--accent);
-    box-shadow: 0 0 9px rgba(88,196,221,.45);
-    transform: scaleX(0); transform-origin: left center;
-    transition: transform 200ms ease, opacity 200ms ease; opacity: 0;
+  /* The band: the stretch in question. At rest it is Plass's band at rest
+     (white 3.5 % over an 8 % edge) over the stretch the next arrow plays;
+     while a move crosses a stretch, that one, lit in the accent. It says
+     which stretch and, live, not how far along: the animation is on
+     screen at full size (a recording's head rides it; below). */
+  .rail-band {
+    position: absolute; top: 50%; height: 12px; margin-top: -6px;
+    left: calc(var(--a, 0) * 100% - 4px);
+    width: calc((var(--b, 0) - var(--a, 0)) * 100% + 8px);
+    border-radius: 4px; pointer-events: none;
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: left 280ms ease, width 280ms ease, background 200ms ease,
+      box-shadow 200ms ease, opacity 200ms ease;
   }
-  .link.lit .fill { transform: scaleX(1); opacity: 1; }
-  .link.lit.back .fill { transform-origin: right center; }
-  .link.mid .fill { transform: scaleX(1); opacity: 1; }
-  .chip {
-    position: relative; z-index: 1; width: 11px; height: 11px; padding: 0;
-    border-radius: 50%; flex: none; background: var(--glass-solid);
-    border: 1px solid #5e5a62; cursor: pointer;
-    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease,
+  .rail-band.empty { opacity: 0; }
+  .rail-band.lit {
+    background: rgba(88, 196, 221, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(88, 196, 221, 0.5), 0 0 9px rgba(88, 196, 221, 0.25);
+  }
+  /* The marks: buttons (a tab stop each, Return jumps) placed by --f. They
+     take no pointer events: the rail takes the nearest within 8 px
+     (rail.js), and that one grows and whitens, as on Plass's rail. */
+  .mark {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(240, 238, 233, 0.72);
+    transform: translate(-50%, -50%); pointer-events: none;
+    transition: left 280ms ease, transform 120ms ease, background 120ms ease,
       box-shadow 200ms ease;
   }
-  .chip:hover, .chip:focus-visible { transform: scale(1.35); outline: none; }
-  .chip.past { background: #77727a; border-color: #77727a; }
-  .chip.current { background: var(--accent); border-color: var(--accent);
-    transform: scale(1.35); box-shadow: 0 0 0 4px rgba(88,196,221,.12); }
-  .chip.future { background: var(--glass-solid); border-style: dashed; border-color: #5e5a62; }
-  .chip.many {
-    box-shadow: 4px 0 0 -1px var(--glass-solid), 4px 0 0 0 rgba(94,90,98,.6),
-                8px 0 0 -2px var(--glass-solid), 8px 0 0 -1px rgba(94,90,98,.38);
-    margin-right: 9px;
+  .mark.future { background: rgba(150, 145, 153, 0.5); }
+  /* A unit that may hold several pausepoints until it runs (a loop, a
+     branch): a fainter dot behind it, so the rail does not claim a count
+     it does not have. */
+  .mark.many { box-shadow: 4px 0 0 -0.5px rgba(150, 145, 153, 0.32); }
+  .mark.start, .mark.end {
+    width: 1.5px; height: 11px; border-radius: 1px; background: rgba(240, 238, 233, 0.6);
   }
-  body.moving .chip.current {
-    box-shadow: none; transform: scale(1);
-    background: #77727a; border-color: #77727a;
+  .mark.end.future { background: rgba(150, 145, 153, 0.5); }
+  .mark.current { background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }
+  .mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }
+  .mark.current.hot { background: var(--accent); }
+  .mark:focus { outline: none; }
+  .mark:focus-visible { box-shadow: 0 0 0 1.5px var(--frame), 0 0 0 3px #9db8d6; }
+  /* While a move crosses a stretch the position is the stretch, not the
+     pausepoint being left: the accent leaves its mark and the lit band is
+     the whole story; the destination lights on arrival. A scrub likewise:
+     the head under the pointer is the position until the release. */
+  body.moving #rail .mark.current, #rail.scrubbing .mark.current {
+    background: rgba(240, 238, 233, 0.72); box-shadow: none; }
+  body.moving #rail .mark.start.current, #rail.scrubbing .mark.start.current,
+  body.moving #rail .mark.end.current, #rail.scrubbing .mark.end.current {
+    background: rgba(240, 238, 233, 0.6); }
+  .tick {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 1px; height: 5px; margin: -2.5px 0 0 -0.5px;
+    background: rgba(240, 238, 233, 0.24); pointer-events: none;
+    transition: left 280ms ease;
   }
-  @keyframes chip-working { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.45); } }
-  body.moving .chip.working {
-    animation: chip-working 900ms ease-in-out infinite;
+  /* The head: the position where no pausepoint stands for it, parked on a
+     play (UP/DOWN) or a recording crossing a stretch, where it rides the
+     video's clock. Knuth's caret bar in the accent, upright. */
+  .rail-head {
+    position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);
+    width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px;
+    background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55);
+    pointer-events: none;
   }
+  .rail-head.off { opacity: 0; }
 
   /* ---- the preview card (copied from the viewer) ---- */
   .rail-preview {
@@ -258,6 +292,7 @@
       current: index, count: cps.length,
       lines: cps.map((c) => c.line),
       units: cps.map((c) => c.chip_unit),
+      times: cps.map((c) => c.time),
       stops: cps.map((c) => !!c.stop),
       names: cps.map((c) => c.name || null),
       future: [],
@@ -272,6 +307,12 @@
     env: () => {},
     onChipClick: (index) => ManimlPresentation.seekCheckpoint(index),
     onFutureChipClick: () => {},   // a baked table has no future units
+    // The recording can be scrubbed with the mouse (rail.js, Scrubbing).
+    scrub: {
+      enabled: () => true,
+      to: (time) => ManimlPresentation.scrubTo(time),
+      end: (time) => ManimlPresentation.scrubEnd(time),
+    },
   });
   const presenter = rail.presenter;
   // Hovering a pausepoint: its frame from the recording, its name, its line.
@@ -290,7 +331,9 @@
       }
     },
     onRest: (index) => presenter.moveEnded(synthState(index)),
+    onTime: (time) => presenter.time(time),
   });
+  new ResizeObserver(() => rail.relayout()).observe(document.getElementById("rail"));
 
   document.getElementById("start").onclick =
     () => ManimlPresentation.seekCheckpoint(0);

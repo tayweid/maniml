@@ -281,22 +281,24 @@ class ViewerTests(unittest.TestCase):
         self.assertNotIn('<header id="toolbar" class="pod-run"', viewer)
 
     def test_the_rail_can_light_a_single_stretch(self):
-        """A link between two chips is a real element precisely so one of
-        them can light while its animation plays; a line drawn behind the
-        whole rail could only ever be lit end to end."""
+        """The band is the stretch in question: faint over the one the next
+        arrow plays, lit over the one a move crosses, so one stretch can
+        light while its animation plays."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("function makeLink(", (STATIC / "rail.js").read_text())
-        self.assertIn(".link.lit .fill", viewer)
-        self.assertIn(".link.lit.back .fill", viewer)
-        # The ring must leave the chip being departed, or the rail keeps
+        rail = (STATIC / "rail.js").read_text()
+        self.assertIn("function drawBand(", rail)
+        self.assertIn("function destination(", rail)
+        self.assertIn(".rail-band.lit {", viewer)
+        # The position must leave the mark being departed, or the rail keeps
         # claiming a position it is on its way out of — the lag that made
         # stepping feel like a jump.
-        self.assertIn("body.moving #rail .chip.current", viewer)
+        self.assertIn("body.moving #rail .mark.current", viewer)
 
     def test_a_move_says_which_stretch_and_not_how_far(self):
-        """Progress through an animation is on screen at full size already,
-        and any claim would have to hold through reverse morphs and
-        fast-forwards too."""
+        """Live, progress through an animation is on screen at full size
+        already, and any claim would have to hold through fast-forwards
+        too. Only a recording, whose clock is the video's, moves the head
+        through a stretch (presenter.time)."""
         viewer = (STATIC / "viewer.html").read_text()
         self.assertIn('data.type === "move"', viewer)
         rail = (STATIC / "rail.js").read_text()
@@ -305,25 +307,45 @@ class ViewerTests(unittest.TestCase):
             self.assertNotIn(absent, move, absent)
         # A short play must stay lit long enough to be seen.
         self.assertIn("MIN_LIT_MS", rail)
+        self.assertIn("onTime: (time) => presenter.time(time),", viewer)
+
+    def test_a_recording_can_be_scrubbed_with_the_mouse(self):
+        """In playback a press dragged along the rail scrubs the recording
+        and the release parks on the nearest checkpoint (Taylor,
+        2026-10-07); the live engine cannot seek to a time, so it is the
+        recording's alone, and the bundle page has it too."""
+        rail = (STATIC / "rail.js").read_text()
+        self.assertIn("const DRAG = 3;", rail)
+        self.assertIn("scrub.end(t);", rail)
+        presentation = (STATIC / "presentation.js").read_text()
+        self.assertIn("scrubTo(time) {", presentation)
+        self.assertIn("scrubEnd(time) {", presentation)
+        viewer = (STATIC / "viewer.html").read_text()
+        self.assertIn('enabled: () => stageSource === "playback",', viewer)
+        self.assertIn("#rail.scrubbing { cursor: ew-resize; }", viewer)
+        self.assertIn("end: (time) => ManimlPresentation.scrubEnd(time),",
+                      (STATIC / "present.html").read_text())
 
     def test_an_unknowable_pausepoint_count_is_drawn_as_one(self):
-        """A loop or a branch does not have a chip per play until it runs, so
-        the rail draws a stack rather than implying a count it lacks."""
+        """A loop or a branch does not have a mark per pausepoint until it
+        runs, so the rail draws a doubled mark rather than implying a count
+        it lacks."""
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn(".chip.many", viewer)
-        self.assertIn("group.many", (STATIC / "rail.js").read_text())
+        self.assertIn(".mark.many", viewer)
+        self.assertIn("spec.many", (STATIC / "rail.js").read_text())
 
-    def test_a_statement_keeps_one_chip_after_it_runs(self):
-        """A chip is a source statement, not a checkpoint: a loop that turns
-        into four checkpoints must not become four chips, or the rail swells
-        as you step through it and every chip you were aiming at moves."""
+    def test_marks_stand_at_their_times_and_the_unrun_at_an_interval(self):
+        """A pausepoint stands at the scene's clock when it was saved (the
+        engine's state carries `times`, a recording's table its `time`);
+        what has not run has no time, and none is guessed: it stands at a
+        small fixed interval after what has (Taylor, 2026-10-07)."""
         rail = (STATIC / "rail.js").read_text()
-        self.assertIn("function buildGroups(", rail)
-        # Consecutive checkpoints from the same unit merge into one chip.
-        self.assertIn("last.unit === unit", rail)
-        # And the move can still find its destination while that chip's next
-        # checkpoint does not exist yet.
-        self.assertIn("function destinationGroup(", rail)
+        self.assertIn("const FUTURE_PX = 14;", rail)
+        self.assertIn("function scale()", rail)
+        self.assertIn('"times": [_checkpoint_time(c) for c in checkpoints],',
+                      (STATIC.parent / "viewer.py").read_text())
+        self.assertIn("times: cps.map((c) => c.time),", (STATIC / "viewer.html").read_text())
+        self.assertIn("times: cps.map((c) => c.time),", (STATIC / "present.html").read_text())
 
     def test_the_two_pages_share_their_controls(self):
         """The landing page is the same bar as the viewer's, so the bar, the
@@ -575,56 +597,32 @@ class FrameTests(unittest.TestCase):
     def test_the_presenters_bar_is_thin_and_the_rail_is_bars(self):
         """The pods are 28 px (Plass's old 42, cut down; Taylor, 2026-10-04),
         their buttons 24 with 16 px glyphs, the run's ends 14 px stadiums;
-        the bar runs the room's width and the rail takes what the pods
-        leave; the nodes are 7 px hollow frames (white loaded, grey not yet
-        run, filled in the accent at the position; Taylor, 2026-10-06) and
-        the ends 9 px bookend frames with a spine on the outer edge, joined by 1 px links that stop 3 px
-        short of the ticks, 32 px at most and packing to 2 px except the
-        links round the current tick, which keep their room; a rail with
-        more than fits scrolls
-        and fades its cut edges; the rail pads 8 px either side so the end
-        ticks' glow is whole; the opening and the console stop 52 px above
+        the rail is a scroll rail on its side, as long as its marks ask
+        (26 px a mark, 240 to 640 px), its pausepoints 5 px dots at their
+        times and its ends upright dashes (Taylor, 2026-10-07); the opening and the console stop 52 px above
         the frame's edge above the window's bottom (the edge, the pods,
         the edge)."""
         viewer_ = (STATIC / "viewer.html").read_text()
         self.assertIn("gap: 5px; padding: 0 var(--edge); pointer-events: none;", viewer_)
         self.assertIn("body.fullscreen #navbar { bottom: 12px; padding: 0 12px; }", viewer_)
-        self.assertIn(".rail-pod { flex: 0 1 auto; min-width: 0; gap: 8px; padding: 0 6px; }", viewer_)
-        self.assertIn("position: relative; flex: none; width: 32px; height: 1px;\n    margin: 0 3px;", viewer_)
-        self.assertIn("position: relative; z-index: 1; width: 7px; height: 7px; padding: 0;", viewer_)
-        self.assertIn("box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 1.5px;", viewer_)
-        self.assertIn("background: var(--accent); box-shadow: 0 0 6px rgba(88,196,221,.55); }", viewer_)
-        self.assertIn("justify-content: safe center;", viewer_)
+        self.assertIn(".rail-pod { flex: 0 1 auto; min-width: 0; padding: 0 4px; }", viewer_)
         self.assertIn('aria-label="Jump to the start" disabled hidden>', viewer_)
-        self.assertIn("railObserver.disconnect();", viewer_)
-        self.assertIn(".chip.future { --ink: rgba(150, 145, 153, 0.32); }", viewer_)
-        self.assertIn("#rail .chip.current { --ink: var(--accent);", viewer_)
-        self.assertIn("#rail .chip:first-child, #rail .chip:last-child {\n    --ink: rgba(235, 231, 225, 0.7); opacity: 1; width: 9px; height: 9px;", viewer_)
-        self.assertIn("#rail .chip:first-child { border-left-width: 3.5px; }", viewer_)
-        self.assertIn("#rail .chip:last-child { border-right-width: 3.5px; }", viewer_)
-        self.assertIn("#rail.cut-left.cut-right {", viewer_)
-        self.assertIn("function markRailEdges()", viewer_)
-        # The links are seen between every pair; the ticks grow near the
-        # pointer over a wider hit zone, and beside the current one.
-        self.assertIn(".link.past { background: rgba(235, 231, 225, 0.3); }", viewer_)
-        self.assertIn("transform: scale(calc(1 + var(--near, 0) * 0.6));", viewer_)
-        self.assertIn('.chip::before { content: ""; position: absolute; top: -7px; bottom: -7px;', viewer_)
-        self.assertIn("function magnifyRail(x)", viewer_)
-        # The start and the end are bookends and always there: the middle
-        # folds into dotted gaps round a window on the current tick.
-        self.assertNotIn("#rail .chip:first-child::after", viewer_)
-        self.assertIn(".chip.hidden { width: 0; border-width: 0; margin: 0; opacity: 0; pointer-events: none; box-shadow: none; }", viewer_)
-        self.assertIn("function packLinks(chips, links, current, room)", viewer_)
-        self.assertIn("function foldRail()", viewer_)
-        self.assertIn('gap.classList.toggle("elided", true);', viewer_)
-        self.assertIn("function layoutRail() {\n  railObserver.disconnect();", viewer_)
-        self.assertIn("function railRoom()", viewer_)
-        self.assertIn("new ResizeObserver(layoutRail).observe(navbarEl);", viewer_)
-        # A landed move draws its lit fill into the chip it reached, not
-        # back into the one it left.
-        self.assertIn("transform: scaleX(0); transform-origin: right center;", viewer_)
-        self.assertIn(".link.lit .fill { transform: scaleX(1); opacity: 1; transform-origin: left center; }", viewer_)
-        self.assertIn('attributeFilter: ["class"]', viewer_)
+        # The rail is a horizontal scroll rail: its length follows its
+        # marks, every mark placed by its fraction, the pausepoints 5 px
+        # dots, the ends upright dashes, the plays faint ticks, the hot
+        # mark grown and whitened as on Plass's rail.
+        self.assertIn("width: clamp(240px, calc(var(--marks, 2) * 26px), 640px);", viewer_)
+        self.assertIn("position: absolute; top: 50%; left: calc(var(--f, 0) * 100%);\n"
+                      "    width: 5px; height: 5px; padding: 0; border: 0; border-radius: 50%;", viewer_)
+        self.assertIn("width: 1.5px; height: 11px; border-radius: 1px;", viewer_)
+        self.assertIn(".mark.hot { background: #fff; transform: translate(-50%, -50%) scale(1.45); }", viewer_)
+        self.assertIn(".mark.current { background: var(--accent);", viewer_)
+        self.assertIn(".rail-head.off { opacity: 0; }", viewer_)
+        self.assertIn("new ResizeObserver(() => rail.relayout()).observe(railEl);", viewer_)
+        # Nothing folds or scrolls any more.
+        for gone in ("function foldRail()", "function packLinks(", "function magnifyRail(",
+                     "#rail.cut-left", ".chip {", ".link {"):
+            self.assertNotIn(gone, viewer_, gone)
         self.assertEqual(viewer_.count('const railEl = document.getElementById("rail");'), 1)
         shell = (STATIC / "shell.css").read_text()
         self.assertIn(".pod {\n  height: 28px;", shell)
@@ -632,16 +630,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn("width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;", shell)
         self.assertIn("width: 16px; height: 16px; fill: none;", shell)
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn("height: 26px;\n    display: flex; align-items: center; justify-content: safe center; overflow-x: auto;\n    padding: 0 8px;",
-                      viewer)
         self.assertNotIn("flex-shrink: 0.5", viewer_)
-        # The links taper and the row fades toward a fold, from distances
-        # the page writes.
-        self.assertNotIn("flex-shrink: var(", viewer_)
-        self.assertIn("transition: width 280ms ease, margin 280ms ease, opacity 200ms ease;", viewer_)
-        self.assertIn("opacity: clamp(0, calc((var(--edge, 99) - 1) / 8), 1);", viewer_)
-        self.assertIn(".link.elided { opacity: 0; }", viewer_)
-        self.assertIn('chips.forEach((c, i) => put(c, "--edge", edge(i)));', viewer_)
         self.assertIn("right: calc(var(--edge) + 12px); bottom: calc(var(--edge) * 2 + 28px + 12px);", viewer)
         # The bar's tiles keep their 32 px: the pods' size is the pods'.
         self.assertIn("#toolbar .icon-button {\n  flex: none; width: 32px; height: 32px;", shell)
