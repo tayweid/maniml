@@ -320,6 +320,15 @@
     onTime: (time) => presenter.time(time),
   });
   new ResizeObserver(() => rail.relayout()).observe(document.getElementById("rail"));
+  // A sideways two-finger slide anywhere over the page scrubs the rail
+  // (rail.js wheel). Taken only when it is mostly sideways; taking it
+  // also keeps the browser's swipe-to-go-back off the page.
+  window.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    if (e.target && e.target.closest && e.target.closest(".rail-preview")) return;
+    const dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    if (rail.wheel(dx)) e.preventDefault();
+  }, { passive: false });
 
   document.getElementById("start").onclick =
     () => ManimlPresentation.seekCheckpoint(0);

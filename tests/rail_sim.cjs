@@ -259,6 +259,33 @@ function makeRail(dom, clicks = [], futureClicks = []) {
       round(f(timeline(dom)[21])), 0.525);
   }
 
+  // ---- Scene 3c: a trackpad slide scrubs, and its stopping releases ----
+  {
+    const dom = makeDom();
+    const calls = [];
+    const rail = ManimlRail.create({
+      document: dom.doc, railEl: dom.railEl, body: dom.body,
+      env: () => {}, width: () => 400, onChipClick: () => {}, onFutureChipClick: () => {},
+      scrub: { enabled: () => true,
+               to: (t, i) => calls.push(["to", round(t), i]),
+               end: (t, i) => calls.push(["end", round(t), i]) },
+    });
+    const n = 41;
+    rail.presenter.stateChanged({
+      count: n, lines: Array(n).fill(1), units: [...Array(n).keys()],
+      times: [...Array(n).keys()], stops: Array(n).fill(true), future: [], current: 20 });
+    // 16 px of slide under a 1.6 times lens: 10 px of timeline, a second.
+    rail.wheel(16);
+    rail.wheel(8);
+    check("wheel: a slide moves the head at the lens's scale, the bubble lit",
+      [calls, railState(dom).head, railState(dom).bubble, railState(dom).lit],
+      [[["to", 21, 21], ["to", 21.5, 22]], 215, true, 22]);
+    await sleep(250);
+    check("wheel: the slide stopping releases on the nearest pausepoint",
+      [calls[calls.length - 1], railState(dom).head, railState(dom).bubble],
+      [["end", 21.5, 22], 220, false]);
+  }
+
   // ---- Scene 4: playback tracks its index; duplicate timestamps ----
   {
     const events = [];
