@@ -25,6 +25,7 @@ from maniml.logger import log
 from maniml.mobject.mobject import Mobject
 from maniml.mobject.mobject import copy_mode
 from maniml.performance import performance
+from maniml.scene import function_scene
 from maniml.scene.file_watcher import FileWatcher
 from maniml.scene.source_map import SourceMapError
 from maniml.scene.source_map import build_units
@@ -134,8 +135,8 @@ class CheckpointMixin:
                 if not name.startswith('_'):
                     namespace[name] = getattr(maniml.constants, name)
         
-        # Add self reference
-        namespace['self'] = self
+        # Add self reference (and a function scene's handle)
+        self._bind_scene_names(namespace)
         
         # Add current (empty) state to namespace
         namespace['__checkpoint_state__'] = self.get_state()
@@ -220,7 +221,7 @@ class CheckpointMixin:
             return
 
         if not (units and units[0].start_line <= earliest_change <= units[-1].end_line):
-            print("Change outside construct(): rebuilding scene")
+            print("Change outside the scene's body: rebuilding scene")
             self._restart_from_source()
             return
 
@@ -318,6 +319,11 @@ class CheckpointMixin:
         module = self._reload_module()
         if module is None:
             return
+        # A function scene's parameter is on its def line, outside the body:
+        # the reloaded class may name it differently from the one running
+        fresh = getattr(module, type(self).__name__, None)
+        if isinstance(fresh, type):
+            self._scene_handle = getattr(fresh, '_scene_handle', None)
 
         self.animation_checkpoints = []
         self.current_animation_index = -1
@@ -458,9 +464,19 @@ class CheckpointMixin:
                     ledger=self.checkpoint_ledger, mode="thaw")
             self.restore_state(temp['state'])
             namespace = temp['namespace']
-            namespace['self'] = self
+            self._bind_scene_names(namespace)
             self._live_namespace = namespace
         performance.increment("checkpoint.display_restore.calls")
+
+    def _bind_scene_names(self, namespace: dict) -> None:
+        """Put the scene into a namespace a unit runs in: as `self`, and
+        under a function scene's parameter name (scene/function_scene.py).
+        Neither is ever copied into a checkpoint; every path that hands a
+        namespace to source binds them again."""
+        namespace['self'] = self
+        handle = getattr(self, '_scene_handle', None)
+        if handle is not None:
+            namespace[handle] = self
 
     def _find_animation_anchor(self) -> tuple[int | None, int | None]:
         """Locate the source anchor (end line and unit index) of the play()
@@ -500,14 +516,22 @@ class CheckpointMixin:
     def _capture_caller_namespace(self) -> dict:
         """Copy the variables of the frame that triggered this play call:
         either a construct() frame or a unit exec'd by run_next_animation."""
+        # A function scene's body is its function's frame, not construct()'s
+        function = getattr(type(self), 'scene_function', None)
+        body = getattr(function, '__code__', None)
         frame = inspect.currentframe()
         while frame:
-            if frame.f_code.co_name == 'construct' and 'self' in frame.f_locals:
+            if (frame.f_code is body
+                    or (frame.f_code.co_name == 'construct' and 'self' in frame.f_locals)):
                 namespace = frame.f_locals.copy()
                 namespace.update(frame.f_globals)
                 return namespace
-            if '__animation_line_number__' in frame.f_globals:
-                # A unit exec'd by run_next_animation
+            if ('__animation_line_number__' in frame.f_globals
+                    and frame.f_code.co_name == '<module>'):
+                # A unit exec'd by run_next_animation. Its own frame, not
+                # that of a function the unit defined (whose globals are the
+                # unit's too): a helper's locals are not the scene's names,
+                # and merged in they would shadow them in the checkpoint
                 namespace = frame.f_globals.copy()
                 namespace.update(frame.f_locals)
                 return namespace
@@ -737,7 +761,8 @@ class CheckpointMixin:
                     self.restore_state(checkpoint_temporary['state'])
 
             namespace = checkpoint_temporary['namespace']
-        namespace['self'] = self
+        self._bind_scene_names(namespace)
+        function_scene.activate(self)
         self._restore_checkpoint_random_state(current_checkpoint)
         # Anchor for the checkpoint(s) saved during exec
         namespace['__animation_line_number__'] = unit.end_line
@@ -963,6 +988,11 @@ def _classify_value(value):
     )
 
     if isinstance(value, NON_COPYABLE_TYPES):
+        return 'can_skip'
+
+    # The scene itself (`self`, a function scene's handle, an alias of either)
+    # is the engine's: kept by reference, never copied into a checkpoint
+    if isinstance(value, CheckpointMixin):
         return 'can_skip'
 
     # Check for common non-copyable objects by attribute

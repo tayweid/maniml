@@ -454,7 +454,11 @@ with the orbit gesture (CHANGELOG, "The viewer"; the demo is
   only the preamble, hand the rest to the unit machinery); CE files
   must stay the front door; one file would be one scene unless a cell
   can name one. Not while course production runs on the checkpoint
-  engine.
+  engine. Function scenes (`@Scene def Intro(): play(...)`, 2026-10-08)
+  take the class away without changing boundaries and answer the first
+  and third blocks: the body does not run on import, and each function
+  names its scene. Cells are now only a question of where units break,
+  and could sit inside one.
 - **Typst text backend** for Tex/MathTex via mitex: kills the texlive
   install burden, faster builds, the same engine as Plass. Independent
   of everything above; do whenever — except that the app above needs it

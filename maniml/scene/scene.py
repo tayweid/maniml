@@ -35,6 +35,7 @@ from maniml.utils.sounds import play_sound
 from maniml.utils.color import color_to_rgba
 from maniml.scene.checkpoints import CheckpointMixin
 from maniml.scene.checkpoints import deepcopy_namespace  # re-export
+from maniml.scene import function_scene
 from maniml.scene.interaction import InteractionMixin
 from maniml.scene.presentation import PresentationMixin
 
@@ -100,6 +101,16 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
     samples = 0
     # Euler angles, in degrees
     default_frame_orientation = (0, 0)
+    # A function scene's parameter name, bound to the scene beside `self`
+    # (scene/function_scene.py); None for a class, and for a function without one.
+    _scene_handle: str | None = None
+
+    def __new__(cls, *args, **kwargs):
+        # `@Scene` over a function: the class is the decorator, and what it
+        # returns is a subclass of itself standing for the function.
+        if len(args) == 1 and not kwargs and function_scene.is_scene_function(args[0]):
+            return function_scene.scene_class_from_function(cls, args[0])
+        return super().__new__(cls)
 
     def __init__(
         self,
@@ -233,6 +244,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         return self.window
 
     def run(self) -> None:
+        function_scene.activate(self)
         self._reset_pacing_clocks()
         try:
             self.file_writer.begin()
@@ -295,6 +307,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
 
     def _tear_down_resources(self, *, abort: bool) -> None:
         """Release every owned resource while preserving the first failure."""
+        function_scene.deactivate(self)
         errors: list[tuple[str, BaseException]] = []
 
         def attempt(label, operation):

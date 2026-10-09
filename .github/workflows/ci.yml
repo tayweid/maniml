@@ -189,6 +189,7 @@ jobs:
         run: >-
           uv run --locked --no-dev python -m unittest
           tests.test_source_map
+          tests.test_function_scene
           tests.test_ce_conformance
           tests.test_checkpoint_reload
           tests.test_live_interrupt

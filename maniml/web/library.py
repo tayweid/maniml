@@ -13,6 +13,7 @@ import ast
 import json
 import os
 
+from maniml.scene.source_map import is_scene_decorator
 
 
 def recents_path() -> str:
@@ -36,7 +37,8 @@ RECENTS_MAX = 12
 
 def find_scene_classes(path: str) -> list[str]:
     """Scene classes in a file via AST — no import, no side effects.
-    Heuristic: a class whose base names end with 'Scene'."""
+    Heuristic: a class whose base names end with 'Scene', or a top-level
+    function decorated with one (a function scene, scene/function_scene.py)."""
     try:
         with open(path) as f:
             tree = ast.parse(f.read())
@@ -44,13 +46,14 @@ def find_scene_classes(path: str) -> list[str]:
         return []
     scenes = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node in tree.body:
+            if any(is_scene_decorator(d) for d in node.decorator_list):
+                scenes.append(node.name)
+            continue
         if not isinstance(node, ast.ClassDef):
             continue
-        for base in node.bases:
-            name = getattr(base, "id", getattr(base, "attr", ""))
-            if isinstance(name, str) and name.endswith("Scene"):
-                scenes.append(node.name)
-                break
+        if any(is_scene_decorator(base) for base in node.bases):
+            scenes.append(node.name)
     return scenes
 
 

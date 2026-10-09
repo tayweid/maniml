@@ -13,6 +13,13 @@ play checkpoints between pauses are interior states that run through.
 Statements after the last boundary form a trailing unit with
 ``has_stop=False`` (e.g. a final ``self.wait()``).
 
+A *function scene* (scene/function_scene.py) is a top-level function
+decorated with a scene class (``@Scene``, ``@ThreeDScene``): its body is
+read exactly as a construct() body is, and its verbs are bare calls, so
+``play(...)``, ``pause()`` and ``next_section()`` are boundaries spelled
+without ``self.``, and the function's one parameter, if it has one,
+stands for the scene as ``self`` does.
+
 The checkpoint system executes one unit at a time, so a boundary call
 inside a for-loop or if-block re-executes with its full enclosing
 statement instead of a truncated text snippet.
@@ -51,35 +58,79 @@ class AnimationUnit:
         return self.loops or self.stops > 1
 
 
-def _is_pause_call(node: ast.AST) -> bool:
-    """Whether this node is a ``self.pause()`` / ``self.next_section()`` call.
+PAUSE_NAMES = ('pause', 'next_section')
+SCENE_RECEIVERS = frozenset({'self'})
 
-    Pauses must be spelled on ``self`` so that a scene about, say, a media
-    player calling ``player.pause()`` cannot silently flip the whole file
-    into pause-anchored mode.
+
+def is_scene_decorator(node: ast.AST) -> bool:
+    """Whether a decorator makes its function a function scene: a scene class
+    used bare, ``@Scene`` or ``@maniml.ThreeDScene``, by the rule
+    library.find_scene_classes has always used for base classes (the
+    name ends with "Scene")."""
+    name = getattr(node, 'id', getattr(node, 'attr', None))
+    return isinstance(name, str) and name.endswith('Scene')
+
+
+def _function_scenes(tree: ast.Module) -> list[ast.FunctionDef]:
+    """The module's function scenes, in file order."""
+    return [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and any(is_scene_decorator(d) for d in node.decorator_list)
+    ]
+
+
+def _scene_receivers(tree: ast.Module) -> frozenset:
+    """The names a pause may be spelled on: ``self``, and each function
+    scene's parameter, which is the scene under the name it was given."""
+    handles = set()
+    for scene in _function_scenes(tree):
+        parameters = scene.args.posonlyargs + scene.args.args
+        if parameters:
+            handles.add(parameters[0].arg)
+    return SCENE_RECEIVERS | handles
+
+
+
+def _is_pause_call(node: ast.AST, receivers: frozenset = SCENE_RECEIVERS) -> bool:
+    """Whether this node is a ``self.pause()`` / ``self.next_section()`` call,
+    or a function scene's bare ``pause()`` / ``next_section()``.
+
+    Pauses must be spelled on the scene (``self``, or a function scene's
+    parameter) or bare, so that a scene about, say, a media player calling
+    ``player.pause()`` cannot silently flip the whole file into
+    pause-anchored mode.
     """
-    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+    if not isinstance(node, ast.Call):
         return False
     func = node.func
-    return (func.attr in ('pause', 'next_section')
-            and isinstance(func.value, ast.Name) and func.value.id == 'self')
+    if isinstance(func, ast.Name):
+        return func.id in PAUSE_NAMES
+    return (isinstance(func, ast.Attribute) and func.attr in PAUSE_NAMES
+            and isinstance(func.value, ast.Name) and func.value.id in receivers)
 
 
-def _is_stop_call(node: ast.AST, pause_mode: bool) -> bool:
+def _is_stop_call(node: ast.AST, pause_mode: bool,
+                  receivers: frozenset = SCENE_RECEIVERS) -> bool:
     """Whether this node is a call that saves a checkpoint.
 
     Every ``.play(...)`` is one — the loose attribute match it has always
-    had; a false positive costs one extra unit boundary, nothing more. In
-    pause-anchored mode pauses are checkpoint boundaries too.
+    had; a false positive costs one extra unit boundary, nothing more —
+    and so is a function scene's bare ``play(...)``. In pause-anchored mode
+    pauses are checkpoint boundaries too.
     """
-    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+    if not isinstance(node, ast.Call):
         return False
-    if node.func.attr == 'play':
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr == 'play':
         return True
-    return pause_mode and _is_pause_call(node)
+    if isinstance(func, ast.Name) and func.id == 'play':
+        return True
+    return pause_mode and _is_pause_call(node, receivers)
 
 
-def _count_stops(node: ast.AST, pause_mode: bool) -> int:
+def _count_stops(node: ast.AST, pause_mode: bool,
+                 receivers: frozenset = SCENE_RECEIVERS) -> int:
     """Stop calls that *run* when this statement executes.
 
     A stop written inside a nested ``def``/``lambda`` does not fire at
@@ -93,13 +144,14 @@ def _count_stops(node: ast.AST, pause_mode: bool) -> int:
         sub = stack.pop()
         if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             continue   # the statement itself may be the def: nothing in it runs now
-        if _is_stop_call(sub, pause_mode):
+        if _is_stop_call(sub, pause_mode, receivers):
             count += 1
         stack.extend(ast.iter_child_nodes(sub))
     return count
 
 
-def _stop_in_loop(node: ast.AST, pause_mode: bool) -> bool:
+def _stop_in_loop(node: ast.AST, pause_mode: bool,
+                  receivers: frozenset = SCENE_RECEIVERS) -> bool:
     """Whether any stop call in this statement sits inside a loop.
 
     ``ast.walk`` yields the statement itself, so a ``for`` loop that is the
@@ -107,22 +159,25 @@ def _stop_in_loop(node: ast.AST, pause_mode: bool) -> bool:
     """
     return any(
         isinstance(sub, (ast.For, ast.AsyncFor, ast.While))
-        and _count_stops(sub, pause_mode) > 0
+        and _count_stops(sub, pause_mode, receivers) > 0
         for sub in ast.walk(node)
     )
 
 
-def _tree_uses_pauses(tree: ast.Module) -> bool:
-    """Whether the file calls self.pause()/self.next_section() anywhere.
+def _tree_uses_pauses(tree: ast.Module, receivers: frozenset | None = None) -> bool:
+    """Whether the file calls self.pause()/self.next_section() anywhere
+    (or a function scene's spelling of either).
 
     The whole module is scanned, not just construct(): a pause inside a
     helper fires at runtime all the same, and must put the file in
     pause-anchored mode even though it adds no unit boundary.
     """
-    return any(_is_pause_call(node) for node in ast.walk(tree))
+    if receivers is None:
+        receivers = _scene_receivers(tree)
+    return any(_is_pause_call(node, receivers) for node in ast.walk(tree))
 
 
-def _count_pauses(node: ast.AST) -> int:
+def _count_pauses(node: ast.AST, receivers: frozenset = SCENE_RECEIVERS) -> int:
     """Pause calls that run when this statement executes (def/lambda
     bodies excluded, same as _count_stops)."""
     count = 0
@@ -131,7 +186,7 @@ def _count_pauses(node: ast.AST) -> int:
         sub = stack.pop()
         if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             continue
-        if _is_pause_call(sub):
+        if _is_pause_call(sub, receivers):
             count += 1
         stack.extend(ast.iter_child_nodes(sub))
     return count
@@ -147,8 +202,14 @@ def pause_anchored(source: str) -> bool:
 
 
 def _find_construct(tree: ast.Module, scene_name: str | None) -> ast.FunctionDef:
+    """The function whose body is the scene: a class's construct(), or a
+    function scene itself, whose body stands where construct()'s would."""
+    functions = set(map(id, _function_scenes(tree)))
     candidates = []
     for node in tree.body:
+        if id(node) in functions:
+            candidates.append((node.name, node))
+            continue
         if not isinstance(node, ast.ClassDef):
             continue
         for item in node.body:
@@ -166,7 +227,7 @@ def _find_construct(tree: ast.Module, scene_name: str | None) -> ast.FunctionDef
             f"No construct() found for scene '{scene_name}' "
             f"(classes with construct: {available})"
         )
-    raise SourceMapError("No class with a construct() method found")
+    raise SourceMapError("No class with a construct() method (or @Scene function) found")
 
 
 def _unit_source(lines: list[str], start_line: int, end_line: int) -> str:
@@ -190,13 +251,15 @@ def _unit_source(lines: list[str], start_line: int, end_line: int) -> str:
 
 
 def build_units(source: str, scene_name: str | None = None) -> list[AnimationUnit]:
-    """Map a scene file's construct() body into animation units.
+    """Map a scene file's construct() body (or a function scene's) into
+    animation units.
 
     Raises SourceMapError if the file has no matching construct(), and
     propagates SyntaxError if the file doesn't parse.
     """
     tree = ast.parse(source)
-    pause_mode = _tree_uses_pauses(tree)
+    receivers = _scene_receivers(tree)
+    pause_mode = _tree_uses_pauses(tree, receivers)
     construct = _find_construct(tree, scene_name)
     lines = source.splitlines()
 
@@ -205,7 +268,7 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
     for stmt in construct.body:
         if pending_start is None:
             pending_start = stmt.lineno
-        stops = _count_stops(stmt, pause_mode)
+        stops = _count_stops(stmt, pause_mode, receivers)
         if stops:
             units.append(AnimationUnit(
                 index=len(units),
@@ -214,8 +277,8 @@ def build_units(source: str, scene_name: str | None = None) -> list[AnimationUni
                 has_stop=True,
                 source=_unit_source(lines, pending_start, stmt.end_lineno),
                 stops=stops,
-                loops=_stop_in_loop(stmt, pause_mode),
-                is_pause=pause_mode and _count_pauses(stmt) > 0,
+                loops=_stop_in_loop(stmt, pause_mode, receivers),
+                is_pause=pause_mode and _count_pauses(stmt, receivers) > 0,
             ))
             pending_start = None
 

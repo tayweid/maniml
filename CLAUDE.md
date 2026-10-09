@@ -8,6 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The package is `maniml` (`import maniml`), so it does not shadow a real ManimCE install. Unmodified CE scene files still work: the CLI installs a process-local import alias (`_CEAliasFinder` in `maniml/__main__.py`) mapping `manim`/`manim.*` to maniml, so `from manim import *` resolves correctly under the `maniml` command while leaving any installed ManimCE untouched elsewhere.
 
+**Function scenes** (`scene/function_scene.py`, 2026-10-08): a scene can be a top-level function decorated with its scene class, written without `self.`, several to a file:
+
+```python
+@ThreeDScene
+def Orbit(s):              # the one optional parameter is the scene
+    add(Sphere())          # ThreeDScene.add, depth testing and all
+    play(s.frame.animate.increment_theta(PI / 2))
+    pause()
+```
+
+`Scene.__new__` given a single function returns a subclass named after it (claiming its module), so the CLI's discovery, `build_units`, the watcher and the scene picker find it as a class. The verbs (`play`, `wait`, `pause`, `add`, `remove`, ... `function_scene.VERBS`, star-exported) call the method of the active scene, set by `run()` and before every unit; they work from module helpers and inside class scenes too. The parameter is bound wherever `self` is (`_bind_scene_names`) and is never copied into a checkpoint (`_classify_value` keeps any scene by reference). A play inside a helper the body defined saves the unit's namespace, not the helper's locals (`_capture_caller_namespace` takes the unit's own `<module>` frame). Class-level config (`camera_class`, `setup()`) still needs a class. Why a function and not a script: DECISIONS.md, "A scene can be a function; a file cannot be a scene". Tested in `tests/test_function_scene.py`.
+
 The forward roadmap is `TODO.md`; the record of what was decided, shipped, or tried-and-deleted — with reasoning — is `DECISIONS.md`.
 
 ### Names, and the install trap
@@ -129,7 +141,7 @@ All of this lives in `maniml/`:
 
 1. **Entry point** (`__main__.py`): loads the scene file as a real module registered in `sys.modules` (required for checkpoint-0 namespace capture), creates the browser viewer (or nothing, for the headless modes), sets `scene._scene_filepath`, and calls `scene.run()`.
 
-2. **Source map** (`scene/source_map.py`): parses the scene file with AST and splits `construct()` into **animation units** — runs of consecutive top-level statements ending with a *boundary statement*: one containing a call that saves a checkpoint. Every `.play(...)` is a boundary. In a **pause-anchored** file (`pause_anchored`: one that calls `self.pause()` / `self.next_section()` anywhere) pause statements are boundaries too, marked `is_pause` — their checkpoints are the *pausepoints* RIGHT/LEFT move between, while play checkpoints are the interior states. A boundary inside a for-loop/if keeps its whole enclosing statement. Trailing statements after the last boundary (e.g. `self.wait()`) form a tail unit with `has_stop=False`. Pause detection requires the `self.` spelling, so a scene about a media player calling `player.pause()` cannot flip the mode. Unit-tested in `tests/test_source_map.py`.
+2. **Source map** (`scene/source_map.py`): parses the scene file with AST and splits `construct()` into **animation units** — runs of consecutive top-level statements ending with a *boundary statement*: one containing a call that saves a checkpoint. Every `.play(...)` is a boundary. In a **pause-anchored** file (`pause_anchored`: one that calls `self.pause()` / `self.next_section()` anywhere) pause statements are boundaries too, marked `is_pause` — their checkpoints are the *pausepoints* RIGHT/LEFT move between, while play checkpoints are the interior states. A boundary inside a for-loop/if keeps its whole enclosing statement. Trailing statements after the last boundary (e.g. `self.wait()`) form a tail unit with `has_stop=False`. Pause detection requires the `self.` spelling (or a function scene's bare `pause()` or `s.pause()` on its parameter), so a scene about a media player calling `player.pause()` cannot flip the mode. A function scene's body is read as `construct()`'s is, with bare `play(...)` a boundary. Unit-tested in `tests/test_source_map.py` and `tests/test_function_scene.py`.
 
 3. **Scene / checkpoints** (`scene/scene.py` + `scene/checkpoints.py`): `Scene` is composed from mixins — `CheckpointMixin` (`checkpoints.py`: checkpoint save/restore, unit re-execution, watcher replay, `deepcopy_namespace`), `InteractionMixin` (`interaction.py`: key/mouse handlers, backward jumps, click-to-inspect/drag), `PresentationMixin` (`presentation.py`: present mode, render mode) — with `scene.py` keeping the core lifecycle, `SceneState`, and `ThreeDScene`.
    - `run()` never calls `construct()` directly; it creates checkpoint 0 (deep copy of the scene module's namespace) and executes one unit at a time via `run_next_animation()`.

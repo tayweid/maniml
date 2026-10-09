@@ -5,6 +5,31 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A scene can be a function; a file cannot be a scene (2026-10-08)
+
+Long on the docket: write scenes flat, without the class and its
+`self.`. The engine already ran `construct()`'s body unit by unit against
+a namespace and never called the method, so the class was a wrapper the
+source map peeled off. Two forms were prototyped on the same day.
+
+A *function scene* is `@Scene def Intro(): play(...)`: the scene class
+is the decorator (`Scene.__new__` given one function returns a subclass
+named after it), the verbs are real functions that call the running
+scene, and the function's one optional parameter is the scene. A
+*script scene* was the file itself, plays at the top level. Taylor asked
+for the script first ("i just want this written as a script"), then,
+shown both: "the function form seems most pythonic... drop scripts and
+commit the function version". Decided: functions, and no scripts. A
+script cannot run on import, so loading had to split it, running the
+leading imports and call-free settings and holding the rest for the
+engine; which lines ran when became a rule a reader had to learn, and
+its `scene = ThreeDScene()` declaration a line that never ran. The
+function keeps every line's meaning ordinary, imports cleanly, names its
+scene, and allows several to a file. Its one unordinary part is shared
+with `construct()`: the body runs in units, never as a call, so an early
+`return` does not work in either. Class scenes stay the front door for
+CE files.
+
 ## Phase B is the default (2026-10-07)
 
 Taylor: "default should be phase B." Told that the whole stack had failed

@@ -21,6 +21,15 @@ from .scene.scene import Scene, ThreeDScene
 # camera frame is a mobject you can animate. Alias for compatibility.
 MovingCameraScene = Scene
 
+# A function scene's verbs: `@Scene def Intro(): play(...)` (scene/function_scene.py)
+from .scene.function_scene import (
+    play, wait, wait_until, pause, next_section,
+    add, remove, clear, bring_to_front, bring_to_back,
+    add_sound, set_background_color,
+    set_camera_orientation, begin_ambient_camera_rotation,
+    stop_ambient_camera_rotation,
+)
+
 # Import basic mobjects directly
 from .mobject.mobject import Mobject, Group
 from .mobject.geometry import (
@@ -249,6 +258,12 @@ __all__ = [
     'config',
     # Scenes
     'Scene', 'ThreeDScene', 'MovingCameraScene',
+    # A function scene's verbs
+    'play', 'wait', 'wait_until', 'pause', 'next_section',
+    'add', 'remove', 'clear', 'bring_to_front', 'bring_to_back',
+    'add_sound', 'set_background_color',
+    'set_camera_orientation', 'begin_ambient_camera_rotation',
+    'stop_ambient_camera_rotation',
     # Basic Mobjects
     'Mobject', 'Group', 'VMobject', 'VGroup',
     # Shapes
