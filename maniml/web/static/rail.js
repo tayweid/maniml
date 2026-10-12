@@ -292,6 +292,7 @@ function create(config) {
       back.hidden = bare && spec.kind === "tick";
       setVar(back, "--f", fmt(spec.f));
       label(back, spec);
+      back.onclick = () => activate(spec);
       updateLensMark(lensMarks[k], spec);
     });
     // The rail's length follows what it holds, where the page lets it.
@@ -326,24 +327,27 @@ function create(config) {
   function updateLensMark(mark, spec) {
     mark.className = markClass(spec) + (mark === hot ? " hot" : "");
     const detail = label(mark, spec);
+    // A click parks browser focus on the button, and the mark survives
+    // every redraw, so drop it: position feedback is the presenter's job.
+    mark.onclick = () => { if (mark.blur) mark.blur(); activate(spec); };
     if (spec.kind === "tick") {
       // A play step is seen in the lens, and reached with UP/DOWN.
       mark.tabIndex = -1;
       mark.setAttribute("aria-hidden", "true");
-      mark.onclick = () => config.onChipClick(spec.index);
       return;
     }
     mark.removeAttribute("aria-hidden");
     mark.removeAttribute("tabindex");
     const name = spec.index !== undefined ? names[spec.index] : null;
     mark.setAttribute("aria-label", name ? name + " — " + detail : detail);
-    // A click parks browser focus on the button, and the mark survives
-    // every redraw, so drop it: position feedback is the presenter's job.
-    mark.onclick = () => {
-      if (mark.blur) mark.blur();
-      if (spec.kind === "future") config.onFutureChipClick(spec.unit);
-      else config.onChipClick(spec.index);
-    };
+  }
+
+  // What a mark does when it is taken: a pausepoint or a play step is
+  // jumped to, a unit not yet run is run to. One rule for the lens's
+  // marks and the timeline's (the pointer lands on either, markNear).
+  function activate(spec) {
+    if (spec.kind === "future") config.onFutureChipClick(spec.unit);
+    else config.onChipClick(spec.index);
   }
 
   function describeSpec(spec) {
@@ -603,11 +607,13 @@ function create(config) {
   // -- The trackpad --
   // A sideways two-finger slide anywhere over the page scrubs (Taylor,
   // 2026-10-08), the page handing over each slide's dx (wheel()): the
-  // marks in the lens move under the head at the fingers' speed, as a
-  // page's content does under a scroll, so the head moves dx over the
-  // lens's magnification along the timeline. It is a scrub like a drag,
-  // shown and ended the same way: the slide stopping (WHEEL_REST_MS with
-  // nothing) is the release.
+  // fingers drag the head, which moves with them one for one along the
+  // timeline, as the lens does under a drag (Taylor, 2026-10-11: there is
+  // no surface to slide about under the head, so the head is what the
+  // fingers hold). A wheel's dx is the scroll's, which under natural
+  // scrolling runs against the fingers, so the head takes its negative.
+  // It is a scrub like a drag, shown and ended the same way: the slide
+  // stopping (WHEEL_REST_MS with nothing) is the release.
   let wheelRest = null;
   function wheel(dx) {
     if (!shown || !scrub || !scrub.enabled() || shown.count < 2) return false;
@@ -619,7 +625,7 @@ function create(config) {
       setHot(null);
     }
     const s = scale();
-    scrubbed = s.time(s.at(scrubbed) + dx / (s.W * lensK));
+    scrubbed = s.time(s.at(scrubbed) - dx / s.W);
     headT = scrubbed;
     scrub.to(scrubbed, nearestStop(scrubbed));
     drawLens();

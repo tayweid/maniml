@@ -189,6 +189,13 @@ function makeRail(dom, clicks = [], futureClicks = []) {
     lensMarks(dom)[2].onclick();
     check("stretch: a pausepoint's click lands on it, a play step's on the play",
       chipClicks, [0, 4, 2]);
+    // The pointer outside the lens lands on the timeline's own marks
+    // (markNear), so each of them takes a click as the lens's copy does
+    // (2026-10-11: they took none, and a click on a dot threw).
+    timeline(dom)[4].onclick();
+    timeline(dom)[1].onclick();
+    check("stretch: the timeline's marks take a click as the lens's do",
+      chipClicks, [0, 4, 2, 4, 1]);
   }
 
   // ---- Scene 2: what has not run stands at a fixed interval ----
@@ -274,16 +281,18 @@ function makeRail(dom, clicks = [], futureClicks = []) {
     rail.presenter.stateChanged({
       count: n, lines: Array(n).fill(1), units: [...Array(n).keys()],
       times: [...Array(n).keys()], stops: Array(n).fill(true), future: [], current: 20 });
-    // 16 px of slide under a 1.6 times lens: 10 px of timeline, a second.
-    rail.wheel(16);
-    rail.wheel(8);
-    check("wheel: a slide moves the head at the lens's scale, the bubble lit",
+    // The fingers drag the head one for one along the 400 px track (a
+    // wheel's dx runs against them: 10 px right is dx -10), so 16 px of
+    // slide is 1.6 s of the 40 s timeline, whatever the lens magnifies.
+    rail.wheel(-16);
+    rail.wheel(-4);
+    check("wheel: a slide moves the head with the fingers, the bubble lit",
       [calls, railState(dom).head, railState(dom).bubble, railState(dom).lit],
-      [[["to", 21, 21], ["to", 21.5, 22]], 215, true, 22]);
+      [[["to", 21.6, 22], ["to", 22, 22]], 220, true, 22]);
     await sleep(250);
     check("wheel: the slide stopping releases on the nearest pausepoint",
       [calls[calls.length - 1], railState(dom).head, railState(dom).bubble],
-      [["end", 21.5, 22], 220, false]);
+      [["end", 22, 22], 220, false]);
   }
 
   // ---- Scene 4: playback tracks its index; duplicate timestamps ----

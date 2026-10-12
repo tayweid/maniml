@@ -1232,12 +1232,16 @@ const presenter = rail.presenter;
 // A sideways two-finger slide anywhere over the page scrubs the rail
 // (rail.js wheel). Taken only when it is mostly sideways, and never from
 // the console or a menu, which scroll their own lists; taking it also
-// keeps the browser's swipe-to-go-back off the page.
+// keeps the browser's swipe-to-go-back off the page. In full screen the
+// slide brings the rail out for as long as it lasts (Taylor, 2026-10-11):
+// the head moving with the fingers is what says which way a slide goes.
 window.addEventListener("wheel", (e) => {
   if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
   if (e.target && e.target.closest && e.target.closest(".bar-menu, #console")) return;
   const dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
-  if (rail.wheel(dx)) e.preventDefault();
+  if (!rail.wheel(dx)) return;
+  e.preventDefault();
+  if (inFullscreen()) showChrome();
 }, { passive: false });
 // The track's length changes with the window (and with what the rail
 // holds): every mark's fraction is read again.
