@@ -197,7 +197,24 @@ class CheckpointMixin:
         itself, which plays at real speed. Edits outside construct()
         (imports, constants, helpers, other methods) rebuild the whole
         scene from a freshly reloaded module.
+
+        The replay runs from the interact loop, not from an input
+        handler, so `_replaying_edit` is what tells the viewer to hold
+        its event drain meanwhile: a key dispatched from inside the
+        replay's own frames ran units nested in it (2026-10-11: a RIGHT
+        pressed while an edit replayed duplicated the unit it landed in,
+        with its checkpoints, a plain shift applied twice and a removed
+        mobject left on screen, the edit-time ghosts). The presses wait,
+        and the viewer settles them when the replay ends, so they
+        coalesce to the latest as presses during a move do.
         """
+        self._replaying_edit = True
+        try:
+            self._apply_file_change()
+        finally:
+            self._replaying_edit = False
+
+    def _apply_file_change(self) -> None:
         change_info = self._pending_change_info
         if change_info is None:
             return

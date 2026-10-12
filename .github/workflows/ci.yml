@@ -192,6 +192,7 @@ jobs:
           tests.test_function_scene
           tests.test_ce_conformance
           tests.test_checkpoint_reload
+          tests.test_transform_matching
           tests.test_live_interrupt
           tests.test_checkpoint_ledger
           tests.test_modes

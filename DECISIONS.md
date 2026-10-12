@@ -5,6 +5,45 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## A key pressed during an edit's replay waits for it (2026-10-11)
+
+The edit-time ghost, reproduced: Taylor's screenshot of C1 at the
+40th-unit pausepoint showed the unit's bar in its home shape on the
+graph's axis beside the detail bars it had been transformed into, both
+ends of one `Transform` on screen at once, and "they happen regularly
+when an AI is editing the animation file I'm viewing". Driving the scene
+headlessly through an edit (`chip_future` to the pausepoint, one line of
+the file rewritten, the watcher's replay, a reload of the page) found no
+stale slot in the browser and no stale checkpoint in the engine: the
+replay's picture and a fresh page's were the same to the pixel, whether
+the edited unit held the Transform, followed it, or sat outside
+`construct()` and rebuilt the scene. What did reproduce was a RIGHT
+pressed while the rebuild was fast-forwarding: 136 checkpoints where a
+clean run has 129, six of them stamped with the unit the press landed in,
+and the people dots an exchange-width to the right of where the clean run
+leaves them, a plain `shift` applied twice.
+
+The watcher's replay runs from the interact loop, not from an input
+handler, so nothing held the drain: `on_frame_rendered` dispatched the
+press from inside the replay's own frames, and the RIGHT handler ran
+units nested in the replay, re-executing the unit being replayed from the
+checkpoint before it. A unit re-executed that way creates its mobjects
+twice, adds both, and binds the name to one: the Transform then moves the
+bound one and the other stays where it was made, which is the ghost.
+DECISIONS already recorded that "dispatching navigation re-entrantly
+inside a fast-forward is a new class of bug" when the queue-full policy
+was changed; the watcher's replay was that class all along.
+
+Now `_handle_file_change` marks the scene (`_replaying_edit`) and the
+viewer holds its drain while the mark stands. When the replay ends the
+viewer settles the keys before draining, as a move's close does, so the
+presses made during the replay coalesce to the latest one and are applied
+once from where the replay landed: one press, one move, from the state
+the presser can see. `tests/test_web_viewer.py` `EditReplayE2E` presses
+RIGHT three times while an edit replays and holds the checkpoint units to
+a clean sequence; on the old code it fails with the nested unit's
+signature (`[-1, 1, 1, 3, 3, 5, 5, 3]`).
+
 ## A scene can be a function; a file cannot be a scene (2026-10-08)
 
 Long on the docket: write scenes flat, without the class and its

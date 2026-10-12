@@ -196,6 +196,7 @@ class WebViewer:
         self._coalesced_navigation_events = 0
         self._needs_refresh = True  # a client wants a full payload + state
         self._dispatching = False
+        self._input_held = False  # the drain is held while an edit replays
         self._last_send_time = 0.0
         self._last_clock_time = 0.0
         # Set by an interrupt (_check_interrupt) until the interrupted move
@@ -370,7 +371,21 @@ class WebViewer:
             # Inside a handler: a move may be playing that a press can
             # interrupt (the drain below is held off until it returns).
             self._check_interrupt()
-        self.dispatch_events()
+        if getattr(self.scene, "_replaying_edit", False):
+            # The watcher's replay runs from the interact loop, where no
+            # handler holds the drain: a press dispatched from inside its
+            # frames ran units nested in the replay (checkpoints
+            # _handle_file_change, the edit-time ghosts). Presses wait.
+            self._input_held = True
+        else:
+            if self._input_held:
+                # The replay has ended: settle before draining, as a move's
+                # close does, so the presses made during it coalesce to the
+                # latest one and are applied once from where it landed.
+                self._input_held = False
+                self._close_move_if_settled()
+                self._keys_settled_at = time.monotonic()
+            self.dispatch_events()
 
         if not self.server.has_clients():
             return

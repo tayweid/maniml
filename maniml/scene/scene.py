@@ -235,6 +235,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self._file_changed_flag = False  # Thread-safe flag for file changes
         self._load_error = None  # why the last reload failed, for the viewer (checkpoints._reload_module)
         self._pending_change_info = None
+        self._replaying_edit = False  # the watcher's replay is running (checkpoints._handle_file_change)
         self.auto_reload_enabled = True  # Can be disabled if needed
 
     def __str__(self) -> str:

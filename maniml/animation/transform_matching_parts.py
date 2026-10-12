@@ -4,10 +4,13 @@ import itertools as it
 from difflib import SequenceMatcher
 
 from maniml.animation.composition import AnimationGroup
-from maniml.animation.fading import FadeInFromPoint
-from maniml.animation.fading import FadeOutToPoint
+from maniml.animation.fading import FadeIn
+from maniml.animation.fading import FadeOut
+from maniml.animation.fading import FadeTransformPieces
 from maniml.animation.transform import Transform
+from maniml.mobject.mobject import Group
 from maniml.mobject.mobject import Mobject
+from maniml.mobject.types.vectorized_mobject import VGroup
 from maniml.mobject.types.vectorized_mobject import VMobject
 from maniml.mobject.svg.string_mobject import StringMobject
 
@@ -18,7 +21,31 @@ if TYPE_CHECKING:
     from maniml.scene.scene import Scene
 
 
+def _group(pieces: list[Mobject]) -> Mobject:
+    """The unmatched pieces as one mobject to fade: a VGroup where every
+    piece is a path (glyphs), a Group otherwise."""
+    if all(isinstance(p, VMobject) for p in pieces):
+        return VGroup(*pieces)
+    return Group(*pieces)
+
+
 class TransformMatchingParts(AnimationGroup):
+    """Transform what matches, and fade what does not.
+
+    The parts that match (by shape, by string block in the subclasses, or
+    as named in ``matched_pairs``) transform into each other; a part of the
+    same shape at the same place therefore stands still. What matches
+    nothing fades, in place, as current ManimCE's default has it
+    (``transform_mismatches=False, fade_transform_mismatches=False``):
+    retitling ``Negative Externality: Efficiency`` to ``...: DWL`` changes
+    only the last word on screen. ``transform_mismatches=True`` morphs the
+    unmatched parts into each other instead, and
+    ``fade_transform_mismatches=True`` cross-fades them (``FadeTransform``).
+    Before 2026-10-11 the mismatches flew to and from the other string's
+    centre (ManimGL's ``FadeOutToPoint``/``FadeInFromPoint``), which made a
+    one-word change look like the whole title moving.
+    """
+
     def __init__(
         self,
         source: Mobject,
@@ -26,6 +53,8 @@ class TransformMatchingParts(AnimationGroup):
         matched_pairs: Iterable[tuple[Mobject, Mobject]] = [],
         match_animation: type = Transform,
         mismatch_animation: type = Transform,
+        transform_mismatches: bool = False,
+        fade_transform_mismatches: bool = False,
         run_time: float = 2,
         lag_ratio: float = 0,
         **kwargs,
@@ -52,20 +81,22 @@ class TransformMatchingParts(AnimationGroup):
             self.add_transform(*pair)
 
         # Finally, account for mismatches
-        for source_piece in self.source_pieces:
-            if any([source_piece in anim.mobject.get_family() for anim in self.anims]):
-                continue
-            self.anims.append(FadeOutToPoint(
-                source_piece, target.get_center(),
-                **self.anim_config
-            ))
-        for target_piece in self.target_pieces:
-            if any([target_piece in anim.mobject.get_family() for anim in self.anims]):
-                continue
-            self.anims.append(FadeInFromPoint(
-                target_piece, source.get_center(),
-                **self.anim_config
-            ))
+        accounted = set()
+        for anim in self.anims:
+            accounted.update(id(m) for m in anim.mobject.get_family())
+        source_left = [p for p in self.source_pieces if id(p) not in accounted]
+        target_left = [p for p in self.target_pieces if id(p) not in accounted]
+        fade_source = _group(source_left) if source_left else None
+        fade_target = _group(target_left) if target_left else None
+        if transform_mismatches and fade_source is not None and fade_target is not None:
+            self.anims.append(Transform(fade_source, fade_target, **self.anim_config))
+        elif fade_transform_mismatches and fade_source is not None and fade_target is not None:
+            self.anims.append(FadeTransformPieces(fade_source, fade_target, **self.anim_config))
+        else:
+            if fade_source is not None:
+                self.anims.append(FadeOut(fade_source, **self.anim_config))
+            if fade_target is not None:
+                self.anims.append(FadeIn(fade_target, **self.anim_config))
 
         super().__init__(
             *self.anims,

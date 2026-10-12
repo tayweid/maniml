@@ -1563,3 +1563,89 @@ class StreamDemo(Scene):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+EDIT_REPLAY_SOURCE = """
+from manim import *
+
+class EditReplayDemo(Scene):
+    def construct(self):
+        dot = Dot()
+        self.add(dot)
+        self.play(dot.animate.shift(RIGHT), run_time=0.2)
+        self.pause()
+        self.play(dot.animate.shift(UP), run_time=1.6)
+        self.pause()
+        self.play(dot.animate.shift(LEFT), run_time=0.2)
+        self.pause()
+        self.play(dot.animate.shift(DOWN), run_time=0.2)
+        self.pause()
+"""
+
+
+class EditReplayE2E(_ViewerHarness, unittest.TestCase):
+    """A key pressed while the watcher replays an edit waits for the replay.
+
+    The replay runs from the interact loop, not from a handler, so until
+    2026-10-11 a RIGHT arriving mid-replay was dispatched from inside the
+    replay's own frames and ran units nested in it: the unit being
+    replayed was executed again, its checkpoints saved twice, and what
+    the duplicate re-added or re-shifted stayed (the edit-time ghosts
+    dogfood kept reporting while an AI edited the file on screen).
+    """
+
+    SOURCE = EDIT_REPLAY_SOURCE
+    SCENE = "EditReplayDemo"
+    FILENAME = "edit_replay_scene.py"
+
+    @staticmethod
+    def _press(ws, key):
+        ws.send(json.dumps({"type": "key", "action": "down", "key": key}))
+        ws.send(json.dumps({"type": "key", "action": "up", "key": key}))
+
+    def test_a_right_during_an_edit_replay_waits_for_it(self):
+        logs = []
+        with self._connect() as ws:
+            self._collect(ws, 0.5, logs=logs)
+            ws.send(json.dumps({"type": "mode", "geometry": True}))
+            self._collect(ws, 0.2, logs=logs)
+            states = []
+            for _ in range(3):
+                self._press(ws, "ArrowRight")
+                _, messages = self._collect(ws, 2.5, logs=logs)
+                states += [m for m in messages if m.get("type") == "state"]
+            self.assertTrue(states, "no state after three RIGHTs")
+            self.assertEqual(states[-1]["current"], 6)
+            self.assertEqual(states[-1]["count"], 7)
+
+            # The edit: the second play's run time. Its unit replays at
+            # real speed (1.5 s) from the pausepoint before it, after the
+            # watcher's next poll (within a second); the presses below
+            # land while it plays.
+            path = os.path.join(self.tmpdir.name, self.FILENAME)
+            with open(path, "w") as f:
+                f.write(self.SOURCE.replace("run_time=1.6", "run_time=1.5"))
+            for wait in (1.2, 0.3, 0.3):
+                self._collect(ws, wait, logs=logs)
+                self._press(ws, "ArrowRight")
+            _, messages = self._collect(ws, 6, logs=logs)
+            states = [m for m in messages if m.get("type") == "state"]
+            self.assertTrue(states, "no state after the edit")
+            final = states[-1]
+            # The state's units are chip units: a play and the pause it
+            # leads to share one, so each may stand twice, never more, and
+            # never after a later one.
+            units = final["units"]
+            self.assertEqual(units, sorted(units),
+                             f"a unit ran nested in the replay: {units}")
+            self.assertLessEqual(max(units.count(u) for u in units), 2,
+                                 f"a checkpoint was saved twice: {units}")
+            # The replay lands on the edited unit's checkpoint (3); the
+            # presses made during it coalesce to one RIGHT from there, to
+            # the pausepoint after it (4), never further.
+            self.assertIn(final["current"], (3, 4))
+            self.assertLessEqual(final["count"], 9)
+            self.assertNotRegex(
+                "\n".join(line["text"] for line in logs),
+                r"(?i)\b(?:traceback|error|exception|ledgerstale)\b",
+            )
