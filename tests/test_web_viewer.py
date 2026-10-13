@@ -1620,12 +1620,22 @@ class EditReplayE2E(_ViewerHarness, unittest.TestCase):
 
             # The edit: the second play's run time. Its unit replays at
             # real speed (1.5 s) from the pausepoint before it, after the
-            # watcher's next poll (within a second); the presses below
-            # land while it plays.
+            # watcher's next poll (within a second). The presses wait for
+            # the replay's move to open, so they land while it plays: at
+            # fixed delays from the write, a poll that came early ended
+            # the replay before the last press, which then rightly moved
+            # on from the pausepoint the others had reached.
             path = os.path.join(self.tmpdir.name, self.FILENAME)
             with open(path, "w") as f:
                 f.write(self.SOURCE.replace("run_time=1.6", "run_time=1.5"))
-            for wait in (1.2, 0.3, 0.3):
+            deadline = time.time() + 5
+            replaying = False
+            while not replaying and time.time() < deadline:
+                _, messages = self._collect(ws, 0.05, logs=logs)
+                replaying = any(m.get("type") == "move" and m["from"] is not None
+                                for m in messages)
+            self.assertTrue(replaying, "the edit never replayed")
+            for wait in (0, 0.3, 0.3):
                 self._collect(ws, wait, logs=logs)
                 self._press(ws, "ArrowRight")
             _, messages = self._collect(ws, 6, logs=logs)
