@@ -7,10 +7,15 @@ current ManimCE's default has it. Before 2026-10-11 the mismatches flew
 to and from the other string's centre (ManimGL's FadeOutToPoint and
 FadeInFromPoint), which made a one-word change look like the whole title
 moving.
+
+The titles are real Tex, so these tests need the template's compiler and
+dvisvgm on PATH and skip without them (CI's runners have neither), as the
+real-TeX quality fixtures do: no substitute glyph stands in.
 """
 
 from __future__ import annotations
 
+import shutil
 import unittest
 
 import numpy as np
@@ -19,12 +24,17 @@ from maniml import (
     LEFT, UP, FadeIn, FadeOut, FadeTransformPieces, Scene, Tex, Transform,
     TransformMatchingShapes, TransformMatchingTex,
 )
+from maniml.utils.tex_file_writing import get_tex_config
+
+MISSING_TEX_TOOLS = [tool for tool in (get_tex_config()[0], "dvisvgm")
+                     if shutil.which(tool) is None]
 
 
 def title(text):
     return Tex(text).scale(0.9).to_edge(UP, buff=0.4).to_edge(LEFT, buff=0.6)
 
 
+@unittest.skipIf(MISSING_TEX_TOOLS, "Tex needs " + ", ".join(MISSING_TEX_TOOLS) + " on PATH")
 class MatchingTests(unittest.TestCase):
     def test_one_word_change_fades_only_that_word(self):
         old, new = title('Negative Externality'), title('Negative Externality: DWL')
