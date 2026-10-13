@@ -85,6 +85,16 @@ maniml script.py SceneName --export-present
 # carrying them in the repo. Combines with --render when both are.
 maniml script.py SceneName --export-checkpoints
 
+# Transparent render (headless): the scene over a clear background as
+# ./media/SceneName.mov, ProRes 4444 with alpha, for an editor to lay
+# over other footage (DaVinci Resolve). Read with the config at import
+# (config.py's -t/--transparent; the CLI takes the long form, and only
+# with --render or --export-checkpoints, whose stills it makes
+# transparent too). Not the presentation cache: no mp4 and no
+# pausepoints table, so Present's recording is untouched. The viewer's
+# File menu runs it as Export transparent video.
+maniml script.py SceneName --render --transparent
+
 # Interactive development (the default): checkpoints, watcher,
 # click-to-inspect, in a browser tab; combines with --present.
 # --no-browser skips the auto-open; --web is accepted and means the

@@ -794,7 +794,7 @@ class WebViewer:
 
         elif kind == "export":
             export_format = event.get("format")
-            if export_format in {"video", "web", "checkpoints"}:
+            if export_format in {"video", "web", "checkpoints", "transparent"}:
                 self._start_export(export_format)
             self._dirty = False
 
@@ -925,14 +925,18 @@ class WebViewer:
             # one button refreshes both. "checkpoints" is deliberately
             # not part of that: the per-checkpoint stills are the
             # bulkiest thing a render can write, so they get their own
-            # button and their own run.
+            # button and their own run. "transparent" is a plain render
+            # with an alpha background, media/<Scene>.mov for an editor
+            # to lay over other footage; it leaves the presentation cache
+            # (the mp4 and its table) alone.
             mode = {
-                "video": "--export-present",
-                "checkpoints": "--export-checkpoints",
-            }.get(export_format, "--export")
+                "video": ["--export-present"],
+                "checkpoints": ["--export-checkpoints"],
+                "transparent": ["--render", "--transparent"],
+            }.get(export_format, ["--export"])
             try:
                 process = subprocess.Popen(
-                    [sys.executable, "-m", "maniml", str(source), scene_name, mode],
+                    [sys.executable, "-m", "maniml", str(source), scene_name, *mode],
                     cwd=str(source.parent),
                     env=os.environ.copy(),
                     stdout=subprocess.PIPE,

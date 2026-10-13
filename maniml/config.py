@@ -285,8 +285,12 @@ def update_file_writer_config(config: Dict, args: Namespace):
     if args.vcodec:
         file_writer_config.video_codec = args.vcodec
     elif args.transparent:
+        # ProRes 4444 with its alpha plane (prores_ks picks the 4444
+        # profile for an alpha format), the .mov an editor composites
+        # over other footage. Named rather than left to ffmpeg's
+        # negotiation, which decides the alpha by what it is fed.
         file_writer_config.video_codec = 'prores_ks'
-        file_writer_config.pixel_format = ''
+        file_writer_config.pixel_format = 'yuva444p10le'
     elif args.gif:
         file_writer_config.video_codec = ''
 

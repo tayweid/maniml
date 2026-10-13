@@ -61,6 +61,10 @@ Modes:
                    because the stills outweigh everything else a render
                    produces — regenerate them when you need them, and
                    keep them out of the repo
+  --transparent    With --render: a transparent background, written as
+                   ./media/SceneName.mov (ProRes 4444 with alpha) to
+                   lay over other footage in an editor. With
+                   --export-checkpoints: transparent PNGs
   --help, -h       Show this help message
 
 Renderer comparisons:
@@ -81,6 +85,7 @@ Examples:
   maniml example.py MyScene --render
   maniml example.py MyScene --export-present
   maniml example.py MyScene --export-checkpoints
+  maniml example.py MyScene --render --transparent
 """
 
 
@@ -135,10 +140,21 @@ def main():
             flags.discard(flag)
 
     unknown = flags - {"--present", "--render", "--web", "--no-browser",
-                       "--export", "--export-present", "--export-checkpoints"}
+                       "--export", "--export-present", "--export-checkpoints",
+                       "--transparent"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
+        sys.exit(1)
+    # --transparent is read with the config, at import (config.py: the
+    # background's opacity, the .mov, ProRes 4444); here it is only held
+    # to the outputs it means something for. The viewer and --present
+    # show the scene, and --export and --export-present write what a
+    # browser plays, an mp4 or the geometry, none of which takes the alpha.
+    if "--transparent" in flags and (
+            not flags & {"--render", "--export-checkpoints"}
+            or flags & {"--present", "--export", "--export-present"}):
+        print("--transparent goes with --render or --export-checkpoints")
         sys.exit(1)
 
     script_file = args[0]
@@ -405,10 +421,12 @@ def run_scene(
                     "A static folder — host it anywhere, e.g. "
                     f"cd {bundle} && python3 -m http.server"
                 )
-            else:
+            elif Path(movie).suffix == ".mp4":
                 # The pausepoints table rides on every plain render: with
                 # the mp4 it is the whole presentation cache
-                # (web/present_bundle.py).
+                # (web/present_bundle.py). Not on a transparent render's
+                # .mov, which Present cannot play: a fresh table beside
+                # it would vouch for whatever mp4 an older render left.
                 from maniml.web.present_bundle import write_pausepoints
 
                 try:

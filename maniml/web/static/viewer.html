@@ -556,6 +556,10 @@
     </button>
     <div id="file-list" class="bar-menu" role="menu" aria-label="File" hidden>
       <button id="open-file" class="bar-menu-item" type="button" role="menuitem">Open another scene&hellip;</button>
+      <!-- A render for an editor rather than for Present, so a menu item
+           and not a tile beside Download: the scene over a transparent
+           background, media/<Scene>.mov (ProRes 4444 with alpha). -->
+      <button id="export-transparent" class="bar-menu-item" type="button" role="menuitem" title="ProRes 4444 with alpha, saved in media/ as a .mov to lay over other footage" hidden>Export transparent video</button>
     </div>
   </div>
 
@@ -849,6 +853,7 @@ function applyCapabilities(values) {
   document.getElementById("restart-scene").hidden = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
   document.getElementById("export-checkpoints").hidden = !capabilities.has("export");
+  document.getElementById("export-transparent").hidden = !capabilities.has("export");
 }
 
 // -- Frames (1 header byte: 0x03 is a geometry payload for the WebGPU
@@ -1483,6 +1488,10 @@ document.getElementById("export-checkpoints").onclick = () => {
   send({ type: "export", format: "checkpoints" });
   canvas.focus();
 };
+// The File menu's item; closing the menu hands the keyboard to the stage.
+document.getElementById("export-transparent").onclick = () => {
+  send({ type: "export", format: "transparent" });
+};
 
 const exportPod = document.getElementById("export-pod");
 const jobStatus = document.getElementById("job-status");
@@ -1491,6 +1500,7 @@ const EXPORT_NOUNS = {
   web: "Web player",
   checkpoints: "Checkpoint stills",
   video: "Video",
+  transparent: "Transparent video",
 };
 function showExportStatus(message, state, linger, format) {
   clearTimeout(exportStatusTimer);

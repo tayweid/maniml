@@ -162,6 +162,11 @@ In the browser viewer:
   renders the cache if it is missing or stale; ordinary live viewing does
   not write video or image files.
 - `--render` — headless: writes an MP4
+- `--render --transparent` — headless: writes the scene over a transparent
+  background as a `.mov` (ProRes 4444 with alpha), to lay over other footage
+  in an editor such as DaVinci Resolve. The viewer's File menu has it as
+  **Export transparent video**. With `--export-checkpoints` the stills are
+  transparent too
 - `--export-checkpoints` — headless: writes a PNG per checkpoint, and
   nothing else. Its own export (and its own button beside Download in
   the viewer) because the stills outweigh everything else a render

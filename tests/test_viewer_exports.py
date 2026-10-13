@@ -72,6 +72,26 @@ class ViewerExportTests(unittest.TestCase):
             {"type": "export_status", "format": "video", "status": "complete"}
         )
 
+    def test_transparent_export_is_a_render_with_alpha(self):
+        process = Mock()
+        process.wait.return_value = 0
+        process.stdout = iter(())
+
+        with (
+            patch("maniml.web.viewer.subprocess.Popen", return_value=process) as popen,
+            patch("maniml.web.viewer.threading.Thread", _ImmediateThread),
+        ):
+            self.viewer._start_export("transparent")
+
+        args, _kwargs = popen.call_args
+        self.assertEqual(
+            args[0][-5:],
+            ["maniml", str(self.source), "ExportDemo", "--render", "--transparent"],
+        )
+        self.viewer.server.broadcast_json.assert_any_call(
+            {"type": "export_status", "format": "transparent", "status": "complete"}
+        )
+
     def test_second_export_is_rejected_while_one_is_running(self):
         running = Mock()
         running.poll.return_value = None

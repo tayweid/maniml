@@ -305,5 +305,88 @@ class RenderAlignmentE2E(unittest.TestCase):
             f"checkpoint PNG (mean |diff| {mean_diff:.2f})")
 
 
+@unittest.skipIf(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+                 "ffmpeg not available")
+class TransparentRenderE2E(unittest.TestCase):
+    """--render --transparent writes the scene over a transparent
+    background as ProRes 4444 with alpha (media/<Scene>.mov), for an
+    editor to lay over other footage, and is not the presentation cache:
+    no mp4, and no pausepoints table to vouch for an older one. The
+    stills asked for in the same run are transparent too."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        scene_path = os.path.join(cls.tmpdir.name, "tiny_scene.py")
+        with open(scene_path, "w") as f:
+            f.write(RENDER_SCENE)
+        result = subprocess.run(
+            [sys.executable, "-m", "maniml", scene_path, "Tiny",
+             "--render", "--export-checkpoints", "--transparent"],
+            cwd=cls.tmpdir.name,
+            env={**os.environ, "PYTHONPATH": REPO_ROOT},
+            capture_output=True, text=True, timeout=300,
+        )
+        cls.render_output = result.stdout + result.stderr
+        cls.media = Path(cls.tmpdir.name) / "media"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpdir.cleanup()
+
+    def test_movie_is_prores_4444_with_alpha_and_nothing_else(self):
+        movie = self.media / "Tiny.mov"
+        self.assertTrue(movie.is_file(), self.render_output)
+        self.assertFalse((self.media / "Tiny.mp4").exists())
+        self.assertFalse((self.media / "Tiny.pausepoints.json").exists())
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name,profile,pix_fmt",
+             "-of", "json", str(movie)],
+            check=True, capture_output=True, text=True, timeout=60,
+        )
+        stream = json.loads(probe.stdout)["streams"][0]
+        self.assertEqual(stream["codec_name"], "prores")
+        self.assertEqual(stream["profile"], "4444")
+        self.assertTrue(stream["pix_fmt"].startswith("yuva"), stream)
+
+    def test_background_is_clear_and_the_square_is_not(self):
+        from PIL import Image
+        import numpy as np
+
+        frame_path = Path(self.tmpdir.name) / "last.png"
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-sseof", "-0.1",
+             "-i", str(self.media / "Tiny.mov"), "-frames:v", "1",
+             "-pix_fmt", "rgba", str(frame_path)],
+            check=True, timeout=60,
+        )
+        stills = sorted((self.media / "Tiny_checkpoints").glob("*.png"))
+        self.assertTrue(stills, self.render_output)
+        for path in (frame_path, stills[-1]):
+            with self.subTest(image=path.name):
+                image = np.asarray(Image.open(path).convert("RGBA"))
+                height, width, _ = image.shape
+                self.assertEqual(image[5, 5, 3], 0)
+                # The square ends shifted two units right of centre.
+                square = image[height // 2, width // 2 + width * 2 // 14]
+                self.assertEqual(square[3], 255)
+                self.assertGreater(int(square[2]), int(square[0]))
+
+    def test_the_flag_needs_an_output_that_takes_the_alpha(self):
+        scene_path = os.path.join(self.tmpdir.name, "tiny_scene.py")
+        for flags in ([], ["--present"], ["--export-present"], ["--render", "--export-present"]):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [sys.executable, "-m", "maniml", scene_path, "Tiny",
+                     "--transparent", *flags],
+                    cwd=self.tmpdir.name,
+                    env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                    capture_output=True, text=True, timeout=120,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("--transparent goes with", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
