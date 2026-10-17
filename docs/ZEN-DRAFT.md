@@ -51,15 +51,19 @@ which centres theirs over the rail ManimLive does not have):
   the narrowest window keeps the name (the shell's ⌘N still opens one).
 - **The name pill** (`#doc-pod`) — Knuth's and Plass's, 30 px: the scene
   file's name (`#file-name`, its text exactly the name, as the shell's
-  smoke reads it) in 15 px STIX Two Text, then `·` and the scene in it
-  (`#scene-name`, the picker as before, its menu `#scene-menu` now the
-  bar's dark menu dropped under the pill), then the folder
+  smoke reads it) in 15 px STIX Two Text, the scene picker since
+  2026-10-17 (`#scene-name`, a button round the name: its menu
+  `#scene-menu` drops under the pill, and the scene shown is its title;
+  the scene's own name left the pill), then the engine's mark, which is
+  Restart (`#restart-scene`, a 20 px button round the 6 px dot that turns
+  into the restart arrow under the pointer; disabled, only the dot,
+  where the scene cannot restart), then the folder
   (`#doc-folder`): the scene file's folder by its own name only, as
   Knuth's (since 2026-10-17; the whole path, home as `~`, in its title),
   cut from its start when the pill is short, hidden under 760 px. There is no save dot: ManimLive
   never edits the file. The separator lost its rose colour, since a red
   dot beside the name is Knuth's and Plass's mark for unsaved changes.
-- **Restart** (`#restart-scene`) and **Export** (`#export-pod`, a split
+- **Export** (`#export-pod`, a split
   tile since 2026-10-17: **Download**, `#export-video`, and a chevron,
   `#export-more`, whose menu holds **Transparent video**, **Stills** and
   **Print stills**, `#export-transparent`, `#export-checkpoints` and

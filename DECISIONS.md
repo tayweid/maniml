@@ -5,6 +5,31 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## The bar loses the arrows, the Restart tile and the scene's name (2026-10-17)
+
+Taylor: take the arrow buttons away "while still somehow suggesting to
+the user that they can do that forward backward thing", maybe as a
+little pill "right above vertically the blue line on the bottom rail";
+fold Restart into "the green dot icon right after the file name"; and
+drop the scene's name from the pill, the scene list kept but hidden,
+"maybe clicking on the .py filename drops down the scenes".
+
+Back, the position and Next are now a small glass pill (`#steps`, the
+presenter's pod) inside the rail's bar, its left the head's, read from
+the head's own `style.left` as rail.js moves it, kept inside the rail's
+ends. A pill over the foot of the picture would sit over the scene in
+class, so it wakes with the pointer and sleeps 2.2 s after the pointer
+stops or leaves; keys never wake it, so a presentation run from the
+keyboard or a clicker keeps the picture clear. It shows once as the page
+opens, so the way is seen. rail.js is untouched: it still fills the same
+ids, which the student bundle's bar shares.
+
+The status dot is Restart's button: the 6 px mark as before, in a 20 px
+target, which under the pointer gives way to the restart arrow (turning
+while the restarted scene starts). Its title is the status. A scene that
+cannot restart keeps the plain dot. The file's name is the scene picker,
+the scene shown in its title; a file of one scene has nothing to open.
+
 ## Present never shows the run-through, and never renders in class (2026-10-17)
 
 Taylor: "sometimes i need to switch animations in class, and right now it

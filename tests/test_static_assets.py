@@ -240,18 +240,26 @@ class ViewerTests(unittest.TestCase):
         ):
             self.assertIn(element, viewer, element)
 
-    def test_presenter_controls_share_one_bar_with_the_rail(self):
-        """Since 2026-10-08 the foot of the window is the rail's alone: Back,
-        the position and Next are the top bar's tiles at its right end
-        (Start among them, hidden: the rail's start is always there), and
-        Present and Full screen are in the corner group with the console's
-        handle."""
+    def test_presenter_controls_ride_the_rail(self):
+        """Since 2026-10-17 Back, the position and Next are off the top bar:
+        a small glass pill riding above the rail's head, awake with the
+        pointer and asleep once it is still, never woken by a key (Start
+        among them, hidden: the rail's start is always there). Present and
+        Full screen are in the corner group with the console's handle."""
         viewer = (STATIC / "viewer.html").read_text()
         toolbar = viewer[viewer.index('<header id="toolbar"'):viewer.index("</header>")]
-        transport = toolbar[toolbar.index('<span class="transport"'):]
         for control in ('id="start"', 'id="previous"', 'id="position"', 'id="next"'):
-            self.assertIn(control, transport, control)
-        self.assertLess(transport.index('id="start"'), transport.index('id="previous"'))
+            self.assertNotIn(control, toolbar, control)
+        steps = viewer[viewer.index('<div id="steps" class="pod" role="group" aria-label="Presentation controls">'):]
+        steps = steps[:steps.index("</div>\n</div>")]
+        for control in ('id="start"', 'id="previous"', 'id="position"', 'id="next"'):
+            self.assertIn(control, steps, control)
+        self.assertLess(steps.index('id="start"'), steps.index('id="previous"'))
+        self.assertLess(viewer.index('<div id="railbar">'), viewer.index('<div id="steps"'))
+        self.assertIn("body.steps-awake #steps, #steps:hover, #steps:focus-within { opacity: 1; pointer-events: auto; }", viewer)
+        self.assertIn('window.addEventListener("pointermove", wakeSteps);', viewer)
+        self.assertNotIn('addEventListener("keydown", wakeSteps', viewer)
+        self.assertIn("const x = span.offsetLeft + (parseFloat(head.style.left) || 0);", viewer)
         corner = viewer[viewer.index('<div id="corner">'):viewer.index('<aside id="console"')]
         for control in ('id="present"', 'id="fullscreen"', 'id="console-toggle"'):
             self.assertIn(control, corner, control)
@@ -711,8 +719,15 @@ class FrameTests(unittest.TestCase):
         shell = (STATIC / "shell.css").read_text()
         self.assertIn(".doc-mark {\n  flex: none; align-self: center; width: 6px; height: 6px;", shell)
         viewer = (STATIC / "viewer.html").read_text()
-        self.assertIn('<span id="file-name">scene.py</span><span id="connection-pod" class="doc-mark"', viewer)
-        self.assertIn('<span id="conn" class="sr-only">Connecting</span>', viewer)
+        # The file's name is the scene picker, the scene's name gone from
+        # the pill; the mark after it is Restart's button, the dot turning
+        # into the restart arrow under the pointer (Taylor, 2026-10-17).
+        self.assertIn('<button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene" disabled><span id="file-name">scene.py</span></button>', viewer)
+        self.assertIn('<button id="restart-scene" class="doc-dot" type="button" aria-label="Restart the scene from the beginning" aria-busy="false" title="Connecting" disabled><span id="connection-pod" class="doc-mark"></span>', viewer)
+        self.assertIn('<span id="conn" class="sr-only" role="status" aria-live="polite">Connecting</span>', viewer)
+        self.assertIn('document.getElementById("restart-scene").disabled = !capabilities.has("restart");', viewer)
+        self.assertNotIn('document.getElementById("scene-name").textContent', viewer)
+        self.assertNotIn('<button id="restart-scene" class="icon-button"', viewer)
         self.assertIn("body.disconnected #connection-pod { background: rgba(205, 100, 82, 0.95); }", viewer)
         end = viewer[viewer.index('<div class="tb-end">'):viewer.index("</header>")]
         self.assertNotIn("bar-pill", end)

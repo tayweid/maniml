@@ -288,22 +288,44 @@
     flex: 0 1 auto; min-width: 0; max-width: 40ch;
     overflow: hidden; text-overflow: ellipsis; padding: 1px 4px;
   }
-  /* The scene inside the file: the slug's quiet second part, a button
-     whose menu drops under the pill (.scene-picker is not positioned, so
-     the pill holds the menu, and the menu lines up with the pill). */
+  /* The file's name is the scene picker (Taylor, 2026-10-17: the scene's
+     name left the pill, "maybe clicking on the .py filename drops down
+     the scenes"): a button round the name whose menu drops under the pill
+     (.scene-picker is not positioned, so the pill holds the menu, and the
+     menu lines up with the pill). The scene it shows is in its title. */
   .scene-picker { display: inline-flex; min-width: 0; }
   #scene-name {
-    min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis;
-    padding: 1px 4px; border: 0; border-radius: 5px; background: transparent;
-    color: var(--frame-ink-soft); font: inherit; letter-spacing: inherit;
-    cursor: pointer; transition: color 140ms ease, background 140ms ease;
+    display: inline-flex; min-width: 0; padding: 0; border: 0; border-radius: 5px;
+    background: transparent; color: inherit; font: inherit; letter-spacing: inherit;
+    cursor: pointer; transition: background 140ms ease;
   }
-  #scene-name:hover, #scene-name:focus-visible {
-    color: #fff; background: rgba(255,255,255,.08);
+  #scene-name:hover, #scene-name:focus-visible { background: rgba(255,255,255,.08); }
+  /* A file with a single scene has nothing to switch to: the name, and no
+     affordance, rather than an empty menu. */
+  #scene-name:disabled { cursor: default; background: transparent; }
+  /* Restart is the engine's mark (Taylor, 2026-10-17: "integrate it with
+     the green dot"): the dot is a button, its 6 px the mark as before, and
+     under the pointer it gives way to the restart arrow in the dot's
+     colour. A scene that cannot restart keeps the plain dot. The arrow
+     turns while the restarted scene starts. */
+  .doc-dot {
+    position: relative; flex: none; align-self: center; display: grid; place-items: center;
+    width: 20px; height: 20px; margin: 0 1px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: rgba(240, 238, 233, 0.8); cursor: pointer;
+    transition: background 140ms ease;
   }
-  /* A file with a single scene has nothing to switch to: keep the name, drop
-     the affordance rather than opening an empty menu. */
-  #scene-name:disabled { cursor: default; background: transparent; color: var(--frame-ink-soft); }
+  .doc-dot .doc-mark { margin: 0; }
+  .doc-dot svg {
+    position: absolute; width: 14px; height: 14px; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
+    transition: opacity 140ms ease;
+  }
+  .doc-dot:enabled:hover, .doc-dot:enabled:focus-visible { background: rgba(255,255,255,.08); }
+  .doc-dot:enabled:hover .doc-mark, .doc-dot:enabled:focus-visible .doc-mark,
+  .doc-dot.working .doc-mark { opacity: 0; }
+  .doc-dot:enabled:hover svg, .doc-dot:enabled:focus-visible svg,
+  .doc-dot.working svg { opacity: 1; }
+  .doc-dot:disabled { cursor: default; }
   #scene-menu { left: -1px; }
   .scene-option[aria-current="true"]::after { content: "\2713"; color: var(--frame-ink-soft); }
 
@@ -334,7 +356,7 @@
      speaks (the next ready or state), since a restart is seconds of a new
      process starting with nothing else on the page changing. */
   @keyframes restart-turn { to { transform: rotate(360deg); } }
-  #restart-scene.working { color: var(--warn); opacity: 1; }
+  #restart-scene.working { color: var(--warn); }
   #restart-scene.working svg { animation: restart-turn 900ms linear infinite; }
   /* Present shows it is preparing: the silent pre-run of every unit
      (scene/presentation.py) can take seconds, with nothing else on the
@@ -374,7 +396,22 @@
      before the corner group (Taylor, 2026-10-08), and Present and Full
      screen are in that group (#corner, above); the foot of the window is
      the rail's alone. */
-  .transport { display: inline-flex; align-items: center; gap: 0; }
+  /* The steps pill: Back, the position and Next riding above the rail's
+     head (its left is the head's, placed by the page as the head moves,
+     kept inside the rail's ends). Awake while the pointer moves, asleep a
+     moment after it is still: then it is not there, so nothing sits over
+     the picture while a presentation runs from the keys. Its words go
+     above it, clear of the rail. */
+  #steps {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; z-index: 2;
+    transform: translateX(-50%); gap: 0; padding: 0 2px;
+    opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+  }
+  body.steps-awake #steps, #steps:hover, #steps:focus-within { opacity: 1; pointer-events: auto; }
+  #steps .icon-button:disabled { opacity: .3; cursor: default; }
+  #steps .icon-button:disabled:hover { background: transparent; }
+  #steps .control-label { top: auto; bottom: calc(100% + 8px); }
+  #steps #position { min-width: 40px; padding: 0 2px; font-size: 10.5px; }
   #present.active { color: var(--good); }
   #present.stale::after { content: ""; position: absolute; top: 5px; right: 5px;
     width: 4px; height: 4px; border-radius: 50%; background: var(--warn); opacity: .7; }
@@ -503,7 +540,6 @@
   }
   @media (max-width: 620px) {
     #toolbar { gap: 4px; }
-    #scene-name { display: none; }
     #file-name { max-width: 104px; }
     #position { min-width: 48px; padding-inline: 3px; }
     #job-status { max-width: 95px; }
@@ -541,6 +577,25 @@
      (Knuth's and Plass's scroll rail on its side). -->
 <div id="railbar">
   <div id="rail" role="list" aria-label="Scene pausepoints"></div>
+  <!-- Back, the position and Next: a small glass pill riding above the
+       rail's head (Taylor, 2026-10-17: off the bar, "while still somehow
+       suggesting to the user that they can do that forward backward
+       thing"). It wakes with the pointer and sleeps once the pointer is
+       still, so a presentation driven by keys or a clicker never has it
+       over the picture. Start stays hidden: the rail's start is always
+       there to click, and Home does it. -->
+  <div id="steps" class="pod" role="group" aria-label="Presentation controls">
+    <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
+    </button>
+    <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
+    </button>
+    <div id="position"><strong id="position-now">1</strong><span id="position-total"> / &mdash;</span></div>
+    <button id="next" class="icon-button" aria-label="Play next animation" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
+    </button>
+  </div>
 </div>
 </div>
 
@@ -580,18 +635,10 @@
 
   <div id="doc-pod" class="doc-pod">
     <div class="document-slug" title="Current scene file">
-      <span id="file-name">scene.py</span><span id="connection-pod" class="doc-mark" role="status" aria-live="polite" title="Connecting"><span id="conn" class="sr-only">Connecting</span></span><span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene">Scene</button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span>
+      <span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene" disabled><span id="file-name">scene.py</span></button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span><button id="restart-scene" class="doc-dot" type="button" aria-label="Restart the scene from the beginning" aria-busy="false" title="Connecting" disabled><span id="connection-pod" class="doc-mark"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg></button><span id="conn" class="sr-only" role="status" aria-live="polite">Connecting</span>
     </div>
     <span id="doc-folder" class="doc-folder" hidden><span dir="ltr"></span></span>
   </div>
-
-  <!-- A true restart: the scene as if just opened — under the app a new
-       scene process, which reloads this page too; on a bare scene process
-       a fresh instance of the scene on this same socket. -->
-  <button id="restart-scene" class="icon-button" aria-label="Restart the scene from the beginning" aria-busy="false" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg>
-    <span class="control-label">Restart</span>
-  </button>
 
   <!-- Export, a split tile as Plass's (Taylor, 2026-10-17): Download
        renders what Present plays — the video, its pausepoints and the
@@ -633,21 +680,6 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0 0 14.9 3M20 10A8 8 0 0 0 5.1 7"/><path d="M4 4v4h4M20 20v-4h-4"/></svg>
       <span class="control-label">Update</span>
     </button>
-    <!-- Back, the position and Next: the bar's tiles at its right end
-         (Taylor, 2026-10-08). Start stays hidden, as on the old bar:
-         the rail's start is always there to click, and Home does it. -->
-    <span class="transport" aria-label="Presentation controls">
-      <button id="start" class="icon-button" aria-label="Jump to the start" disabled hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12"/><path d="m16.5 6-6 6 6 6"/></svg><span class="control-label">Start&nbsp; Home</span>
-      </button>
-      <button id="previous" class="icon-button" aria-label="Play previous animation in reverse" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg><span class="control-label">Back&nbsp; &larr;</span>
-      </button>
-      <div id="position"><strong id="position-now">1</strong><span id="position-total"> / &mdash;</span></div>
-      <button id="next" class="icon-button" aria-label="Play next animation" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span class="control-label">Next&nbsp; &rarr;</span>
-      </button>
-    </span>
   </div>
 </header>
 
@@ -808,7 +840,9 @@ let reconnectTimer = null;
 // The engine's status: the mark beside the file's name, its words in the
 // mark's title and behind it for a reader without a screen.
 function setConnection(text) {
-  document.getElementById("connection-pod").title = text;
+  // The dot is Restart's button too: its title says the status, and the
+  // arrow it turns into under the pointer says what a click does.
+  document.getElementById("restart-scene").title = text;
   document.getElementById("conn").textContent = text;
 }
 // The overlay appears after this many failed attempts, but the page keeps
@@ -942,7 +976,9 @@ let canInstall = false;   // the engine takes an install message (below)
 function applyCapabilities(values) {
   const capabilities = new Set(values);
   canInstall = capabilities.has("install");
-  document.getElementById("restart-scene").hidden = !capabilities.has("restart");
+  // Restart is the status dot's click; without the capability the dot is
+  // only the mark.
+  document.getElementById("restart-scene").disabled = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
   document.getElementById("export-more").hidden = !capabilities.has("export");
 }
@@ -1275,7 +1311,11 @@ function applyEnv(state) {
   presentBtn.classList.toggle("stale", !!state.present_bundle && !state.present_fresh);
   if (!state.present || state.presentation_ready) setPresentPreparing(false);
   if (state.scene) {
-    document.getElementById("scene-name").textContent = state.scene;
+    // The scene is no longer written in the pill: the file's name is its
+    // picker, and the scene it shows is the button's title.
+    sceneButton.title = sceneNames.length > 1
+      ? "Scene: " + state.scene + " (click to switch)" : "Scene: " + state.scene;
+    sceneButton.setAttribute("aria-label", "Scene " + state.scene + ", switch scene");
     document.title = state.file ? state.file : state.scene + " — maniml";
     renderSceneMenu(state.scene);
   }
@@ -1421,6 +1461,38 @@ function pulseKey(key) {
 document.getElementById("start").onclick = () => pulseKey("Home");
 document.getElementById("previous").onclick = () => pulseKey("ArrowLeft");
 document.getElementById("next").onclick = () => pulseKey("ArrowRight");
+// The steps pill rides above the rail's head: its left follows the head's
+// (rail.js sets the head's style.left as it glides; the pill reads it),
+// kept inside the rail's ends. It wakes with the pointer and sleeps when
+// the pointer has been still a moment or has left the window; keys never
+// wake it, so a presentation run from the keyboard or a clicker keeps the
+// picture clear.
+const stepsPill = document.getElementById("steps");
+const STEPS_SLEEP = 2200;
+let stepsTimer = null;
+function placeSteps() {
+  const head = railEl.querySelector(".rail-head");
+  if (!head) return;
+  const span = head.parentElement;
+  const x = span.offsetLeft + (parseFloat(head.style.left) || 0);
+  const half = stepsPill.offsetWidth / 2;
+  const width = railEl.clientWidth;
+  stepsPill.style.left = Math.max(half, Math.min(width - half, x)) + "px";
+}
+new MutationObserver(placeSteps).observe(railEl,
+  { subtree: true, childList: true, attributes: true, attributeFilter: ["style"] });
+window.addEventListener("resize", placeSteps);
+function wakeSteps() {
+  document.body.classList.add("steps-awake");
+  clearTimeout(stepsTimer);
+  stepsTimer = setTimeout(() => document.body.classList.remove("steps-awake"), STEPS_SLEEP);
+}
+window.addEventListener("pointermove", wakeSteps);
+document.documentElement.addEventListener("pointerleave", () => {
+  clearTimeout(stepsTimer);
+  document.body.classList.remove("steps-awake");
+});
+wakeSteps();   // shown once as the page opens, so the way is known
 // Restart: the scene as if just opened, at checkpoint 0 with no history.
 // Under the app the message never reaches the scene: the relay replaces the
 // scene process under the same id, this socket closes, the reconnect finds
