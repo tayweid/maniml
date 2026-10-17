@@ -169,6 +169,13 @@
     return path.replace(/^\/(?:Users|home)\/(?!Shared(?:\/|$))[^/]+(?=\/|$)/, "~");
   }
 
+  /** A folder's own name: the last part of its path (/ for the root). */
+  function basename(path) {
+    const trimmed = path.length > 1 ? path.replace(/\/+$/, "") : path;
+    const cut = trimmed.lastIndexOf("/");
+    return cut >= 0 && cut < trimmed.length - 1 ? trimmed.slice(cut + 1) : trimmed;
+  }
+
   function dirname(path) {
     const cut = path.lastIndexOf("/");
     return cut > 0 ? path.slice(0, cut) : cut === 0 ? "/" : "";
@@ -179,7 +186,9 @@
    *  file and answers with what it took, which becomes the window's file —
    *  the one the macOS window menu names and an update's relaunch reopens.
    *  The folder beside the name is the answer's, so it never names a file
-   *  the shell refused. In a tab there is no shell to tell, and the folder
+   *  the shell refused: its own name only, as Knuth's pill shows it
+   *  (Taylor, 2026-10-17: "just the parent folder, so it doesn't take up
+   *  so much room"), the whole path, home as ~, in its title. In a tab there is no shell to tell, and the folder
    *  is the path's own. Told once per path. A page holding no file (the
    *  landing page) tells null and has no folder to fill. */
   let reported;
@@ -199,8 +208,8 @@
     }
     if (!folder) return;
     const where = file ? dirname(file) : "";
-    folder.firstElementChild.textContent = where ? tilde(where) : "";
-    folder.title = where;
+    folder.firstElementChild.textContent = where ? basename(where) : "";
+    folder.title = where ? tilde(where) : "";
     folder.hidden = !where;
   }
 
@@ -279,5 +288,5 @@
   }
 
   window.ManimlBar = {
-    setShape, menu, drawRecents, tilde, dirname, setDocument, updates };
+    setShape, menu, drawRecents, tilde, basename, dirname, setDocument, updates };
 })();

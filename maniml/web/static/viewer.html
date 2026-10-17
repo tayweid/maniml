@@ -269,7 +269,7 @@
   /* The bar is the frame's (shell.css), the same bar as Knuth's and
      Plass's: Open, New window and the name pill beside the traffic lights, the scene's
      tools after them as the bar's tiles, and at the right end the
-     renderer, the update when there is one and the engine's status — then
+     renderer's warning and the update when there is one — then
      the console's toggle (fixed, above), whose place the bar's right
      padding keeps. */
   #toolbar { padding-right: calc(var(--edge) + 3 * 32px + 3 * 6px); }
@@ -343,9 +343,14 @@
   /* The renderer: a pill of the bar's height, corners and hairline — a
      comparison control still being tested, so unseen until the pointer
      finds it or it has a warning to show (Taylor, 2026-10-04). */
-  #renderer-pod { opacity: 0; transition: opacity .16s ease; }
-  #renderer-pod:hover, #renderer-pod:focus-within,
-  #renderer-pod:has(#glwarn.on) { opacity: 1; }
+  /* The renderer's dropdown is off (Taylor, 2026-10-17: "it's been
+     working fine so far and i don't need the dropdown"): the engine's
+     default draws, as it did. The select stays in the page, hidden, as
+     the hook the renderer selection and its tests drive (Phase A and
+     Original 2D are kept for comparisons); taking `hidden` off the pod
+     brings it back. Its warning stands on its own at the bar's right
+     end, seen only when there is something to say. */
+  #renderer-pod[hidden] { display: none; }
   #renderer-select {
     height: 30px; padding: 0 8px; color: var(--frame-ink-soft);
     background: var(--pill); border: 1px solid rgba(255,255,255,.08); border-radius: 9px;
@@ -484,7 +489,7 @@
   }
   /* Short of room in the bar: the renderer's warning keeps to 95 px (the
      right end does not shrink, shell.css), and under 760 px the folder
-     goes (shell.css, as Knuth's) and the renderer's pill with it. */
+     goes (shell.css, as Knuth's). */
   @media (max-width: 859px) {
     #glwarn { max-width: 95px; }
   }
@@ -495,9 +500,6 @@
   @media (min-width: 1024px) {
     #doc-pod { flex-shrink: 1000; min-width: 120px; }
     #job-status { flex-shrink: 0; }
-  }
-  @media (max-width: 759px) {
-    #renderer-pod { display: none; }
   }
   @media (max-width: 620px) {
     #toolbar { gap: 4px; }
@@ -546,7 +548,7 @@
      title bar, with the traffic lights in its left end (shell.css). Open,
      New window and the name pill are the document's way in and out,
      Restart and Export the scene's own tools; the right end is the engine's — the
-     renderer, the app's update when there is one, the status — and the
+     renderer's warning and the app's update when there is one — and the
      console's toggle (below, outside the bar) sits after it. -->
 <header id="toolbar" aria-label="Scene controls">
   <!-- Open, a split tile (Plass's Export, shell.css .bar-split; Taylor,
@@ -601,7 +603,7 @@
        wanted. -->
   <span id="export-pod" class="bar-split">
     <button id="export-video" class="icon-button export-icon" data-format="video" aria-label="Render video, pausepoints, and the student bundle" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="control-label">Download</span>
     </button>
     <button id="export-more" class="icon-button export-icon bar-split-more" data-format="transparent checkpoints print" type="button" aria-label="More exports" aria-haspopup="menu" aria-expanded="false" aria-controls="export-list" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><span class="control-label">More exports</span>
@@ -618,15 +620,15 @@
   <span id="job-status" role="status" aria-live="polite"></span>
 
   <div class="tb-end">
-    <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU">
+    <span id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU" hidden>
       <select id="renderer-select" aria-label="Scene renderer" disabled>
         <option value="triangles" selected>Default</option>
         <option value="phase_a">Phase A</option>
         <option value="phase_b" title="Fills as patches sent as their paths' rows, surfaces as nets, animations as GPU programs">Phase B</option>
         <option value="winding">Original 2D</option>
       </select>
-      <span id="glwarn"></span>
     </span>
+    <span id="glwarn"></span>
     <button id="updatebtn" class="icon-button" type="button" hidden aria-label="Update ManimLive">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a8 8 0 0 0 14.9 3M20 10A8 8 0 0 0 5.1 7"/><path d="M4 4v4h4M20 20v-4h-4"/></svg>
       <span class="control-label">Update</span>

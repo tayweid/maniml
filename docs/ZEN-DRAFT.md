@@ -54,8 +54,9 @@ which centres theirs over the rail ManimLive does not have):
   smoke reads it) in 15 px STIX Two Text, then `·` and the scene in it
   (`#scene-name`, the picker as before, its menu `#scene-menu` now the
   bar's dark menu dropped under the pill), then the folder
-  (`#doc-folder`): the scene file's, home as `~`, cut from its start when
-  the pill is short, hidden under 760 px. There is no save dot: ManimLive
+  (`#doc-folder`): the scene file's folder by its own name only, as
+  Knuth's (since 2026-10-17; the whole path, home as `~`, in its title),
+  cut from its start when the pill is short, hidden under 760 px. There is no save dot: ManimLive
   never edits the file. The separator lost its rose colour, since a red
   dot beside the name is Knuth's and Plass's mark for unsaved changes.
 - **Restart** (`#restart-scene`) and **Export** (`#export-pod`, a split
@@ -69,9 +70,10 @@ which centres theirs over the rail ManimLive does not have):
   the bar's own item, after the group rather than in it, so that it gives
   way with the name pill when the bar is short (a group's text cannot
   shrink without its tiles).
-- At the right end (`.tb-end`): the **renderer** (`#renderer-select`, a
-  pill of the bar's height; hidden under 760 px with the folder) and its
-  warning (`#glwarn`, one line, 95 px at most under 860), the **update**
+- At the right end (`.tb-end`): the renderer's **warning** (`#glwarn`,
+  one line, 95 px at most under 860; the renderer's dropdown,
+  `#renderer-select`, is off since 2026-10-17, kept hidden as the hook
+  the selection's tests drive), the **update**
   (`#updatebtn`, a tile that appears when the shell knows of a newer
   ManimLive, as the landing page's button did — new in the viewer), and
   the **engine's status** (`#connection-pod`), Knuth's status pill. The

@@ -630,6 +630,10 @@ class FrameTests(unittest.TestCase):
         self.assertIn("ManimlBar.setDocument(null);", page)
         bar = (STATIC / "bar.js").read_text()
         self.assertIn("if (!folder) return;", bar)
+        # The pill names the parent folder alone, as Knuth's; the whole
+        # path is its title (Taylor, 2026-10-17).
+        self.assertIn('folder.firstElementChild.textContent = where ? basename(where) : "";', bar)
+        self.assertIn('folder.title = where ? tilde(where) : "";', bar)
 
     def test_the_room_is_the_picture(self):
         """The scene fills Zen's rounded panel to its corners: the room is
@@ -715,10 +719,15 @@ class FrameTests(unittest.TestCase):
         self.assertNotIn("slug-separator", viewer)
         self.assertIn("function setConnection(text)", viewer)
         self.assertNotIn('document.getElementById("conn").textContent = "', viewer)
-        # The renderer's pill is there for the pointer and for a warning,
-        # unseen otherwise: a comparison control still being tested.
-        self.assertIn("#renderer-pod { opacity: 0; transition: opacity .16s ease; }", viewer)
-        self.assertIn("#renderer-pod:has(#glwarn.on) { opacity: 1; }", viewer)
+        # The renderer's dropdown is off (Taylor, 2026-10-17): its select
+        # stays in the page, hidden, for the selection's tests, and its
+        # warning stands on its own, outside the hidden pod.
+        self.assertIn('id="renderer-pod" class="tool-group" title="The scene is rendered in this browser with WebGPU" hidden>', viewer)
+        self.assertIn("#renderer-pod[hidden] { display: none; }", viewer)
+        pod = viewer[viewer.index('<span id="renderer-pod"'):]
+        pod = pod[:pod.index("</span>")]
+        self.assertNotIn('id="glwarn"', pod)
+        self.assertIn('</span>\n    <span id="glwarn"></span>', end)
 
     def test_the_window_takes_the_pictures_shape(self):
         """In the app the window keeps the picture's shape (the shell's
