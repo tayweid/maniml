@@ -38,14 +38,24 @@
     open = entry;
     entry.list.hidden = false;
     entry.button.setAttribute("aria-expanded", "true");
+    if (entry.onOpen) entry.onOpen();
+    focusFirst(entry);
+  }
+
+  function focusFirst(entry) {
     const items = itemsOf(entry);
     const current = items.find((item) => item.getAttribute("aria-current") === "true");
     const first = current || items[0];
     if (first) first.focus({ preventScroll: true });
   }
 
-  function menu(button, list, { restore } = {}) {
-    const entry = { button, list, restore: restore || (() => button.focus()) };
+  /** `onOpen` runs as the menu opens, before the focus goes in: a menu
+   *  whose items come from elsewhere (the recent scenes) draws what it has
+   *  then, and once newer items arrive calls `refocus()` on what this
+   *  returns, which puts the focus back in the redrawn menu if it is still
+   *  open. */
+  function menu(button, list, { restore, onOpen } = {}) {
+    const entry = { button, list, onOpen, restore: restore || (() => button.focus()) };
     button.addEventListener("click", () => {
       if (open === entry) closeMenu(true);
       else openMenu(entry);
@@ -56,7 +66,52 @@
     return {
       close(focusBack = true) { if (open === entry) closeMenu(focusBack); },
       get isOpen() { return open === entry; },
+      refocus() {
+        if (open === entry && !entry.list.contains(document.activeElement)) focusFirst(entry);
+      },
     };
+  }
+
+  // ---------- the recent scenes ----------
+  /** Open's menu (its split tile's chevron): the scene files opened
+   *  before, newest first, straight in the menu rather than behind a
+   *  submenu (Taylor, 2026-10-17, for Knuth's recent documents). Each is
+   *  its name and its folder; a pick is the page's (`pick(entry)`). The
+   *  file the window holds (`current`, a path) is left out: opening it
+   *  again is not a way anywhere. `entries` null is a list not yet
+   *  answered. */
+  function drawRecents(list, entries, { current = null, pick } = {}) {
+    const shown = (entries || []).filter((entry) => entry.path !== current);
+    list.replaceChildren();
+    if (!shown.length) {
+      const none = document.createElement("button");
+      none.className = "bar-menu-item";
+      none.type = "button";
+      none.setAttribute("role", "menuitem");
+      none.disabled = true;
+      none.textContent = entries ? "No recent scenes" : "Loading\u2026";
+      list.appendChild(none);
+      return;
+    }
+    for (const entry of shown) {
+      const item = document.createElement("button");
+      item.className = "bar-menu-item recent-item";
+      item.type = "button";
+      item.setAttribute("role", "menuitem");
+      item.title = entry.path;
+      const name = document.createElement("span");
+      name.className = "recent-name";
+      name.textContent = entry.name;
+      const dir = document.createElement("span");
+      dir.className = "recent-dir";
+      const inner = document.createElement("span");
+      inner.dir = "ltr";
+      inner.textContent = entry.dir;
+      dir.appendChild(inner);
+      item.append(name, dir);
+      item.addEventListener("click", () => pick(entry));
+      list.appendChild(item);
+    }
   }
 
   document.addEventListener("pointerdown", (event) => {
@@ -224,5 +279,5 @@
   }
 
   window.ManimlBar = {
-    setShape, menu, tilde, dirname, setDocument, updates };
+    setShape, menu, drawRecents, tilde, dirname, setDocument, updates };
 })();

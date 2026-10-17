@@ -118,20 +118,27 @@
 </head>
 <body data-connection="connecting">
 <!-- The same bar as the viewer's (shell.css, bar.js), holding this room's
-     equivalents: File, whose menu opens a scene, as the viewer's opens
-     another; the app's name in the pill, since the app is what is open
-     here; and at the right end the app's update when there is one and the
-     engine's status. -->
+     equivalents: Open, a split tile whose main half opens a scene (the
+     platform's dialog) and whose chevron lists the scenes opened before,
+     as the viewer's does; New window; the app's name in the pill, since
+     the app is what is open here; and at the right end the app's update
+     when there is one and the engine's status. -->
 <header id="toolbar" aria-label="ManimLive">
-  <div class="bar-file">
-    <button id="file-menu" class="icon-button" type="button" aria-label="File" aria-haspopup="menu" aria-expanded="false" aria-controls="file-list">
+  <span id="open-split" class="bar-split">
+    <button id="open-file" class="icon-button" type="button" aria-label="Open a scene">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-      <span class="control-label">File</span>
+      <span class="control-label">Open</span>
     </button>
-    <div id="file-list" class="bar-menu" role="menu" aria-label="File" hidden>
-      <button id="openbtn" class="bar-menu-item" type="button" role="menuitem">Open a scene&hellip;</button>
-    </div>
-  </div>
+    <button id="recent-menu" class="icon-button bar-split-more" type="button" aria-label="Recent scenes" aria-haspopup="menu" aria-expanded="false" aria-controls="recent-list">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      <span class="control-label">Recent</span>
+    </button>
+    <div id="recent-list" class="bar-menu recent-menu" role="menu" aria-label="Recent scenes" hidden></div>
+  </span>
+  <button id="new-window" class="icon-button" type="button" aria-label="New window">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17"/><path d="M12 11.5v5M9.5 14h5"/></svg>
+    <span class="control-label">New window</span>
+  </button>
   <div class="doc-pod">
     <div class="document-slug">
       <h1>ManimLive</h1>
@@ -191,9 +198,9 @@ function showProgress(step) {
   progressEl.textContent = step || "";
   progressEl.hidden = !step;
 }
-// Two ways in, one handler: the header slug and the hero button.
+// Two ways in, one handler: the bar's Open and the hero button.
 const openButtons = [
-  document.getElementById("openbtn"),
+  document.getElementById("open-file"),
   document.getElementById("open-hero"),
 ];
 const statusText = document.getElementById("status-text");
@@ -272,13 +279,24 @@ function scheduleReconnect() {
 }
 connectControl();
 
-// File is the bar's text menu (bar.js), and ManimLive.app's update is a
-// tile at the bar's right end once the shell knows of a newer build; a
-// failed install says why in the error box too.
-ManimlBar.menu(document.getElementById("file-menu"), document.getElementById("file-list"));
+// Open's chevron lists the recent scenes (bar.js), the list the room
+// shows, drawn again on each refresh; New window is the landing page in a
+// window of its own (the shell opens one for a page of its own origin; a
+// tab opens a tab). ManimLive.app's update is a tile at the bar's right
+// end once the shell knows of a newer build; a failed install says why in
+// the error box too.
+const recentList = document.getElementById("recent-list");
+let recentEntries = null;
+const drawRecentMenu = () => ManimlBar.drawRecents(recentList, recentEntries,
+  { pick: (entry) => openScene(entry.path, null, null) });
+drawRecentMenu();
+const recentMenu = ManimlBar.menu(document.getElementById("recent-menu"), recentList);
+document.getElementById("new-window").onclick = () => {
+  window.open(location.pathname, "_blank");
+};
 // The landing page holds no scene: the window's document is none, so the
 // Window menu and an update's relaunch do not name the scene just left
-// (File → Open another scene… comes back here in the same window). A
+// (the viewer's Open comes by way of this page, in the same window). A
 // ?open=<path> launch is unaffected: the viewer it goes on to reports the
 // scene again on its first state.
 ManimlBar.setDocument(null);
@@ -357,6 +375,9 @@ async function refresh() {
     recentsEl.replaceChildren();
     document.getElementById("recents-section").hidden = !data.recents.length;
     for (const entry of data.recents) recentsEl.appendChild(recentRow(entry));
+    recentEntries = data.recents;
+    drawRecentMenu();
+    recentMenu.refocus();
   } catch (error) {
     if (document.body.dataset.connection === "connected") {
       setConnectionState("connecting", "Engine disconnected");

@@ -167,6 +167,20 @@ button { font: inherit; }
 #toolbar button:focus-visible,
 #toolbar select:focus-visible { outline: 2px solid #9db8d6; outline-offset: 2px; }
 
+/* A split tile, Plass's Export (plass/src/toolbar.css .tb-split): the main
+   half does the usual thing on one click, a narrow chevron half opens the
+   rest, one tile's outline between them. Open (the recent scenes on its
+   chevron) and, on the viewer, Export (Download; transparent video and
+   stills on its chevron) — Taylor, 2026-10-17. */
+.bar-split { flex: none; display: inline-flex; align-items: center; gap: 1px; }
+#toolbar .bar-split > .icon-button:first-child { border-radius: 9px 3px 3px 9px; }
+#toolbar .bar-split > .bar-split-more { width: 18px; border-radius: 3px 9px 9px 3px; }
+#toolbar .bar-split > .bar-split-more svg { width: 14px; height: 14px; }
+/* The menu drops from the split's left end, under the main half. A split
+   whose chevron is hidden (Open on a bare scene process, which has no app
+   and so no recents) is a whole tile again. */
+#toolbar .bar-split:has(> .bar-split-more[hidden]) > .icon-button:first-child { border-radius: 9px; }
+
 /* A tile's word, 6 px under it, in the frame's dark glass (Knuth's frame
    captions); an open menu takes its place. */
 #toolbar .control-label {
@@ -235,6 +249,10 @@ button { font: inherit; }
 .doc-folder[hidden] { display: none; }
 @media (max-width: 759px) {
   .doc-folder { display: none; }
+  /* New window gives way with the folder, so a narrow bar keeps the
+     name and the scene; the shell's File → New Window (⌘N) is still
+     there. */
+  #toolbar #new-window { display: none; }
 }
 
 /* The bar's right end: the engine's status, at the room's right edge. It
@@ -289,3 +307,13 @@ button { font: inherit; }
 .bar-menu-item:hover:not(:disabled),
 .bar-menu-item:focus-visible { background: rgba(255, 255, 255, 0.09); outline: none; }
 .bar-menu-item:disabled { opacity: 0.35; cursor: default; }
+/* A recent scene in Open's menu: the file's name, and its folder after it
+   in the soft ink, the folder giving way first (bar.js drawRecents). */
+.bar-menu-item.recent-item { justify-content: flex-start; gap: 10px; }
+.recent-item .recent-name { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.recent-item .recent-dir {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  direction: rtl; text-align: left;
+  font-size: 11.5px; color: var(--frame-ink-soft);
+}
+.bar-menu.recent-menu { width: 320px; }

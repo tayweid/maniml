@@ -388,5 +388,74 @@ class TransparentRenderE2E(unittest.TestCase):
                 self.assertIn("--transparent goes with", result.stdout)
 
 
+PRINT_SCENE = textwrap.dedent('''\
+    from manim import *
+
+    class Paper(Scene):
+        def construct(self):
+            light = Square(fill_opacity=1.0, fill_color=WHITE, stroke_width=0).shift(LEFT * 2)
+            dark = Square(fill_opacity=1.0, fill_color="#2255AA", stroke_width=0).shift(RIGHT * 2)
+            self.play(FadeIn(light), FadeIn(dark), run_time=0.2)
+''')
+
+
+class PrintStillsE2E(unittest.TestCase):
+    """--export-checkpoints --print: the stills for a white page, under
+    media/<Scene>_print/ (beside, not over, the screen's stills): a clear
+    background, white turned black, a dark colour left as it was."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        cls.scene_path = os.path.join(cls.tmpdir.name, "paper_scene.py")
+        with open(cls.scene_path, "w") as f:
+            f.write(PRINT_SCENE)
+        result = subprocess.run(
+            [sys.executable, "-m", "maniml", cls.scene_path, "Paper",
+             "--export-checkpoints", "--print"],
+            cwd=cls.tmpdir.name,
+            env={**os.environ, "PYTHONPATH": REPO_ROOT},
+            capture_output=True, text=True, timeout=300,
+        )
+        cls.render_output = result.stdout + result.stderr
+        cls.media = Path(cls.tmpdir.name) / "media"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpdir.cleanup()
+
+    def test_stills_for_paper(self):
+        from PIL import Image
+        import numpy as np
+
+        stills = sorted((self.media / "Paper_print").glob("*.png"))
+        self.assertTrue(stills, self.render_output)
+        self.assertFalse((self.media / "Paper_checkpoints").exists())
+        self.assertFalse(list(self.media.glob("Paper.*")))
+        image = np.asarray(Image.open(stills[-1]))
+        self.assertEqual(image.shape[2], 4)
+        height, width, _ = image.shape
+        self.assertEqual(image[5, 5, 3], 0)
+        light = image[height // 2, width // 2 - width * 2 // 14]
+        dark = image[height // 2, width // 2 + width * 2 // 14]
+        self.assertEqual(light[3], 255)
+        self.assertLess(int(light[:3].max()), 8, light)
+        np.testing.assert_allclose(dark[:3].astype(int), [0x22, 0x55, 0xAA], atol=3)
+
+    def test_the_flag_goes_with_the_stills_alone(self):
+        for flags in ([], ["--render"], ["--export-checkpoints", "--render"],
+                      ["--present"]):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [sys.executable, "-m", "maniml", self.scene_path, "Paper",
+                     "--print", *flags],
+                    cwd=self.tmpdir.name,
+                    env={**os.environ, "PYTHONPATH": REPO_ROOT},
+                    capture_output=True, text=True, timeout=120,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("--print goes with", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

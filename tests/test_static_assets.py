@@ -231,8 +231,10 @@ class ViewerTests(unittest.TestCase):
     def test_viewer_controls_are_present(self):
         viewer = (STATIC / "viewer.html").read_text()
         for element in (
-            'id="open-file"', 'id="file-menu"', 'id="previous"', 'id="next"',
-            'id="export-video"', 'id="export-checkpoints"',
+            'id="open-file"', 'id="recent-menu"', 'id="new-window"',
+            'id="previous"', 'id="next"',
+            'id="export-video"', 'id="export-more"', 'id="export-checkpoints"',
+            'id="export-transparent"',
             'id="connection-overlay"', 'id="retry-connection"',
             'aria-label="Scene pausepoints"',
         ):
@@ -363,20 +365,82 @@ class ViewerTests(unittest.TestCase):
         shell = (STATIC / "shell.css").read_text()
         for shared in ("#toolbar {", ".doc-pod {", ".document-slug {", ".doc-mark",
                        ".icon-button", ".control-label", ".tb-end {", ".bar-pill {",
-                       ".bar-menu {", ".bar-menu-item {"):
+                       ".bar-menu {", ".bar-menu-item {", ".bar-split {",
+                       ".bar-split-more", ".recent-item"):
             self.assertIn(shared, shell, shared)
         for name in ("viewer.html", "app.html"):
             page = (STATIC / name).read_text()
-            for control in ('<header id="toolbar"', 'id="file-menu" class="icon-button"',
-                            'class="bar-menu"', 'class="doc-pod"', 'class="document-slug"',
+            for control in ('<header id="toolbar"', 'id="open-file" class="icon-button"',
+                            'id="recent-menu" class="icon-button bar-split-more"',
+                            'id="new-window" class="icon-button"',
+                            '<span id="open-split" class="bar-split">',
+                            "ManimlBar.drawRecents(",
+                            'class="bar-menu recent-menu"', 'class="doc-pod"', 'class="document-slug"',
                             'class="tb-end"', 'id="updatebtn" class="icon-button"',
                             '<script src="bar.js"></script>', "ManimlBar.menu(",
                             "ManimlBar.updates("):
                 self.assertIn(control, page, f"{name}: {control}")
             # The update's handling is bar.js's alone now.
             self.assertNotIn('shell.request({ type: "update"', page, name)
+
+    def test_present_never_renders_in_front_of_the_class(self):
+        """Present plays a fresh recording, and with none presents live from
+        the silent pre-run's checkpoints rather than rendering one (Taylor,
+        2026-10-17); a switch of scene leaves a recording without parking
+        the scene being left, and the button is marked while the engine
+        prepares."""
+        viewer = (STATIC / "viewer.html").read_text()
+        enter = viewer[viewer.index("async function enterPlayback() {"):]
+        enter = enter[:enter.index("\nfunction exitPlayback")]
+        self.assertNotIn('format: "video"', enter)
+        self.assertIn("presenting live", enter)
+        self.assertNotIn("presentPending", viewer)
+        self.assertIn('if (stageSource === "playback") exitPlayback({ park: false });', viewer)
+        self.assertIn('if (park) send({ type: "chip", index: parkAt });', viewer)
+        self.assertIn("#present.working { color: var(--warn); }", viewer)
+        self.assertIn("if (!state.present || state.presentation_ready) setPresentPreparing(false);", viewer)
+
+    def test_open_and_export_are_split_tiles(self):
+        """Knuth's File decisions carried over (Taylor, 2026-10-17): no File
+        menu; Open is a split tile whose chevron lists the recent scenes
+        straight in its menu, New window is a tile of its own, and Export is
+        a split tile whose main half is Download, its chevron holding the
+        transparent video and the stills."""
+        for name in ("viewer.html", "app.html"):
+            page = (STATIC / name).read_text()
+            self.assertNotIn('id="file-menu"', page, name)
+            self.assertNotIn('id="file-list"', page, name)
+            self.assertIn('<div id="recent-list" class="bar-menu recent-menu" role="menu"', page, name)
+        viewer = (STATIC / "viewer.html").read_text()
+        exports = viewer[viewer.index('<span id="export-pod" class="bar-split">'):]
+        exports = exports[:exports.index('<span id="job-status"')]
+        self.assertLess(exports.index('id="export-video" class="icon-button export-icon"'),
+                        exports.index('id="export-more"'))
+        menu = exports[exports.index('<div id="export-list" class="bar-menu" role="menu"'):]
+        for item in ('id="export-transparent" class="bar-menu-item"',
+                     'id="export-checkpoints" class="bar-menu-item"'):
+            self.assertIn(item, menu, item)
+        # A render's colour lands on the tile that started it.
+        self.assertIn('data-format="transparent checkpoints print"', exports)
+        self.assertIn('button.dataset.format.split(" ").includes(format)', viewer)
+        # The viewer asks the app for its recents and its dialog on demand,
+        # and opens what is picked in this window through the landing
+        # page's ?open=; a bare scene process, with no app, hides both.
+        for line in ('socket = new WebSocket("ws://" + location.host + "/");',
+                     'askApp("choose")', 'askApp("recents")',
+                     'landing.searchParams.set("open", path);',
+                     'document.getElementById("recent-menu").hidden = !sceneParam;',
+                     'document.getElementById("new-window").hidden = !sceneParam;'):
+            self.assertIn(line, viewer, line)
+        bar = (STATIC / "bar.js").read_text()
+        self.assertIn("entry.path !== current", bar)
+        self.assertIn("refocus()", bar)
+        # The print stills ride the chevron with the other renders.
+        self.assertIn('id="export-print" class="bar-menu-item"', menu)
+        self.assertIn('send({ type: "export", format: "print" });', viewer)
         app = (STATIC / "app.html").read_text()
-        self.assertIn('id="openbtn" class="bar-menu-item"', app)
+        self.assertIn('window.open(location.pathname, "_blank");', app)
+        self.assertIn('document.getElementById("open-file"),', app)
 
     def test_scene_picker_switches_within_a_file(self):
         viewer = (STATIC / "viewer.html").read_text()
@@ -558,9 +622,9 @@ class FrameTests(unittest.TestCase):
         self.assertIn('</span>\n  <span id="job-status" role="status" aria-live="polite"></span>', viewer)
 
     def test_the_landing_page_holds_no_document(self):
-        """The viewer tells the shell which scene its window holds; File →
-        Open another scene… comes back to the landing page in the same
-        window, so the landing page tells it none, or the Window menu and an
+        """The viewer tells the shell which scene its window holds; its Open
+        comes by way of the landing page in the same window, so the landing
+        page tells it none, or the Window menu and an
         update's relaunch would name the scene just left."""
         page = (STATIC / "app.html").read_text()
         self.assertIn("ManimlBar.setDocument(null);", page)

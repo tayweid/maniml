@@ -267,7 +267,7 @@
   body.nogpu #gpu-unsupported { display: block; }
 
   /* The bar is the frame's (shell.css), the same bar as Knuth's and
-     Plass's: File and the name pill beside the traffic lights, the scene's
+     Plass's: Open, New window and the name pill beside the traffic lights, the scene's
      tools after them as the bar's tiles, and at the right end the
      renderer, the update when there is one and the engine's status — then
      the console's toggle (fixed, above), whose place the bar's right
@@ -281,7 +281,6 @@
   /* A group in the bar: related tiles, 3 px apart as on Knuth's rail, and
      the quiet text they own. */
   .tool-group { display: inline-flex; align-items: center; gap: 3px; }
-  .bar-file { display: inline-flex; }
   /* The name: exactly the file's name (the shell's smoke reads it), with
      the 4 px either side Knuth's and Plass's names keep, so the three
      names start at the same x. */
@@ -321,7 +320,7 @@
      over the room once the bar was short. The render's status is the bar's
      own item, after the tiles it reports on, so it gives way with the name
      pill (inside their group it could not shrink without them), 6 px after
-     Stills as it was. */
+     Export's chevron. */
   #job-status {
     display: none; flex: 0 1 auto; min-width: 0; max-width: 180px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -337,6 +336,10 @@
   @keyframes restart-turn { to { transform: rotate(360deg); } }
   #restart-scene.working { color: var(--warn); opacity: 1; }
   #restart-scene.working svg { animation: restart-turn 900ms linear infinite; }
+  /* Present shows it is preparing: the silent pre-run of every unit
+     (scene/presentation.py) can take seconds, with nothing else on the
+     page changing, by design. */
+  #present.working { color: var(--warn); }
   /* The renderer: a pill of the bar's height, corners and hairline — a
      comparison control still being tested, so unseen until the pointer
      finds it or it has a warning to show (Taylor, 2026-10-04). */
@@ -540,28 +543,38 @@
 </div>
 
 <!-- The bar: the frame's top edge and, in ManimLive.app, the window's
-     title bar, with the traffic lights in its left end (shell.css). File
-     and the name pill are the document's way in and out, Restart and the
-     renders the scene's own tools; the right end is the engine's — the
+     title bar, with the traffic lights in its left end (shell.css). Open,
+     New window and the name pill are the document's way in and out,
+     Restart and Export the scene's own tools; the right end is the engine's — the
      renderer, the app's update when there is one, the status — and the
      console's toggle (below, outside the bar) sits after it. -->
 <header id="toolbar" aria-label="Scene controls">
-  <!-- File: a text menu dropped under the tile (bar.js), as Knuth's and
-       Plass's File, so leaving the scene for the landing page is two
-       deliberate clicks, as the flyout it replaces was. -->
-  <div class="bar-file">
-    <button id="file-menu" class="icon-button" type="button" aria-label="File" aria-haspopup="menu" aria-expanded="false" aria-controls="file-list">
+  <!-- Open, a split tile (Plass's Export, shell.css .bar-split; Taylor,
+       2026-10-17, as Knuth's Open): the main half opens another scene
+       through the platform's dialog, the chevron lists the scenes opened
+       before, straight in its menu. Either way the scene opens in this
+       window, by way of the landing page (its ?open=, which shows uv's
+       steps and any error); a dialog cancelled leaves the scene as it
+       was. Both ask the app (its control socket, on demand), so on a bare
+       scene process, which has no app, the main half goes to the page's
+       root as it always has and the chevron and New window are hidden. -->
+  <span id="open-split" class="bar-split">
+    <button id="open-file" class="icon-button" type="button" aria-label="Open another scene">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-      <span class="control-label">File</span>
+      <span class="control-label">Open</span>
     </button>
-    <div id="file-list" class="bar-menu" role="menu" aria-label="File" hidden>
-      <button id="open-file" class="bar-menu-item" type="button" role="menuitem">Open another scene&hellip;</button>
-      <!-- A render for an editor rather than for Present, so a menu item
-           and not a tile beside Download: the scene over a transparent
-           background, media/<Scene>.mov (ProRes 4444 with alpha). -->
-      <button id="export-transparent" class="bar-menu-item" type="button" role="menuitem" title="ProRes 4444 with alpha, saved in media/ as a .mov to lay over other footage" hidden>Export transparent video</button>
-    </div>
-  </div>
+    <button id="recent-menu" class="icon-button bar-split-more" type="button" aria-label="Recent scenes" aria-haspopup="menu" aria-expanded="false" aria-controls="recent-list" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      <span class="control-label">Recent</span>
+    </button>
+    <div id="recent-list" class="bar-menu recent-menu" role="menu" aria-label="Recent scenes" hidden></div>
+  </span>
+  <!-- New window: the landing page in a window of its own, for a second
+       scene beside this one (each its own scene process). -->
+  <button id="new-window" class="icon-button" type="button" aria-label="New window" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17"/><path d="M12 11.5v5M9.5 14h5"/></svg>
+    <span class="control-label">New window</span>
+  </button>
 
   <div id="doc-pod" class="doc-pod">
     <div class="document-slug" title="Current scene file">
@@ -578,16 +591,29 @@
     <span class="control-label">Restart</span>
   </button>
 
-  <span id="export-pod" class="tool-group">
+  <!-- Export, a split tile as Plass's (Taylor, 2026-10-17): Download
+       renders what Present plays — the video, its pausepoints and the
+       student bundle — on one click; the chevron holds the two renders
+       for other uses, a transparent video for an editor (the scene over
+       a clear background, media/<Scene>.mov, ProRes 4444 with alpha) and
+       the stills, one full-size PNG per checkpoint, which outweigh the
+       movie several times over and so are rendered when they are
+       wanted. -->
+  <span id="export-pod" class="bar-split">
     <button id="export-video" class="icon-button export-icon" data-format="video" aria-label="Render video, pausepoints, and the student bundle" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="control-label">Download</span>
     </button>
-    <!-- Its own button because it is its own artifact: one full-size PNG
-         per checkpoint outweighs the movie several times over, so the
-         stills are rendered when they are wanted, not on every download. -->
-    <button id="export-checkpoints" class="icon-button export-icon" data-format="checkpoints" aria-label="Render a PNG of every checkpoint" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="13.5" height="12.5" rx="2"/><path d="M7.5 4.5h11a2 2 0 0 1 2 2v11"/><path d="m6 16 3-3.5 3.5 4"/></svg><span class="control-label">Stills</span>
+    <button id="export-more" class="icon-button export-icon bar-split-more" data-format="transparent checkpoints print" type="button" aria-label="More exports" aria-haspopup="menu" aria-expanded="false" aria-controls="export-list" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><span class="control-label">More exports</span>
     </button>
+    <div id="export-list" class="bar-menu" role="menu" aria-label="More exports" hidden>
+      <button id="export-transparent" class="bar-menu-item" type="button" role="menuitem" title="ProRes 4444 with alpha, saved in media/ as a .mov to lay over other footage">Transparent video</button>
+      <button id="export-checkpoints" class="bar-menu-item" type="button" role="menuitem" title="A full-size PNG of every checkpoint, saved in media/">Stills</button>
+      <!-- The stills for a white page, to print as slides: a clear
+           background, and colours moved to read on paper (white turns
+           black; a colour keeps its hue, darkened), media/<Scene>_print/. -->
+      <button id="export-print" class="bar-menu-item" type="button" role="menuitem" title="A PNG of every checkpoint for a white page: a transparent background and colours that read on white, saved in media/">Print stills</button>
+    </div>
   </span>
   <span id="job-status" role="status" aria-live="polite"></span>
 
@@ -700,11 +726,75 @@ const wsUrl = "ws://" + location.host
 const scenePrefix = sceneParam
   ? "/scene/" + encodeURIComponent(sceneParam) : "";
 const appUrl = new URLSearchParams(location.search).get("app") || "/";
-document.getElementById("open-file").onclick = () => { window.location = appUrl; };
-// File is the bar's text menu (bar.js); closing it hands the keyboard back
-// to the stage, which forwards it to the scene.
-ManimlBar.menu(document.getElementById("file-menu"), document.getElementById("file-list"),
-  { restore: () => canvas.focus() });
+// Open and New window (the bar's left end). Under the app they ask the
+// app over its control socket — the landing page's, opened for the one
+// request and closed with its answer, so nothing is held open while a
+// scene plays — and a scene they pick opens in this window by way of the
+// landing page's ?open=, the road a Finder double-click takes. A bare
+// scene process has no app: Open goes to the page's root as it always
+// has, and the chevron and New window stay hidden.
+let scenePath = null;            // the file this window holds (the state's)
+function askApp(op) {
+  return new Promise((resolve, reject) => {
+    let socket;
+    try { socket = new WebSocket("ws://" + location.host + "/"); }
+    catch (error) { reject(error); return; }
+    let settled = false;
+    socket.onmessage = (event) => {
+      let data;
+      try { data = JSON.parse(event.data); } catch (error) { return; }
+      if (data.type === "ready") socket.send(JSON.stringify({ op, id: 1 }));
+      else if (data.id === 1) { settled = true; resolve(data); socket.close(); }
+    };
+    socket.onclose = () => { if (!settled) reject(new Error("the app did not answer")); };
+  });
+}
+function openInThisWindow(path) {
+  const landing = new URL(appUrl, location.href);
+  landing.searchParams.set("open", path);
+  window.location = landing.href;
+}
+let choosing = false;
+document.getElementById("open-file").onclick = async () => {
+  if (!sceneParam) { window.location = appUrl; return; }
+  if (choosing) return;
+  choosing = true;
+  try {
+    const data = await askApp("choose");
+    if (data.cancelled) return;
+    if (data.error || !data.file) throw new Error(data.error || "no file chosen");
+    openInThisWindow(data.file.path);
+  } catch (error) {
+    showExportStatus("Could not open: " + error.message, "failed", 6000, null);
+  } finally {
+    choosing = false;
+    canvas.focus();
+  }
+};
+const recentList = document.getElementById("recent-list");
+let recentEntries = null;
+const drawRecentMenu = () => ManimlBar.drawRecents(recentList, recentEntries,
+  { current: scenePath, pick: (entry) => openInThisWindow(entry.path) });
+// Asked each time the menu opens, so it is never a list from before a
+// scene opened in another window; the last answer shows meanwhile.
+const recentMenu = ManimlBar.menu(document.getElementById("recent-menu"), recentList, {
+  restore: () => canvas.focus(),
+  onOpen() {
+    drawRecentMenu();
+    askApp("recents").then((data) => {
+      recentEntries = Array.isArray(data.recents) ? data.recents : [];
+      if (!recentMenu.isOpen) return;
+      drawRecentMenu();
+      recentMenu.refocus();
+    }, () => {});
+  },
+});
+document.getElementById("new-window").onclick = () => {
+  window.open(new URL(appUrl, location.href).href, "_blank");
+  canvas.focus();
+};
+document.getElementById("recent-menu").hidden = !sceneParam;
+document.getElementById("new-window").hidden = !sceneParam;
 let ws = null;
 let rendererConnection = 0;
 let rendererNegotiated = false;
@@ -852,8 +942,7 @@ function applyCapabilities(values) {
   canInstall = capabilities.has("install");
   document.getElementById("restart-scene").hidden = !capabilities.has("restart");
   document.getElementById("export-video").hidden = !capabilities.has("export");
-  document.getElementById("export-checkpoints").hidden = !capabilities.has("export");
-  document.getElementById("export-transparent").hidden = !capabilities.has("export");
+  document.getElementById("export-more").hidden = !capabilities.has("export");
 }
 
 // -- Frames (1 header byte: 0x03 is a geometry payload for the WebGPU
@@ -1164,7 +1253,12 @@ function drawSceneMenu(current) {
     if (name === current) option.setAttribute("aria-current", "true");
     option.onclick = () => {
       closeSceneMenu();
-      if (name !== current) send({ type: "switch_scene", scene: name });
+      if (name === current) return;
+      // A recording belongs to the scene it was made of: leave it, without
+      // parking the scene being left, and the next scene (presenting on,
+      // engine-side) enters its own once its silent pre-run is ready.
+      if (stageSource === "playback") exitPlayback({ park: false });
+      send({ type: "switch_scene", scene: name });
     };
     sceneMenu.appendChild(option);
   }
@@ -1177,6 +1271,7 @@ function applyEnv(state) {
   presentBtn.setAttribute("aria-pressed", presenting ? "true" : "false");
   presentBtn.classList.toggle("active", presenting);
   presentBtn.classList.toggle("stale", !!state.present_bundle && !state.present_fresh);
+  if (!state.present || state.presentation_ready) setPresentPreparing(false);
   if (state.scene) {
     document.getElementById("scene-name").textContent = state.scene;
     document.title = state.file ? state.file : state.scene + " — maniml";
@@ -1186,6 +1281,7 @@ function applyEnv(state) {
   // The folder beside the name (bar.js): the scene file's, as the shell
   // took it. Only the engine's states carry the path; a recording's do not.
   if ("path" in state) ManimlBar.setDocument(state.path, docFolder);
+  if ("path" in state) scenePath = state.path;
 }
 const docFolder = document.getElementById("doc-folder");
 
@@ -1353,7 +1449,6 @@ restartButton.onclick = () => {
 const playbackVideo = document.getElementById("playback-video");
 let stageSource = "live";       // "live" | "playback"
 let lastLiveState = null;       // latest state message from the engine
-let presentPending = false;     // a render for Present is in flight
 let playbackEntering = false;   // collapse repeated ready-state broadcasts
 let autoPlaybackSuppressed = false; // explicit exit wins over auto-entry
 
@@ -1375,8 +1470,8 @@ function synthPlaybackState(index) {
 }
 let playbackMeta = null;
 
-async function enterPlayback({ freshExport = false } = {}) {
-  if (stageSource === "playback" || playbackEntering || presentPending) return;
+async function enterPlayback() {
+  if (stageSource === "playback" || playbackEntering) return;
   // Handles need the engine behind the stage: a recording cannot be
   // dragged, so such a scene presents live and the rail still scrubs it.
   if (lastLiveState && lastLiveState.draggable) return;
@@ -1386,17 +1481,19 @@ async function enterPlayback({ freshExport = false } = {}) {
     try {
       meta = await (await fetch(scenePrefix + "/present/present.json")).json();
     } catch (err) { /* no bundle */ }
-    const stateSaysFresh = freshExport
-      || !lastLiveState || !!lastLiveState.present_fresh;
+    const stateSaysFresh = !lastLiveState || !!lastLiveState.present_fresh;
     const endpointsMatch = !lastLiveState
       || (meta && (meta.checkpoints || []).length === lastLiveState.count);
     if (!stateSaysFresh || !endpointsMatch
         || !meta || meta.format !== 1 || !(meta.checkpoints || []).length) {
+      // No recording of the file as it is: present live, from the
+      // checkpoints the silent pre-run just built, rather than render
+      // one in front of the class (Taylor, 2026-10-17). Download makes
+      // the recording when there is time.
       showExportStatus(
-        meta ? "Recording stale — rendering one" : "No recording — rendering one",
-        "working", 0, "video");
-      presentPending = true;
-      send({ type: "export", format: "video" });
+        meta ? "Recording out of date — presenting live"
+          : "No recording — presenting live",
+        "working", 4000, null);
       return;
     }
     playbackMeta = meta;
@@ -1442,7 +1539,7 @@ async function enterPlayback({ freshExport = false } = {}) {
   }
 }
 
-function exitPlayback({ endPresentation = false } = {}) {
+function exitPlayback({ endPresentation = false, park = true } = {}) {
   const parkAt = ManimlPresentation.currentIndex();
   ManimlPresentation.unload();
   if (playbackStills) { playbackStills.dispose(); playbackStills = null; }
@@ -1455,13 +1552,22 @@ function exitPlayback({ endPresentation = false } = {}) {
   playbackVideo.load();
   fitStage(canvas.width, canvas.height);  // the room back to the picture's shape
   sendRendererMode();                     // the live stream resumes
-  send({ type: "chip", index: parkAt }); // park the engine where we stopped
+  // Park the engine where we stopped, unless the scene is being left.
+  if (park) send({ type: "chip", index: parkAt });
   if (endPresentation && lastLiveState && lastLiveState.present) {
     // Prevent the still-true state already in flight from re-entering while
     // the engine processes the toggle-off event.
     autoPlaybackSuppressed = true;
     send({ type: "present" });
   }
+}
+
+// Present is marked while the engine pre-runs the scene, until the state
+// that says it is ready (or that presenting is off) arrives.
+const presentButton = document.getElementById("present");
+function setPresentPreparing(on) {
+  presentButton.classList.toggle("working", on);
+  presentButton.setAttribute("aria-busy", String(on));
 }
 
 function requestPresentation() {
@@ -1472,6 +1578,7 @@ function requestPresentation() {
   }
   // Prebuild exact live endpoints before the recording is allowed to own
   // navigation. The server broadcasts presentation_ready when it is safe.
+  setPresentPreparing(true);
   send({ type: "present" });
 }
 
@@ -1484,13 +1591,18 @@ document.getElementById("export-video").onclick = () => {
   send({ type: "export", format: "video" });
   canvas.focus();
 };
+// Export's chevron (bar.js): its items, and closing the menu hands the
+// keyboard to the stage.
+ManimlBar.menu(document.getElementById("export-more"), document.getElementById("export-list"),
+  { restore: () => canvas.focus() });
 document.getElementById("export-checkpoints").onclick = () => {
   send({ type: "export", format: "checkpoints" });
-  canvas.focus();
 };
-// The File menu's item; closing the menu hands the keyboard to the stage.
 document.getElementById("export-transparent").onclick = () => {
   send({ type: "export", format: "transparent" });
+};
+document.getElementById("export-print").onclick = () => {
+  send({ type: "export", format: "print" });
 };
 
 const exportPod = document.getElementById("export-pod");
@@ -1501,16 +1613,18 @@ const EXPORT_NOUNS = {
   checkpoints: "Checkpoint stills",
   video: "Video",
   transparent: "Transparent video",
+  print: "Print stills",
 };
 function showExportStatus(message, state, linger, format) {
   clearTimeout(exportStatusTimer);
   jobStatus.textContent = message;
   exportPod.classList.remove("working", "success", "failed");
   exportPod.classList.add("active", state);
-  // The pod holds two buttons; only the one whose job this is takes the
-  // colour, so a stills render never reads as a video render.
+  // The split holds two tiles; only the one whose job this is takes the
+  // colour (Download a video's, the chevron a transparent video's or the
+  // stills'), so a stills render never reads as a video render.
   for (const button of exportPod.querySelectorAll(".export-icon")) {
-    button.classList.toggle("running", button.dataset.format === format);
+    button.classList.toggle("running", button.dataset.format.split(" ").includes(format));
   }
   if (linger) {
     exportStatusTimer = setTimeout(() => {
@@ -1528,16 +1642,6 @@ function handleExportStatus(data) {
     showExportStatus(noun + " saved in media/", "success", 6000, data.format);
   } else {
     showExportStatus(noun + " export failed", "failed", 6000, data.format);
-  }
-  // A render requested by Present: enter (or re-enter) playback on the
-  // fresh recording the render just wrote.
-  if (presentPending && data.format === "video"
-      && data.status !== "running" && data.status !== "busy") {
-    presentPending = false;
-    if (data.status === "complete") {
-      if (stageSource === "playback") exitPlayback();
-      void enterPlayback({ freshExport: true });
-    }
   }
 }
 

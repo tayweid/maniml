@@ -5,6 +5,91 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Present never shows the run-through, and never renders in class (2026-10-17)
+
+Taylor: "sometimes i need to switch animations in class, and right now it
+shows all the animations to students". Present pre-runs every unit before
+it presents (the live checkpoints a recording parks on when playback
+exits), and the pre-run, skipped, still drew a preview frame at the end
+of every play (`preview_while_skipping`), so the class watched the whole
+scene flash by. Then, with no fresh recording, the page rendered one
+before presenting, which in class is a wait.
+
+Now the pre-run is silent (`_prepare_presentation` turns the preview off
+for its run; the scene's starting picture is drawn first and again when
+it is ready, the Present button amber meanwhile); a fresh recording is
+played; with none the scene is presented live from the checkpoints the
+pre-run built, and a short status says so. Download makes the recording,
+when there is time. Presenting carries across a switch of scene in the
+picker (the next scene pre-runs silently and presents as the button would
+start it), and the page leaves a recording before the switch so the old
+scene's video is not left on the stage. A Restart still starts as the
+command line said.
+
+## Print stills: the stills for a white page (2026-10-17)
+
+Taylor wants the stills on a white page students print as slides, with a
+transparent background, and expected colours to need design help: a
+scene is drawn for a dark background, so its colours are light. The rule
+(`utils/print_colors.py`), in OKLab: a grey turns over (white text and
+axes become black, a light grey a dark one); a colour keeps its hue and
+is darkened to L 0.55 at most, chroma cut only as far as sRGB requires;
+the two blend by chroma, so pastels go dark as white does. Then a floor,
+asked for once Taylor saw the first draft at L 0.6 (3.7-4.3:1, enough for
+graphics and large text but not for small coloured text): every colour
+that was meant to be seen on screen (L 0.5 or more there) ends at WCAG
+AA's 4.5:1 against white or better, measured on the eight-bit colour the
+PNG holds, darkened further where the cap alone falls short. What was
+faint on screen (a dark grid, a black mask) stays faint on paper. Manim's
+blue prints a teal blue, red stays red, yellow turns olive (the colour
+that cannot hold its hue dark), a translucent fill a light tint of its
+colour (its contrast is its opacity's, as on screen). An image mobject is
+remapped like the rest. Not answered by colour: on a greyscale printer
+the colours all land near one grey, and a red/green distinction is the
+scene's to avoid.
+`--export-checkpoints --print`, its own folder (`<Scene>_print/`) beside
+the screen's stills; the viewer's Export chevron has it as Print stills.
+
+## Open and Export are split tiles; there is no File menu (2026-10-17)
+
+Taylor redesigned Knuth's File menu and asked for the same decisions in
+Plass and ManimLive, so the three Claerbout apps read as one: a split
+tile (Plass's Export: a main half for the usual thing, a narrow chevron
+for the rest) with Open as its main action and the recent documents
+straight in the chevron's menu, not behind a submenu; New window a tile
+of its own; no Save (Save shows only with autosave off); History only
+as its bar tile; Check for Updates only in the shell's app menu.
+
+In ManimLive most of that has nothing to act on. The scene file is
+edited elsewhere, so there is no Save and no autosave; there is no
+History tile; the menu never held Check for Updates (the update is a
+tile that shows only when the shell knows of a newer build, which
+stays). What carried over: File's menu (Open another scene…, and
+Export transparent video) became an **Open** split tile — the main
+half the engine's dialog, the chevron the recent scenes, the file the
+window already holds left out — and a **New window** tile, the landing
+page in a window of its own. Taylor added, for ManimLive's own
+renders: **Export** is a split tile too, its main half Download (the
+video, pausepoints and student bundle that Present plays), its chevron
+holding Transparent video and Stills; Stills was a tile beside
+Download and Transparent video was in File.
+
+How the viewer reaches the app: the recents and the dialog are the
+app's control socket's (`recents`, `choose`), which until now only the
+landing page held. The viewer opens it for one request and closes it
+with the answer, so nothing new is held open while a scene plays, and a
+picked scene opens in this window by way of the landing page's
+`?open=`, the road a Finder double-click takes, so uv's steps and any
+error show where they always have. A cancelled dialog leaves the scene
+as it was (before, Open another scene… left the scene first). A bare
+scene process (`maniml file.py Scene`) has no app: Open goes to the
+page's root as it did, and the chevron and New window are hidden.
+
+Decided differently from Knuth: Open opens in this window, as
+ManimLive's File always did, and its caption claims no ⌘O, because the
+shell's own ⌘O (its File menu) opens each file in a new window, and a
+second scene process per ⌘O is not what a lecture wants by accident.
+
 ## A key pressed during an edit's replay waits for it (2026-10-11)
 
 The edit-time ghost, reproduced: Taylor's screenshot of C1 at the

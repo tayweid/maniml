@@ -36,12 +36,19 @@ lights' room (`env(titlebar-area-x)`; 8 px in a tab or full screen, so
 the File tile stands over the room's left edge — Knuth and Plass use 6,
 which centres theirs over the rail ManimLive does not have):
 
-- **File** (`#file-menu`) — the bar's 32 px tile with Knuth's folder
-  glyph at 18 px. It was a hover flyout inside the name pod with one
-  action; now it is Knuth's and Plass's click-to-open text menu
-  (`#file-list`), dropped 10 px under the tile: **Open another scene…**
-  (`#open-file`, the same handler: back to the landing page). Still two
-  deliberate clicks to leave a scene, as the flyout was.
+- **Open** (`#open-split`, a split tile, `.bar-split`; 2026-10-17, from
+  Knuth's File decisions, DECISIONS.md "Open and Export are split
+  tiles") — the main half (`#open-file`, Knuth's folder glyph) opens the
+  engine's dialog and the chosen scene in this window; the chevron
+  (`#recent-menu`) drops the recent scenes (`#recent-list`), name and
+  folder, the window's own file left out. Under the app the viewer asks
+  the app's control socket for both, on demand. It replaced File's text
+  menu (Open another scene…, Export transparent video), which replaced a
+  hover flyout.
+- **New window** (`#new-window`) — the landing page in a window of its
+  own (a tab in a browser). Hidden on a bare scene process with the
+  chevron (there is no app to open), and under 760 px with the folder, so
+  the narrowest window keeps the name (the shell's ⌘N still opens one).
 - **The name pill** (`#doc-pod`) — Knuth's and Plass's, 30 px: the scene
   file's name (`#file-name`, its text exactly the name, as the shell's
   smoke reads it) in 15 px STIX Two Text, then `·` and the scene in it
@@ -51,11 +58,14 @@ which centres theirs over the rail ManimLive does not have):
   the pill is short, hidden under 760 px. There is no save dot: ManimLive
   never edits the file. The separator lost its rose colour, since a red
   dot beside the name is Knuth's and Plass's mark for unsaved changes.
-- **Restart** (`#restart-scene`), **Download** and **Stills**
-  (`#export-video`, `#export-checkpoints`), the bar's tiles, awake (the
+- **Restart** (`#restart-scene`) and **Export** (`#export-pod`, a split
+  tile since 2026-10-17: **Download**, `#export-video`, and a chevron,
+  `#export-more`, whose menu holds **Transparent video**, **Stills** and
+  **Print stills**, `#export-transparent`, `#export-checkpoints` and
+  `#export-print`), the bar's tiles, awake (the
   old bar's sleep-until-hover stays the presenter's bar's alone),
   captions in the frame's dark glass; then a render's **status**
-  (`#job-status`), one line cut by its ellipsis, 6 px after Stills. It is
+  (`#job-status`), one line cut by its ellipsis, 6 px after Export. It is
   the bar's own item, after the group rather than in it, so that it gives
   way with the name pill when the bar is short (a group's text cannot
   shrink without its tiles).
@@ -90,12 +100,13 @@ file its window holds (the shell's `document` request); the folder is
 the shell's answer, so it never names a file the shell refused. The
 window's document follows the scene opened from the landing page (an
 update's relaunch reopens it), and the landing page tells the shell its
-window holds none (`{path: null}`), so after File → Open another scene…
-the Window menu and a relaunch do not name the scene just left. In a tab
+window holds none (`{path: null}`), so after the viewer's Open (which
+comes by way of the landing page) the Window menu and a relaunch do not name the scene just left. In a tab
 the folder is the path's own.
 
-**The landing page** (`app.html`) is the same frame: the bar with File
-(its menu: **Open a scene…**, `#openbtn`), the pill reading
+**The landing page** (`app.html`) is the same frame: the bar with Open
+(the same split tile: the dialog, and the recent scenes on its chevron)
+and New window, the pill reading
 *ManimLive*, the update tile and the status at the right; the page in
 the room, centred, scrolling inside it. **The setup page** gets a drag
 band the lights' height, as Knuth's, and its content is padded clear of

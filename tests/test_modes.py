@@ -58,6 +58,20 @@ class TestPresentMode(ModeSceneTest):
         # live namespace tracks the displayed checkpoint
         self.assertIn('self', scene._live_namespace)
 
+    def test_prepare_draws_nothing_until_it_is_ready(self):
+        """The pre-run is silent (Taylor, 2026-10-17: starting a
+        presentation in class showed every animation): a skipped play
+        previews no frames, so the one draw is the rewound start."""
+        scene = self.make_scene()
+        scene.window = object()   # a viewer is there: previews would draw
+        draws = []   # a frame under skip is drawn only when forced
+        scene.update_frame = lambda dt=0, force_draw=False: force_draw and draws.append(
+            scene.current_animation_index)
+        scene._present_mode = True
+        scene._prepare_presentation()
+        self.assertEqual(draws, [0])
+        self.assertTrue(scene.preview_while_skipping)
+
 
 class TestRenderMode(ModeSceneTest):
     def _render_scene(self, media):

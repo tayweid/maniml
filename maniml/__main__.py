@@ -42,8 +42,9 @@ Modes:
                    (validating the whole scene), disables the file
                    watcher, then starts at the first checkpoint. In
                    the web viewer, a fresh recording supplies smooth
-                   forward/reverse motion; an explicit Present request
-                   renders that cache first when needed
+                   forward/reverse motion; without one it presents
+                   live. The pre-run draws nothing, so starting (or
+                   switching scenes while presenting) shows no animation
   --render         Headless: write the scene to a video file under
                    ./media/
   --export         Bake the scene into a self-contained web player
@@ -65,6 +66,11 @@ Modes:
                    ./media/SceneName.mov (ProRes 4444 with alpha) to
                    lay over other footage in an editor. With
                    --export-checkpoints: transparent PNGs
+  --print          With --export-checkpoints: stills for a white page,
+                   to print as slides — a transparent background, and
+                   colours moved to read on white (white turns black,
+                   a colour keeps its hue, darkened), written under
+                   ./media/SceneName_print/
   --help, -h       Show this help message
 
 Renderer comparisons:
@@ -86,6 +92,7 @@ Examples:
   maniml example.py MyScene --export-present
   maniml example.py MyScene --export-checkpoints
   maniml example.py MyScene --render --transparent
+  maniml example.py MyScene --export-checkpoints --print
 """
 
 
@@ -141,7 +148,7 @@ def main():
 
     unknown = flags - {"--present", "--render", "--web", "--no-browser",
                        "--export", "--export-present", "--export-checkpoints",
-                       "--transparent"}
+                       "--transparent", "--print"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}")
         print(USAGE)
@@ -155,6 +162,13 @@ def main():
             not flags & {"--render", "--export-checkpoints"}
             or flags & {"--present", "--export", "--export-present"}):
         print("--transparent goes with --render or --export-checkpoints")
+        sys.exit(1)
+    # --print is read with the config too (the clear background); it
+    # remaps the stills' colours, so it means something only for them.
+    if "--print" in flags and (
+            "--export-checkpoints" not in flags
+            or flags & {"--render", "--present", "--export", "--export-present"}):
+        print("--print goes with --export-checkpoints alone")
         sys.exit(1)
 
     script_file = args[0]
@@ -173,6 +187,7 @@ def main():
         export="--export" in flags,
         export_present="--export-present" in flags,
         export_checkpoints="--export-checkpoints" in flags,
+        print_stills="--print" in flags,
         open_browser="--no-browser" not in flags,
         port=port,
     )
@@ -272,15 +287,23 @@ def _run_web_scenes(viewer, script_file, scene_name, scene_class, present):
     """
     source_path = os.path.abspath(script_file)
     module_name = os.path.splitext(os.path.basename(script_file))[0]
+    presenting = present
     while True:
         scene = scene_class(window=viewer)
-        scene._present_mode = present
+        scene._present_mode = presenting
         scene._scene_filepath = source_path
         scene.run()
 
         pending = viewer.take_pending_scene()
         if pending is None:
             return
+        # A presentation goes on across a switch to another scene of the
+        # file (Taylor, 2026-10-17: switching scenes in class): the next
+        # scene starts presenting, pre-run silently, as the Present
+        # button would start it. A Restart is the scene as if just
+        # opened, so it starts as the command line said.
+        presenting = (bool(getattr(scene, "_present_mode", False))
+                      if pending != type(scene).__name__ else present)
         previous_module = sys.modules.get(module_name)
         try:
             module = load_scene_module(script_file)
@@ -317,6 +340,7 @@ def run_scene(
     export=False,
     export_present=False,
     export_checkpoints=False,
+    print_stills=False,
     open_browser=True,
     port=None,
 ):
@@ -394,6 +418,7 @@ def run_scene(
         )
         scene._render_mode = True
         scene._render_checkpoints = export_checkpoints
+        scene._print_stills = print_stills
     else:
         # The browser is the viewer (the pyglet window is retired); --web
         # is accepted for muscle memory and scripts but changes nothing.

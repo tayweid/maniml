@@ -1014,11 +1014,12 @@ class ExportRoutingTests(unittest.TestCase):
         self.assertIn("--export-present", self._mode_for("video"))
         self.assertIn("--export", self._mode_for("web"))
         self.assertIn("--export-checkpoints", self._mode_for("checkpoints"))
+        self.assertEqual(self._mode_for("print")[-2:], ["--export-checkpoints", "--print"])
 
     def test_the_video_export_writes_no_checkpoint_stills(self):
         self.assertNotIn("--export-checkpoints", self._mode_for("video"))
 
-    def test_only_the_three_known_formats_reach_an_export(self):
+    def test_only_the_known_formats_reach_an_export(self):
         """The wire picks a format, never a command line."""
         from types import SimpleNamespace
         from maniml.web.viewer import WebViewer
@@ -1030,9 +1031,10 @@ class ExportRoutingTests(unittest.TestCase):
             _has_undrawn_event=True,
             _start_export=started.append,
         )
-        for fmt in ("video", "web", "checkpoints", "--render", None):
+        for fmt in ("video", "web", "checkpoints", "transparent", "print",
+                    "--render", "--print", None):
             WebViewer._handle_event(viewer, {"type": "export", "format": fmt})
-        self.assertEqual(started, ["video", "web", "checkpoints"])
+        self.assertEqual(started, ["video", "web", "checkpoints", "transparent", "print"])
 
 
 RAIL_SOURCE = """
@@ -1281,6 +1283,48 @@ class SceneSwitchE2E(_ViewerHarness, unittest.TestCase):
             restored = self._state_after(ws, 20)
             self.assertIsNotNone(restored, "no state after second switch")
             self.assertEqual(restored["scene"], "AlphaScene")
+
+    def test_presenting_carries_across_a_switch(self):
+        """Switching scenes in class: the next scene starts presenting,
+        pre-run (silently) and ready, as the Present button would."""
+        with self._connect() as ws:
+            self.assertIsNotNone(self._state_after(ws, 4))
+            ws.send(json.dumps({"type": "present"}))
+            ready = None
+            deadline = time.time() + 20
+            while time.time() < deadline and ready is None:
+                _, states = self._collect(ws, 2)
+                ready = next((s for s in states if s.get("present")
+                              and s.get("presentation_ready")), None)
+            self.assertIsNotNone(ready, "present mode never engaged")
+            ws.send(json.dumps({"type": "switch_scene", "scene": "BetaScene"}))
+            switched = None
+            deadline = time.time() + 30
+            while time.time() < deadline and switched is None:
+                _, states = self._collect(ws, 2)
+                switched = next((s for s in states if s.get("scene") == "BetaScene"
+                                 and s.get("presentation_ready")), None)
+            self.assertIsNotNone(switched, "the next scene was not presenting")
+            self.assertTrue(switched["present"])
+            self.assertEqual(switched["current"], 0)
+            self.assertGreaterEqual(switched["count"], 2)
+            # The process is shared by the class: leave it as found,
+            # presenting off and on AlphaScene.
+            ws.send(json.dumps({"type": "present"}))
+            off = None
+            deadline = time.time() + 10
+            while time.time() < deadline and off is None:
+                _, states = self._collect(ws, 1)
+                off = next((s for s in states if not s.get("present")), None)
+            self.assertIsNotNone(off, "present mode never disengaged")
+            ws.send(json.dumps({"type": "switch_scene", "scene": "AlphaScene"}))
+            back = None
+            deadline = time.time() + 30
+            while time.time() < deadline and back is None:
+                _, states = self._collect(ws, 2)
+                back = next((s for s in states if s.get("scene") == "AlphaScene"), None)
+            self.assertIsNotNone(back, "did not switch back")
+            self.assertFalse(back.get("present"))
 
     def test_unknown_scene_name_is_ignored(self):
         """The name selects a class to instantiate, so it must be checked

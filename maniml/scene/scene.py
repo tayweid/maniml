@@ -220,6 +220,7 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
         self._presentation_ready = False
         self._render_mode = False   # Headless: write the video
         self._render_checkpoints = False  # ...and a PNG per checkpoint
+        self._print_stills = False  # ...those PNGs for a white page (--print)
         self._propagate_animation_errors = False  # Strict non-interactive runs
 
         # Presentation timeline overlay
@@ -266,6 +267,9 @@ class Scene(CheckpointMixin, InteractionMixin, PresentationMixin):
             if self._render_mode:
                 self._render_all()
             elif self._present_mode:
+                # The picture the presentation starts on, while the
+                # silent pre-run builds the rest behind it.
+                self.update_frame(dt=0, force_draw=True)
                 self._prepare_presentation()
                 self.interact()
             else:

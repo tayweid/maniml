@@ -14,12 +14,21 @@ class PresentationMixin:
         """Pre-run every animation unit (skipped, so it takes seconds)
         to validate the whole scene and build every checkpoint, then
         rewind to the start. The file watcher stays off: nothing
-        re-parses mid-presentation."""
+        re-parses mid-presentation.
+
+        Silently: the skipped run draws nothing (no preview frames, which
+        a skipped play otherwise shows along the way), so starting a
+        presentation in front of a class shows the picture it starts on
+        and not every animation flashing past (Taylor, 2026-10-17)."""
         self._presentation_ready = False
         print("Preparing presentation...")
         self.auto_reload_enabled = False
-        with self.temp_skip():
-            self._run_all_units()
+        preview, self.preview_while_skipping = self.preview_while_skipping, False
+        try:
+            with self.temp_skip():
+                self._run_all_units()
+        finally:
+            self.preview_while_skipping = preview
         total = len(self.animation_checkpoints) - 1
         self._restore_checkpoint_for_display(0)
         # Recorded motion may take over only after every advertised endpoint
@@ -41,9 +50,12 @@ class PresentationMixin:
         capture = self._render_checkpoints
         image_dir = None
         if capture:
+            # The print stills (--print) are their own folder: a set for
+            # the screen and a set for paper can sit side by side.
+            suffix = "_print" if self._print_stills else "_checkpoints"
             image_dir = os.path.join(
                 self.file_writer.output_directory,
-                f"{self.file_writer.get_output_file_name()}_checkpoints",
+                f"{self.file_writer.get_output_file_name()}{suffix}",
             )
             os.makedirs(image_dir, exist_ok=True)
             self._save_checkpoint_image(image_dir)  # initial (empty) state
@@ -69,4 +81,8 @@ class PresentationMixin:
     def _save_checkpoint_image(self, image_dir: str) -> None:
         self.update_frame(dt=0, force_draw=True)
         path = os.path.join(image_dir, f"{self.current_animation_index:03d}.png")
-        self.get_image().save(path)
+        image = self.get_image()
+        if self._print_stills:
+            from maniml.utils.print_colors import for_white_paper
+            image = for_white_paper(image)
+        image.save(path)

@@ -137,6 +137,13 @@ def parse_cli():
             help="Render to a movie file with an alpha channel",
         )
         parser.add_argument(
+            "--print",
+            dest="print_stills",
+            action="store_true",
+            help="With --export-checkpoints: stills for a white page, a "
+                 "transparent background and colours that read on white",
+        )
+        parser.add_argument(
             "--vcodec",
             help="Video codec to use with ffmpeg",
         )
@@ -263,7 +270,7 @@ def update_camera_config(config: Dict, args: Namespace):
             log.error("Please use a valid color")
             log.error(err)
             sys.exit(2)
-    if args.transparent:
+    if args.transparent or args.print_stills:
         camera_config.background_opacity = 0.0
 
 
@@ -273,7 +280,7 @@ def update_file_writer_config(config: Dict, args: Namespace):
         write_to_movie=(not args.skip_animations and args.write_file),
         subdivide_output=args.subdivide,
         save_last_frame=(args.skip_animations and args.write_file),
-        png_mode=("RGBA" if args.transparent else "RGB"),
+        png_mode=("RGBA" if args.transparent or args.print_stills else "RGB"),
         movie_file_extension=(get_file_ext(args)),
         output_directory=get_output_directory(args, config),
         file_name=args.file_name,

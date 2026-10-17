@@ -118,6 +118,7 @@ jobs:
           tests.test_present_bundle
           tests.test_presentation_seek
           tests.test_rail_sim
+          tests.test_print_colors
 
       # The step above runs the serializer's pin and the retained frame's
       # lockstep tests with the default switch, the retained frame on. The
