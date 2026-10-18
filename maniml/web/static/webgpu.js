@@ -22,7 +22,7 @@ const ManimlWGPU = (() => {
     ["joint_type", 1, 1], ["flat_stroke", 1, 0],
     ["scale_stroke_with_zoom", 1, 1], ["glow_factor", 1, 0],
     ["num_textures", 1, 0], ["border_mode", 1, 0],
-    ["premultiplied_output", 1, 0], ["_pad1", 1, 0],
+    ["premultiplied_output", 1, 0], ["stroke_on_fill", 1, 0],
     ["clip_transform", 4, [1, 1, 0, 0]],
   ];
 

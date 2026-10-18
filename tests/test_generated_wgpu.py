@@ -652,6 +652,52 @@ class GeneratedWgpuCommands(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("MANIML_TEST_GPU") == "1", "real WebGPU check not requested")
 class GeneratedWgpuPixels(unittest.TestCase):
+    def test_filled_camera_facing_strokes_do_not_sink_into_their_fill(self):
+        from dataclasses import replace
+        from maniml.mobject.geometry import Square
+        from maniml.web.triangle_geometry import LyonFillTessellator
+        from maniml.web.triangle_scene import prepare_triangle_frame
+        from maniml.web.wgpu_renderer import WgpuRenderer
+        renderer, tessellator = WgpuRenderer(), LyonFillTessellator()
+        self.addCleanup(renderer.close)
+        for angle in (0, 35):
+            for patches in (False, True):
+                with self.subTest(angle=angle, patches=patches):
+                    squares = [Square(side_length=.4, stroke_width=6,
+                        stroke_color="#ff0000", fill_color="#0088ff", fill_opacity=1)
+                        .shift([x, y, 0]).apply_depth_test().set_flat_stroke(False)
+                        for x in (-5, 0, 5) for y in (-1, 0, 1)]
+                    scene = build_scene(*squares, resolution=(768, 432), samples=4)
+                    scene.camera.frame.reorient(0, angle, 0)
+                    def frame():
+                        return prepare_triangle_frame(scene, tessellator, fill_borders=True,
+                            gpu_borders=patches, patch_fills=patches, patch_rows=patches,
+                            coalesce=False)
+                    def render(value):
+                        return np.asarray(renderer.render(*parse_geometry_message(
+                            serialize_generated_frame(value, scene.camera.uniforms))))
+                    actual = frame()
+                    # Separate squares cannot occlude one another. Painter rendering
+                    # is an independent reference for their complete outlines.
+                    reference = replace(actual, draws=[replace(d,
+                        pipeline=d.pipeline.removesuffix("_depth"),
+                        uniforms=dict(d.uniforms, stroke_on_fill=0)) for d in actual.draws])
+                    np.testing.assert_array_equal(render(actual), render(reference))
+                    # The repair must not turn depth off: a foreground surface still
+                    # hides both fill and stroke, irrespective of submission order.
+                    cover = Square(side_length=14, fill_opacity=1, fill_color="#00ff00",
+                                   stroke_width=0).shift([0, 0, 1]).apply_depth_test()
+                    for objects in ([cover, *squares], [*squares, cover]):
+                        scene.mobjects[:] = objects
+                        scene.render_groups[0].set_submobjects(objects)
+                        pixels = render(frame())
+                        np.testing.assert_array_equal(pixels[216, 384], [0, 255, 0, 255])
+                        # Every formerly red stroke pixel is covered too.
+                        old = render(actual)
+                        red = (old[:, :, 0] > 200) & (old[:, :, 1] < 30)
+                        self.assertGreater(np.count_nonzero(red), 0)
+                        self.assertTrue(np.all(pixels[red, 1] == 255))
+
     def test_real_tex_101_glyph_fast_path_is_identical_to_stencil_at_both_zooms(self):
         from dataclasses import replace
         from maniml.web.triangle_geometry import LyonFillTessellator

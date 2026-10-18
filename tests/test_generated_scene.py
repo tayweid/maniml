@@ -55,6 +55,24 @@ class GeneratedSceneGeometry(unittest.TestCase):
                            fill_border_width=10, joint_type="auto")
         self.scene = build_scene(self.path)
 
+    def test_only_foreground_filled_depth_strokes_use_the_fill_plane(self):
+        for filled, depth, behind in ((True, True, False), (False, True, False),
+                                      (True, False, False), (True, True, True)):
+            with self.subTest(filled=filled, depth=depth, behind=behind):
+                path = Square(fill_opacity=float(filled), stroke_width=4,
+                              stroke_behind=behind).set_flat_stroke(False)
+                if depth:
+                    path.apply_depth_test()
+                frame = prepare_triangle_frame(build_scene(path), self.tessellator,
+                                               coalesce=False)
+                stroke = next(d for d in frame.draws if d.pipeline.startswith("stroke"))
+                self.assertEqual(bool(stroke.uniforms.get("stroke_on_fill", 0)),
+                                 filled and depth and not behind)
+                self.assertEqual(stroke.uniforms["flat_stroke"], 0)
+                for draw in frame.draws:
+                    if not draw.pipeline.startswith("stroke"):
+                        self.assertFalse(draw.uniforms.get("stroke_on_fill", 0))
+
     def prepare(self):
         return prepare_triangle_frame(self.scene, self.tessellator,
             mesh_cache=self.cache, fill_borders=True, coalesce=False)

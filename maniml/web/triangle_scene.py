@@ -1384,6 +1384,8 @@ def _program_draws(into, sm, pending, uniforms, depth_suffix, ctx):
                             patch_draw_count(layout, capacity), border_capacity=capacity,
                             fill_objects=recipe.fill_record, patch_layout=layout, program=program)
     if recipe.has_stroke:
+        if recipe.has_fill and sm.depth_test and not sm.stroke_behind:
+            uniforms = dict(uniforms, stroke_on_fill=1.0)
         stroke = TriangleDraw("stroke" + depth_suffix, np.zeros(0, dtype=dtype), uniforms,
                               count=recipe.stroke_vertices(frame_scale), instances=recipe.curves,
                               program=program)
@@ -1635,6 +1637,8 @@ def prepare_leaf(sm, uniforms, ctx, into=None):
                                                      if ctx.gpu_borders and coverage
                                                      else MAX_VERTICES_PER_CURVE))
     stroke = None
+    if has_stroke and has_fill and sm.depth_test and not sm.stroke_behind:
+        uniforms = dict(uniforms, stroke_on_fill=1.0)
     if has_stroke and rows is not None:
         # The rows read validated the frame scale (its reservation), so the
         # count follows from the largest curve alone.

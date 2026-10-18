@@ -57,7 +57,7 @@ UNIFORM_FIELDS = [
     ("joint_type", 1, 1.0), ("flat_stroke", 1, 0.0),
     ("scale_stroke_with_zoom", 1, 1.0), ("glow_factor", 1, 0.0),
     ("num_textures", 1, 0.0), ("border_mode", 1, 0.0),
-    ("premultiplied_output", 1, 0.0), ("_pad1", 1, 0.0),
+    ("premultiplied_output", 1, 0.0), ("stroke_on_fill", 1, 0.0),
     ("clip_transform", 4, (1.0, 1.0, 0.0, 0.0)),
 ]
 UNIFORM_BYTES = sum(n for _, n, _ in UNIFORM_FIELDS) * 4  # 192

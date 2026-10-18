@@ -182,10 +182,30 @@ fn vs_main(vin: StrokeIn, @builtin(vertex_index) vid: u32) -> StrokeOut {
 
     let dist_to_curve = corner_sign * 0.5 * (stroke_width + aaw);
     var offset_point = point + dist_to_curve * step_dir;
+    var depth_point = offset_point;
+    // A camera-facing ribbon can sink behind its own planar fill. Project
+    // its depth along each sightline onto the source plane. Keep the original
+    // ribbon for screen coverage; only depth belongs to the outlined surface.
+    if (u.stroke_on_fill != 0.0 && !draw_flat) {
+        let ray = offset_point - u.camera_position;
+        let denominator = dot(ray, vin.unit_normal1);
+        if (abs(denominator) > 1e-6 * length(ray)) {
+            let distance = dot(point - u.camera_position, vin.unit_normal1) / denominator;
+            if (distance > 0.0) {
+                depth_point = u.camera_position + distance * ray;
+            }
+        }
+    }
     // Small offset towards camera to prevent z-fighting with fill
     offset_point = offset_point + unit_normal * 0.0001;
     out.v_clip = compute_clip_distance(offset_point);
     out.position = emit_gl_position(offset_point);
+    if (u.stroke_on_fill != 0.0 && !draw_flat) {
+        let depth_clip = emit_gl_position(depth_point + unit_normal * 0.0001);
+        // Keep the ribbon's original W: changing it also changes perspective
+        // interpolation of the edge-distance/AA varyings at oblique angles.
+        out.position.z = (depth_clip.z / depth_clip.w) * out.position.w;
+    }
     out.half_width_to_aaw = 0.5 * stroke_width / aaw;
     out.dist_to_aaw = dist_to_curve / aaw;
     return out;
@@ -198,6 +218,8 @@ fn fs_main(vin: StrokeOut) -> @location(0) vec4f {
     // sdf for the region around the curve we wish to color
     let signed_dist = abs(vin.dist_to_aaw) - vin.half_width_to_aaw;
     frag.a = frag.a * smoothstep(0.5, -0.5, signed_dist);
+    // An invisible AA sample must not hide another part of the outline.
+    if (u.stroke_on_fill != 0.0 && frag.a == 0.0) { discard; }
     if (u.border_mode > 0.5) {
         frag.a = frag.a * 0.95;
         frag = vec4f(frag.rgb * frag.a, frag.a);

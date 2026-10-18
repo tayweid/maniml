@@ -21,7 +21,7 @@ struct Uniforms {
     num_textures: f32,
     border_mode: f32,
     premultiplied_output: f32,
-    _pad1: f32,
+    stroke_on_fill: f32,
     clip_transform: vec4f,
 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
