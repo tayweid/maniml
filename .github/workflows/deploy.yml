@@ -2,11 +2,11 @@ name: Deploy the site and the app
 
 # The hosted origin is a preview and the app's download, nothing more: it
 # shows what ManimLive is and how to install it, and it reaches no engine
-# (maniml/CLAUDE.md, "Delivery: one artifact, local only"; never publish
-# maniml/web/static here, which tests/check_site.py enforces). The
-# application is ManimLive.app, built here on a Mac from app/maniml.json
-# by the Claerbout shell (the `claerbout` package, pinned to a tag in
-# package.json) and published beside the site, without Electron's
+# (one artifact, local only; never publish maniml/web/static here, which
+# tests/check_site.py enforces). The application is ManimLive.app, built
+# here on a Mac from app/maniml.json by the Claerbout shell (the
+# `claerbout` package, pinned to a tag in package.json) and published
+# beside the site, without Electron's
 # framework: app/ManimLive-arm64.zip for the install line, which completes
 # it before moving it into place; app/ManimLive.app.zip for the page's
 # download, which completes itself on its first launch; and

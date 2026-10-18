@@ -3,7 +3,8 @@
 ManimLive is alpha software with a single maintainer, developed in the
 open. Issues and small fixes are welcome; large changes are worth an
 issue first, because the architecture is opinionated and in motion
-(`CLAUDE.md` explains it, and `TODO.md` says where it is going). Scene
+(`DECISIONS.md` records why it is the way it is, and `TODO.md` says where
+it is going). Scene
 files are trusted Python programs, but browser clients and requested
 filesystem paths are not; changes must preserve the boundaries
 documented in `SECURITY.md`.
@@ -18,8 +19,11 @@ uv sync --locked
 ```
 
 Install editable so the `maniml` command runs your working tree
-(`pip install -e . --no-deps`), and see the install trap in `CLAUDE.md`
-before debugging anything user-visible.
+(`pip install -e . --no-deps`). Before debugging anything user-visible,
+check that it still does: a `--force-reinstall` from git replaces the
+editable link with a copy. From outside the repository,
+`python -c "import maniml; print(maniml.__file__)"` must name this
+checkout.
 
 ## Tests
 

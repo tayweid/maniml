@@ -1,8 +1,8 @@
 # Documents
 
-The living records are at the repository root: `CLAUDE.md` (the
-architecture as it stands), `TODO.md` (the roadmap) and `DECISIONS.md` (what
-was decided, shipped or dropped, with reasoning). Everything here is a plan,
+The living records are at the repository root: `TODO.md` (the roadmap)
+and `DECISIONS.md` (what was decided, shipped or dropped, with
+reasoning). Everything here is a plan,
 a review record, a measurement record or a field report, and each one has a
 status. When a document is superseded it stays for its evidence; it is not a
 source of current numbers or current direction.
