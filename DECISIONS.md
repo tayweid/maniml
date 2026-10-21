@@ -5,6 +5,16 @@ deleted — with the reasoning, so none of it gets re-litigated by
 accident. The forward roadmap lives in `TODO.md`; the architecture as
 it stands lives in `CLAUDE.md`. Commit messages carry the finer grain.
 
+## Restart's ring is always drawn (2026-10-21)
+
+Taylor, for Knuth and ManimLive alike: "the refresh button should be
+larger and always shown around the green dot". The restart arrow no
+longer waits for the pointer: it is a 20 px ring round the 6 px dot in
+a 26 px button, the same glyph as Knuth's (a circle about the dot's
+centre, so the ring turns true while the restarted scene starts). The
+pointer brightens it; a scene that cannot restart dims it rather than
+hiding it. The dot stays in the ring while the scene restarts.
+
 ## The bar loses the arrows, the Restart tile and the scene's name (2026-10-17)
 
 Taylor: take the arrow buttons away "while still somehow suggesting to

@@ -720,10 +720,14 @@ class FrameTests(unittest.TestCase):
         self.assertIn(".doc-mark {\n  flex: none; align-self: center; width: 6px; height: 6px;", shell)
         viewer = (STATIC / "viewer.html").read_text()
         # The file's name is the scene picker, the scene's name gone from
-        # the pill; the mark after it is Restart's button, the dot turning
-        # into the restart arrow under the pointer (Taylor, 2026-10-17).
+        # the pill; the mark after it is Restart's button, the restart
+        # arrow a ring drawn round the dot all the time (Taylor,
+        # 2026-10-17, and 2026-10-21 for the ring), Knuth's glyph.
         self.assertIn('<button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene" disabled><span id="file-name">scene.py</span></button>', viewer)
         self.assertIn('<button id="restart-scene" class="doc-dot" type="button" aria-label="Restart the scene from the beginning" aria-busy="false" title="Connecting" disabled><span id="connection-pod" class="doc-mark"></span>', viewer)
+        self.assertIn('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6.6v5.4h-5.4"/><path d="M18.55 16.59A8 8 0 1 1 19.25 8.62L20 12"/></svg></button>', viewer)
+        dot = viewer[viewer.index("  .doc-dot svg {"):viewer.index("  .doc-dot:disabled")]
+        self.assertNotIn("opacity", dot)
         self.assertIn('<span id="conn" class="sr-only" role="status" aria-live="polite">Connecting</span>', viewer)
         self.assertIn('document.getElementById("restart-scene").disabled = !capabilities.has("restart");', viewer)
         self.assertNotIn('document.getElementById("scene-name").textContent', viewer)

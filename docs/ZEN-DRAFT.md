@@ -55,8 +55,9 @@ which centres theirs over the rail ManimLive does not have):
   2026-10-17 (`#scene-name`, a button round the name: its menu
   `#scene-menu` drops under the pill, and the scene shown is its title;
   the scene's own name left the pill), then the engine's mark, which is
-  Restart (`#restart-scene`, a 20 px button round the 6 px dot that turns
-  into the restart arrow under the pointer; disabled, only the dot,
+  Restart (`#restart-scene`, a 26 px button round the 6 px dot; since
+  2026-10-21 the restart arrow is a 20 px ring drawn round the dot all
+  the time, Knuth's glyph, brightening under the pointer and dimmed
   where the scene cannot restart), then the folder
   (`#doc-folder`): the scene file's folder by its own name only, as
   Knuth's (since 2026-10-17; the whole path, home as `~`, in its title),

@@ -305,27 +305,25 @@
   #scene-name:disabled { cursor: default; background: transparent; }
   /* Restart is the engine's mark (Taylor, 2026-10-17: "integrate it with
      the green dot"): the dot is a button, its 6 px the mark as before, and
-     under the pointer it gives way to the restart arrow in the dot's
-     colour. A scene that cannot restart keeps the plain dot. The arrow
-     turns while the restarted scene starts. */
+     the restart arrow is a ring drawn round it all the time (Taylor,
+     2026-10-21: "larger and always shown around the green dot", as
+     Knuth's is — the same glyph, RESTART_RING in knuth/src/main.ts, a
+     circle about the dot's centre). The pointer brightens the ring; a
+     scene that cannot restart dims it. The ring turns while the
+     restarted scene starts. */
   .doc-dot {
     position: relative; flex: none; align-self: center; display: grid; place-items: center;
-    width: 20px; height: 20px; margin: 0 1px; padding: 0; border: 0; border-radius: 50%;
-    background: transparent; color: rgba(240, 238, 233, 0.8); cursor: pointer;
-    transition: background 140ms ease;
+    width: 26px; height: 26px; margin: 0; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: rgba(240, 238, 233, 0.5); cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
   }
   .doc-dot .doc-mark { margin: 0; }
   .doc-dot svg {
-    position: absolute; width: 14px; height: 14px; fill: none; stroke: currentColor;
-    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
-    transition: opacity 140ms ease;
+    position: absolute; inset: 0; margin: auto; width: 20px; height: 20px; fill: none;
+    stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
   }
-  .doc-dot:enabled:hover, .doc-dot:enabled:focus-visible { background: rgba(255,255,255,.08); }
-  .doc-dot:enabled:hover .doc-mark, .doc-dot:enabled:focus-visible .doc-mark,
-  .doc-dot.working .doc-mark { opacity: 0; }
-  .doc-dot:enabled:hover svg, .doc-dot:enabled:focus-visible svg,
-  .doc-dot.working svg { opacity: 1; }
-  .doc-dot:disabled { cursor: default; }
+  .doc-dot:enabled:hover, .doc-dot:enabled:focus-visible { color: #fff; background: rgba(255,255,255,.08); }
+  .doc-dot:disabled { cursor: default; color: rgba(240, 238, 233, 0.22); }
   #scene-menu { left: -1px; }
   .scene-option[aria-current="true"]::after { content: "\2713"; color: var(--frame-ink-soft); }
 
@@ -635,7 +633,7 @@
 
   <div id="doc-pod" class="doc-pod">
     <div class="document-slug" title="Current scene file">
-      <span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene" disabled><span id="file-name">scene.py</span></button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span><button id="restart-scene" class="doc-dot" type="button" aria-label="Restart the scene from the beginning" aria-busy="false" title="Connecting" disabled><span id="connection-pod" class="doc-mark"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12"/></svg></button><span id="conn" class="sr-only" role="status" aria-live="polite">Connecting</span>
+      <span class="scene-picker"><button id="scene-name" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch scene" disabled><span id="file-name">scene.py</span></button><span id="scene-menu" class="bar-menu" role="menu" aria-label="Scenes in this file" hidden></span></span><button id="restart-scene" class="doc-dot" type="button" aria-label="Restart the scene from the beginning" aria-busy="false" title="Connecting" disabled><span id="connection-pod" class="doc-mark"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6.6v5.4h-5.4"/><path d="M18.55 16.59A8 8 0 1 1 19.25 8.62L20 12"/></svg></button><span id="conn" class="sr-only" role="status" aria-live="polite">Connecting</span>
     </div>
     <span id="doc-folder" class="doc-folder" hidden><span dir="ltr"></span></span>
   </div>
