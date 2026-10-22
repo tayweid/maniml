@@ -30,7 +30,7 @@ numpy==2.5.2 ; python_full_version >= '3.12'
     #   maniml
     #   mapbox-earcut
     #   rendercanvas
-pillow==12.3.0
+pillow==13.0.0
     # via maniml
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
