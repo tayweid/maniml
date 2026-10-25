@@ -1876,48 +1876,56 @@ if (document.fullscreenEnabled) {
 
 // -- Keyboard --
 const FORWARDED = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", " "]);
+// A presentation clicker's two buttons send Page Down and Page Up. Both
+// handlers read them as the arrows before anything else looks at the key, so
+// the live engine and recorded playback step alike (as the student bundle's
+// page does) and each release matches the press the engine or a claim saw.
+const CLICKER_KEYS = new Map([["PageDown", "ArrowRight"], ["PageUp", "ArrowLeft"]]);
+function keyOf(e) { return CLICKER_KEYS.get(e.key) || e.key; }
 // Keys handled here rather than by the scene. Tracked so the keyup below does
 // not hand the engine a release for a press it never saw.
 const claimed = new Set();
 function mods(e) { return { shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey }; }
 document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
+  const key = keyOf(e);
   // Claim it here, in the one place keys reach the engine, so nothing leaks.
-  if ((e.key === "f" || e.key === "F")
+  if ((key === "f" || key === "F")
       && !e.metaKey && !e.ctrlKey && !e.altKey && document.fullscreenEnabled) {
     e.preventDefault();
-    claimed.add(e.key);
+    claimed.add(key);
     toggleFullscreen();
     return;
   }
-  if ((e.key === "c" || e.key === "C") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+  if ((key === "c" || key === "C") && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
-    claimed.add(e.key);
+    claimed.add(key);
     setConsole(!document.body.classList.contains("console"));
     return;
   }
-  if (stageSource === "playback" && (FORWARDED.has(e.key) || e.key === "Escape")) {
+  if (stageSource === "playback" && (FORWARDED.has(key) || key === "Escape")) {
     // Playback owns navigation: the recording is stepped locally and the
     // engine hears nothing (claimed, so no stray keyup reaches it either).
     e.preventDefault();
-    claimed.add(e.key);
-    if (e.key === "ArrowRight") ManimlPresentation.playToNextStop();
-    else if (e.key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
-    else if (e.key === "ArrowUp") ManimlPresentation.stepCheckpoint(1);
-    else if (e.key === "ArrowDown") ManimlPresentation.stepCheckpoint(-1);
-    else if (e.key === "Home") ManimlPresentation.seekCheckpoint(0);
-    else if (e.key === " ") ManimlPresentation.togglePause();
-    else if (e.key === "Escape") exitPlayback({ endPresentation: true });
+    claimed.add(key);
+    if (key === "ArrowRight") ManimlPresentation.playToNextStop();
+    else if (key === "ArrowLeft") ManimlPresentation.playToPreviousStop();
+    else if (key === "ArrowUp") ManimlPresentation.stepCheckpoint(1);
+    else if (key === "ArrowDown") ManimlPresentation.stepCheckpoint(-1);
+    else if (key === "Home") ManimlPresentation.seekCheckpoint(0);
+    else if (key === " ") ManimlPresentation.togglePause();
+    else if (key === "Escape") exitPlayback({ endPresentation: true });
     return;
   }
-  if (FORWARDED.has(e.key)) e.preventDefault();
-  if (e.key.length === 1 || FORWARDED.has(e.key) || e.key === "Escape") {
-    send({ type: "key", action: "down", key: e.key, ...mods(e) });
+  if (FORWARDED.has(key)) e.preventDefault();
+  if (key.length === 1 || FORWARDED.has(key) || key === "Escape") {
+    send({ type: "key", action: "down", key, ...mods(e) });
   }
 });
 document.addEventListener("keyup", (e) => {
-  if (claimed.delete(e.key)) return;
-  send({ type: "key", action: "up", key: e.key, ...mods(e) });
+  const key = keyOf(e);
+  if (claimed.delete(key)) return;
+  send({ type: "key", action: "up", key, ...mods(e) });
 });
 
 // -- Handles: the engine names the draggable mobject under the pointer

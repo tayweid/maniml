@@ -200,7 +200,7 @@ class ViewerTests(unittest.TestCase):
             handler.index('send({ type: "key"'),
             "the key is forwarded before it is claimed")
         # A claimed keydown must not leave a dangling keyup for the engine.
-        self.assertIn("claimed.delete(e.key)", viewer)
+        self.assertIn("claimed.delete(key)", viewer)
 
     def test_full_screen_shows_the_rail_and_the_toggle_and_never_the_bar(self):
         """In full screen only the rail (across the display's foot over the
@@ -280,12 +280,34 @@ class ViewerTests(unittest.TestCase):
                       "Home is not a forwarded key")
         playback = keyboard[keyboard.index('stageSource === "playback"'):
                             keyboard.index('send({ type: "key"')]
-        self.assertIn('e.key === "Home") ManimlPresentation.seekCheckpoint(0)', playback)
+        self.assertIn('key === "Home") ManimlPresentation.seekCheckpoint(0)', playback)
         rail = (STATIC / "rail.js").read_text()
         self.assertIn('get("start").disabled = current <= 0;', rail)
         present = (STATIC / "present.html").read_text()
         self.assertIn('id="start"', present)
         self.assertIn('document.getElementById("start").onclick', present)
+
+    def test_a_clicker_steps_the_viewer_like_the_arrows(self):
+        """A presentation clicker's buttons send Page Down and Page Up. Both
+        key handlers read them as Right and Left before anything else looks
+        at the key, so the live engine and recorded playback step alike, and
+        a release matches the press the engine or a claim saw. The student
+        bundle's page takes the same keys."""
+        viewer = (STATIC / "viewer.html").read_text()
+        keyboard = viewer[viewer.index("// -- Keyboard --"):]
+        keyboard = keyboard[:keyboard.index("// -- Handles")]
+        self.assertIn('["PageDown", "ArrowRight"]', keyboard)
+        self.assertIn('["PageUp", "ArrowLeft"]', keyboard)
+        down = keyboard.index('document.addEventListener("keydown"')
+        up = keyboard.index('document.addEventListener("keyup"')
+        for handler in (keyboard[down:up], keyboard[up:]):
+            mapped = "const key = keyOf(e);"
+            self.assertIn(mapped, handler)
+            self.assertNotIn("e.key", handler[handler.index(mapped):],
+                             "the handler reads the raw key after the clicker's mapping")
+        present = (STATIC / "present.html").read_text()
+        self.assertIn('"PageDown"', present)
+        self.assertIn('"PageUp"', present)
 
     def test_the_presenters_bar_is_a_run_of_pods(self):
         """The seams and stadium ends come from shell.css, where the student

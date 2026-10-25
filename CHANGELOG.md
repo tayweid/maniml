@@ -305,6 +305,11 @@ interfaces may still change before the first public release.
 
 ### The viewer
 
+- **A presentation clicker steps the viewer.** A clicker's two buttons
+  send Page Down and Page Up, which the viewer ignored: it listened for
+  the arrows alone, so only a clicker switched to send arrows worked. Page
+  Down and Page Up are now Right and Left, live and in recorded playback,
+  as the student bundle's page already read them.
 - **Restart restarts.** The toolbar's Restart button used to re-exec the
   scene file inside the running process and fast-forward back to where
   you were, keeping the old Scene class, the imported modules, the camera,
