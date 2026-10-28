@@ -597,16 +597,35 @@ class AppServer:
         remember_recent(path)
         return path
 
-    def choose_payload(self) -> dict:
+    def dialog_start(self, near=None) -> str:
+        """Where the Open dialog starts: the folder of the file the asking
+        window holds (`near`, the viewer's state path), as the shell's own
+        File → Open starts (claerbout's `open`); the root where the window
+        holds none (the landing page) or the path is gone. Only the dialog's
+        starting folder: what is granted is the file the user then picks.
+        """
+        if isinstance(near, str) and near:
+            try:
+                candidate = Path(near).expanduser().resolve()
+            except (OSError, RuntimeError, ValueError):
+                return self.root
+            folder = candidate if candidate.is_dir() else candidate.parent
+            if folder.is_dir():
+                return str(folder)
+        return self.root
+
+    def choose_payload(self, request: dict | None = None) -> dict:
         """Choose one file through an OS dialog and grant only that file.
 
         The dialog is initiated by an authenticated app request.  Selecting a
         file is an explicit native user action, so it can safely grant that
         canonical file without weakening the configured-root boundary for any
-        other path.
+        other path. `near` names the file the asking window holds, so the
+        dialog opens in its folder (Taylor, 2026-10-28).
         """
+        near = request.get("near") if isinstance(request, dict) else None
         try:
-            selected = choose_python_file(self.root)
+            selected = choose_python_file(self.dialog_start(near))
         except RuntimeError as exc:
             return {"error": str(exc)}
         if selected is None:
@@ -776,7 +795,7 @@ class AppServer:
                 if op == "recents":
                     response = self.recents_payload()
                 elif op == "choose":
-                    response = await asyncio.to_thread(self.choose_payload)
+                    response = await asyncio.to_thread(self.choose_payload, request)
                 elif op == "open":
                     response = await asyncio.to_thread(self.open_payload, request, progress)
                 elif op == "install":

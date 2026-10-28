@@ -743,6 +743,42 @@ class NativeDialogGrantTests(unittest.TestCase):
         self.assertIsNone(self.server.grant_file(
             os.path.join(self.tmpdir.name, "missing.py")))
 
+    def test_the_dialog_starts_in_the_folder_of_the_file_the_window_holds(self):
+        """Open from a viewer starts the dialog beside the scene it shows
+        (Taylor, 2026-10-28), wherever that is; the landing page, holding
+        no file, and a path that is gone start at the root as before."""
+        outside = Path(self.outside.name, "lecture", "episode.py").resolve()
+        outside.parent.mkdir()
+        outside.write_text("from manim import *\nclass Ep(Scene): pass\n")
+        root = str(Path(self.tmpdir.name).resolve())
+        self.assertEqual(self.server.dialog_start(self.multi), root)
+        self.assertEqual(self.server.dialog_start(str(outside)), str(outside.parent))
+        self.assertEqual(self.server.dialog_start(str(outside.parent)), str(outside.parent))
+        for none in (None, "", 7, str(Path(self.outside.name, "gone", "x.py"))):
+            self.assertEqual(self.server.dialog_start(none), root, none)
+
+    def test_choose_shows_the_dialog_where_the_request_says(self):
+        """The `choose` op carries `near`, the viewer's state path; what is
+        granted is still only the file picked in the dialog."""
+        import maniml.web.app as app_module
+
+        outside = Path(self.outside.name, "episode.py").resolve()
+        outside.write_text("from manim import *\nclass Ep(Scene): pass\n")
+        starts = []
+
+        def fake_dialog(initial_directory):
+            starts.append(str(initial_directory))
+            return self.multi
+
+        original = app_module.choose_python_file
+        app_module.choose_python_file = fake_dialog
+        self.addCleanup(setattr, app_module, "choose_python_file", original)
+        payload = self.server.choose_payload({"op": "choose", "near": str(outside)})
+        self.assertEqual(payload["file"]["path"], self.multi)
+        self.assertEqual(starts, [str(outside.parent)])
+        self.server.choose_payload()
+        self.assertEqual(starts[-1], str(Path(self.tmpdir.name).resolve()))
+
 
 if __name__ == "__main__":
     unittest.main()

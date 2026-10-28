@@ -762,11 +762,13 @@ const appUrl = new URLSearchParams(location.search).get("app") || "/";
 // app over its control socket — the landing page's, opened for the one
 // request and closed with its answer, so nothing is held open while a
 // scene plays — and a scene they pick opens in this window by way of the
-// landing page's ?open=, the road a Finder double-click takes. A bare
-// scene process has no app: Open goes to the page's root as it always
-// has, and the chevron and New window stay hidden.
+// landing page's ?open=, the road a Finder double-click takes. Open's
+// dialog starts in the folder of the file this window holds (`near`),
+// as the shell's own File → Open does. A bare scene process has no app:
+// Open goes to the page's root as it always has, and the chevron and
+// New window stay hidden.
 let scenePath = null;            // the file this window holds (the state's)
-function askApp(op) {
+function askApp(op, extra) {
   return new Promise((resolve, reject) => {
     let socket;
     try { socket = new WebSocket("ws://" + location.host + "/"); }
@@ -775,7 +777,7 @@ function askApp(op) {
     socket.onmessage = (event) => {
       let data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
-      if (data.type === "ready") socket.send(JSON.stringify({ op, id: 1 }));
+      if (data.type === "ready") socket.send(JSON.stringify({ op, id: 1, ...(extra || {}) }));
       else if (data.id === 1) { settled = true; resolve(data); socket.close(); }
     };
     socket.onclose = () => { if (!settled) reject(new Error("the app did not answer")); };
@@ -792,7 +794,7 @@ document.getElementById("open-file").onclick = async () => {
   if (choosing) return;
   choosing = true;
   try {
-    const data = await askApp("choose");
+    const data = await askApp("choose", { near: scenePath });
     if (data.cancelled) return;
     if (data.error || !data.file) throw new Error(data.error || "no file chosen");
     openInThisWindow(data.file.path);

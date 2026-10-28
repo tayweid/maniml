@@ -7,6 +7,10 @@ interfaces may still change before the first public release.
 
 ### The app
 
+- **Open starts beside the scene.** The viewer's Open dialog opens in the
+  folder of the file the window holds, as the shell's own File → Open
+  does, instead of the engine's root; the landing page, holding no file,
+  still starts at the root.
 - **ManimLive has Knuth's and Plass's bar** (docs/ZEN-DRAFT.md): the
   window's title bar is the page's, 44 px, with the traffic lights in it,
   File's menu and the scene file's name, its scene and its folder beside

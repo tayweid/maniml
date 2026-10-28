@@ -457,7 +457,7 @@ class ViewerTests(unittest.TestCase):
         # and opens what is picked in this window through the landing
         # page's ?open=; a bare scene process, with no app, hides both.
         for line in ('socket = new WebSocket("ws://" + location.host + "/");',
-                     'askApp("choose")', 'askApp("recents")',
+                     'askApp("choose", { near: scenePath })', 'askApp("recents")',
                      'landing.searchParams.set("open", path);',
                      'document.getElementById("recent-menu").hidden = !sceneParam;',
                      'document.getElementById("new-window").hidden = !sceneParam;'):
