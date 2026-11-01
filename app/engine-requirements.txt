@@ -46,7 +46,7 @@ rubicon-objc==0.5.6 ; sys_platform == 'darwin'
     # via wgpu
 svgelements==1.9.6
     # via maniml
-validators==0.35.0
+validators==0.36.0
     # via maniml
 websockets==17.0.1
     # via maniml
