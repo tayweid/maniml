@@ -14,7 +14,7 @@ fonttools==4.63.0
     # via maniml
 isosurfaces==0.1.2
     # via maniml
-manimpango==0.6.1
+manimpango==0.7.1
     # via maniml
 mapbox-earcut==2.0.0
     # via maniml
