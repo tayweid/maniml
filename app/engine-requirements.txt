@@ -16,7 +16,7 @@ isosurfaces==0.1.2
     # via maniml
 manimpango==0.6.1
     # via maniml
-mapbox-earcut==2.0.0
+mapbox-earcut==2.1.0
     # via maniml
 numpy==2.4.6 ; python_full_version < '3.12'
     # via
