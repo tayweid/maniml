@@ -36,7 +36,7 @@ pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pydub==0.25.1
     # via maniml
-pygments==2.20.0
+pygments==2.21.0
     # via maniml
 pyyaml==6.0.3
     # via maniml
