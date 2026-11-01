@@ -10,7 +10,7 @@ cffi==2.1.1
     # via wgpu
 colour==0.1.5
     # via maniml
-fonttools==4.63.0
+fonttools==4.68.0
     # via maniml
 isosurfaces==0.1.2
     # via maniml
