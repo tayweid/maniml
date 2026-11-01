@@ -84,7 +84,7 @@ jobs:
         run: |
           CLAERBOUT_BUILD=next node node_modules/claerbout/package.mjs --config app/maniml.json --arch arm64 --zip "$RUNNER_TEMP/next/app"
           node node_modules/claerbout/smoke.mjs --config app/maniml.json update "$RUNNER_TEMP/ManimLive.app" "$RUNNER_TEMP/next"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app
           path: published/app
