@@ -2229,3 +2229,29 @@ metric; Phase B's B1 measures it again because patch edges are new
 geometry. Large non-affine paint stays open, unscheduled, and is not a
 Phase B prerequisite: it is a paint-semantics question that no course scene
 has raised.
+
+## The presenter plays forward, scrubs backward (2026-11-06)
+
+The student bundle's player (`presentation.js`, shared by the viewer's
+recorded playback) stepped the video in both directions by setting
+`currentTime` thirty times a second — one file, no reversed encode, and on a
+desktop with the file buffered it looked like playback. On a phone it did
+not work at all: Taylor's course pages' animations were blank on mobile.
+Mobile WebKit fetches no media for a video no gesture has played (`preload`
+is ignored), so the seeks drew nothing, and once a video is playing a seek
+costs it on the order of 100 ms, so thirty a second froze the picture.
+
+Decided: a forward move calls `play()` from the tap or key that asked for it
+(the gesture WebKit wants; the element is `muted`, there being no audio, so
+nothing can refuse it) and pauses on the target frame; a reverse move still
+scrubs, since nothing plays a file backward, but by the wall clock and only
+once the previous seek has landed (`seeking`), so a slow device drops frames
+instead of piling seeks. A loop pausepoint laps by playing. The simulation's
+fake video has no `play()` and is scrubbed both ways, so `tests/rail_sim.cjs`
+and `tests/presentation_seek.cjs` drive the same code they did. The render
+also writes the mp4 with `-movflags +faststart`, the index at the front, so a
+phone shows the first frame as the file streams instead of fetching its tail
+first. The posted econ-0100 bundles were updated in place (the new
+`presentation.js`, `muted`, the mp4 remuxed with a stream copy), not
+re-rendered. Verified in the desktop app's browser at phone size over a
+range-capable server; not run on an iPhone (no Xcode on this Mac).

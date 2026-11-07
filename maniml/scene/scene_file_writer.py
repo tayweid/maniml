@@ -276,6 +276,10 @@ class SceneFileWriter(object):
             # by seeking, and seeks land on keyframes. Costs a few percent
             # of size, makes every seek land instantly.
             command += ['-g', str(fps)]
+        # The index (moov) at the front of the file: a browser can show the
+        # first frame as the file streams in, instead of fetching the tail
+        # first — a phone on cellular opens the course page's scene at once.
+        command += ['-movflags', '+faststart']
         if self.pixel_format:
             command += ['-pix_fmt', self.pixel_format]
         command += color_tags
@@ -476,6 +480,7 @@ class SceneFileWriter(object):
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-b:a", "320k",
+                "-movflags", "+faststart",
                 # select video stream from first file
                 "-map", "0:v:0",
                 # select audio stream from second file
