@@ -35,7 +35,7 @@ python -m unittest discover -s tests -t .
 
 CI's job definitions in `.github/workflows/ci.yml` are the canonical
 list of what runs where — when adding a test module, add it there. The
-current developer preview targets macOS; CI runs on macOS 14, and the
+current developer preview targets macOS; CI runs on macOS 15, and the
 windowed interactive suite (`MANIML_WINDOW_TESTS=1`) is run manually
 before a release. Windows and Linux testing returns after the WebGPU
 renderer transition and cross-platform packaging work.

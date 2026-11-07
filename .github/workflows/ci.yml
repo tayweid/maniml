@@ -15,8 +15,8 @@ concurrency:
 
 jobs:
   syntax-build:
-    name: Syntax and package (macOS 14, Python ${{ matrix.python }})
-    runs-on: macos-14
+    name: Syntax and package (macOS 15, Python ${{ matrix.python }})
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
@@ -154,8 +154,8 @@ jobs:
           if-no-files-found: error
 
   integration:
-    name: Integration (macOS 14, Python ${{ matrix.python }})
-    runs-on: macos-14
+    name: Integration (macOS 15, Python ${{ matrix.python }})
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
